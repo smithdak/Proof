@@ -6,6 +6,15 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Added the initial Rust 2024 workspace with enforced domain, application, and CLI dependency boundaries.
+- Added UUIDv7 operation identifiers, shared result and Problem contracts, and the first `proof status` command.
+- Added strict RFC 8785 canonical JSON and artifact-specific BLAKE3-256 content digests.
+- Added crash-clean local Workspace initialization with committed TOML configuration and private SQLite state.
+- Added verified local Workspace status with migration checks and a reproducible initial Known State digest.
+- Added a Human bootstrap Principal bound to the authenticated Unix user for local Workspace operations.
+- Added idempotent local ChangeSet draft creation bound to declared intent, Principal, and exact Known State.
+- Added atomic ordered Schema-create Edit batches with strict NDJSON input and canonical document digests.
+- Added authenticated `changeset get` and deterministic `changeset diff` projections with full persisted-evidence verification.
 - Ratified the **Proof** product name and tagline, “Every release carries its proof.”
 - Defined the product vision, scope, roadmap, and complete local MVP loop.
 - Defined constitutional invariants for mutation, authority, validation, publication, state, interfaces, and security.

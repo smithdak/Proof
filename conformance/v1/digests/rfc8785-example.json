@@ -1,0 +1,25 @@
+{
+  "input": "../canonical-json/rfc8785-example.input.json",
+  "vectors": [
+    {
+      "artifact": "edition-v1",
+      "context": "proof:edition:v1",
+      "digest": "blake3:4bc6585d4a50f7116515473fe83a3b1942201fc21b473cfb10c63e8c74eba8d1"
+    },
+    {
+      "artifact": "changeset-v1",
+      "context": "proof:changeset:v1",
+      "digest": "blake3:1e9dce56354f9875727a639700185715482eed206f15210bbbe5ca510e69ddf4"
+    },
+    {
+      "artifact": "context-pack-v1",
+      "context": "proof:context-pack:v1",
+      "digest": "blake3:f9e4fd4bddc4d600c5efa947b5d427db3265ee4642af87e3a997c462987d6653"
+    },
+    {
+      "artifact": "validation-results-v1",
+      "context": "proof:validation-results:v1",
+      "digest": "blake3:9fff59c9b35964e96995ca0e38819758bf131d38205d313705f6da5354f37656"
+    }
+  ]
+}

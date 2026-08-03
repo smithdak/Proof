@@ -1,0 +1,20 @@
+[package]
+name = "proof-local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+jsonschema.workspace = true
+proof-application = { path = "../proof-application" }
+proof-canonical = { path = "../proof-canonical" }
+rusqlite.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

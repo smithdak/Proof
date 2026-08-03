@@ -79,6 +79,63 @@ proof changeset approve <changeset-id> --approval editorial
 proof changeset commit <changeset-id> --idempotency-key <uuid>
 ```
 
+The implemented local `changeset create` operation trims and bounds the
+declared intent, authenticates the Workspace bootstrap Principal, and binds the
+draft to the current verified Known State when `--base-state` is omitted. It
+returns a generated UUIDv7 idempotency key unless the caller supplies one.
+Retrying the same normalized input with that key returns the original draft;
+reusing it with different input fails explicitly.
+
+The implemented `changeset add` operation accepts strict NDJSON records. The
+first typed Edit contract creates an immutable Schema version:
+
+```json
+{"api_version":"proof.dev/edit/v1","kind":"schema.create","schema_id":"article","schema_version":1,"document":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}}
+```
+
+Schema identifiers begin with a lowercase ASCII letter and contain at most 128
+bytes using lowercase letters, digits, `.`, `_`, or `-`. A batch contains 1 to
+100 records and is bounded to 1 MiB. Proof rejects duplicate JSON properties,
+unsupported fields, ambiguous numbers, invalid dialect declarations, duplicate
+Schema-version targets, and partial batches. Documents are stored as RFC 8785
+canonical JSON with a domain-separated digest. Supplying the same idempotency
+key and normalized ordered batch returns the original Edit identities.
+
+`changeset get` reconstructs the complete authenticated draft and its Edits in
+persisted ordinal order. `changeset diff` projects those same verified records
+as proposed effects: a Schema-create Edit has a `null` before-state and an after
+state containing the parsed document, canonical JSON, and document digest.
+Both operations are read-only and fail integrity verification if identity,
+schema migration records, ordinals, canonical bytes, dialect, or digests do not
+agree. Human diff output is deterministic for the same persisted ChangeSet.
+
+`changeset validate` reconstructs that same verified proposal, computes a
+domain-separated digest over its manifest and ordered Edits, and validates each
+Schema document against the bundled Draft 2020-12 metaschema. Validation
+results are canonicalized, digested, and persisted against the exact ChangeSet
+digest, base-state digest, validation profile, and pinned validator identity.
+An empty ChangeSet or invalid Schema returns `proof.validation.failed` with
+deterministically ordered findings and exit code 3 and seals the proposal as
+`rejected`. Successful validation seals the exact proposal as `ready`, so no
+further Edits can invalidate its evidence. Revalidating the sealed proposal
+reproduces the same ChangeSet and validation-results digests.
+
+`changeset submit` accepts only a `ready` proposal with canonical valid evidence
+matching its exact ChangeSet digest, base state, validation profile, and pinned
+validator. It atomically records the submitted digest, validation-results
+digest, Principal, and timestamp while transitioning the proposal to
+`submitted`. Retrying returns the original submission record. A draft or
+rejected proposal fails without creating a partial submission.
+
+`changeset approve --approval <name>` records one explicit local approval for
+the exact submitted ChangeSet and validation-results digests. Approval names
+use a bounded lowercase machine identifier profile. The authenticated Human
+Principal, name, and canonical approval time are persisted atomically with the
+transition to `approved`; an identical retry returns the original record, while
+a different approval name conflicts. The initial local policy permits the
+bootstrap Human Principal to approve their submitted proposal; stronger
+separation-of-duties profiles remain an explicit policy extension.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules
