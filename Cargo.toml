@@ -1,0 +1,30 @@
+[workspace]
+members = [
+    "crates/proof-application",
+    "crates/proof-canonical",
+    "crates/proof-cli",
+    "crates/proof-domain",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[workspace.dependencies]
+blake3 = "1.8.5"
+clap = { version = "4.6.5", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_json_canonicalizer = "0.3.2"
+thiserror = "2.0.19"
+uuid = { version = "1.24.0", features = ["serde", "v7"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"

@@ -1,0 +1,346 @@
+#![forbid(unsafe_code)]
+
+//! Transport-independent application contracts for Proof.
+
+pub use proof_domain::{CorrelationId, IdentifierError, OperationId};
+use serde::Serialize;
+
+/// The stable API version for non-streaming command results.
+pub const RESULT_API_VERSION: &str = "proof.dev/result/v1";
+
+/// A successful non-streaming application result.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ResultEnvelope<T> {
+    /// The version of this envelope shape.
+    pub api_version: &'static str,
+    /// The stable operation name.
+    pub operation: String,
+    /// The identity of this execution.
+    pub operation_id: String,
+    /// The identity of the surrounding workflow.
+    pub correlation_id: String,
+    /// Always true for a successful result envelope.
+    pub ok: bool,
+    /// Operation-specific structured data.
+    pub data: T,
+    /// Non-blocking structured warnings.
+    pub warnings: Vec<Warning>,
+    /// Non-authoritative execution metadata.
+    pub meta: ResultMeta,
+}
+
+impl<T> ResultEnvelope<T> {
+    /// Builds a successful application result.
+    #[must_use]
+    pub fn success(
+        operation: impl Into<String>,
+        operation_id: OperationId,
+        correlation_id: CorrelationId,
+        data: T,
+    ) -> Self {
+        Self {
+            api_version: RESULT_API_VERSION,
+            operation: operation.into(),
+            operation_id: operation_id.to_string(),
+            correlation_id: correlation_id.to_string(),
+            ok: true,
+            data,
+            warnings: Vec::new(),
+            meta: ResultMeta::current(),
+        }
+    }
+}
+
+/// A non-blocking warning returned with a successful operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Warning {
+    /// Stable machine-readable warning code.
+    pub code: String,
+    /// Human-readable warning text.
+    pub message: String,
+}
+
+/// Non-authoritative metadata accompanying a command result.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ResultMeta {
+    /// Version of the Proof executable and application contracts.
+    pub proof_version: &'static str,
+    /// Selected Workspace identity, when one has been resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    /// Operating Principal identity, when one has been resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal_id: Option<String>,
+}
+
+impl ResultMeta {
+    /// Returns metadata for this build before a Workspace or Principal exists.
+    #[must_use]
+    pub const fn current() -> Self {
+        Self {
+            proof_version: env!("CARGO_PKG_VERSION"),
+            workspace_id: None,
+            principal_id: None,
+        }
+    }
+}
+
+/// A transport-independent expected failure.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Problem {
+    /// Documentation identifier for this problem type.
+    #[serde(rename = "type")]
+    pub problem_type: String,
+    /// Stable human summary.
+    pub title: String,
+    /// Optional HTTP status for HTTP projections.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    /// Caller-safe detail about this occurrence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Stable machine-readable error code.
+    pub code: String,
+    /// Stable operation name.
+    pub operation: String,
+    /// Identity of this execution.
+    pub operation_id: String,
+    /// Identity of the surrounding workflow.
+    pub correlation_id: String,
+    /// Whether unchanged input may succeed when retried.
+    pub retryable: bool,
+    /// Structured validation or policy findings.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<Finding>,
+}
+
+impl Problem {
+    /// Builds a caller-safe problem without transport-specific status.
+    #[must_use]
+    pub fn new(
+        problem_type: impl Into<String>,
+        title: impl Into<String>,
+        code: impl Into<String>,
+        operation: impl Into<String>,
+        operation_id: OperationId,
+        correlation_id: CorrelationId,
+    ) -> Self {
+        Self {
+            problem_type: problem_type.into(),
+            title: title.into(),
+            status: None,
+            detail: None,
+            code: code.into(),
+            operation: operation.into(),
+            operation_id: operation_id.to_string(),
+            correlation_id: correlation_id.to_string(),
+            retryable: false,
+            findings: Vec::new(),
+        }
+    }
+
+    /// Maps the precise problem code to its broad CLI exit category.
+    #[must_use]
+    pub fn exit_code(&self) -> ExitCode {
+        ExitCode::for_problem_code(&self.code)
+    }
+}
+
+/// A structured validation or policy finding.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Finding {
+    /// Stable machine-readable finding code.
+    pub code: String,
+    /// Finding severity.
+    pub severity: Severity,
+    /// JSON Pointer or domain path locating the finding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<String>,
+    /// Validator identity and version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validator: Option<String>,
+    /// Caller-safe human description.
+    pub message: String,
+    /// Typed repair guidance when a safe repair is known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repair: Option<Repair>,
+}
+
+/// Finding severity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// Informational evidence.
+    Info,
+    /// Non-blocking issue.
+    Warning,
+    /// Blocking issue.
+    Error,
+}
+
+/// Typed, caller-safe repair guidance.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Repair {
+    /// Stable repair operation kind.
+    pub kind: String,
+    /// Target JSON Pointer or domain path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<String>,
+    /// Caller-safe expected value description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+}
+
+/// Broad CLI exit categories from the public CLI contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ExitCode {
+    /// Successful execution.
+    Success = 0,
+    /// CLI usage or input syntax error.
+    Usage = 2,
+    /// Validation or policy precondition failure.
+    Validation = 3,
+    /// Authentication or authorization failure.
+    Authorization = 4,
+    /// Concurrency or state conflict.
+    Conflict = 5,
+    /// Requested resource was not found.
+    NotFound = 6,
+    /// A dependency or service is unavailable.
+    Unavailable = 7,
+    /// Integrity or verification failure.
+    Integrity = 8,
+    /// Operation timed out or was cancelled safely.
+    Interrupted = 9,
+    /// Unexpected internal failure.
+    Internal = 10,
+}
+
+impl ExitCode {
+    /// Classifies one stable problem code.
+    #[must_use]
+    pub fn for_problem_code(code: &str) -> Self {
+        if code.starts_with("proof.input.") {
+            Self::Usage
+        } else if code.starts_with("proof.auth.")
+            || code.starts_with("proof.delegation.")
+            || code == "proof.approval.required"
+        {
+            Self::Authorization
+        } else if code.starts_with("proof.validation.")
+            || code.starts_with("proof.policy.")
+            || code.starts_with("proof.schema.")
+            || code.starts_with("proof.relationship.")
+        {
+            Self::Validation
+        } else if code == "proof.resource.not_found" {
+            Self::NotFound
+        } else if code.starts_with("proof.state.")
+            || code.starts_with("proof.changeset.")
+            || code.starts_with("proof.idempotency.")
+        {
+            Self::Conflict
+        } else if code.starts_with("proof.digest.")
+            || code.starts_with("proof.signature.")
+            || code.starts_with("proof.evidence.")
+            || code.starts_with("proof.artifact.")
+        {
+            Self::Integrity
+        } else if code == "proof.dependency.unavailable" {
+            Self::Unavailable
+        } else if code == "proof.operation.timeout" || code == "proof.operation.cancelled" {
+            Self::Interrupted
+        } else {
+            Self::Internal
+        }
+    }
+}
+
+/// Data returned by the initial `status` operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StatusData {
+    /// Current implementation milestone.
+    pub implementation_stage: &'static str,
+    /// Whether an initialized Workspace was selected.
+    pub workspace_selected: bool,
+}
+
+impl StatusData {
+    /// Returns the status of the implementation foundation.
+    #[must_use]
+    pub const fn foundation() -> Self {
+        Self {
+            implementation_stage: "foundation",
+            workspace_selected: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CorrelationId, ExitCode, OperationId, ResultEnvelope, StatusData};
+
+    const OPERATION_ID: &str = "019c0000-0000-7000-8000-000000000001";
+    const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
+
+    #[test]
+    fn success_envelope_matches_the_stable_json_shape() {
+        let result = ResultEnvelope::success(
+            "status",
+            OPERATION_ID.parse::<OperationId>().unwrap(),
+            CORRELATION_ID.parse::<CorrelationId>().unwrap(),
+            StatusData::foundation(),
+        );
+        let value = serde_json::to_value(result).unwrap();
+
+        assert_eq!(value["api_version"], "proof.dev/result/v1");
+        assert_eq!(value["operation"], "status");
+        assert_eq!(value["operation_id"], OPERATION_ID);
+        assert_eq!(value["correlation_id"], CORRELATION_ID);
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["warnings"], serde_json::json!([]));
+        assert_eq!(value["meta"]["proof_version"], "0.1.0");
+        assert!(value["meta"].get("workspace_id").is_none());
+    }
+
+    #[test]
+    fn problem_codes_map_to_documented_exit_categories() {
+        assert_eq!(
+            ExitCode::for_problem_code("proof.input.invalid_json"),
+            ExitCode::Usage
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.validation.failed"),
+            ExitCode::Validation
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.auth.denied"),
+            ExitCode::Authorization
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.state.conflict"),
+            ExitCode::Conflict
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.resource.not_found"),
+            ExitCode::NotFound
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.dependency.unavailable"),
+            ExitCode::Unavailable
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.signature.invalid"),
+            ExitCode::Integrity
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.operation.timeout"),
+            ExitCode::Interrupted
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.internal"),
+            ExitCode::Internal
+        );
+    }
+}

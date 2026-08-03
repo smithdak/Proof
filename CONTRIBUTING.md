@@ -1,6 +1,6 @@
 # Contributing to Proof
 
-Proof is in its pre-implementation architecture phase. Contributions should strengthen the product contract, eliminate ambiguity, or advance the next complete milestone.
+Proof is in its early implementation phase. Contributions should strengthen the product contract, eliminate ambiguity, or advance the next complete milestone.
 
 ## Current contribution policy
 
