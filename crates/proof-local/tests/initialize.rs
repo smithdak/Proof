@@ -5,12 +5,13 @@ use std::{
 };
 
 use proof_application::{
-    AddChangeSetEditsCommand, AddChangeSetEditsError, ArtifactKind, ChangeSetId, ChangeSetIntent,
-    ContentDigest, CreateChangeSetCommand, CreateChangeSetError, EditId, IdempotencyKey,
+    AddChangeSetEditsCommand, AddChangeSetEditsError, ApprovalName, ApproveChangeSetCommand,
+    ApproveChangeSetError, ArtifactKind, ChangeSetId, ChangeSetIntent, ContentDigest,
+    CreateChangeSetCommand, CreateChangeSetError, EditId, IdempotencyKey,
     InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId, SchemaCreateEdit, SchemaId,
     SchemaVersion, SubmitChangeSetCommand, SubmitChangeSetError, Timestamp, WorkspaceId,
     WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
-    create_changeset, initialize_workspace, inspect_changeset, submit_changeset,
+    approve_changeset, create_changeset, initialize_workspace, inspect_changeset, submit_changeset,
     validate_changeset, workspace_status,
 };
 use proof_canonical::{canonicalize, digest, initial_known_state_digest};
@@ -120,7 +121,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 5);
+    assert_eq!(schema_version, 6);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -241,7 +242,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 5);
+    assert_eq!(status.storage_schema_version, 6);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -447,7 +448,8 @@ fn draft_creation_migrates_a_verified_version_one_workspace_atomically() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_submissions;
+            "DROP TABLE changeset_approvals;
+             DROP TABLE changeset_submissions;
              DROP TABLE changeset_validations;
              DROP TABLE changeset_add_operations;
              DROP TABLE changeset_edits;
@@ -597,7 +599,8 @@ fn adding_edits_migrates_schema_version_two_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_submissions;
+            "DROP TABLE changeset_approvals;
+             DROP TABLE changeset_submissions;
              DROP TABLE changeset_validations;
              DROP TABLE changeset_add_operations;
              DROP TABLE changeset_edits;
@@ -948,6 +951,86 @@ fn submission_rejects_tampered_validation_evidence() {
 }
 
 #[test]
+fn approval_requires_submission_and_replays_exact_digest_bound_evidence() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define launch Schemas", None),
+    )
+    .unwrap();
+    add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![schema_edit(EDIT_ID, "article", 1, "Article")],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    let validated = validate_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+    let approve = |name: &str, approved_at: &str| {
+        approve_changeset(
+            &repository,
+            ApproveChangeSetCommand {
+                changeset_id: CHANGESET_ID.parse().unwrap(),
+                approval: ApprovalName::new(name).unwrap(),
+                approved_at: approved_at.parse().unwrap(),
+            },
+        )
+    };
+    assert_eq!(
+        approve("editorial", "2026-08-03T16:00:00Z").unwrap_err(),
+        ApproveChangeSetError::NotSubmitted
+    );
+    submit_changeset(
+        &repository,
+        SubmitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            submitted_at: "2026-08-03T15:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    let connection = repository.open_database().unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE changeset_approvals;
+             DELETE FROM schema_migrations WHERE version = 6;
+             UPDATE workspace_metadata SET schema_version = 5 WHERE singleton = 1;
+             PRAGMA user_version = 5;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let first = approve("editorial", "2026-08-03T16:00:00Z").unwrap();
+    let replay = approve("editorial", "2026-08-03T17:00:00Z").unwrap();
+
+    assert_eq!(first, replay);
+    assert_eq!(first.changeset_digest, validated.changeset_digest);
+    assert_eq!(
+        first.validation_results_digest,
+        validated.validation_results_digest
+    );
+    assert_eq!(first.approved_at.to_string(), "2026-08-03T16:00:00Z");
+    assert_eq!(first.status, proof_application::ChangeSetStatus::Approved);
+    assert_eq!(
+        approve("legal", "2026-08-03T17:00:00Z").unwrap_err(),
+        ApproveChangeSetError::ApprovalConflict
+    );
+    let inspected = inspect_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+    assert_eq!(
+        inspected.status,
+        proof_application::ChangeSetStatus::Approved
+    );
+    let schema_version: u32 = repository
+        .open_database()
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version, 6);
+}
+
+#[test]
 fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
@@ -959,7 +1042,8 @@ fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_submissions;
+            "DROP TABLE changeset_approvals;
+             DROP TABLE changeset_submissions;
              DROP TABLE changeset_validations;
              ALTER TABLE changesets DROP COLUMN lifecycle_status;
              DELETE FROM schema_migrations WHERE version >= 4;

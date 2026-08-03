@@ -11,7 +11,8 @@ use std::{
 
 use proof_application::ArtifactKind;
 use proof_application::{
-    AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ChangeSetEditRepository,
+    AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApproveChangeSetCommand,
+    ApproveChangeSetError, ApprovedChangeSet, ChangeSetApprovalRepository, ChangeSetEditRepository,
     ChangeSetId, ChangeSetInspectionRepository, ChangeSetIntent, ChangeSetRepository,
     ChangeSetStatus, ChangeSetSubmissionRepository, ChangeSetValidationRepository, ContentDigest,
     CreateChangeSetCommand, CreateChangeSetError, DRAFT_2020_12_META_VALIDATOR, DraftChangeSet,
@@ -124,7 +125,16 @@ CREATE TABLE changeset_submissions (
     submitted_at TEXT NOT NULL
 ) STRICT;
 INSERT INTO schema_migrations (version, name) VALUES (5, 'seal-and-submit-changesets');
-PRAGMA user_version = 5;";
+CREATE TABLE changeset_approvals (
+    changeset_id TEXT PRIMARY KEY REFERENCES changesets(changeset_id),
+    approval_name TEXT NOT NULL,
+    changeset_digest TEXT NOT NULL,
+    validation_results_digest TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    approved_at TEXT NOT NULL
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (6, 'approve-submitted-changesets');
+PRAGMA user_version = 6;";
 
 struct LocalIdentity {
     provider: &'static str,
@@ -746,6 +756,97 @@ impl ChangeSetSubmissionRepository for LocalWorkspace {
     }
 }
 
+impl ChangeSetApprovalRepository for LocalWorkspace {
+    fn approve_changeset(
+        &self,
+        command: ApproveChangeSetCommand,
+    ) -> Result<ApprovedChangeSet, ApproveChangeSetError> {
+        let config = self.read_config().map_err(approval_from_initialization)?;
+        let workspace_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| ApproveChangeSetError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| ApproveChangeSetError::Unauthenticated)?;
+        let mut connection = self.open_database().map_err(approval_from_initialization)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+        let (database_id, bootstrap_principal_id, schema_version): (String, String, u32) =
+            transaction
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
+                     FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+        if database_id != workspace_id.to_string() {
+            return Err(ApproveChangeSetError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+        let principal_id =
+            authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
+                .map_err(approval_from_status)?;
+        ensure_approval_schema(&transaction, schema_version)?;
+        let row = load_inspected_changeset(
+            &transaction,
+            command.changeset_id,
+            workspace_id,
+            principal_id,
+            6,
+        )
+        .map_err(approval_from_inspection)?;
+        let edits = load_inspected_edits(&transaction, command.changeset_id, 6)
+            .map_err(approval_from_inspection)?;
+        let inspected = row
+            .into_inspected(command.changeset_id, workspace_id, principal_id, edits)
+            .map_err(approval_from_inspection)?;
+        if !matches!(
+            inspected.status,
+            ChangeSetStatus::Submitted | ChangeSetStatus::Approved
+        ) {
+            return Err(ApproveChangeSetError::NotSubmitted);
+        }
+        let current_validation =
+            validate_inspected_changeset(&inspected).map_err(approval_from_validation)?;
+        if !current_validation.valid {
+            return Err(ApproveChangeSetError::EvidenceMissing);
+        }
+        let validation_results_digest = exact_valid_evidence(
+            &transaction,
+            command.changeset_id,
+            current_validation.changeset_digest,
+            inspected.base_state,
+            &inspected.validation_profile,
+            current_validation.validation_results_digest,
+        )
+        .map_err(approval_from_submission)?;
+        replay_submission(
+            &transaction,
+            &inspected,
+            current_validation.changeset_digest,
+            validation_results_digest,
+            u32::try_from(inspected.edits.len()).map_err(|_| {
+                ApproveChangeSetError::Integrity("Edit count exceeds u32".to_owned())
+            })?,
+        )
+        .map_err(approval_from_submission)?;
+        let approved = persist_or_replay_approval(
+            &transaction,
+            &command,
+            &inspected,
+            current_validation.changeset_digest,
+            validation_results_digest,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+        Ok(approved)
+    }
+}
+
 impl WorkspaceStatusRepository for LocalWorkspace {
     fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError> {
         let has_config = path_exists(&self.config_path()).map_err(status_from_initialization)?;
@@ -914,7 +1015,7 @@ fn initialize_database(
         .execute(
             "INSERT INTO workspace_metadata (
                  singleton, workspace_id, bootstrap_principal_id, schema_version
-             ) VALUES (1, ?1, ?2, 5)",
+             ) VALUES (1, ?1, ?2, 6)",
             [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -1211,6 +1312,60 @@ fn submission_from_inspection(error: InspectChangeSetError) -> SubmitChangeSetEr
     }
 }
 
+fn approval_from_initialization(error: WorkspaceInitializationError) -> ApproveChangeSetError {
+    match error {
+        WorkspaceInitializationError::IdentityUnavailable(_) => {
+            ApproveChangeSetError::Unauthenticated
+        }
+        WorkspaceInitializationError::AlreadyExists => ApproveChangeSetError::Integrity(
+            "unexpected initialization conflict while approving ChangeSet".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => ApproveChangeSetError::Storage(detail),
+    }
+}
+
+fn approval_from_status(error: WorkspaceStatusError) -> ApproveChangeSetError {
+    match error {
+        WorkspaceStatusError::Unauthenticated => ApproveChangeSetError::Unauthenticated,
+        WorkspaceStatusError::Incomplete => ApproveChangeSetError::Integrity(
+            "the selected Workspace has incomplete local state".to_owned(),
+        ),
+        WorkspaceStatusError::Integrity(detail) => ApproveChangeSetError::Integrity(detail),
+        WorkspaceStatusError::Storage(detail) => ApproveChangeSetError::Storage(detail),
+    }
+}
+
+fn approval_from_inspection(error: InspectChangeSetError) -> ApproveChangeSetError {
+    match error {
+        InspectChangeSetError::Unauthenticated => ApproveChangeSetError::Unauthenticated,
+        InspectChangeSetError::NotFound => ApproveChangeSetError::NotFound,
+        InspectChangeSetError::Integrity(detail) => ApproveChangeSetError::Integrity(detail),
+        InspectChangeSetError::Storage(detail) => ApproveChangeSetError::Storage(detail),
+    }
+}
+
+fn approval_from_validation(error: ValidateChangeSetError) -> ApproveChangeSetError {
+    match error {
+        ValidateChangeSetError::Unauthenticated => ApproveChangeSetError::Unauthenticated,
+        ValidateChangeSetError::NotFound => ApproveChangeSetError::NotFound,
+        ValidateChangeSetError::NotValidatable => ApproveChangeSetError::NotSubmitted,
+        ValidateChangeSetError::Integrity(detail) => ApproveChangeSetError::Integrity(detail),
+        ValidateChangeSetError::Storage(detail) => ApproveChangeSetError::Storage(detail),
+    }
+}
+
+fn approval_from_submission(error: SubmitChangeSetError) -> ApproveChangeSetError {
+    match error {
+        SubmitChangeSetError::Unauthenticated => ApproveChangeSetError::Unauthenticated,
+        SubmitChangeSetError::NotFound => ApproveChangeSetError::NotFound,
+        SubmitChangeSetError::NotReady => ApproveChangeSetError::NotSubmitted,
+        SubmitChangeSetError::ValidationEvidenceMissing => ApproveChangeSetError::EvidenceMissing,
+        SubmitChangeSetError::Integrity(detail) => ApproveChangeSetError::Integrity(detail),
+        SubmitChangeSetError::Storage(detail) => ApproveChangeSetError::Storage(detail),
+    }
+}
+
 fn inspect_schema_version(
     connection: &Connection,
     metadata_schema_version: u32,
@@ -1228,7 +1383,7 @@ fn inspect_schema_version(
             "persistent schema version records differ".to_owned(),
         ));
     }
-    if !(1..=5).contains(&migration_version) {
+    if !(1..=6).contains(&migration_version) {
         return Err(InspectChangeSetError::Integrity(format!(
             "unsupported local schema version {migration_version}"
         )));
@@ -1507,7 +1662,7 @@ fn ensure_changeset_schema(
                  PRAGMA user_version = 2;",
             )
             .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
-        2..=5 => Ok(()),
+        2..=6 => Ok(()),
         version => Err(CreateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1563,7 +1718,7 @@ fn ensure_edit_schema(
                  PRAGMA user_version = 3;",
             )
             .map_err(|error| AddChangeSetEditsError::Storage(error.to_string())),
-        3..=5 => Ok(()),
+        3..=6 => Ok(()),
         version => Err(AddChangeSetEditsError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1619,7 +1774,7 @@ fn ensure_validation_schema(
                  PRAGMA user_version = 4;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        4 | 5 => Ok(()),
+        4..=6 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1666,8 +1821,49 @@ fn ensure_lifecycle_schema(
                  PRAGMA user_version = 5;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        5 => Ok(()),
+        5 | 6 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
+            "unsupported local schema version {version}"
+        ))),
+    }
+}
+
+fn ensure_approval_schema(
+    transaction: &Transaction<'_>,
+    metadata_schema_version: u32,
+) -> Result<(), ApproveChangeSetError> {
+    let migration_version: u32 = transaction
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(ApproveChangeSetError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+    match migration_version {
+        5 => transaction
+            .execute_batch(
+                "CREATE TABLE changeset_approvals (
+                     changeset_id TEXT PRIMARY KEY REFERENCES changesets(changeset_id),
+                     approval_name TEXT NOT NULL,
+                     changeset_digest TEXT NOT NULL,
+                     validation_results_digest TEXT NOT NULL,
+                     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                     approved_at TEXT NOT NULL
+                 ) STRICT;
+                 INSERT INTO schema_migrations (version, name)
+                 VALUES (6, 'approve-submitted-changesets');
+                 UPDATE workspace_metadata SET schema_version = 6 WHERE singleton = 1;
+                 PRAGMA user_version = 6;",
+            )
+            .map_err(|error| ApproveChangeSetError::Storage(error.to_string())),
+        6 => Ok(()),
+        version => Err(ApproveChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
     }
@@ -1986,7 +2182,9 @@ fn replay_submission(
             [changeset.changeset_id.to_string()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
-        .map_err(|error| SubmitChangeSetError::Storage(error.to_string()))?;
+        .optional()
+        .map_err(|error| SubmitChangeSetError::Storage(error.to_string()))?
+        .ok_or(SubmitChangeSetError::ValidationEvidenceMissing)?;
     let persisted_changeset_digest = persisted
         .0
         .parse::<ContentDigest>()
@@ -2024,6 +2222,127 @@ fn replay_submission(
         submitted_at,
         status: ChangeSetStatus::Submitted,
         edit_count,
+    })
+}
+
+fn persist_or_replay_approval(
+    transaction: &Transaction<'_>,
+    command: &ApproveChangeSetCommand,
+    changeset: &InspectedChangeSet,
+    changeset_digest: ContentDigest,
+    validation_results_digest: ContentDigest,
+) -> Result<ApprovedChangeSet, ApproveChangeSetError> {
+    if changeset.status == ChangeSetStatus::Approved {
+        return replay_approval(
+            transaction,
+            command,
+            changeset,
+            changeset_digest,
+            validation_results_digest,
+        );
+    }
+    transaction
+        .execute(
+            "INSERT INTO changeset_approvals (
+                 changeset_id, approval_name, changeset_digest,
+                 validation_results_digest, principal_id, approved_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                command.changeset_id.to_string(),
+                command.approval.as_str(),
+                changeset_digest.to_string(),
+                validation_results_digest.to_string(),
+                changeset.principal_id.to_string(),
+                command.approved_at.to_string(),
+            ),
+        )
+        .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+    let updated = transaction
+        .execute(
+            "UPDATE changesets SET lifecycle_status = 'approved'
+             WHERE changeset_id = ?1 AND lifecycle_status = 'submitted'",
+            [command.changeset_id.to_string()],
+        )
+        .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
+    if updated != 1 {
+        return Err(ApproveChangeSetError::NotSubmitted);
+    }
+    Ok(ApprovedChangeSet {
+        changeset_id: command.changeset_id,
+        workspace_id: changeset.workspace_id,
+        principal_id: changeset.principal_id,
+        approval: command.approval.clone(),
+        changeset_digest,
+        validation_results_digest,
+        approved_at: command.approved_at,
+        status: ChangeSetStatus::Approved,
+    })
+}
+
+fn replay_approval(
+    connection: &Connection,
+    command: &ApproveChangeSetCommand,
+    changeset: &InspectedChangeSet,
+    changeset_digest: ContentDigest,
+    validation_results_digest: ContentDigest,
+) -> Result<ApprovedChangeSet, ApproveChangeSetError> {
+    let persisted: (String, String, String, String, String) = connection
+        .query_row(
+            "SELECT approval_name, changeset_digest, validation_results_digest,
+                    principal_id, approved_at
+             FROM changeset_approvals WHERE changeset_id = ?1",
+            [changeset.changeset_id.to_string()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?
+        .ok_or(ApproveChangeSetError::EvidenceMissing)?;
+    if persisted.0 != command.approval.as_str() {
+        return Err(ApproveChangeSetError::ApprovalConflict);
+    }
+    let persisted_changeset_digest = persisted
+        .1
+        .parse::<ContentDigest>()
+        .map_err(|error| ApproveChangeSetError::Integrity(error.to_string()))?;
+    let persisted_validation_digest = persisted
+        .2
+        .parse::<ContentDigest>()
+        .map_err(|error| ApproveChangeSetError::Integrity(error.to_string()))?;
+    let persisted_principal = persisted
+        .3
+        .parse::<PrincipalId>()
+        .map_err(|error| ApproveChangeSetError::Integrity(error.to_string()))?;
+    let approved_at = persisted
+        .4
+        .parse()
+        .map_err(|error: proof_application::TimestampError| {
+            ApproveChangeSetError::Integrity(error.to_string())
+        })?;
+    if persisted_changeset_digest != changeset_digest
+        || persisted_validation_digest != validation_results_digest
+        || persisted_principal != changeset.principal_id
+    {
+        return Err(ApproveChangeSetError::Integrity(
+            "persisted approval does not match exact submitted ChangeSet evidence".to_owned(),
+        ));
+    }
+    Ok(ApprovedChangeSet {
+        changeset_id: changeset.changeset_id,
+        workspace_id: changeset.workspace_id,
+        principal_id: changeset.principal_id,
+        approval: command.approval.clone(),
+        changeset_digest,
+        validation_results_digest,
+        approved_at,
+        status: ChangeSetStatus::Approved,
     })
 }
 

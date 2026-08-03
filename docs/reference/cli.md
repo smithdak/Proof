@@ -127,6 +127,15 @@ digest, Principal, and timestamp while transitioning the proposal to
 `submitted`. Retrying returns the original submission record. A draft or
 rejected proposal fails without creating a partial submission.
 
+`changeset approve --approval <name>` records one explicit local approval for
+the exact submitted ChangeSet and validation-results digests. Approval names
+use a bounded lowercase machine identifier profile. The authenticated Human
+Principal, name, and canonical approval time are persisted atomically with the
+transition to `approved`; an identical retry returns the original record, while
+a different approval name conflicts. The initial local policy permits the
+bootstrap Human Principal to approve their submitted proposal; stronger
+separation-of-duties profiles remain an explicit policy extension.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules

@@ -104,6 +104,8 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.changeset.invalid_state`
 - `proof.changeset.not_ready`
 - `proof.changeset.not_validatable`
+- `proof.changeset.not_submitted`
+- `proof.changeset.approval_conflict`
 - `proof.changeset.expired`
 - `proof.idempotency.key_reused`
 

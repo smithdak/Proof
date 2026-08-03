@@ -147,7 +147,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 5);
+    assert_eq!(status["data"]["storage_schema_version"], 6);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -611,6 +611,47 @@ fn changeset_validate_returns_digest_bound_success_evidence() {
     assert_eq!(
         submitted["data"]["submitted_at"],
         replay["data"]["submitted_at"]
+    );
+
+    let approved = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "approve",
+            &changeset_id,
+            "--approval",
+            "editorial",
+        ])
+        .output()
+        .unwrap();
+    let approval_replay = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "approve",
+            &changeset_id,
+            "--approval",
+            "editorial",
+        ])
+        .output()
+        .unwrap();
+    assert!(approved.status.success());
+    assert!(approval_replay.status.success());
+    let approved: serde_json::Value = serde_json::from_slice(&approved.stdout).unwrap();
+    let approval_replay: serde_json::Value =
+        serde_json::from_slice(&approval_replay.stdout).unwrap();
+    assert_eq!(approved["operation"], "changeset.approve");
+    assert_eq!(approved["data"]["approval"], "editorial");
+    assert_eq!(approved["data"]["status"], "approved");
+    assert_eq!(
+        approved["data"]["changeset_digest"],
+        first["data"]["changeset_digest"]
+    );
+    assert_eq!(
+        approved["data"]["approved_at"],
+        approval_replay["data"]["approved_at"]
     );
 }
 

@@ -10,14 +10,15 @@ use std::{
 
 use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
-    AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ArtifactKind,
-    ChangeSetId, ChangeSetIntent, ContentDigest, CorrelationId, CreateChangeSetCommand,
-    CreateChangeSetError, DraftChangeSet, EditId, ExitCode, IdempotencyKey,
-    InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet, OperationId,
-    PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion, StatusData,
-    SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet, Timestamp,
-    ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
-    WorkspaceStatus, WorkspaceStatusError, add_changeset_edits, create_changeset,
+    AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApprovalName,
+    ApproveChangeSetCommand, ApproveChangeSetError, ApprovedChangeSet, ArtifactKind, ChangeSetId,
+    ChangeSetIntent, ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError,
+    DraftChangeSet, EditId, ExitCode, IdempotencyKey, InitializeWorkspaceCommand,
+    InspectChangeSetError, InspectedChangeSet, OperationId, PrincipalId, Problem, ResultEnvelope,
+    SchemaCreateEdit, SchemaId, SchemaVersion, StatusData, SubmitChangeSetCommand,
+    SubmitChangeSetError, SubmittedChangeSet, Timestamp, ValidateChangeSetError,
+    ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
+    WorkspaceStatusError, add_changeset_edits, approve_changeset, create_changeset,
     initialize_workspace, inspect_changeset, submit_changeset, validate_changeset,
     workspace_status,
 };
@@ -140,6 +141,14 @@ enum ChangeSetAction {
         /// Target ready `ChangeSet` `UUIDv7`.
         changeset_id: String,
     },
+    /// Record explicit approval for an exact submitted proposal.
+    Approve {
+        /// Target submitted `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+        /// Named approval requirement being satisfied.
+        #[arg(long)]
+        approval: String,
+    },
 }
 
 impl Command {
@@ -165,6 +174,9 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Submit { .. },
             } => "changeset.submit",
+            Self::Changeset {
+                action: ChangeSetAction::Approve { .. },
+            } => "changeset.approve",
         }
     }
 }
@@ -293,6 +305,13 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
         Command::Changeset {
             action: ChangeSetAction::Submit { changeset_id },
         } => submit_local_changeset(output, context, workspace, &changeset_id)?,
+        Command::Changeset {
+            action:
+                ChangeSetAction::Approve {
+                    changeset_id,
+                    approval,
+                },
+        } => approve_local_changeset(output, context, workspace, &changeset_id, approval)?,
     };
     Ok(exit_code)
 }
@@ -1163,6 +1182,147 @@ fn submission_problem(error: &SubmitChangeSetError, context: ExecutionContext) -
     Box::new(problem)
 }
 
+fn approve_local_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    changeset_id: &str,
+    approval: String,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| approval_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| approval_root_problem(context))?;
+    let changeset_id = changeset_id
+        .parse::<ChangeSetId>()
+        .map_err(|error| approval_input_problem(context, error.to_string()))?;
+    let approval = ApprovalName::new(approval)
+        .map_err(|error| approval_input_problem(context, error.to_string()))?;
+    let approved_at = current_timestamp()
+        .map_err(|error| internal_problem("changeset.approve", context, error))?;
+    let approved = approve_changeset(
+        &repository,
+        ApproveChangeSetCommand {
+            changeset_id,
+            approval,
+            approved_at,
+        },
+    )
+    .map_err(|error| approval_problem(&error, context))?;
+    render_approved_changeset(output, context, &approved);
+    Ok(ExitCode::Success)
+}
+
+fn render_approved_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    approved: &ApprovedChangeSet,
+) {
+    let data = ApprovedChangeSetData::from(approved);
+    let mut result = ResultEnvelope::success(
+        "changeset.approve",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(approved.workspace_id.to_string());
+    result.meta.principal_id = Some(approved.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("ChangeSet {} approved", result.data.changeset_id);
+            println!("approval: {}", result.data.approval);
+            println!("ChangeSet digest: {}", result.data.changeset_digest);
+            println!("approved at: {}", result.data.approved_at);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn approval_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "changeset.approve",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn approval_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The ChangeSet approval input is invalid",
+        "proof.input.schema_mismatch",
+        "changeset.approve",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn approval_problem(error: &ApproveChangeSetError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        ApproveChangeSetError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        ApproveChangeSetError::NotFound => (
+            "urn:proof:problem:resource-not-found",
+            "The requested ChangeSet was not found",
+            "proof.resource.not_found",
+            false,
+        ),
+        ApproveChangeSetError::NotSubmitted => (
+            "urn:proof:problem:changeset-not-submitted",
+            "Only a submitted ChangeSet can be approved",
+            "proof.changeset.not_submitted",
+            false,
+        ),
+        ApproveChangeSetError::EvidenceMissing => (
+            "urn:proof:problem:evidence-incomplete",
+            "Exact submitted ChangeSet evidence is required before approval",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        ApproveChangeSetError::ApprovalConflict => (
+            "urn:proof:problem:approval-conflict",
+            "A different named approval was already recorded",
+            "proof.changeset.approval_conflict",
+            false,
+        ),
+        ApproveChangeSetError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The ChangeSet approval could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        ApproveChangeSetError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet approval storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "changeset.approve",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, ApproveChangeSetError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
 #[derive(Clone, Copy)]
 enum ChangeSetProjection {
     Get,
@@ -1513,6 +1673,33 @@ impl From<&SubmittedChangeSet> for SubmittedChangeSetData {
             submitted_at: submitted.submitted_at.to_string(),
             status: submitted.status.to_string(),
             edit_count: submitted.edit_count,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ApprovedChangeSetData {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    approval: String,
+    changeset_digest: String,
+    validation_results_digest: String,
+    approved_at: String,
+    status: String,
+}
+
+impl From<&ApprovedChangeSet> for ApprovedChangeSetData {
+    fn from(approved: &ApprovedChangeSet) -> Self {
+        Self {
+            changeset_id: approved.changeset_id.to_string(),
+            workspace_id: approved.workspace_id.to_string(),
+            principal_id: approved.principal_id.to_string(),
+            approval: approved.approval.to_string(),
+            changeset_digest: approved.changeset_digest.to_string(),
+            validation_results_digest: approved.validation_results_digest.to_string(),
+            approved_at: approved.approved_at.to_string(),
+            status: approved.status.to_string(),
         }
     }
 }

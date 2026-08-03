@@ -845,6 +845,154 @@ pub fn submit_changeset(
     repository.submit_changeset(command)
 }
 
+/// Maximum UTF-8 byte length of a stable approval name.
+pub const MAX_APPROVAL_NAME_BYTES: usize = 128;
+
+/// Stable local approval requirement name.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ApprovalName(String);
+
+impl ApprovalName {
+    /// Validates a lowercase machine-readable approval name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApprovalNameError`] for an empty, oversized, or unsupported name.
+    pub fn new(value: impl Into<String>) -> Result<Self, ApprovalNameError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(ApprovalNameError::Empty);
+        }
+        if value.len() > MAX_APPROVAL_NAME_BYTES {
+            return Err(ApprovalNameError::TooLong);
+        }
+        let mut bytes = value.bytes();
+        if !bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
+            || !bytes.all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'_' | b'-')
+            })
+        {
+            return Err(ApprovalNameError::InvalidSyntax);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the validated approval name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ApprovalName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// An approval name was outside the stable machine-readable profile.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum ApprovalNameError {
+    /// No name was supplied.
+    #[error("approval name must not be empty")]
+    Empty,
+    /// The name exceeded the bounded profile.
+    #[error("approval name must not exceed {MAX_APPROVAL_NAME_BYTES} bytes")]
+    TooLong,
+    /// The name did not use the lowercase identifier grammar.
+    #[error(
+        "approval name must begin with a lowercase letter and contain only lowercase letters, digits, `.`, `_`, or `-`"
+    )]
+    InvalidSyntax,
+}
+
+/// Input for explicitly approving one submitted `ChangeSet`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApproveChangeSetCommand {
+    /// Exact submitted proposal to approve.
+    pub changeset_id: ChangeSetId,
+    /// Named approval requirement being satisfied.
+    pub approval: ApprovalName,
+    /// Injected canonical time for a newly persisted approval.
+    pub approved_at: Timestamp,
+}
+
+/// Persisted approval bound to exact proposal and validation evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApprovedChangeSet {
+    /// Stable approved proposal identity.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated approving Principal.
+    pub principal_id: PrincipalId,
+    /// Named approval requirement satisfied by this record.
+    pub approval: ApprovalName,
+    /// Exact canonical proposal digest approved.
+    pub changeset_digest: ContentDigest,
+    /// Exact validation-results artifact reviewed by the approval transition.
+    pub validation_results_digest: ContentDigest,
+    /// Canonical persisted approval time.
+    pub approved_at: Timestamp,
+    /// Resulting lifecycle state.
+    pub status: ChangeSetStatus,
+}
+
+/// Persistence port for explicit, digest-bound local approval.
+pub trait ChangeSetApprovalRepository {
+    /// Approves a submitted proposal or replays its original approval record.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApproveChangeSetError`] without advancing lifecycle state when
+    /// submission or validation evidence cannot be verified.
+    fn approve_changeset(
+        &self,
+        command: ApproveChangeSetCommand,
+    ) -> Result<ApprovedChangeSet, ApproveChangeSetError>;
+}
+
+/// `ChangeSet` approval failed without recording unbound authority evidence.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum ApproveChangeSetError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// No visible `ChangeSet` has the requested identity.
+    #[error("the requested ChangeSet was not found")]
+    NotFound,
+    /// The proposal has not reached submitted state.
+    #[error("only a submitted ChangeSet can be approved")]
+    NotSubmitted,
+    /// Exact submission or validation evidence is absent.
+    #[error("exact submitted ChangeSet evidence is required before approval")]
+    EvidenceMissing,
+    /// A different named approval was already recorded for this transition.
+    #[error("the ChangeSet was already approved under a different approval name")]
+    ApprovalConflict,
+    /// Persisted or canonical state failed deterministic verification.
+    #[error("ChangeSet approval integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local approval state could not be persisted safely.
+    #[error("local ChangeSet approval storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Approves a submitted `ChangeSet` through the configured lifecycle port.
+///
+/// # Errors
+///
+/// Returns [`ApproveChangeSetError`] unless exact submission and validation
+/// evidence is atomically bound to the approval record.
+pub fn approve_changeset(
+    repository: &impl ChangeSetApprovalRepository,
+    command: ApproveChangeSetCommand,
+) -> Result<ApprovedChangeSet, ApproveChangeSetError> {
+    repository.approve_changeset(command)
+}
+
 /// Data returned by the initial `status` operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StatusData {
@@ -908,7 +1056,7 @@ impl StatusData {
 
 #[cfg(test)]
 mod tests {
-    use super::{CorrelationId, ExitCode, OperationId, ResultEnvelope, StatusData};
+    use super::{ApprovalName, CorrelationId, ExitCode, OperationId, ResultEnvelope, StatusData};
 
     const OPERATION_ID: &str = "019c0000-0000-7000-8000-000000000001";
     const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
@@ -971,5 +1119,16 @@ mod tests {
             ExitCode::for_problem_code("proof.internal"),
             ExitCode::Internal
         );
+    }
+
+    #[test]
+    fn approval_names_use_a_bounded_machine_readable_profile() {
+        assert_eq!(
+            ApprovalName::new("editorial.review").unwrap().as_str(),
+            "editorial.review"
+        );
+        assert!(ApprovalName::new("").is_err());
+        assert!(ApprovalName::new("Editorial").is_err());
+        assert!(ApprovalName::new("x".repeat(129)).is_err());
     }
 }
