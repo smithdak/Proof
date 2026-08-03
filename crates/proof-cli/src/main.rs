@@ -15,8 +15,9 @@ use proof_application::{
     CreateChangeSetError, DraftChangeSet, EditId, ExitCode, IdempotencyKey,
     InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet, OperationId,
     PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion, StatusData,
-    Timestamp, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
-    add_changeset_edits, create_changeset, initialize_workspace, inspect_changeset,
+    Timestamp, ValidateChangeSetError, ValidatedChangeSet, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
+    create_changeset, initialize_workspace, inspect_changeset, validate_changeset,
     workspace_status,
 };
 use proof_canonical::{canonicalize, digest, parse_strict};
@@ -128,6 +129,11 @@ enum ChangeSetAction {
         /// Target `ChangeSet` `UUIDv7`.
         changeset_id: String,
     },
+    /// Validate the exact current proposal and persist deterministic evidence.
+    Validate {
+        /// Target `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+    },
 }
 
 impl Command {
@@ -147,6 +153,9 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Diff { .. },
             } => "changeset.diff",
+            Self::Changeset {
+                action: ChangeSetAction::Validate { .. },
+            } => "changeset.validate",
         }
     }
 }
@@ -269,6 +278,9 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
             &changeset_id,
             ChangeSetProjection::Diff,
         )?,
+        Command::Changeset {
+            action: ChangeSetAction::Validate { changeset_id },
+        } => validate_local_changeset(output, context, workspace, &changeset_id)?,
     };
     Ok(exit_code)
 }
@@ -862,6 +874,143 @@ fn parse_edit_records(bytes: &[u8]) -> Result<Vec<SchemaCreateEdit>, String> {
     Ok(edits)
 }
 
+fn validate_local_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    changeset_id: &str,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| validation_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| validation_root_problem(context))?;
+    let changeset_id = changeset_id
+        .parse::<ChangeSetId>()
+        .map_err(|error| validation_input_problem(context, error.to_string()))?;
+    let validated = validate_changeset(&repository, changeset_id)
+        .map_err(|error| validation_problem(&error, context))?;
+    if !validated.valid {
+        return Err(validation_failed_problem(&validated, context));
+    }
+    render_validated_changeset(output, context, &validated);
+    Ok(ExitCode::Success)
+}
+
+fn render_validated_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    validated: &ValidatedChangeSet,
+) {
+    let data = ValidatedChangeSetData::from(validated);
+    let mut result = ResultEnvelope::success(
+        "changeset.validate",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(validated.workspace_id.to_string());
+    result.meta.principal_id = Some(validated.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("ChangeSet {} is valid", result.data.changeset_id);
+            println!("ChangeSet digest: {}", result.data.changeset_digest);
+            println!(
+                "validation results: {}",
+                result.data.validation_results_digest
+            );
+            println!("edits: {}", result.data.edit_count);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn validation_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "changeset.validate",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn validation_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The ChangeSet identifier is invalid",
+        "proof.input.schema_mismatch",
+        "changeset.validate",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn validation_problem(error: &ValidateChangeSetError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        ValidateChangeSetError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        ValidateChangeSetError::NotFound => (
+            "urn:proof:problem:resource-not-found",
+            "The requested ChangeSet was not found",
+            "proof.resource.not_found",
+            false,
+        ),
+        ValidateChangeSetError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The requested ChangeSet could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        ValidateChangeSetError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet validation storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "changeset.validate",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, ValidateChangeSetError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
+fn validation_failed_problem(
+    validated: &ValidatedChangeSet,
+    context: ExecutionContext,
+) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:validation-failed",
+        "The ChangeSet failed validation",
+        "proof.validation.failed",
+        "changeset.validate",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(format!(
+        "validation evidence {} covers ChangeSet {}",
+        validated.validation_results_digest, validated.changeset_digest
+    ));
+    problem.findings.clone_from(&validated.findings);
+    Box::new(problem)
+}
+
 #[derive(Clone, Copy)]
 enum ChangeSetProjection {
     Get,
@@ -1054,6 +1203,10 @@ fn render_problem(output: OutputFormat, problem: &Problem) -> ExitCode {
             if let Some(detail) = &problem.detail {
                 eprintln!("{detail}");
             }
+            for finding in &problem.findings {
+                let pointer = finding.pointer.as_deref().unwrap_or("/");
+                eprintln!("{} at {pointer}: {}", finding.code, finding.message);
+            }
             eprintln!("code: {}", problem.code);
         }
     }
@@ -1146,6 +1299,39 @@ struct AddedEditsData {
     added_count: usize,
     total_edit_count: u32,
     idempotency_key: String,
+}
+
+#[derive(Serialize)]
+struct ValidatedChangeSetData {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    changeset_digest: String,
+    base_state: String,
+    validation_profile: String,
+    validator: String,
+    valid: bool,
+    findings: Vec<proof_application::Finding>,
+    validation_results_digest: String,
+    edit_count: u32,
+}
+
+impl From<&ValidatedChangeSet> for ValidatedChangeSetData {
+    fn from(validated: &ValidatedChangeSet) -> Self {
+        Self {
+            changeset_id: validated.changeset_id.to_string(),
+            workspace_id: validated.workspace_id.to_string(),
+            principal_id: validated.principal_id.to_string(),
+            changeset_digest: validated.changeset_digest.to_string(),
+            base_state: validated.base_state.to_string(),
+            validation_profile: validated.validation_profile.clone(),
+            validator: validated.validator.clone(),
+            valid: validated.valid,
+            findings: validated.findings.clone(),
+            validation_results_digest: validated.validation_results_digest.to_string(),
+            edit_count: validated.edit_count,
+        }
+    }
 }
 
 #[derive(Serialize)]

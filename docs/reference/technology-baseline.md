@@ -33,6 +33,7 @@ These are current stable candidates verified during the August 2026 documentatio
 | Content digest | `blake3` | `1.8.5` |
 | Local SQLite | `rusqlite` | `0.40.1` |
 | Local OS identity | `rustix` | `1.1.4` |
+| JSON Schema validation | `jsonschema` | `0.49.3` |
 | Async runtime | `tokio` | `1.53.1` |
 | HTTP server | `axum` | `0.8.9` |
 | Structured tracing | `tracing` | `0.1.44` |
@@ -153,6 +154,7 @@ Updates are grouped by compatibility risk and accompanied by the relevant test a
 - [Tracing releases](https://github.com/tokio-rs/tracing/releases)
 - [rusqlite releases](https://github.com/rusqlite/rusqlite/releases)
 - [rustix releases](https://github.com/bytecodealliance/rustix/releases)
+- [jsonschema releases](https://github.com/Stranger6667/jsonschema/releases)
 - [time releases](https://github.com/time-rs/time/releases)
 - [SQLx changelog](https://github.com/transact-rs/sqlx/blob/main/CHANGELOG.md)
 - [BLAKE3 releases](https://github.com/BLAKE3-team/BLAKE3/releases)

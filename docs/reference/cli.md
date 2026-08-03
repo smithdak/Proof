@@ -109,6 +109,16 @@ Both operations are read-only and fail integrity verification if identity,
 schema migration records, ordinals, canonical bytes, dialect, or digests do not
 agree. Human diff output is deterministic for the same persisted ChangeSet.
 
+`changeset validate` reconstructs that same verified proposal, computes a
+domain-separated digest over its manifest and ordered Edits, and validates each
+Schema document against the bundled Draft 2020-12 metaschema. Validation
+results are canonicalized, digested, and persisted against the exact ChangeSet
+digest, base-state digest, validation profile, and pinned validator identity.
+An empty ChangeSet or invalid Schema returns `proof.validation.failed` with
+deterministically ordered findings and exit code 3. Revalidating unchanged
+content reproduces the same evidence; adding an Edit produces a new ChangeSet
+and validation-results digest.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules

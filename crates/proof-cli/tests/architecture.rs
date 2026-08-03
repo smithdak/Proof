@@ -48,6 +48,7 @@ fn inward_dependency_boundaries_are_enforced() {
     assert_eq!(
         local,
         BTreeSet::from([
+            "jsonschema".to_owned(),
             "proof-application".to_owned(),
             "proof-canonical".to_owned(),
             "rusqlite".to_owned(),

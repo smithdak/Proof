@@ -684,6 +684,80 @@ pub fn inspect_changeset(
     repository.inspect_changeset(changeset_id)
 }
 
+/// The pinned validator identity recorded in local Schema validation evidence.
+pub const DRAFT_2020_12_META_VALIDATOR: &str = "jsonschema/draft-2020-12-meta/0.49.3";
+
+/// Deterministic validation evidence for one exact `ChangeSet` representation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedChangeSet {
+    /// Stable identity of the validated proposal.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated Principal that requested validation.
+    pub principal_id: PrincipalId,
+    /// Digest of the exact manifest and ordered Edits that were validated.
+    pub changeset_digest: ContentDigest,
+    /// Exact Known State against which the proposal was validated.
+    pub base_state: ContentDigest,
+    /// Versioned validation profile selected by the `ChangeSet`.
+    pub validation_profile: String,
+    /// Pinned validator implementation recorded in the evidence.
+    pub validator: String,
+    /// Whether no blocking findings were produced.
+    pub valid: bool,
+    /// Deterministically ordered structured findings.
+    pub findings: Vec<Finding>,
+    /// Digest of the canonical validation-results artifact.
+    pub validation_results_digest: ContentDigest,
+    /// Number of ordered Edits covered by this result.
+    pub edit_count: u32,
+}
+
+/// Persistence and validation port for exact local `ChangeSet` proposals.
+pub trait ChangeSetValidationRepository {
+    /// Validates and persists evidence for the exact current proposal.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidateChangeSetError`] when authentication, lookup,
+    /// integrity, or persistence prevents a trustworthy result.
+    fn validate_changeset(
+        &self,
+        changeset_id: ChangeSetId,
+    ) -> Result<ValidatedChangeSet, ValidateChangeSetError>;
+}
+
+/// Exact `ChangeSet` validation could not produce trustworthy evidence.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum ValidateChangeSetError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// No visible `ChangeSet` has the requested identity.
+    #[error("the requested ChangeSet was not found")]
+    NotFound,
+    /// Persisted or canonical state failed deterministic verification.
+    #[error("ChangeSet integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local state or validation evidence could not be persisted safely.
+    #[error("local ChangeSet validation storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Validates a `ChangeSet` through the configured validation port.
+///
+/// # Errors
+///
+/// Returns [`ValidateChangeSetError`] when no trustworthy validation evidence
+/// can be produced and persisted.
+pub fn validate_changeset(
+    repository: &impl ChangeSetValidationRepository,
+    changeset_id: ChangeSetId,
+) -> Result<ValidatedChangeSet, ValidateChangeSetError> {
+    repository.validate_changeset(changeset_id)
+}
+
 /// Data returned by the initial `status` operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StatusData {

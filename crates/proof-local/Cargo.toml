@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+jsonschema.workspace = true
 proof-application = { path = "../proof-application" }
 proof-canonical = { path = "../proof-canonical" }
 rusqlite.workspace = true
