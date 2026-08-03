@@ -72,6 +72,31 @@ operational_id!(
     "The identity connecting operations in one larger workflow."
 );
 operational_id!(WorkspaceId, "The identity of one governed Workspace.");
+operational_id!(PrincipalId, "The identity of one authenticated Principal.");
+
+/// The actor class associated with an authenticated Principal.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PrincipalType {
+    /// A person authenticated through an identity provider.
+    Human,
+    /// A non-human service workload.
+    Service,
+    /// An autonomous or assisted software agent.
+    Agent,
+    /// An internal Proof runtime component.
+    SystemComponent,
+}
+
+impl fmt::Display for PrincipalType {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Human => formatter.write_str("human"),
+            Self::Service => formatter.write_str("service"),
+            Self::Agent => formatter.write_str("agent"),
+            Self::SystemComponent => formatter.write_str("system_component"),
+        }
+    }
+}
 
 /// A versioned domain-artifact class used for cryptographic separation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -208,7 +233,7 @@ pub enum DigestParseError {
 mod tests {
     use super::{
         ArtifactKind, ContentDigest, CorrelationId, DigestAlgorithm, DigestParseError,
-        IdentifierError, OperationId,
+        IdentifierError, OperationId, PrincipalId, PrincipalType,
     };
     use uuid::Uuid;
 
@@ -220,6 +245,20 @@ mod tests {
 
         assert_eq!(value.to_string(), UUID_V7);
         assert_eq!(value.as_uuid(), Uuid::parse_str(UUID_V7).unwrap());
+    }
+
+    #[test]
+    fn principal_contract_has_stable_identity_and_actor_types() {
+        let principal = UUID_V7.parse::<PrincipalId>().expect("valid UUIDv7");
+
+        assert_eq!(principal.to_string(), UUID_V7);
+        assert_eq!(PrincipalType::Human.to_string(), "human");
+        assert_eq!(PrincipalType::Service.to_string(), "service");
+        assert_eq!(PrincipalType::Agent.to_string(), "agent");
+        assert_eq!(
+            PrincipalType::SystemComponent.to_string(),
+            "system_component"
+        );
     }
 
     #[test]

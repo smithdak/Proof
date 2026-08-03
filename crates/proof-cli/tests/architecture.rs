@@ -51,6 +51,7 @@ fn inward_dependency_boundaries_are_enforced() {
             "proof-application".to_owned(),
             "proof-canonical".to_owned(),
             "rusqlite".to_owned(),
+            "rustix".to_owned(),
             "serde".to_owned(),
             "thiserror".to_owned(),
             "toml".to_owned(),

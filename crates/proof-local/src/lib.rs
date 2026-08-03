@@ -10,8 +10,8 @@ use std::{
 
 use proof_application::{
     ContentDigest, InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
-    WorkspaceId, WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus,
-    WorkspaceStatusError, WorkspaceStatusRepository,
+    PrincipalId, PrincipalType, WorkspaceId, WorkspaceInitializationError, WorkspaceRepository,
+    WorkspaceStatus, WorkspaceStatusError, WorkspaceStatusRepository,
 };
 use proof_canonical::initial_known_state_digest;
 use rusqlite::{Connection, OpenFlags};
@@ -22,6 +22,11 @@ const CONFIG_FILE: &str = "proof.toml";
 const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
+
+struct LocalIdentity {
+    provider: &'static str,
+    subject: String,
+}
 
 /// A selected local Workspace root and its storage adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -130,6 +135,7 @@ impl WorkspaceRepository for LocalWorkspace {
         if path_exists(&config_path)? || path_exists(&runtime_path)? {
             return Err(WorkspaceInitializationError::AlreadyExists);
         }
+        let local_identity = current_local_identity()?;
 
         fs::create_dir(&runtime_path)
             .map_err(|error| storage_error("create private runtime directory", &error))?;
@@ -148,9 +154,13 @@ impl WorkspaceRepository for LocalWorkspace {
         let database_path = runtime_path.join("state/proof.db");
         let initial_state_digest = initial_known_state_digest(command.workspace_id)
             .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+        let workspace_id = command.workspace_id.to_string();
+        let principal_id = command.bootstrap_principal_id.to_string();
         initialize_database(
             &database_path,
-            command.workspace_id.to_string(),
+            &workspace_id,
+            &principal_id,
+            &local_identity,
             initial_state_digest.to_string(),
         )?;
         set_private_file_permissions(&database_path)?;
@@ -173,6 +183,7 @@ impl WorkspaceRepository for LocalWorkspace {
 
         Ok(InitializedWorkspace {
             workspace_id: command.workspace_id,
+            principal_id: command.bootstrap_principal_id,
         })
     }
 }
@@ -192,6 +203,8 @@ impl WorkspaceStatusRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| WorkspaceStatusError::Unauthenticated)?;
         let connection = open_database_for_status(&self.database_path())?;
         let journal_mode: String = connection
             .pragma_query_value(None, "journal_mode", |row| row.get(0))
@@ -201,14 +214,15 @@ impl WorkspaceStatusRepository for LocalWorkspace {
                 "local database is not using WAL journal mode".to_owned(),
             ));
         }
-        let (database_id, metadata_schema_version): (String, u32) = connection
-            .query_row(
-                "SELECT workspace_id, schema_version
+        let (database_id, bootstrap_principal_id, metadata_schema_version): (String, String, u32) =
+            connection
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
                  FROM workspace_metadata WHERE singleton = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
         let database_id = database_id
             .parse::<WorkspaceId>()
             .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
@@ -217,6 +231,8 @@ impl WorkspaceStatusRepository for LocalWorkspace {
                 "configuration and database Workspace identities differ".to_owned(),
             ));
         }
+        let principal_id =
+            authenticated_principal(&connection, &bootstrap_principal_id, &local_identity)?;
 
         let migration_version: u32 = connection
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
@@ -265,6 +281,7 @@ impl WorkspaceStatusRepository for LocalWorkspace {
 
         Ok(WorkspaceStatus::Initialized(InitializedWorkspaceStatus {
             workspace_id: configured_id,
+            principal_id,
             storage_schema_version: migration_version,
             authoritative_sequence,
             state_digest: persisted_digest,
@@ -310,7 +327,9 @@ pub struct StorageConfig {
 
 fn initialize_database(
     path: &Path,
-    workspace_id: String,
+    workspace_id: &str,
+    principal_id: &str,
+    local_identity: &LocalIdentity,
     initial_state_digest: String,
 ) -> Result<(), WorkspaceInitializationError> {
     let mut connection = open_database_at(path)?;
@@ -325,9 +344,20 @@ fn initialize_database(
              ) STRICT;
              INSERT INTO schema_migrations (version, name)
              VALUES (1, 'initialize-local-workspace');
+             CREATE TABLE principals (
+                 principal_id TEXT PRIMARY KEY,
+                 principal_type TEXT NOT NULL CHECK (
+                     principal_type IN ('human', 'service', 'agent', 'system_component')
+                 ),
+                 identity_provider TEXT NOT NULL,
+                 identity_subject TEXT NOT NULL,
+                 enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                 UNIQUE (identity_provider, identity_subject)
+             ) STRICT;
              CREATE TABLE workspace_metadata (
                  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                  workspace_id TEXT NOT NULL,
+                 bootstrap_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
                  schema_version INTEGER NOT NULL CHECK (schema_version > 0)
              ) STRICT;
              CREATE TABLE known_state (
@@ -340,9 +370,23 @@ fn initialize_database(
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     transaction
         .execute(
-            "INSERT INTO workspace_metadata (singleton, workspace_id, schema_version)
-             VALUES (1, ?1, 1)",
-            [workspace_id],
+            "INSERT INTO principals (
+                 principal_id, principal_type, identity_provider, identity_subject, enabled
+             ) VALUES (?1, ?2, ?3, ?4, 1)",
+            (
+                principal_id,
+                PrincipalType::Human.to_string(),
+                local_identity.provider,
+                &local_identity.subject,
+            ),
+        )
+        .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    transaction
+        .execute(
+            "INSERT INTO workspace_metadata (
+                 singleton, workspace_id, bootstrap_principal_id, schema_version
+             ) VALUES (1, ?1, ?2, 1)",
+            [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     transaction
@@ -439,9 +483,66 @@ fn status_from_initialization(error: WorkspaceInitializationError) -> WorkspaceS
         WorkspaceInitializationError::AlreadyExists => WorkspaceStatusError::Integrity(
             "unexpected initialization conflict while reading status".to_owned(),
         ),
+        WorkspaceInitializationError::IdentityUnavailable(_) => {
+            WorkspaceStatusError::Unauthenticated
+        }
         WorkspaceInitializationError::RootUnavailable(detail)
         | WorkspaceInitializationError::Storage(detail) => WorkspaceStatusError::Storage(detail),
     }
+}
+
+fn authenticated_principal(
+    connection: &Connection,
+    principal_id: &str,
+    local_identity: &LocalIdentity,
+) -> Result<PrincipalId, WorkspaceStatusError> {
+    let parsed_principal_id = principal_id
+        .parse::<PrincipalId>()
+        .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
+    let (principal_type, identity_provider, identity_subject, enabled): (
+        String,
+        String,
+        String,
+        i64,
+    ) = connection
+        .query_row(
+            "SELECT principal_type, identity_provider, identity_subject, enabled
+             FROM principals WHERE principal_id = ?1",
+            [principal_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+    if principal_type != PrincipalType::Human.to_string() {
+        return Err(WorkspaceStatusError::Integrity(
+            "bootstrap Principal must have type human".to_owned(),
+        ));
+    }
+    if enabled != 1
+        || identity_provider != local_identity.provider
+        || identity_subject != local_identity.subject
+    {
+        return Err(WorkspaceStatusError::Unauthenticated);
+    }
+    Ok(parsed_principal_id)
+}
+
+#[cfg(unix)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "all platform identity adapters share one fallible contract"
+)]
+fn current_local_identity() -> Result<LocalIdentity, WorkspaceInitializationError> {
+    Ok(LocalIdentity {
+        provider: "os/unix",
+        subject: format!("uid:{}", rustix::process::geteuid().as_raw()),
+    })
+}
+
+#[cfg(not(unix))]
+fn current_local_identity() -> Result<LocalIdentity, WorkspaceInitializationError> {
+    Err(WorkspaceInitializationError::IdentityUnavailable(
+        "this build does not provide a local identity adapter for the current platform".to_owned(),
+    ))
 }
 
 struct InitializationCleanup {

@@ -31,6 +31,7 @@ These are current stable candidates verified during the August 2026 documentatio
 | Operational IDs | `uuid` | `1.24.0` |
 | Content digest | `blake3` | `1.8.5` |
 | Local SQLite | `rusqlite` | `0.40.1` |
+| Local OS identity | `rustix` | `1.1.4` |
 | Async runtime | `tokio` | `1.53.1` |
 | HTTP server | `axum` | `0.8.9` |
 | Structured tracing | `tracing` | `0.1.44` |
@@ -150,6 +151,7 @@ Updates are grouped by compatibility risk and accompanied by the relevant test a
 - [Axum releases](https://github.com/tokio-rs/axum/releases)
 - [Tracing releases](https://github.com/tokio-rs/tracing/releases)
 - [rusqlite releases](https://github.com/rusqlite/rusqlite/releases)
+- [rustix releases](https://github.com/bytecodealliance/rustix/releases)
 - [SQLx changelog](https://github.com/transact-rs/sqlx/blob/main/CHANGELOG.md)
 - [BLAKE3 releases](https://github.com/BLAKE3-team/BLAKE3/releases)
 - [OpenAPI Specification 3.2.0](https://spec.openapis.org/oas/v3.2.0.html)

@@ -4,9 +4,9 @@ use std::{env, io, path::PathBuf, process};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
-    CorrelationId, ExitCode, InitializeWorkspaceCommand, OperationId, Problem, ResultEnvelope,
-    StatusData, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
-    initialize_workspace, workspace_status,
+    CorrelationId, ExitCode, InitializeWorkspaceCommand, OperationId, PrincipalId, Problem,
+    ResultEnvelope, StatusData, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
+    WorkspaceStatusError, initialize_workspace, workspace_status,
 };
 use proof_local::LocalWorkspace;
 use serde::Serialize;
@@ -160,8 +160,16 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
 }
 
 fn render_status(output: OutputFormat, context: ExecutionContext, data: StatusData) -> ExitCode {
-    let result =
+    let mut result =
         ResultEnvelope::success("status", context.operation_id, context.correlation_id, data);
+    result
+        .meta
+        .workspace_id
+        .clone_from(&result.data.workspace_id);
+    result
+        .meta
+        .principal_id
+        .clone_from(&result.data.principal_id);
 
     match output {
         OutputFormat::Text => {
@@ -174,6 +182,9 @@ fn render_status(output: OutputFormat, context: ExecutionContext, data: StatusDa
             );
             if let Some(workspace_id) = &result.data.workspace_id {
                 println!("workspace id: {workspace_id}");
+            }
+            if let Some(principal_id) = &result.data.principal_id {
+                println!("principal id: {principal_id}");
             }
             if let Some(sequence) = result.data.authoritative_sequence {
                 println!("authoritative sequence: {sequence}");
@@ -223,6 +234,12 @@ fn workspace_status_problem(
     context: ExecutionContext,
 ) -> Box<Problem> {
     let (problem_type, title, code, retryable) = match error {
+        WorkspaceStatusError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
         WorkspaceStatusError::Incomplete | WorkspaceStatusError::Integrity(_) => (
             "urn:proof:problem:evidence-incomplete",
             "The selected Workspace could not be verified",
@@ -267,11 +284,18 @@ fn initialize_local_workspace(
     let repository =
         LocalWorkspace::new(&root).map_err(|error| workspace_problem(error, context))?;
     let workspace_id = generated_workspace_id();
-    let initialized =
-        initialize_workspace(&repository, InitializeWorkspaceCommand { workspace_id })
-            .map_err(|error| workspace_problem(error, context))?;
+    let bootstrap_principal_id = generated_principal_id();
+    let initialized = initialize_workspace(
+        &repository,
+        InitializeWorkspaceCommand {
+            workspace_id,
+            bootstrap_principal_id,
+        },
+    )
+    .map_err(|error| workspace_problem(error, context))?;
     let data = InitializedWorkspaceData {
         workspace_id: initialized.workspace_id.to_string(),
+        principal_id: initialized.principal_id.to_string(),
         workspace_root: repository.root().display().to_string(),
         config_path: repository.config_path().display().to_string(),
         database_path: repository.database_path().display().to_string(),
@@ -279,10 +303,12 @@ fn initialize_local_workspace(
     let mut result =
         ResultEnvelope::success("init", context.operation_id, context.correlation_id, data);
     result.meta.workspace_id = Some(initialized.workspace_id.to_string());
+    result.meta.principal_id = Some(initialized.principal_id.to_string());
 
     match output {
         OutputFormat::Text => {
             println!("Initialized Proof Workspace {}", result.data.workspace_id);
+            println!("principal: {}", result.data.principal_id);
             println!("root: {}", result.data.workspace_root);
             println!("configuration: {}", result.data.config_path);
             println!("database: {}", result.data.database_path);
@@ -308,6 +334,13 @@ fn workspace_problem(
             "urn:proof:problem:resource-not-found",
             "The selected Workspace root is unavailable",
             "proof.resource.not_found",
+            Some(detail),
+            false,
+        ),
+        WorkspaceInitializationError::IdentityUnavailable(detail) => (
+            "urn:proof:problem:authentication-required",
+            "The local operating-system identity could not be authenticated",
+            "proof.auth.unauthenticated",
             Some(detail),
             false,
         ),
@@ -350,6 +383,7 @@ fn render_problem(output: OutputFormat, problem: &Problem) -> ExitCode {
 #[derive(Serialize)]
 struct InitializedWorkspaceData {
     workspace_id: String,
+    principal_id: String,
     workspace_root: String,
     config_path: String,
     database_path: String,
@@ -375,4 +409,8 @@ fn generated_correlation_id() -> CorrelationId {
 
 fn generated_workspace_id() -> WorkspaceId {
     WorkspaceId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
+}
+
+fn generated_principal_id() -> PrincipalId {
+    PrincipalId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
 }

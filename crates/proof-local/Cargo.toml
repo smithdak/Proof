@@ -9,6 +9,7 @@ publish.workspace = true
 proof-application = { path = "../proof-application" }
 proof-canonical = { path = "../proof-canonical" }
 rusqlite.workspace = true
+rustix.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true

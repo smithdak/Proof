@@ -22,6 +22,7 @@ Architecture decision records preserve the context and consequences of durable c
 | [0006](0006-dsse-in-toto-proof-envelope.md) | DSSE and in-toto structure for portable Proofs | Accepted |
 | [0007](0007-modular-monolith.md) | Begin as a modular monolith with storage adapters | Accepted |
 | [0008](0008-mcp-adapter-version.md) | Target stable MCP 2025-11-25 first | Accepted |
+| [0009](0009-local-bootstrap-principal.md) | Bind the local bootstrap Principal to the operating-system user | Accepted |
 
 ## Template
 

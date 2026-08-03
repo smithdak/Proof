@@ -11,6 +11,7 @@ All notable project changes are documented here. The format follows [Keep a Chan
 - Added strict RFC 8785 canonical JSON and artifact-specific BLAKE3-256 content digests.
 - Added crash-clean local Workspace initialization with committed TOML configuration and private SQLite state.
 - Added verified local Workspace status with migration checks and a reproducible initial Known State digest.
+- Added a Human bootstrap Principal bound to the authenticated Unix user for local Workspace operations.
 - Ratified the **Proof** product name and tagline, “Every release carries its proof.”
 - Defined the product vision, scope, roadmap, and complete local MVP loop.
 - Defined constitutional invariants for mutation, authority, validation, publication, state, interfaces, and security.

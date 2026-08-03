@@ -73,10 +73,12 @@ fn init_creates_a_local_workspace_and_returns_structured_paths() {
     assert!(output.stderr.is_empty());
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let workspace_id = value["data"]["workspace_id"].as_str().unwrap();
+    let principal_id = value["data"]["principal_id"].as_str().unwrap();
 
     assert_eq!(value["operation"], "init");
     assert_eq!(value["correlation_id"], CORRELATION_ID);
     assert_eq!(value["meta"]["workspace_id"], workspace_id);
+    assert_eq!(value["meta"]["principal_id"], principal_id);
     assert_eq!(
         value["data"]["workspace_root"],
         directory
@@ -87,6 +89,7 @@ fn init_creates_a_local_workspace_and_returns_structured_paths() {
             .to_string()
     );
     assert_eq!(workspace_id.as_bytes()[14], b'7');
+    assert_eq!(principal_id.as_bytes()[14], b'7');
     assert!(directory.path().join("proof.toml").is_file());
     assert!(directory.path().join(".proof/state/proof.db").is_file());
 }
@@ -126,6 +129,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
         .unwrap();
     let initialized: serde_json::Value = serde_json::from_slice(&initialized.stdout).unwrap();
     let workspace_id = initialized["data"]["workspace_id"].clone();
+    let principal_id = initialized["data"]["principal_id"].clone();
 
     let status = proof_command(directory.path())
         .args(["--output", "json", "status"])
@@ -138,6 +142,9 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["workspace_selected"], true);
     assert_eq!(status["data"]["workspace_initialized"], true);
     assert_eq!(status["data"]["workspace_id"], workspace_id);
+    assert_eq!(status["data"]["principal_id"], principal_id);
+    assert_eq!(status["meta"]["workspace_id"], workspace_id);
+    assert_eq!(status["meta"]["principal_id"], principal_id);
     assert_eq!(status["data"]["storage_schema_version"], 1);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
@@ -146,6 +153,36 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
             .unwrap()
             .starts_with("blake3:")
     );
+}
+
+#[test]
+fn status_returns_an_authentication_problem_for_a_different_local_identity() {
+    let directory = TestDirectory::new();
+    let initialized = proof_command(directory.path())
+        .arg("init")
+        .output()
+        .unwrap();
+    assert!(initialized.status.success());
+    let connection =
+        rusqlite::Connection::open(directory.path().join(".proof/state/proof.db")).unwrap();
+    connection
+        .execute(
+            "UPDATE principals SET identity_subject = 'uid:identity-mismatch'",
+            [],
+        )
+        .unwrap();
+
+    let status = proof_command(directory.path())
+        .args(["--output", "json", "status"])
+        .output()
+        .unwrap();
+
+    assert_eq!(status.status.code(), Some(4));
+    assert!(status.stderr.is_empty());
+    let problem: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.auth.unauthenticated");
+    assert_eq!(problem["operation"], "status");
+    assert_eq!(problem["retryable"], false);
 }
 
 #[test]

@@ -2,7 +2,10 @@
 
 //! Transport-independent application contracts for Proof.
 
-pub use proof_domain::{ContentDigest, CorrelationId, IdentifierError, OperationId, WorkspaceId};
+pub use proof_domain::{
+    ContentDigest, CorrelationId, IdentifierError, OperationId, PrincipalId, PrincipalType,
+    WorkspaceId,
+};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -263,6 +266,8 @@ impl ExitCode {
 pub struct InitializeWorkspaceCommand {
     /// Identity assigned to the new Workspace.
     pub workspace_id: WorkspaceId,
+    /// Human Principal bound to the authenticated local identity.
+    pub bootstrap_principal_id: PrincipalId,
 }
 
 /// Successful result of initializing one Workspace repository.
@@ -270,6 +275,8 @@ pub struct InitializeWorkspaceCommand {
 pub struct InitializedWorkspace {
     /// Persisted Workspace identity.
     pub workspace_id: WorkspaceId,
+    /// Persisted bootstrap Principal identity.
+    pub principal_id: PrincipalId,
 }
 
 /// Persistence port used by the Workspace initialization operation.
@@ -295,6 +302,9 @@ pub enum WorkspaceInitializationError {
     /// The selected root is missing, inaccessible, or not a directory.
     #[error("the selected Workspace root is unavailable: {0}")]
     RootUnavailable(String),
+    /// The local operating identity could not be authenticated.
+    #[error("local identity authentication failed: {0}")]
+    IdentityUnavailable(String),
     /// Local storage failed while initializing the Workspace.
     #[error("Workspace storage initialization failed: {0}")]
     Storage(String),
@@ -327,6 +337,8 @@ pub enum WorkspaceStatus {
 pub struct InitializedWorkspaceStatus {
     /// Verified Workspace identity.
     pub workspace_id: WorkspaceId,
+    /// Authenticated Principal bound to the current local identity.
+    pub principal_id: PrincipalId,
     /// Version of the local persistent schema.
     pub storage_schema_version: u32,
     /// Last authoritative fact sequence included in this state.
@@ -352,6 +364,9 @@ pub enum WorkspaceStatusError {
     /// Only part of the required Workspace layout exists.
     #[error("the selected Workspace has incomplete local state")]
     Incomplete,
+    /// The current local identity is not an enabled Workspace Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
     /// Persisted representations disagree or fail verification.
     #[error("Workspace integrity verification failed: {0}")]
     Integrity(String),
@@ -384,6 +399,9 @@ pub struct StatusData {
     /// Verified Workspace identity when initialized.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    /// Authenticated Principal identity when initialized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal_id: Option<String>,
     /// Local persistent schema version when initialized.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage_schema_version: Option<u32>,
@@ -404,6 +422,7 @@ impl StatusData {
             workspace_selected,
             workspace_initialized: false,
             workspace_id: None,
+            principal_id: None,
             storage_schema_version: None,
             authoritative_sequence: None,
             state_digest: None,
@@ -420,6 +439,7 @@ impl StatusData {
                 workspace_selected,
                 workspace_initialized: true,
                 workspace_id: Some(status.workspace_id.to_string()),
+                principal_id: Some(status.principal_id.to_string()),
                 storage_schema_version: Some(status.storage_schema_version),
                 authoritative_sequence: Some(status.authoritative_sequence),
                 state_digest: Some(status.state_digest.to_string()),
