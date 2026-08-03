@@ -7,13 +7,13 @@ use std::{
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, ApprovalName, ApproveChangeSetCommand,
     ApproveChangeSetError, ArtifactKind, ChangeSetId, ChangeSetIntent, CommitChangeSetCommand,
-    CommitChangeSetError, ContentDigest, CreateChangeSetCommand, CreateChangeSetError, EditId,
-    IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId,
-    SchemaCreateEdit, SchemaId, SchemaVersion, SubmitChangeSetCommand, SubmitChangeSetError,
-    Timestamp, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
-    add_changeset_edits, approve_changeset, commit_changeset, create_changeset,
-    initialize_workspace, inspect_changeset, submit_changeset, validate_changeset,
-    workspace_status,
+    CommitChangeSetError, ContentDigest, CreateChangeSetCommand, CreateChangeSetError,
+    CreateEditionCommand, CreateEditionError, EditId, EditionId, IdempotencyKey,
+    InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId, SchemaCreateEdit, SchemaId,
+    SchemaVersion, SubmitChangeSetCommand, SubmitChangeSetError, Timestamp, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
+    approve_changeset, commit_changeset, create_changeset, create_edition, initialize_workspace,
+    inspect_changeset, submit_changeset, validate_changeset, workspace_status,
 };
 use proof_canonical::{canonicalize, digest, initial_known_state_digest};
 use proof_local::LocalWorkspace;
@@ -31,6 +31,10 @@ const COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000043";
 const OTHER_COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000044";
 const EDIT_ID: &str = "019c0000-0000-7000-8000-000000000050";
 const OTHER_EDIT_ID: &str = "019c0000-0000-7000-8000-000000000051";
+const EDITION_ID: &str = "019c0000-0000-7000-8000-000000000060";
+const OTHER_EDITION_ID: &str = "019c0000-0000-7000-8000-000000000061";
+const EDITION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000070";
+const OTHER_EDITION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000071";
 const CREATED_AT: &str = "2026-08-03T14:00:00Z";
 
 #[test]
@@ -124,7 +128,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 7);
+    assert_eq!(schema_version, 8);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -245,7 +249,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 7);
+    assert_eq!(status.storage_schema_version, 8);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -451,7 +455,9 @@ fn draft_creation_migrates_a_verified_version_one_workspace_atomically() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_commits;
+            "DROP TABLE edition_create_operations;
+             DROP TABLE editions;
+             DROP TABLE changeset_commits;
              DROP TABLE schema_versions;
              DROP TABLE changeset_approvals;
              DROP TABLE changeset_submissions;
@@ -604,7 +610,9 @@ fn adding_edits_migrates_schema_version_two_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_commits;
+            "DROP TABLE edition_create_operations;
+             DROP TABLE editions;
+             DROP TABLE changeset_commits;
              DROP TABLE schema_versions;
              DROP TABLE changeset_approvals;
              DROP TABLE changeset_submissions;
@@ -1001,7 +1009,9 @@ fn approval_requires_submission_and_replays_exact_digest_bound_evidence() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_commits;
+            "DROP TABLE edition_create_operations;
+             DROP TABLE editions;
+             DROP TABLE changeset_commits;
              DROP TABLE schema_versions;
              DROP TABLE changeset_approvals;
              DELETE FROM schema_migrations WHERE version >= 6;
@@ -1167,9 +1177,11 @@ fn commit_migrates_an_approved_version_six_workspace_in_its_transaction() {
         .open_database()
         .unwrap()
         .execute_batch(
-            "DROP TABLE changeset_commits;
+            "DROP TABLE edition_create_operations;
+             DROP TABLE editions;
+             DROP TABLE changeset_commits;
              DROP TABLE schema_versions;
-             DELETE FROM schema_migrations WHERE version = 7;
+             DELETE FROM schema_migrations WHERE version >= 7;
              UPDATE workspace_metadata SET schema_version = 6 WHERE singleton = 1;
              PRAGMA user_version = 6;",
         )
@@ -1290,6 +1302,213 @@ fn commit_storage_failure_rolls_back_every_authoritative_write() {
 }
 
 #[test]
+fn edition_requires_committed_state_without_persisting_an_empty_artifact() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+
+    let error = create_edition(
+        &repository,
+        edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-03T18:00:00Z"),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, CreateEditionError::EmptyState);
+    let count: i64 = repository
+        .open_database()
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM editions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn edition_is_content_addressed_immutable_and_replayed_for_the_same_state() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    prepare_approved_changeset(
+        &repository,
+        CHANGESET_ID,
+        EDIT_ID,
+        "article",
+        IDEMPOTENCY_KEY,
+        ADD_IDEMPOTENCY_KEY,
+    );
+    let committed = commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T17:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    let first = create_edition(
+        &repository,
+        edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-03T18:00:00Z"),
+    )
+    .unwrap();
+    let replay = create_edition(
+        &repository,
+        edition_command(
+            OTHER_EDITION_ID,
+            EDITION_IDEMPOTENCY_KEY,
+            "2026-08-03T19:00:00Z",
+        ),
+    )
+    .unwrap();
+    let same_state = create_edition(
+        &repository,
+        edition_command(
+            OTHER_EDITION_ID,
+            OTHER_EDITION_IDEMPOTENCY_KEY,
+            "2026-08-03T19:00:00Z",
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(first, replay);
+    assert_eq!(first, same_state);
+    assert_eq!(first.state_digest, committed.resulting_state);
+    assert_eq!(first.authoritative_sequence, 1);
+    assert_eq!(first.schemas.len(), 1);
+    assert_eq!(first.changesets.len(), 1);
+    assert_eq!(first.created_at.to_string(), "2026-08-03T18:00:00Z");
+    let manifest = proof_canonical::parse_strict(first.manifest_json.as_bytes()).unwrap();
+    assert_eq!(manifest["api_version"], "proof.dev/edition/v1");
+    assert_eq!(manifest["state_digest"], first.state_digest.to_string());
+    let connection = repository.open_database().unwrap();
+    let edition_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM editions", [], |row| row.get(0))
+        .unwrap();
+    let operation_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM edition_create_operations",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(edition_count, 1);
+    assert_eq!(operation_count, 2);
+    connection
+        .execute("UPDATE editions SET manifest_json = '{}'", [])
+        .unwrap();
+    drop(connection);
+    assert!(matches!(
+        create_edition(
+            &repository,
+            edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-03T20:00:00Z",),
+        ),
+        Err(CreateEditionError::Integrity(_))
+    ));
+}
+
+#[test]
+fn edition_key_reuse_rejects_a_later_known_state() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    prepare_approved_changeset(
+        &repository,
+        CHANGESET_ID,
+        EDIT_ID,
+        "article",
+        IDEMPOTENCY_KEY,
+        ADD_IDEMPOTENCY_KEY,
+    );
+    commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T17:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    create_edition(
+        &repository,
+        edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-03T18:00:00Z"),
+    )
+    .unwrap();
+    prepare_approved_changeset(
+        &repository,
+        OTHER_CHANGESET_ID,
+        OTHER_EDIT_ID,
+        "cta",
+        OTHER_ADD_IDEMPOTENCY_KEY,
+        OTHER_COMMIT_IDEMPOTENCY_KEY,
+    );
+    commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: OTHER_CHANGESET_ID.parse().unwrap(),
+            idempotency_key: OTHER_COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T19:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        create_edition(
+            &repository,
+            edition_command(
+                OTHER_EDITION_ID,
+                EDITION_IDEMPOTENCY_KEY,
+                "2026-08-03T20:00:00Z",
+            ),
+        )
+        .unwrap_err(),
+        CreateEditionError::IdempotencyKeyReused
+    );
+}
+
+#[test]
+fn edition_creation_migrates_version_seven_atomically() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    prepare_approved_changeset(
+        &repository,
+        CHANGESET_ID,
+        EDIT_ID,
+        "article",
+        IDEMPOTENCY_KEY,
+        ADD_IDEMPOTENCY_KEY,
+    );
+    commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T17:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    repository
+        .open_database()
+        .unwrap()
+        .execute_batch(
+            "DROP TABLE edition_create_operations;
+             DROP TABLE editions;
+             DELETE FROM schema_migrations WHERE version = 8;
+             UPDATE workspace_metadata SET schema_version = 7 WHERE singleton = 1;
+             PRAGMA user_version = 7;",
+        )
+        .unwrap();
+
+    create_edition(
+        &repository,
+        edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-03T18:00:00Z"),
+    )
+    .unwrap();
+
+    let schema_version: u32 = repository
+        .open_database()
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version, 8);
+}
+
+#[test]
 fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
@@ -1301,7 +1520,9 @@ fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_commits;
+            "DROP TABLE edition_create_operations;
+             DROP TABLE editions;
+             DROP TABLE changeset_commits;
              DROP TABLE schema_versions;
              DROP TABLE changeset_approvals;
              DROP TABLE changeset_submissions;
@@ -1431,6 +1652,18 @@ fn draft_command(
         requested_base_state,
         idempotency_key: IDEMPOTENCY_KEY.parse::<IdempotencyKey>().unwrap(),
         created_at: CREATED_AT.parse::<Timestamp>().unwrap(),
+    }
+}
+
+fn edition_command(
+    edition_id: &str,
+    idempotency_key: &str,
+    created_at: &str,
+) -> CreateEditionCommand {
+    CreateEditionCommand {
+        edition_id: edition_id.parse::<EditionId>().unwrap(),
+        idempotency_key: idempotency_key.parse().unwrap(),
+        created_at: created_at.parse().unwrap(),
     }
 }
 

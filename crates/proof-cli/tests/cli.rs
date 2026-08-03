@@ -8,6 +8,7 @@ use std::{
 const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
 const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
 const COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000043";
+const EDITION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000070";
 const UNKNOWN_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000099";
 
 #[test]
@@ -148,7 +149,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 7);
+    assert_eq!(status["data"]["storage_schema_version"], 8);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -733,6 +734,108 @@ fn changeset_commit_advances_known_state_and_replays_identically() {
         status["data"]["state_digest"],
         committed["data"]["resulting_state"]
     );
+}
+
+#[test]
+fn edition_create_returns_a_stable_content_addressed_manifest() {
+    let directory = TestDirectory::new();
+    let changeset_id = create_changeset_with_schema_edit(&directory);
+    for action in ["validate", "submit"] {
+        assert!(
+            proof_command(directory.path())
+                .args(["changeset", action, &changeset_id])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "changeset",
+                "approve",
+                &changeset_id,
+                "--approval",
+                "editorial"
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "changeset",
+                "commit",
+                &changeset_id,
+                "--idempotency-key",
+                COMMIT_IDEMPOTENCY_KEY,
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let create = || {
+        proof_command(directory.path())
+            .args([
+                "--output",
+                "json",
+                "edition",
+                "create",
+                "--idempotency-key",
+                EDITION_IDEMPOTENCY_KEY,
+            ])
+            .output()
+            .unwrap()
+    };
+
+    let first = create();
+    let replay = create();
+
+    assert!(first.status.success());
+    assert!(replay.status.success());
+    let first: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    let replay: serde_json::Value = serde_json::from_slice(&replay.stdout).unwrap();
+    assert_eq!(first["operation"], "edition.create");
+    assert_eq!(first["data"]["authoritative_sequence"], 1);
+    assert_eq!(first["data"]["schema_count"], 1);
+    assert_eq!(first["data"]["changeset_count"], 1);
+    assert_eq!(
+        first["data"]["manifest"]["api_version"],
+        "proof.dev/edition/v1"
+    );
+    assert_eq!(first["data"]["edition_id"], replay["data"]["edition_id"]);
+    assert_eq!(
+        first["data"]["edition_digest"],
+        replay["data"]["edition_digest"]
+    );
+    assert_eq!(first["data"]["created_at"], replay["data"]["created_at"]);
+}
+
+#[test]
+fn edition_create_rejects_an_empty_workspace() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+
+    let output = proof_command(directory.path())
+        .args(["--output", "json", "edition", "create"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problem["operation"], "edition.create");
+    assert_eq!(problem["code"], "proof.validation.empty_state");
 }
 
 #[test]

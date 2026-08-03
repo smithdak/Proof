@@ -83,6 +83,10 @@ operational_id!(
     "A caller-visible identity used to make an operation safely repeatable."
 );
 operational_id!(EditId, "The identity of one ordered `ChangeSet` Edit.");
+operational_id!(
+    EditionId,
+    "The identity of one immutable Workspace Edition."
+);
 
 /// Maximum UTF-8 byte length of a logical Schema identifier.
 pub const MAX_SCHEMA_ID_BYTES: usize = 128;
@@ -365,6 +369,8 @@ pub enum ArtifactKind {
     SchemaVersionV1,
     /// One ordered batch of typed `ChangeSet` Edits.
     EditBatchV1,
+    /// One immutable ordered set of Schema versions.
+    SchemaSetV1,
 }
 
 impl ArtifactKind {
@@ -379,6 +385,7 @@ impl ArtifactKind {
             Self::KnownStateV1 => "proof:known-state:v1",
             Self::SchemaVersionV1 => "proof:schema-version:v1",
             Self::EditBatchV1 => "proof:edit-batch:v1",
+            Self::SchemaSetV1 => "proof:schema-set:v1",
         }
     }
 }

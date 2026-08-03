@@ -145,7 +145,15 @@ immediate SQLite transaction. A stale base, existing target, reused key, or
 storage failure leaves authoritative state unchanged. Retrying the same
 ChangeSet and key returns the original commit result and timestamp.
 
-Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
+`edition create` materializes the current non-empty Known State as one
+immutable canonical `proof.dev/edition/v1` manifest. The manifest binds the
+Workspace, authoritative sequence, Known State digest, ordered Schema set,
+Schema-set digest, and committed ChangeSet digests. Its Edition digest uses the
+`proof:edition:v1` domain; operational identity and creation time remain outside
+the content address. Repeated creation for unchanged state returns the same
+Edition, while reusing an idempotency key after state advances fails explicitly.
+
+Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution. Edition creation accepts an explicit key and returns the generated key when omitted.
 
 ## Input rules
 

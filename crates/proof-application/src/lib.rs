@@ -4,7 +4,7 @@
 
 pub use proof_domain::{
     ArtifactKind, ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus,
-    ContentDigest, CorrelationId, EditId, IdempotencyKey, IdentifierError, OperationId,
+    ContentDigest, CorrelationId, EditId, EditionId, IdempotencyKey, IdentifierError, OperationId,
     PrincipalId, PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError,
     Timestamp, TimestampError, WorkspaceId,
 };
@@ -1088,6 +1088,106 @@ pub fn commit_changeset(
     command: CommitChangeSetCommand,
 ) -> Result<CommittedChangeSet, CommitChangeSetError> {
     repository.commit_changeset(command)
+}
+
+/// Input for materializing the current verified Known State as an Edition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CreateEditionCommand {
+    /// Operational identity assigned if this state has no Edition yet.
+    pub edition_id: EditionId,
+    /// Retry identity scoped to the current Known State.
+    pub idempotency_key: IdempotencyKey,
+    /// Injected canonical time for a newly persisted Edition.
+    pub created_at: Timestamp,
+}
+
+/// One immutable Schema-version reference in an Edition manifest.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EditionSchema {
+    /// Logical Schema identity.
+    pub schema_id: SchemaId,
+    /// Immutable Schema version.
+    pub schema_version: SchemaVersion,
+    /// Digest of the exact canonical Schema document.
+    pub document_digest: ContentDigest,
+}
+
+/// One committed `ChangeSet` reference in an Edition manifest.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EditionChangeSet {
+    /// Committed proposal identity.
+    pub changeset_id: ChangeSetId,
+    /// Exact committed proposal digest.
+    pub changeset_digest: ContentDigest,
+}
+
+/// Immutable content-addressed representation of accepted Workspace state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Edition {
+    /// Stable operational Edition identity.
+    pub edition_id: EditionId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Principal that first materialized the Edition.
+    pub principal_id: PrincipalId,
+    /// Last authoritative sequence included in the Edition.
+    pub authoritative_sequence: u64,
+    /// Reproducible Known State represented by this Edition.
+    pub state_digest: ContentDigest,
+    /// Digest of the ordered Schema-set submanifest.
+    pub schema_set_digest: ContentDigest,
+    /// Digest of the canonical Edition manifest.
+    pub edition_digest: ContentDigest,
+    /// Exact canonical Edition manifest JSON.
+    pub manifest_json: String,
+    /// Canonical first-materialization time.
+    pub created_at: Timestamp,
+    /// Ordered immutable Schema references.
+    pub schemas: Vec<EditionSchema>,
+    /// Authoritative `ChangeSet`s included in sequence order.
+    pub changesets: Vec<EditionChangeSet>,
+}
+
+/// Persistence port for content-addressed Edition materialization.
+pub trait EditionRepository {
+    /// Returns the existing Edition for current state or creates it atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CreateEditionError`] without persisting a partial artifact.
+    fn create_edition(&self, command: CreateEditionCommand) -> Result<Edition, CreateEditionError>;
+}
+
+/// Edition creation failed without publishing a mutable artifact.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum CreateEditionError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// No authoritative state has been committed yet.
+    #[error("an Edition requires at least one committed authoritative record")]
+    EmptyState,
+    /// The retry key was already bound to a different Known State.
+    #[error("the idempotency key was already used with different input")]
+    IdempotencyKeyReused,
+    /// Persisted or canonical state failed deterministic verification.
+    #[error("Edition integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local Edition state could not be persisted safely.
+    #[error("local Edition storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Materializes current Known State through the configured Edition port.
+///
+/// # Errors
+///
+/// Returns [`CreateEditionError`] unless an immutable Edition can be returned.
+pub fn create_edition(
+    repository: &impl EditionRepository,
+    command: CreateEditionCommand,
+) -> Result<Edition, CreateEditionError> {
+    repository.create_edition(command)
 }
 
 /// Data returned by the initial `status` operation.

@@ -13,13 +13,14 @@ use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApprovalName,
     ApproveChangeSetCommand, ApproveChangeSetError, ApprovedChangeSet, ArtifactKind, ChangeSetId,
     ChangeSetIntent, CommitChangeSetCommand, CommitChangeSetError, CommittedChangeSet,
-    ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError, DraftChangeSet,
-    EditId, ExitCode, IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError,
-    InspectedChangeSet, OperationId, PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit,
-    SchemaId, SchemaVersion, StatusData, SubmitChangeSetCommand, SubmitChangeSetError,
-    SubmittedChangeSet, Timestamp, ValidateChangeSetError, ValidatedChangeSet, WorkspaceId,
-    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
-    approve_changeset, commit_changeset, create_changeset, initialize_workspace, inspect_changeset,
+    ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError,
+    CreateEditionCommand, CreateEditionError, DraftChangeSet, EditId, Edition, EditionId, ExitCode,
+    IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet,
+    OperationId, PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion,
+    StatusData, SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet, Timestamp,
+    ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
+    WorkspaceStatus, WorkspaceStatusError, add_changeset_edits, approve_changeset,
+    commit_changeset, create_changeset, create_edition, initialize_workspace, inspect_changeset,
     submit_changeset, validate_changeset, workspace_status,
 };
 use proof_canonical::{canonicalize, digest, parse_strict};
@@ -94,6 +95,11 @@ enum Command {
         #[command(subcommand)]
         action: ChangeSetAction,
     },
+    /// Work with immutable accepted-state Editions.
+    Edition {
+        #[command(subcommand)]
+        action: EditionAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -159,6 +165,16 @@ enum ChangeSetAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum EditionAction {
+    /// Materialize current committed Known State as an immutable Edition.
+    Create {
+        /// Supply a `UUIDv7` retry key; one is generated when omitted.
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+}
+
 impl Command {
     const fn operation(&self) -> &'static str {
         match self {
@@ -188,6 +204,9 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Commit { .. },
             } => "changeset.commit",
+            Self::Edition {
+                action: EditionAction::Create { .. },
+            } => "edition.create",
         }
     }
 }
@@ -339,6 +358,9 @@ fn run_command(
                     idempotency_key,
                 },
         } => commit_local_changeset(output, context, workspace, &changeset_id, &idempotency_key)?,
+        Command::Edition {
+            action: EditionAction::Create { idempotency_key },
+        } => create_local_edition(output, context, workspace, idempotency_key)?,
     };
     Ok(exit_code)
 }
@@ -1507,6 +1529,135 @@ fn commit_problem(error: &CommitChangeSetError, context: ExecutionContext) -> Bo
     Box::new(problem)
 }
 
+fn create_local_edition(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    idempotency_key: Option<String>,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| edition_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| edition_root_problem(context))?;
+    let idempotency_key = idempotency_key
+        .map(|value| value.parse::<IdempotencyKey>())
+        .transpose()
+        .map_err(|error| edition_input_problem(context, error.to_string()))?
+        .unwrap_or_else(generated_idempotency_key);
+    let created_at =
+        current_timestamp().map_err(|error| internal_problem("edition.create", context, error))?;
+    let edition = create_edition(
+        &repository,
+        CreateEditionCommand {
+            edition_id: generated_edition_id(),
+            idempotency_key,
+            created_at,
+        },
+    )
+    .map_err(|error| edition_problem(&error, context))?;
+    render_created_edition(output, context, &edition, idempotency_key);
+    Ok(ExitCode::Success)
+}
+
+fn render_created_edition(
+    output: OutputFormat,
+    context: ExecutionContext,
+    edition: &Edition,
+    idempotency_key: IdempotencyKey,
+) {
+    let data = CreatedEditionData::from_edition(edition, idempotency_key);
+    let mut result = ResultEnvelope::success(
+        "edition.create",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(edition.workspace_id.to_string());
+    result.meta.principal_id = Some(edition.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("Edition {} created", result.data.edition_id);
+            println!("Edition digest: {}", result.data.edition_digest);
+            println!("Known State: {}", result.data.state_digest);
+            println!("idempotency key: {}", result.data.idempotency_key);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn edition_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "edition.create",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn edition_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The Edition creation input is invalid",
+        "proof.input.schema_mismatch",
+        "edition.create",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn edition_problem(error: &CreateEditionError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        CreateEditionError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        CreateEditionError::EmptyState => (
+            "urn:proof:problem:empty-authoritative-state",
+            "An Edition requires committed authoritative state",
+            "proof.validation.empty_state",
+            false,
+        ),
+        CreateEditionError::IdempotencyKeyReused => (
+            "urn:proof:problem:idempotency-key-reused",
+            "The idempotency key was already used with different input",
+            "proof.idempotency.key_reused",
+            false,
+        ),
+        CreateEditionError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The Edition could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        CreateEditionError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local Edition storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "edition.create",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, CreateEditionError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
 #[derive(Clone, Copy)]
 enum ChangeSetProjection {
     Get,
@@ -1922,6 +2073,43 @@ impl From<&CommittedChangeSet> for CommittedChangeSetData {
 }
 
 #[derive(Serialize)]
+struct CreatedEditionData {
+    edition_id: String,
+    workspace_id: String,
+    principal_id: String,
+    authoritative_sequence: u64,
+    state_digest: String,
+    schema_set_digest: String,
+    edition_digest: String,
+    manifest: serde_json::Value,
+    created_at: String,
+    schema_count: usize,
+    changeset_count: usize,
+    idempotency_key: String,
+}
+
+impl CreatedEditionData {
+    fn from_edition(edition: &Edition, idempotency_key: IdempotencyKey) -> Self {
+        let manifest = parse_strict(edition.manifest_json.as_bytes())
+            .expect("verified Edition manifest must remain strict JSON");
+        Self {
+            edition_id: edition.edition_id.to_string(),
+            workspace_id: edition.workspace_id.to_string(),
+            principal_id: edition.principal_id.to_string(),
+            authoritative_sequence: edition.authoritative_sequence,
+            state_digest: edition.state_digest.to_string(),
+            schema_set_digest: edition.schema_set_digest.to_string(),
+            edition_digest: edition.edition_digest.to_string(),
+            manifest,
+            created_at: edition.created_at.to_string(),
+            schema_count: edition.schemas.len(),
+            changeset_count: edition.changesets.len(),
+            idempotency_key: idempotency_key.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
 struct InspectedChangeSetData {
     changeset_id: String,
     workspace_id: String,
@@ -2088,6 +2276,10 @@ fn generated_principal_id() -> PrincipalId {
 
 fn generated_changeset_id() -> ChangeSetId {
     ChangeSetId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
+}
+
+fn generated_edition_id() -> EditionId {
+    EditionId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
 }
 
 fn generated_edit_id() -> EditId {

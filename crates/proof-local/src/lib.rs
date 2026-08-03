@@ -17,8 +17,9 @@ use proof_application::{
     ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ChangeSetSubmissionRepository,
     ChangeSetValidationRepository, CommitChangeSetCommand, CommitChangeSetError,
     CommittedChangeSet, ContentDigest, CreateChangeSetCommand, CreateChangeSetError,
-    DRAFT_2020_12_META_VALIDATOR, DraftChangeSet, EditId, Finding, IdempotencyKey,
-    InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
+    CreateEditionCommand, CreateEditionError, DRAFT_2020_12_META_VALIDATOR, DraftChangeSet, EditId,
+    Edition, EditionChangeSet, EditionId, EditionRepository, EditionSchema, Finding,
+    IdempotencyKey, InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
     InspectChangeSetError, InspectedChangeSet, InspectedSchemaCreateEdit, LOCAL_POLICY_PROFILE,
     LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, SchemaCreateEdit, SchemaId,
     SchemaVersion, Severity, SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet,
@@ -162,7 +163,27 @@ CREATE TABLE changeset_commits (
     UNIQUE (workspace_id, principal_id, idempotency_key)
 ) STRICT;
 INSERT INTO schema_migrations (version, name) VALUES (7, 'commit-approved-changesets');
-PRAGMA user_version = 7;";
+CREATE TABLE editions (
+    edition_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence > 0),
+    state_digest TEXT NOT NULL UNIQUE,
+    schema_set_digest TEXT NOT NULL,
+    edition_digest TEXT NOT NULL UNIQUE,
+    manifest_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE edition_create_operations (
+    workspace_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    idempotency_key TEXT NOT NULL,
+    requested_state_digest TEXT NOT NULL,
+    edition_id TEXT NOT NULL REFERENCES editions(edition_id),
+    PRIMARY KEY (workspace_id, principal_id, idempotency_key)
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (8, 'create-immutable-editions');
+PRAGMA user_version = 8;";
 
 struct LocalIdentity {
     provider: &'static str,
@@ -918,6 +939,45 @@ impl ChangeSetCommitRepository for LocalWorkspace {
     }
 }
 
+impl EditionRepository for LocalWorkspace {
+    fn create_edition(&self, command: CreateEditionCommand) -> Result<Edition, CreateEditionError> {
+        let config = self.read_config().map_err(edition_from_initialization)?;
+        let workspace_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| CreateEditionError::Unauthenticated)?;
+        let mut connection = self.open_database().map_err(edition_from_initialization)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        let (database_id, bootstrap_principal_id, schema_version): (String, String, u32) =
+            transaction
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
+                     FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        if database_id != workspace_id.to_string() {
+            return Err(CreateEditionError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+        let principal_id =
+            authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
+                .map_err(edition_from_status)?;
+        ensure_edition_schema(&transaction, schema_version)?;
+        let edition = create_current_edition(&transaction, workspace_id, principal_id, &command)?;
+        transaction
+            .commit()
+            .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        Ok(edition)
+    }
+}
+
 impl WorkspaceStatusRepository for LocalWorkspace {
     fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError> {
         let has_config = path_exists(&self.config_path()).map_err(status_from_initialization)?;
@@ -1061,7 +1121,7 @@ fn initialize_database(
         .execute(
             "INSERT INTO workspace_metadata (
                  singleton, workspace_id, bootstrap_principal_id, schema_version
-             ) VALUES (1, ?1, ?2, 7)",
+             ) VALUES (1, ?1, ?2, 8)",
             [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -1467,6 +1527,28 @@ fn commit_from_submission(error: SubmitChangeSetError) -> CommitChangeSetError {
     }
 }
 
+fn edition_from_initialization(error: WorkspaceInitializationError) -> CreateEditionError {
+    match error {
+        WorkspaceInitializationError::IdentityUnavailable(_) => CreateEditionError::Unauthenticated,
+        WorkspaceInitializationError::AlreadyExists => CreateEditionError::Integrity(
+            "unexpected initialization conflict while creating Edition".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => CreateEditionError::Storage(detail),
+    }
+}
+
+fn edition_from_status(error: WorkspaceStatusError) -> CreateEditionError {
+    match error {
+        WorkspaceStatusError::Unauthenticated => CreateEditionError::Unauthenticated,
+        WorkspaceStatusError::Incomplete => CreateEditionError::Integrity(
+            "the selected Workspace has incomplete local state".to_owned(),
+        ),
+        WorkspaceStatusError::Integrity(detail) => CreateEditionError::Integrity(detail),
+        WorkspaceStatusError::Storage(detail) => CreateEditionError::Storage(detail),
+    }
+}
+
 fn inspect_schema_version(
     connection: &Connection,
     metadata_schema_version: u32,
@@ -1484,7 +1566,7 @@ fn inspect_schema_version(
             "persistent schema version records differ".to_owned(),
         ));
     }
-    if !(1..=7).contains(&migration_version) {
+    if !(1..=8).contains(&migration_version) {
         return Err(InspectChangeSetError::Integrity(format!(
             "unsupported local schema version {migration_version}"
         )));
@@ -1763,7 +1845,7 @@ fn ensure_changeset_schema(
                  PRAGMA user_version = 2;",
             )
             .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
-        2..=7 => Ok(()),
+        2..=8 => Ok(()),
         version => Err(CreateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1819,7 +1901,7 @@ fn ensure_edit_schema(
                  PRAGMA user_version = 3;",
             )
             .map_err(|error| AddChangeSetEditsError::Storage(error.to_string())),
-        3..=7 => Ok(()),
+        3..=8 => Ok(()),
         version => Err(AddChangeSetEditsError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1875,7 +1957,7 @@ fn ensure_validation_schema(
                  PRAGMA user_version = 4;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        4..=7 => Ok(()),
+        4..=8 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1922,7 +2004,7 @@ fn ensure_lifecycle_schema(
                  PRAGMA user_version = 5;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        5..=7 => Ok(()),
+        5..=8 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1963,7 +2045,7 @@ fn ensure_approval_schema(
                  PRAGMA user_version = 6;",
             )
             .map_err(|error| ApproveChangeSetError::Storage(error.to_string())),
-        6 | 7 => Ok(()),
+        6..=8 => Ok(()),
         version => Err(ApproveChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -2022,8 +2104,61 @@ fn ensure_commit_schema(
                  PRAGMA user_version = 7;",
             )
             .map_err(|error| CommitChangeSetError::Storage(error.to_string())),
-        7 => Ok(()),
+        7 | 8 => Ok(()),
         version => Err(CommitChangeSetError::Integrity(format!(
+            "unsupported local schema version {version}"
+        ))),
+    }
+}
+
+fn ensure_edition_schema(
+    transaction: &Transaction<'_>,
+    metadata_schema_version: u32,
+) -> Result<(), CreateEditionError> {
+    let migration_version: u32 = transaction
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(CreateEditionError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+    match migration_version {
+        7 => transaction
+            .execute_batch(
+                "CREATE TABLE editions (
+                     edition_id TEXT PRIMARY KEY,
+                     workspace_id TEXT NOT NULL,
+                     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                     authoritative_sequence INTEGER NOT NULL
+                         CHECK (authoritative_sequence > 0),
+                     state_digest TEXT NOT NULL UNIQUE,
+                     schema_set_digest TEXT NOT NULL,
+                     edition_digest TEXT NOT NULL UNIQUE,
+                     manifest_json TEXT NOT NULL,
+                     created_at TEXT NOT NULL
+                 ) STRICT;
+                 CREATE TABLE edition_create_operations (
+                     workspace_id TEXT NOT NULL,
+                     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                     idempotency_key TEXT NOT NULL,
+                     requested_state_digest TEXT NOT NULL,
+                     edition_id TEXT NOT NULL REFERENCES editions(edition_id),
+                     PRIMARY KEY (workspace_id, principal_id, idempotency_key)
+                 ) STRICT;
+                 INSERT INTO schema_migrations (version, name)
+                 VALUES (8, 'create-immutable-editions');
+                 UPDATE workspace_metadata SET schema_version = 8 WHERE singleton = 1;
+                 PRAGMA user_version = 8;",
+            )
+            .map_err(|error| CreateEditionError::Storage(error.to_string())),
+        8 => Ok(()),
+        version => Err(CreateEditionError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
     }
@@ -2896,6 +3031,382 @@ fn replay_commit(
     })
 }
 
+struct EditionManifest {
+    schema_set_digest: ContentDigest,
+    manifest_json: String,
+    edition_digest: ContentDigest,
+}
+
+fn create_current_edition(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    command: &CreateEditionCommand,
+) -> Result<Edition, CreateEditionError> {
+    let (authoritative_sequence, state_digest) =
+        reproducible_known_state(transaction, workspace_id)
+            .map_err(CreateEditionError::Integrity)?;
+    if authoritative_sequence == 0 {
+        return Err(CreateEditionError::EmptyState);
+    }
+    if let Some(edition) = replay_edition_operation(
+        transaction,
+        workspace_id,
+        principal_id,
+        command.idempotency_key,
+        state_digest,
+    )? {
+        return Ok(edition);
+    }
+    let existing_id: Option<String> = transaction
+        .query_row(
+            "SELECT edition_id FROM editions WHERE state_digest = ?1",
+            [state_digest.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    if let Some(existing_id) = existing_id {
+        let edition_id = existing_id
+            .parse::<EditionId>()
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        record_edition_operation(
+            transaction,
+            workspace_id,
+            principal_id,
+            command.idempotency_key,
+            state_digest,
+            edition_id,
+        )?;
+        return load_edition(transaction, edition_id);
+    }
+    let schemas = load_edition_schemas(transaction, authoritative_sequence)?;
+    let changesets = load_edition_changesets(transaction, authoritative_sequence)?;
+    let manifest = build_edition_manifest(
+        workspace_id,
+        authoritative_sequence,
+        state_digest,
+        &schemas,
+        &changesets,
+    )?;
+    transaction
+        .execute(
+            "INSERT INTO editions (
+                 edition_id, workspace_id, principal_id, authoritative_sequence,
+                 state_digest, schema_set_digest, edition_digest, manifest_json, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (
+                command.edition_id.to_string(),
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                i64::try_from(authoritative_sequence).map_err(|_| {
+                    CreateEditionError::Integrity(
+                        "authoritative sequence exceeds local storage range".to_owned(),
+                    )
+                })?,
+                state_digest.to_string(),
+                manifest.schema_set_digest.to_string(),
+                manifest.edition_digest.to_string(),
+                manifest.manifest_json.as_str(),
+                command.created_at.to_string(),
+            ),
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    record_edition_operation(
+        transaction,
+        workspace_id,
+        principal_id,
+        command.idempotency_key,
+        state_digest,
+        command.edition_id,
+    )?;
+    Ok(Edition {
+        edition_id: command.edition_id,
+        workspace_id,
+        principal_id,
+        authoritative_sequence,
+        state_digest,
+        schema_set_digest: manifest.schema_set_digest,
+        edition_digest: manifest.edition_digest,
+        manifest_json: manifest.manifest_json,
+        created_at: command.created_at,
+        schemas,
+        changesets,
+    })
+}
+
+fn replay_edition_operation(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    idempotency_key: IdempotencyKey,
+    state_digest: ContentDigest,
+) -> Result<Option<Edition>, CreateEditionError> {
+    let persisted: Option<(String, String)> = connection
+        .query_row(
+            "SELECT requested_state_digest, edition_id
+             FROM edition_create_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                idempotency_key.to_string(),
+            ),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let Some((requested_state, edition_id)) = persisted else {
+        return Ok(None);
+    };
+    if requested_state != state_digest.to_string() {
+        return Err(CreateEditionError::IdempotencyKeyReused);
+    }
+    let edition_id = edition_id
+        .parse::<EditionId>()
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    load_edition(connection, edition_id).map(Some)
+}
+
+fn record_edition_operation(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    idempotency_key: IdempotencyKey,
+    state_digest: ContentDigest,
+    edition_id: EditionId,
+) -> Result<(), CreateEditionError> {
+    transaction
+        .execute(
+            "INSERT INTO edition_create_operations (
+                 workspace_id, principal_id, idempotency_key,
+                 requested_state_digest, edition_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                idempotency_key.to_string(),
+                state_digest.to_string(),
+                edition_id.to_string(),
+            ),
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    Ok(())
+}
+
+fn load_edition(
+    connection: &Connection,
+    edition_id: EditionId,
+) -> Result<Edition, CreateEditionError> {
+    let persisted: (String, String, i64, String, String, String, String, String) = connection
+        .query_row(
+            "SELECT workspace_id, principal_id, authoritative_sequence, state_digest,
+                    schema_set_digest, edition_digest, manifest_json, created_at
+             FROM editions WHERE edition_id = ?1",
+            [edition_id.to_string()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            },
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let workspace_id = persisted
+        .0
+        .parse::<WorkspaceId>()
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    let principal_id = persisted
+        .1
+        .parse::<PrincipalId>()
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    let authoritative_sequence = u64::try_from(persisted.2)
+        .map_err(|_| CreateEditionError::Integrity("invalid Edition sequence".to_owned()))?;
+    let state_digest = persisted
+        .3
+        .parse::<ContentDigest>()
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    let schemas = load_edition_schemas(connection, authoritative_sequence)?;
+    let changesets = load_edition_changesets(connection, authoritative_sequence)?;
+    let expected = build_edition_manifest(
+        workspace_id,
+        authoritative_sequence,
+        state_digest,
+        &schemas,
+        &changesets,
+    )?;
+    if persisted.4 != expected.schema_set_digest.to_string()
+        || persisted.5 != expected.edition_digest.to_string()
+        || persisted.6 != expected.manifest_json
+    {
+        return Err(CreateEditionError::Integrity(
+            "persisted Edition does not match its canonical manifest".to_owned(),
+        ));
+    }
+    let (_, reproduced_state) =
+        reproducible_known_state_at(connection, workspace_id, authoritative_sequence)
+            .map_err(CreateEditionError::Integrity)?;
+    if reproduced_state != state_digest {
+        return Err(CreateEditionError::Integrity(
+            "Edition Known State is not reproducible".to_owned(),
+        ));
+    }
+    let created_at = persisted
+        .7
+        .parse()
+        .map_err(|error: proof_application::TimestampError| {
+            CreateEditionError::Integrity(error.to_string())
+        })?;
+    Ok(Edition {
+        edition_id,
+        workspace_id,
+        principal_id,
+        authoritative_sequence,
+        state_digest,
+        schema_set_digest: expected.schema_set_digest,
+        edition_digest: expected.edition_digest,
+        manifest_json: expected.manifest_json,
+        created_at,
+        schemas,
+        changesets,
+    })
+}
+
+fn load_edition_schemas(
+    connection: &Connection,
+    authoritative_sequence: u64,
+) -> Result<Vec<EditionSchema>, CreateEditionError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT schema_id, schema_version, document_digest
+             FROM schema_versions WHERE authoritative_sequence <= ?1
+             ORDER BY schema_id, schema_version",
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map(
+            [i64::try_from(authoritative_sequence).map_err(|_| {
+                CreateEditionError::Integrity("invalid Edition sequence".to_owned())
+            })?],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let mut schemas = Vec::new();
+    for row in rows {
+        let (schema_id, schema_version, document_digest) =
+            row.map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        schemas.push(EditionSchema {
+            schema_id: SchemaId::new(schema_id)
+                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+            schema_version: SchemaVersion::new(
+                u32::try_from(schema_version).map_err(|_| {
+                    CreateEditionError::Integrity("invalid Schema version".to_owned())
+                })?,
+            )
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+            document_digest: document_digest
+                .parse::<ContentDigest>()
+                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+        });
+    }
+    Ok(schemas)
+}
+
+fn load_edition_changesets(
+    connection: &Connection,
+    authoritative_sequence: u64,
+) -> Result<Vec<EditionChangeSet>, CreateEditionError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, changeset_digest FROM changeset_commits
+             WHERE authoritative_sequence <= ?1 ORDER BY authoritative_sequence",
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map(
+            [i64::try_from(authoritative_sequence).map_err(|_| {
+                CreateEditionError::Integrity("invalid Edition sequence".to_owned())
+            })?],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let mut changesets = Vec::new();
+    for row in rows {
+        let (changeset_id, changeset_digest) =
+            row.map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        changesets.push(EditionChangeSet {
+            changeset_id: changeset_id
+                .parse::<ChangeSetId>()
+                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+            changeset_digest: changeset_digest
+                .parse::<ContentDigest>()
+                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+        });
+    }
+    Ok(changesets)
+}
+
+fn build_edition_manifest(
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+    state_digest: ContentDigest,
+    schemas: &[EditionSchema],
+    changesets: &[EditionChangeSet],
+) -> Result<EditionManifest, CreateEditionError> {
+    let schema_values: Vec<_> = schemas
+        .iter()
+        .map(|schema| {
+            serde_json::json!({
+                "document_digest": schema.document_digest.to_string(),
+                "schema_id": schema.schema_id.as_str(),
+                "schema_version": schema.schema_version.get(),
+            })
+        })
+        .collect();
+    let schema_set = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/schema-set/v1",
+        "schemas": schema_values,
+    }))
+    .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    let schema_set_digest = digest(ArtifactKind::SchemaSetV1, &schema_set);
+    let changeset_values: Vec<_> = changesets
+        .iter()
+        .map(|changeset| {
+            serde_json::json!({
+                "changeset_digest": changeset.changeset_digest.to_string(),
+                "changeset_id": changeset.changeset_id.to_string(),
+            })
+        })
+        .collect();
+    let manifest = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/edition/v1",
+        "authoritative_sequence": authoritative_sequence,
+        "changesets": changeset_values,
+        "schema_set_digest": schema_set_digest.to_string(),
+        "schemas": schema_values,
+        "state_digest": state_digest.to_string(),
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    Ok(EditionManifest {
+        schema_set_digest,
+        edition_digest: digest(ArtifactKind::EditionV1, &manifest),
+        manifest_json: manifest.as_str().to_owned(),
+    })
+}
+
 fn verified_edit_batch(
     edits: &[SchemaCreateEdit],
 ) -> Result<ContentDigest, AddChangeSetEditsError> {
@@ -3235,20 +3746,24 @@ fn reproducible_known_state_at(
         .prepare(
             "SELECT schema_id, schema_version, document_json, document_digest,
                     authoritative_sequence
-             FROM schema_versions
+             FROM schema_versions WHERE authoritative_sequence <= ?1
              ORDER BY schema_id, schema_version",
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
-            ))
-        })
+        .query_map(
+            [i64::try_from(sequence)
+                .map_err(|_| "authoritative sequence exceeds local storage range".to_owned())?],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            },
+        )
         .map_err(|error| error.to_string())?;
     let mut schemas = Vec::new();
     let mut sequences = Vec::new();

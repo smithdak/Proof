@@ -14,6 +14,7 @@ All notable project changes are documented here. The format follows [Keep a Chan
 - Added a Human bootstrap Principal bound to the authenticated Unix user for local Workspace operations.
 - Added idempotent local ChangeSet draft creation bound to declared intent, Principal, and exact Known State.
 - Added atomic approved ChangeSet commits with optimistic base-state checks, immutable Schema versions, and reproducible Known State advancement.
+- Added immutable content-addressed Edition creation over committed Known State, Schema, and ChangeSet manifests.
 - Added atomic ordered Schema-create Edit batches with strict NDJSON input and canonical document digests.
 - Added authenticated `changeset get` and deterministic `changeset diff` projections with full persisted-evidence verification.
 - Ratified the **Proof** product name and tagline, “Every release carries its proof.”
