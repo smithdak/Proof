@@ -15,9 +15,10 @@ use proof_application::{
     CreateChangeSetError, DraftChangeSet, EditId, ExitCode, IdempotencyKey,
     InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet, OperationId,
     PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion, StatusData,
-    Timestamp, ValidateChangeSetError, ValidatedChangeSet, WorkspaceId,
-    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
-    create_changeset, initialize_workspace, inspect_changeset, validate_changeset,
+    SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet, Timestamp,
+    ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
+    WorkspaceStatus, WorkspaceStatusError, add_changeset_edits, create_changeset,
+    initialize_workspace, inspect_changeset, submit_changeset, validate_changeset,
     workspace_status,
 };
 use proof_canonical::{canonicalize, digest, parse_strict};
@@ -134,6 +135,11 @@ enum ChangeSetAction {
         /// Target `ChangeSet` `UUIDv7`.
         changeset_id: String,
     },
+    /// Submit a validation-sealed proposal for governed review.
+    Submit {
+        /// Target ready `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+    },
 }
 
 impl Command {
@@ -156,6 +162,9 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Validate { .. },
             } => "changeset.validate",
+            Self::Changeset {
+                action: ChangeSetAction::Submit { .. },
+            } => "changeset.submit",
         }
     }
 }
@@ -281,6 +290,9 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
         Command::Changeset {
             action: ChangeSetAction::Validate { changeset_id },
         } => validate_local_changeset(output, context, workspace, &changeset_id)?,
+        Command::Changeset {
+            action: ChangeSetAction::Submit { changeset_id },
+        } => submit_local_changeset(output, context, workspace, &changeset_id)?,
     };
     Ok(exit_code)
 }
@@ -963,6 +975,12 @@ fn validation_problem(error: &ValidateChangeSetError, context: ExecutionContext)
             "proof.resource.not_found",
             false,
         ),
+        ValidateChangeSetError::NotValidatable => (
+            "urn:proof:problem:changeset-not-validatable",
+            "The ChangeSet is no longer in a validatable lifecycle state",
+            "proof.changeset.not_validatable",
+            false,
+        ),
         ValidateChangeSetError::Integrity(_) => (
             "urn:proof:problem:evidence-incomplete",
             "The requested ChangeSet could not be verified",
@@ -1008,6 +1026,140 @@ fn validation_failed_problem(
         validated.validation_results_digest, validated.changeset_digest
     ));
     problem.findings.clone_from(&validated.findings);
+    Box::new(problem)
+}
+
+fn submit_local_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    changeset_id: &str,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| submission_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| submission_root_problem(context))?;
+    let changeset_id = changeset_id
+        .parse::<ChangeSetId>()
+        .map_err(|error| submission_input_problem(context, error.to_string()))?;
+    let submitted_at = current_timestamp()
+        .map_err(|error| internal_problem("changeset.submit", context, error))?;
+    let submitted = submit_changeset(
+        &repository,
+        SubmitChangeSetCommand {
+            changeset_id,
+            submitted_at,
+        },
+    )
+    .map_err(|error| submission_problem(&error, context))?;
+    render_submitted_changeset(output, context, &submitted);
+    Ok(ExitCode::Success)
+}
+
+fn render_submitted_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    submitted: &SubmittedChangeSet,
+) {
+    let data = SubmittedChangeSetData::from(submitted);
+    let mut result = ResultEnvelope::success(
+        "changeset.submit",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(submitted.workspace_id.to_string());
+    result.meta.principal_id = Some(submitted.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("ChangeSet {} submitted", result.data.changeset_id);
+            println!("ChangeSet digest: {}", result.data.changeset_digest);
+            println!(
+                "validation results: {}",
+                result.data.validation_results_digest
+            );
+            println!("submitted at: {}", result.data.submitted_at);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn submission_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "changeset.submit",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn submission_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The ChangeSet identifier is invalid",
+        "proof.input.schema_mismatch",
+        "changeset.submit",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn submission_problem(error: &SubmitChangeSetError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        SubmitChangeSetError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        SubmitChangeSetError::NotFound => (
+            "urn:proof:problem:resource-not-found",
+            "The requested ChangeSet was not found",
+            "proof.resource.not_found",
+            false,
+        ),
+        SubmitChangeSetError::NotReady => (
+            "urn:proof:problem:changeset-not-ready",
+            "Only a ready ChangeSet can be submitted",
+            "proof.changeset.not_ready",
+            false,
+        ),
+        SubmitChangeSetError::ValidationEvidenceMissing => (
+            "urn:proof:problem:validation-evidence-missing",
+            "Exact valid ChangeSet evidence is required before submission",
+            "proof.validation.evidence_missing",
+            false,
+        ),
+        SubmitChangeSetError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The ChangeSet submission could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        SubmitChangeSetError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet submission storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "changeset.submit",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, SubmitChangeSetError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
     Box::new(problem)
 }
 
@@ -1314,6 +1466,7 @@ struct ValidatedChangeSetData {
     findings: Vec<proof_application::Finding>,
     validation_results_digest: String,
     edit_count: u32,
+    status: String,
 }
 
 impl From<&ValidatedChangeSet> for ValidatedChangeSetData {
@@ -1330,6 +1483,36 @@ impl From<&ValidatedChangeSet> for ValidatedChangeSetData {
             findings: validated.findings.clone(),
             validation_results_digest: validated.validation_results_digest.to_string(),
             edit_count: validated.edit_count,
+            status: validated.status.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SubmittedChangeSetData {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    changeset_digest: String,
+    validation_results_digest: String,
+    base_state: String,
+    submitted_at: String,
+    status: String,
+    edit_count: u32,
+}
+
+impl From<&SubmittedChangeSet> for SubmittedChangeSetData {
+    fn from(submitted: &SubmittedChangeSet) -> Self {
+        Self {
+            changeset_id: submitted.changeset_id.to_string(),
+            workspace_id: submitted.workspace_id.to_string(),
+            principal_id: submitted.principal_id.to_string(),
+            changeset_digest: submitted.changeset_digest.to_string(),
+            validation_results_digest: submitted.validation_results_digest.to_string(),
+            base_state: submitted.base_state.to_string(),
+            submitted_at: submitted.submitted_at.to_string(),
+            status: submitted.status.to_string(),
+            edit_count: submitted.edit_count,
         }
     }
 }

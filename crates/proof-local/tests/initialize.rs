@@ -8,9 +8,10 @@ use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, ArtifactKind, ChangeSetId, ChangeSetIntent,
     ContentDigest, CreateChangeSetCommand, CreateChangeSetError, EditId, IdempotencyKey,
     InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId, SchemaCreateEdit, SchemaId,
-    SchemaVersion, Timestamp, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
-    WorkspaceStatusError, add_changeset_edits, create_changeset, initialize_workspace,
-    inspect_changeset, validate_changeset, workspace_status,
+    SchemaVersion, SubmitChangeSetCommand, SubmitChangeSetError, Timestamp, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
+    create_changeset, initialize_workspace, inspect_changeset, submit_changeset,
+    validate_changeset, workspace_status,
 };
 use proof_canonical::{canonicalize, digest, initial_known_state_digest};
 use proof_local::LocalWorkspace;
@@ -119,7 +120,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 4);
+    assert_eq!(schema_version, 5);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -240,7 +241,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 4);
+    assert_eq!(status.storage_schema_version, 5);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -446,7 +447,8 @@ fn draft_creation_migrates_a_verified_version_one_workspace_atomically() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_validations;
+            "DROP TABLE changeset_submissions;
+             DROP TABLE changeset_validations;
              DROP TABLE changeset_add_operations;
              DROP TABLE changeset_edits;
              DROP TABLE changesets;
@@ -595,7 +597,8 @@ fn adding_edits_migrates_schema_version_two_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_validations;
+            "DROP TABLE changeset_submissions;
+             DROP TABLE changeset_validations;
              DROP TABLE changeset_add_operations;
              DROP TABLE changeset_edits;
              DELETE FROM schema_migrations WHERE version >= 3;
@@ -707,7 +710,7 @@ fn inspection_rejects_tampered_canonical_edit_evidence() {
 }
 
 #[test]
-fn validation_evidence_is_deterministic_and_bound_to_exact_edits() {
+fn validation_evidence_is_deterministic_and_seals_exact_edits() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
     create_changeset(
@@ -731,6 +734,7 @@ fn validation_evidence_is_deterministic_and_bound_to_exact_edits() {
     assert!(first.valid);
     assert!(first.findings.is_empty());
     assert_eq!(first.edit_count, 1);
+    assert_eq!(first.status, proof_application::ChangeSetStatus::Ready);
     assert_eq!(first, replay);
     let connection = repository.open_database().unwrap();
     let persisted: (String, String, i64, String) = connection
@@ -747,7 +751,7 @@ fn validation_evidence_is_deterministic_and_bound_to_exact_edits() {
     assert_eq!(persisted.3, first.validation_results_digest.to_string());
     drop(connection);
 
-    add_changeset_edits(
+    let error = add_changeset_edits(
         &repository,
         AddChangeSetEditsCommand {
             changeset_id: CHANGESET_ID.parse().unwrap(),
@@ -755,15 +759,10 @@ fn validation_evidence_is_deterministic_and_bound_to_exact_edits() {
             idempotency_key: OTHER_ADD_IDEMPOTENCY_KEY.parse().unwrap(),
         },
     )
-    .unwrap();
-    let updated = validate_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
-    assert!(updated.valid);
-    assert_eq!(updated.edit_count, 2);
-    assert_ne!(updated.changeset_digest, first.changeset_digest);
-    assert_ne!(
-        updated.validation_results_digest,
-        first.validation_results_digest
-    );
+    .unwrap_err();
+    assert_eq!(error, AddChangeSetEditsError::NotDraft);
+    let inspected = inspect_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+    assert_eq!(inspected.status, proof_application::ChangeSetStatus::Ready);
     let count: i64 = repository
         .open_database()
         .unwrap()
@@ -771,7 +770,7 @@ fn validation_evidence_is_deterministic_and_bound_to_exact_edits() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count, 1);
 }
 
 #[test]
@@ -786,9 +785,17 @@ fn validation_reports_empty_and_meta_schema_findings_at_stable_pointers() {
 
     let empty = validate_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
     assert!(!empty.valid);
+    assert_eq!(empty.status, proof_application::ChangeSetStatus::Rejected);
     assert_eq!(empty.findings[0].code, "proof.changeset.empty");
     assert_eq!(empty.findings[0].pointer.as_deref(), Some("/edits"));
 
+    let invalid_directory = TestDirectory::new();
+    let repository = initialized_repository(&invalid_directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define invalid Schema", None),
+    )
+    .unwrap();
     add_changeset_edits(
         &repository,
         AddChangeSetEditsCommand {
@@ -838,6 +845,109 @@ fn altered_validation_evidence_is_rejected_on_deterministic_replay() {
 }
 
 #[test]
+fn submission_requires_ready_state_and_replays_exact_sealed_evidence() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define launch Schemas", None),
+    )
+    .unwrap();
+    let submit = |submitted_at: &str| {
+        submit_changeset(
+            &repository,
+            SubmitChangeSetCommand {
+                changeset_id: CHANGESET_ID.parse().unwrap(),
+                submitted_at: submitted_at.parse().unwrap(),
+            },
+        )
+    };
+    assert_eq!(
+        submit("2026-08-03T15:00:00Z").unwrap_err(),
+        SubmitChangeSetError::NotReady
+    );
+    add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![schema_edit(EDIT_ID, "article", 1, "Article")],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    let validated = validate_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+
+    let first = submit("2026-08-03T15:00:00Z").unwrap();
+    let replay = submit("2026-08-03T16:00:00Z").unwrap();
+
+    assert_eq!(first, replay);
+    assert_eq!(first.status, proof_application::ChangeSetStatus::Submitted);
+    assert_eq!(first.changeset_digest, validated.changeset_digest);
+    assert_eq!(
+        first.validation_results_digest,
+        validated.validation_results_digest
+    );
+    assert_eq!(first.submitted_at.to_string(), "2026-08-03T15:00:00Z");
+    let inspected = inspect_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+    assert_eq!(
+        inspected.status,
+        proof_application::ChangeSetStatus::Submitted
+    );
+    let count: i64 = repository
+        .open_database()
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM changeset_submissions", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn submission_rejects_tampered_validation_evidence() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define launch Schemas", None),
+    )
+    .unwrap();
+    add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![schema_edit(EDIT_ID, "article", 1, "Article")],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    validate_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+    repository
+        .open_database()
+        .unwrap()
+        .execute(
+            "UPDATE changeset_validations SET results_digest = ?1",
+            [format!("blake3:{}", "00".repeat(32))],
+        )
+        .unwrap();
+
+    assert!(matches!(
+        submit_changeset(
+            &repository,
+            SubmitChangeSetCommand {
+                changeset_id: CHANGESET_ID.parse().unwrap(),
+                submitted_at: "2026-08-03T15:00:00Z".parse().unwrap(),
+            }
+        ),
+        Err(SubmitChangeSetError::Integrity(_))
+    ));
+    let status = inspect_changeset(&repository, CHANGESET_ID.parse().unwrap())
+        .unwrap()
+        .status;
+    assert_eq!(status, proof_application::ChangeSetStatus::Ready);
+}
+
+#[test]
 fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
@@ -849,8 +959,10 @@ fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_validations;
-             DELETE FROM schema_migrations WHERE version = 4;
+            "DROP TABLE changeset_submissions;
+             DROP TABLE changeset_validations;
+             ALTER TABLE changesets DROP COLUMN lifecycle_status;
+             DELETE FROM schema_migrations WHERE version >= 4;
              UPDATE workspace_metadata SET schema_version = 3 WHERE singleton = 1;
              PRAGMA user_version = 3;",
         )
@@ -876,8 +988,8 @@ fn validation_migrates_schema_version_three_in_the_same_transaction() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(metadata_version, 4);
-    assert_eq!(pragma_version, 4);
+    assert_eq!(metadata_version, 5);
+    assert_eq!(pragma_version, 5);
     assert_eq!(evidence_count, 1);
 }
 

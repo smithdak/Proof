@@ -91,6 +91,7 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 ### Validation and policy
 
 - `proof.validation.failed`
+- `proof.validation.evidence_missing`
 - `proof.policy.denied`
 - `proof.schema.required`
 - `proof.schema.type_mismatch`
@@ -101,6 +102,8 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.resource.not_found`
 - `proof.state.conflict`
 - `proof.changeset.invalid_state`
+- `proof.changeset.not_ready`
+- `proof.changeset.not_validatable`
 - `proof.changeset.expired`
 - `proof.idempotency.key_reused`
 

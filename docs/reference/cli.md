@@ -115,9 +115,17 @@ Schema document against the bundled Draft 2020-12 metaschema. Validation
 results are canonicalized, digested, and persisted against the exact ChangeSet
 digest, base-state digest, validation profile, and pinned validator identity.
 An empty ChangeSet or invalid Schema returns `proof.validation.failed` with
-deterministically ordered findings and exit code 3. Revalidating unchanged
-content reproduces the same evidence; adding an Edit produces a new ChangeSet
-and validation-results digest.
+deterministically ordered findings and exit code 3 and seals the proposal as
+`rejected`. Successful validation seals the exact proposal as `ready`, so no
+further Edits can invalidate its evidence. Revalidating the sealed proposal
+reproduces the same ChangeSet and validation-results digests.
+
+`changeset submit` accepts only a `ready` proposal with canonical valid evidence
+matching its exact ChangeSet digest, base state, validation profile, and pinned
+validator. It atomically records the submitted digest, validation-results
+digest, Principal, and timestamp while transitioning the proposal to
+`submitted`. Retrying returns the original submission record. A draft or
+rejected proposal fails without creating a partial submission.
 
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 

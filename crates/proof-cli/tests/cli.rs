@@ -147,7 +147,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 4);
+    assert_eq!(status["data"]["storage_schema_version"], 5);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -567,6 +567,7 @@ fn changeset_validate_returns_digest_bound_success_evidence() {
     let second: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
     assert_eq!(first["operation"], "changeset.validate");
     assert_eq!(first["data"]["valid"], true);
+    assert_eq!(first["data"]["status"], "ready");
     assert_eq!(first["data"]["edit_count"], 1);
     assert_eq!(first["data"]["findings"], serde_json::json!([]));
     assert_eq!(
@@ -584,6 +585,69 @@ fn changeset_validate_returns_digest_bound_success_evidence() {
         })
         .unwrap();
     assert_eq!(count, 1);
+
+    let submitted = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "submit", &changeset_id])
+        .output()
+        .unwrap();
+    let replay = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "submit", &changeset_id])
+        .output()
+        .unwrap();
+    assert!(submitted.status.success());
+    assert!(replay.status.success());
+    let submitted: serde_json::Value = serde_json::from_slice(&submitted.stdout).unwrap();
+    let replay: serde_json::Value = serde_json::from_slice(&replay.stdout).unwrap();
+    assert_eq!(submitted["operation"], "changeset.submit");
+    assert_eq!(submitted["data"]["status"], "submitted");
+    assert_eq!(
+        submitted["data"]["changeset_digest"],
+        first["data"]["changeset_digest"]
+    );
+    assert_eq!(
+        submitted["data"]["validation_results_digest"],
+        first["data"]["validation_results_digest"]
+    );
+    assert_eq!(
+        submitted["data"]["submitted_at"],
+        replay["data"]["submitted_at"]
+    );
+}
+
+#[test]
+fn changeset_submit_rejects_an_unvalidated_draft() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let created = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "create",
+            "--intent",
+            "Define article Schema",
+        ])
+        .output()
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let changeset_id = created["data"]["changeset_id"].as_str().unwrap();
+
+    let output = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "submit", changeset_id])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(5));
+    let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.changeset.not_ready");
+    assert_eq!(problem["operation"], "changeset.submit");
 }
 
 #[test]

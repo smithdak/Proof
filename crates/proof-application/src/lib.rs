@@ -712,6 +712,8 @@ pub struct ValidatedChangeSet {
     pub validation_results_digest: ContentDigest,
     /// Number of ordered Edits covered by this result.
     pub edit_count: u32,
+    /// Resulting lifecycle state (`ready` when valid, otherwise `rejected`).
+    pub status: ChangeSetStatus,
 }
 
 /// Persistence and validation port for exact local `ChangeSet` proposals.
@@ -737,6 +739,9 @@ pub enum ValidateChangeSetError {
     /// No visible `ChangeSet` has the requested identity.
     #[error("the requested ChangeSet was not found")]
     NotFound,
+    /// The proposal has advanced beyond a state that may be validated.
+    #[error("the ChangeSet is no longer in a validatable lifecycle state")]
+    NotValidatable,
     /// Persisted or canonical state failed deterministic verification.
     #[error("ChangeSet integrity verification failed: {0}")]
     Integrity(String),
@@ -756,6 +761,88 @@ pub fn validate_changeset(
     changeset_id: ChangeSetId,
 ) -> Result<ValidatedChangeSet, ValidateChangeSetError> {
     repository.validate_changeset(changeset_id)
+}
+
+/// Input for submitting one validation-sealed `ChangeSet`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SubmitChangeSetCommand {
+    /// Exact proposal to submit for governed review.
+    pub changeset_id: ChangeSetId,
+    /// Injected canonical time for a newly persisted submission.
+    pub submitted_at: Timestamp,
+}
+
+/// Persisted submission bound to exact validation evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubmittedChangeSet {
+    /// Stable submitted proposal identity.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated submitting Principal.
+    pub principal_id: PrincipalId,
+    /// Exact canonical proposal digest submitted for review.
+    pub changeset_digest: ContentDigest,
+    /// Exact validation-results artifact authorizing submission.
+    pub validation_results_digest: ContentDigest,
+    /// Exact Known State on which the proposal is based.
+    pub base_state: ContentDigest,
+    /// Canonical persisted submission time.
+    pub submitted_at: Timestamp,
+    /// Resulting lifecycle state.
+    pub status: ChangeSetStatus,
+    /// Number of ordered Edits sealed by the submission.
+    pub edit_count: u32,
+}
+
+/// Persistence port for submitting validation-sealed `ChangeSet`s.
+pub trait ChangeSetSubmissionRepository {
+    /// Submits a ready proposal or replays its original submission result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SubmitChangeSetError`] without advancing lifecycle state when
+    /// exact valid evidence is absent or cannot be verified.
+    fn submit_changeset(
+        &self,
+        command: SubmitChangeSetCommand,
+    ) -> Result<SubmittedChangeSet, SubmitChangeSetError>;
+}
+
+/// `ChangeSet` submission failed without accepting unvalidated content.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum SubmitChangeSetError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// No visible `ChangeSet` has the requested identity.
+    #[error("the requested ChangeSet was not found")]
+    NotFound,
+    /// The proposal has not reached validation-sealed ready state.
+    #[error("only a ready ChangeSet can be submitted")]
+    NotReady,
+    /// No valid result covers the exact current proposal digest and profile.
+    #[error("exact valid ChangeSet evidence is required before submission")]
+    ValidationEvidenceMissing,
+    /// Persisted or canonical state failed deterministic verification.
+    #[error("ChangeSet submission integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local submission state could not be persisted safely.
+    #[error("local ChangeSet submission storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Submits a `ChangeSet` through the configured lifecycle port.
+///
+/// # Errors
+///
+/// Returns [`SubmitChangeSetError`] unless exact validation evidence is
+/// atomically bound to a persisted submission.
+pub fn submit_changeset(
+    repository: &impl ChangeSetSubmissionRepository,
+    command: SubmitChangeSetCommand,
+) -> Result<SubmittedChangeSet, SubmitChangeSetError> {
+    repository.submit_changeset(command)
 }
 
 /// Data returned by the initial `status` operation.
