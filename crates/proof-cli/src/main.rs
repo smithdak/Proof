@@ -12,15 +12,15 @@ use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApprovalName,
     ApproveChangeSetCommand, ApproveChangeSetError, ApprovedChangeSet, ArtifactKind, ChangeSetId,
-    ChangeSetIntent, ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError,
-    DraftChangeSet, EditId, ExitCode, IdempotencyKey, InitializeWorkspaceCommand,
-    InspectChangeSetError, InspectedChangeSet, OperationId, PrincipalId, Problem, ResultEnvelope,
-    SchemaCreateEdit, SchemaId, SchemaVersion, StatusData, SubmitChangeSetCommand,
-    SubmitChangeSetError, SubmittedChangeSet, Timestamp, ValidateChangeSetError,
-    ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
-    WorkspaceStatusError, add_changeset_edits, approve_changeset, create_changeset,
-    initialize_workspace, inspect_changeset, submit_changeset, validate_changeset,
-    workspace_status,
+    ChangeSetIntent, CommitChangeSetCommand, CommitChangeSetError, CommittedChangeSet,
+    ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError, DraftChangeSet,
+    EditId, ExitCode, IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError,
+    InspectedChangeSet, OperationId, PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit,
+    SchemaId, SchemaVersion, StatusData, SubmitChangeSetCommand, SubmitChangeSetError,
+    SubmittedChangeSet, Timestamp, ValidateChangeSetError, ValidatedChangeSet, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
+    approve_changeset, commit_changeset, create_changeset, initialize_workspace, inspect_changeset,
+    submit_changeset, validate_changeset, workspace_status,
 };
 use proof_canonical::{canonicalize, digest, parse_strict};
 use proof_local::LocalWorkspace;
@@ -149,6 +149,14 @@ enum ChangeSetAction {
         #[arg(long)]
         approval: String,
     },
+    /// Atomically apply an approved proposal to authoritative state.
+    Commit {
+        /// Target approved `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+        /// Supply the required `UUIDv7` retry key.
+        #[arg(long)]
+        idempotency_key: String,
+    },
 }
 
 impl Command {
@@ -177,6 +185,9 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Approve { .. },
             } => "changeset.approve",
+            Self::Changeset {
+                action: ChangeSetAction::Commit { .. },
+            } => "changeset.commit",
         }
     }
 }
@@ -248,6 +259,15 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
         correlation_id,
     };
 
+    run_command(command, output, context, workspace)
+}
+
+fn run_command(
+    command: Command,
+    output: OutputFormat,
+    context: ExecutionContext,
+    workspace: Option<String>,
+) -> Result<ExitCode, Box<Problem>> {
     let exit_code = match command {
         Command::Init => initialize_local_workspace(output, context, workspace)?,
         Command::Status => inspect_local_workspace(output, context, workspace)?,
@@ -312,6 +332,13 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
                     approval,
                 },
         } => approve_local_changeset(output, context, workspace, &changeset_id, approval)?,
+        Command::Changeset {
+            action:
+                ChangeSetAction::Commit {
+                    changeset_id,
+                    idempotency_key,
+                },
+        } => commit_local_changeset(output, context, workspace, &changeset_id, &idempotency_key)?,
     };
     Ok(exit_code)
 }
@@ -1323,6 +1350,163 @@ fn approval_problem(error: &ApproveChangeSetError, context: ExecutionContext) ->
     Box::new(problem)
 }
 
+fn commit_local_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    changeset_id: &str,
+    idempotency_key: &str,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| commit_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| commit_root_problem(context))?;
+    let changeset_id = changeset_id
+        .parse::<ChangeSetId>()
+        .map_err(|error| commit_input_problem(context, error.to_string()))?;
+    let idempotency_key = idempotency_key
+        .parse::<IdempotencyKey>()
+        .map_err(|error| commit_input_problem(context, error.to_string()))?;
+    let committed_at = current_timestamp()
+        .map_err(|error| internal_problem("changeset.commit", context, error))?;
+    let committed = commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id,
+            idempotency_key,
+            committed_at,
+        },
+    )
+    .map_err(|error| commit_problem(&error, context))?;
+    render_committed_changeset(output, context, &committed);
+    Ok(ExitCode::Success)
+}
+
+fn render_committed_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    committed: &CommittedChangeSet,
+) {
+    let data = CommittedChangeSetData::from(committed);
+    let mut result = ResultEnvelope::success(
+        "changeset.commit",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(committed.workspace_id.to_string());
+    result.meta.principal_id = Some(committed.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("ChangeSet {} committed", result.data.changeset_id);
+            println!(
+                "authoritative sequence: {}",
+                result.data.authoritative_sequence
+            );
+            println!("Known State: {}", result.data.resulting_state);
+            println!("committed at: {}", result.data.committed_at);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn commit_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "changeset.commit",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn commit_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The ChangeSet commit input is invalid",
+        "proof.input.schema_mismatch",
+        "changeset.commit",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn commit_problem(error: &CommitChangeSetError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        CommitChangeSetError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        CommitChangeSetError::NotFound => (
+            "urn:proof:problem:resource-not-found",
+            "The requested ChangeSet was not found",
+            "proof.resource.not_found",
+            false,
+        ),
+        CommitChangeSetError::NotApproved => (
+            "urn:proof:problem:changeset-not-approved",
+            "Only an approved ChangeSet can be committed",
+            "proof.changeset.not_approved",
+            false,
+        ),
+        CommitChangeSetError::EvidenceMissing => (
+            "urn:proof:problem:evidence-incomplete",
+            "Exact approved ChangeSet evidence is required before commit",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        CommitChangeSetError::BaseStateConflict => (
+            "urn:proof:problem:state-conflict",
+            "The current Known State no longer matches the ChangeSet base",
+            "proof.state.conflict",
+            false,
+        ),
+        CommitChangeSetError::TargetConflict => (
+            "urn:proof:problem:target-conflict",
+            "A ChangeSet target already exists in authoritative state",
+            "proof.changeset.target_conflict",
+            false,
+        ),
+        CommitChangeSetError::IdempotencyKeyReused => (
+            "urn:proof:problem:idempotency-key-reused",
+            "The idempotency key was already used with different input",
+            "proof.idempotency.key_reused",
+            false,
+        ),
+        CommitChangeSetError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The ChangeSet commit could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        CommitChangeSetError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet commit storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "changeset.commit",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, CommitChangeSetError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
 #[derive(Clone, Copy)]
 enum ChangeSetProjection {
     Get,
@@ -1700,6 +1884,39 @@ impl From<&ApprovedChangeSet> for ApprovedChangeSetData {
             validation_results_digest: approved.validation_results_digest.to_string(),
             approved_at: approved.approved_at.to_string(),
             status: approved.status.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct CommittedChangeSetData {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    changeset_digest: String,
+    validation_results_digest: String,
+    previous_state: String,
+    resulting_state: String,
+    authoritative_sequence: u64,
+    committed_at: String,
+    status: String,
+    edit_count: u32,
+}
+
+impl From<&CommittedChangeSet> for CommittedChangeSetData {
+    fn from(committed: &CommittedChangeSet) -> Self {
+        Self {
+            changeset_id: committed.changeset_id.to_string(),
+            workspace_id: committed.workspace_id.to_string(),
+            principal_id: committed.principal_id.to_string(),
+            changeset_digest: committed.changeset_digest.to_string(),
+            validation_results_digest: committed.validation_results_digest.to_string(),
+            previous_state: committed.previous_state.to_string(),
+            resulting_state: committed.resulting_state.to_string(),
+            authoritative_sequence: committed.authoritative_sequence,
+            committed_at: committed.committed_at.to_string(),
+            status: committed.status.to_string(),
+            edit_count: committed.edit_count,
         }
     }
 }

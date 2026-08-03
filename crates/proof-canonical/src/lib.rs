@@ -4,7 +4,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use proof_domain::{ArtifactKind, ContentDigest, WorkspaceId};
+use proof_domain::{ArtifactKind, ContentDigest, SchemaId, SchemaVersion, WorkspaceId};
 use serde::{
     Deserialize, Deserializer,
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -108,11 +108,44 @@ pub fn digest(kind: ArtifactKind, canonical: &CanonicalJson) -> ContentDigest {
 pub fn initial_known_state_digest(
     workspace_id: WorkspaceId,
 ) -> Result<ContentDigest, CanonicalizationError> {
+    known_state_digest(workspace_id, 0, &[])
+}
+
+/// Computes a reproducible digest for authoritative Schema state.
+///
+/// The Schema entries must be supplied in ascending `(schema_id, version)`
+/// order. Keeping that ordering at the persistence boundary makes the state
+/// manifest independent of insertion order and `SQLite` query plans.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be represented by
+/// the canonical JSON profile.
+pub fn known_state_digest(
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+    schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
+) -> Result<ContentDigest, CanonicalizationError> {
     let manifest = serde_json::json!({
         "api_version": "proof.dev/known-state/v1",
-        "authoritative_sequence": 0,
+        "authoritative_sequence": authoritative_sequence,
         "workspace_id": workspace_id.to_string(),
     });
+    let mut manifest = manifest;
+    if !schemas.is_empty() {
+        manifest["schemas"] = serde_json::Value::Array(
+            schemas
+                .iter()
+                .map(|(schema_id, schema_version, document_digest)| {
+                    serde_json::json!({
+                        "document_digest": document_digest.to_string(),
+                        "schema_id": schema_id.as_str(),
+                        "schema_version": schema_version.get(),
+                    })
+                })
+                .collect(),
+        );
+    }
     let canonical = canonicalize(&manifest)?;
     Ok(digest(ArtifactKind::KnownStateV1, &canonical))
 }

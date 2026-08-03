@@ -12,19 +12,22 @@ use std::{
 use proof_application::ArtifactKind;
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApproveChangeSetCommand,
-    ApproveChangeSetError, ApprovedChangeSet, ChangeSetApprovalRepository, ChangeSetEditRepository,
-    ChangeSetId, ChangeSetInspectionRepository, ChangeSetIntent, ChangeSetRepository,
-    ChangeSetStatus, ChangeSetSubmissionRepository, ChangeSetValidationRepository, ContentDigest,
-    CreateChangeSetCommand, CreateChangeSetError, DRAFT_2020_12_META_VALIDATOR, DraftChangeSet,
-    EditId, Finding, IdempotencyKey, InitializeWorkspaceCommand, InitializedWorkspace,
-    InitializedWorkspaceStatus, InspectChangeSetError, InspectedChangeSet,
-    InspectedSchemaCreateEdit, LOCAL_POLICY_PROFILE, LOCAL_VALIDATION_PROFILE, PrincipalId,
-    PrincipalType, SchemaCreateEdit, SchemaId, SchemaVersion, Severity, SubmitChangeSetCommand,
-    SubmitChangeSetError, SubmittedChangeSet, ValidateChangeSetError, ValidatedChangeSet,
-    WorkspaceId, WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus,
-    WorkspaceStatusError, WorkspaceStatusRepository,
+    ApproveChangeSetError, ApprovedChangeSet, ChangeSetApprovalRepository,
+    ChangeSetCommitRepository, ChangeSetEditRepository, ChangeSetId, ChangeSetInspectionRepository,
+    ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ChangeSetSubmissionRepository,
+    ChangeSetValidationRepository, CommitChangeSetCommand, CommitChangeSetError,
+    CommittedChangeSet, ContentDigest, CreateChangeSetCommand, CreateChangeSetError,
+    DRAFT_2020_12_META_VALIDATOR, DraftChangeSet, EditId, Finding, IdempotencyKey,
+    InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
+    InspectChangeSetError, InspectedChangeSet, InspectedSchemaCreateEdit, LOCAL_POLICY_PROFILE,
+    LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, SchemaCreateEdit, SchemaId,
+    SchemaVersion, Severity, SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet,
+    ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
+    WorkspaceRepository, WorkspaceStatus, WorkspaceStatusError, WorkspaceStatusRepository,
 };
-use proof_canonical::{canonicalize, digest, initial_known_state_digest, parse_strict};
+use proof_canonical::{
+    canonicalize, digest, initial_known_state_digest, known_state_digest, parse_strict,
+};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
@@ -134,7 +137,32 @@ CREATE TABLE changeset_approvals (
     approved_at TEXT NOT NULL
 ) STRICT;
 INSERT INTO schema_migrations (version, name) VALUES (6, 'approve-submitted-changesets');
-PRAGMA user_version = 6;";
+CREATE TABLE schema_versions (
+    schema_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+    document_json TEXT NOT NULL,
+    document_digest TEXT NOT NULL,
+    changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+    edit_id TEXT NOT NULL UNIQUE REFERENCES changeset_edits(edit_id),
+    authoritative_sequence INTEGER NOT NULL UNIQUE CHECK (authoritative_sequence > 0),
+    PRIMARY KEY (schema_id, schema_version)
+) STRICT;
+CREATE TABLE changeset_commits (
+    changeset_id TEXT PRIMARY KEY REFERENCES changesets(changeset_id),
+    workspace_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    idempotency_key TEXT NOT NULL,
+    changeset_digest TEXT NOT NULL,
+    validation_results_digest TEXT NOT NULL,
+    previous_state TEXT NOT NULL,
+    resulting_state TEXT NOT NULL,
+    authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence > 0),
+    committed_at TEXT NOT NULL,
+    edit_count INTEGER NOT NULL CHECK (edit_count > 0),
+    UNIQUE (workspace_id, principal_id, idempotency_key)
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (7, 'commit-approved-changesets');
+PRAGMA user_version = 7;";
 
 struct LocalIdentity {
     provider: &'static str,
@@ -847,6 +875,49 @@ impl ChangeSetApprovalRepository for LocalWorkspace {
     }
 }
 
+impl ChangeSetCommitRepository for LocalWorkspace {
+    fn commit_changeset(
+        &self,
+        command: CommitChangeSetCommand,
+    ) -> Result<CommittedChangeSet, CommitChangeSetError> {
+        let config = self.read_config().map_err(commit_from_initialization)?;
+        let workspace_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| CommitChangeSetError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| CommitChangeSetError::Unauthenticated)?;
+        let mut connection = self.open_database().map_err(commit_from_initialization)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+        let (database_id, bootstrap_principal_id, schema_version): (String, String, u32) =
+            transaction
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
+                     FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+        if database_id != workspace_id.to_string() {
+            return Err(CommitChangeSetError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+        let principal_id =
+            authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
+                .map_err(commit_from_status)?;
+        ensure_commit_schema(&transaction, schema_version)?;
+        let committed =
+            commit_verified_transaction(&transaction, workspace_id, principal_id, &command)?;
+        transaction
+            .commit()
+            .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+        Ok(committed)
+    }
+}
+
 impl WorkspaceStatusRepository for LocalWorkspace {
     fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError> {
         let has_config = path_exists(&self.config_path()).map_err(status_from_initialization)?;
@@ -909,34 +980,9 @@ impl WorkspaceStatusRepository for LocalWorkspace {
             ));
         }
 
-        let (authoritative_sequence, persisted_digest): (i64, String) = connection
-            .query_row(
-                "SELECT authoritative_sequence, state_digest
-                 FROM known_state WHERE singleton = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
-        let authoritative_sequence = u64::try_from(authoritative_sequence).map_err(|_| {
-            WorkspaceStatusError::Integrity(
-                "authoritative sequence must be non-negative".to_owned(),
-            )
-        })?;
-        if authoritative_sequence != 0 {
-            return Err(WorkspaceStatusError::Integrity(
-                "non-empty authoritative state is not supported by this build".to_owned(),
-            ));
-        }
-        let persisted_digest = persisted_digest
-            .parse::<ContentDigest>()
-            .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
-        let expected_digest = initial_known_state_digest(configured_id)
-            .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
-        if persisted_digest != expected_digest {
-            return Err(WorkspaceStatusError::Integrity(
-                "Known State digest does not match the reproducible initial state".to_owned(),
-            ));
-        }
+        let (authoritative_sequence, persisted_digest) =
+            reproducible_known_state(&connection, configured_id)
+                .map_err(WorkspaceStatusError::Integrity)?;
 
         Ok(WorkspaceStatus::Initialized(InitializedWorkspaceStatus {
             workspace_id: configured_id,
@@ -1015,7 +1061,7 @@ fn initialize_database(
         .execute(
             "INSERT INTO workspace_metadata (
                  singleton, workspace_id, bootstrap_principal_id, schema_version
-             ) VALUES (1, ?1, ?2, 6)",
+             ) VALUES (1, ?1, ?2, 7)",
             [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -1366,6 +1412,61 @@ fn approval_from_submission(error: SubmitChangeSetError) -> ApproveChangeSetErro
     }
 }
 
+fn commit_from_initialization(error: WorkspaceInitializationError) -> CommitChangeSetError {
+    match error {
+        WorkspaceInitializationError::IdentityUnavailable(_) => {
+            CommitChangeSetError::Unauthenticated
+        }
+        WorkspaceInitializationError::AlreadyExists => CommitChangeSetError::Integrity(
+            "unexpected initialization conflict while committing ChangeSet".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => CommitChangeSetError::Storage(detail),
+    }
+}
+
+fn commit_from_status(error: WorkspaceStatusError) -> CommitChangeSetError {
+    match error {
+        WorkspaceStatusError::Unauthenticated => CommitChangeSetError::Unauthenticated,
+        WorkspaceStatusError::Incomplete => CommitChangeSetError::Integrity(
+            "the selected Workspace has incomplete local state".to_owned(),
+        ),
+        WorkspaceStatusError::Integrity(detail) => CommitChangeSetError::Integrity(detail),
+        WorkspaceStatusError::Storage(detail) => CommitChangeSetError::Storage(detail),
+    }
+}
+
+fn commit_from_inspection(error: InspectChangeSetError) -> CommitChangeSetError {
+    match error {
+        InspectChangeSetError::Unauthenticated => CommitChangeSetError::Unauthenticated,
+        InspectChangeSetError::NotFound => CommitChangeSetError::NotFound,
+        InspectChangeSetError::Integrity(detail) => CommitChangeSetError::Integrity(detail),
+        InspectChangeSetError::Storage(detail) => CommitChangeSetError::Storage(detail),
+    }
+}
+
+fn commit_from_validation(error: ValidateChangeSetError) -> CommitChangeSetError {
+    match error {
+        ValidateChangeSetError::Unauthenticated => CommitChangeSetError::Unauthenticated,
+        ValidateChangeSetError::NotFound => CommitChangeSetError::NotFound,
+        ValidateChangeSetError::NotValidatable => CommitChangeSetError::NotApproved,
+        ValidateChangeSetError::Integrity(detail) => CommitChangeSetError::Integrity(detail),
+        ValidateChangeSetError::Storage(detail) => CommitChangeSetError::Storage(detail),
+    }
+}
+
+fn commit_from_submission(error: SubmitChangeSetError) -> CommitChangeSetError {
+    match error {
+        SubmitChangeSetError::Unauthenticated => CommitChangeSetError::Unauthenticated,
+        SubmitChangeSetError::NotFound => CommitChangeSetError::NotFound,
+        SubmitChangeSetError::NotReady | SubmitChangeSetError::ValidationEvidenceMissing => {
+            CommitChangeSetError::EvidenceMissing
+        }
+        SubmitChangeSetError::Integrity(detail) => CommitChangeSetError::Integrity(detail),
+        SubmitChangeSetError::Storage(detail) => CommitChangeSetError::Storage(detail),
+    }
+}
+
 fn inspect_schema_version(
     connection: &Connection,
     metadata_schema_version: u32,
@@ -1383,7 +1484,7 @@ fn inspect_schema_version(
             "persistent schema version records differ".to_owned(),
         ));
     }
-    if !(1..=6).contains(&migration_version) {
+    if !(1..=7).contains(&migration_version) {
         return Err(InspectChangeSetError::Integrity(format!(
             "unsupported local schema version {migration_version}"
         )));
@@ -1662,7 +1763,7 @@ fn ensure_changeset_schema(
                  PRAGMA user_version = 2;",
             )
             .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
-        2..=6 => Ok(()),
+        2..=7 => Ok(()),
         version => Err(CreateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1718,7 +1819,7 @@ fn ensure_edit_schema(
                  PRAGMA user_version = 3;",
             )
             .map_err(|error| AddChangeSetEditsError::Storage(error.to_string())),
-        3..=6 => Ok(()),
+        3..=7 => Ok(()),
         version => Err(AddChangeSetEditsError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1774,7 +1875,7 @@ fn ensure_validation_schema(
                  PRAGMA user_version = 4;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        4..=6 => Ok(()),
+        4..=7 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1821,7 +1922,7 @@ fn ensure_lifecycle_schema(
                  PRAGMA user_version = 5;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        5 | 6 => Ok(()),
+        5..=7 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1862,8 +1963,67 @@ fn ensure_approval_schema(
                  PRAGMA user_version = 6;",
             )
             .map_err(|error| ApproveChangeSetError::Storage(error.to_string())),
-        6 => Ok(()),
+        6 | 7 => Ok(()),
         version => Err(ApproveChangeSetError::Integrity(format!(
+            "unsupported local schema version {version}"
+        ))),
+    }
+}
+
+fn ensure_commit_schema(
+    transaction: &Transaction<'_>,
+    metadata_schema_version: u32,
+) -> Result<(), CommitChangeSetError> {
+    let migration_version: u32 = transaction
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(CommitChangeSetError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+    match migration_version {
+        6 => transaction
+            .execute_batch(
+                "CREATE TABLE schema_versions (
+                     schema_id TEXT NOT NULL,
+                     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+                     document_json TEXT NOT NULL,
+                     document_digest TEXT NOT NULL,
+                     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+                     edit_id TEXT NOT NULL UNIQUE REFERENCES changeset_edits(edit_id),
+                     authoritative_sequence INTEGER NOT NULL UNIQUE
+                         CHECK (authoritative_sequence > 0),
+                     PRIMARY KEY (schema_id, schema_version)
+                 ) STRICT;
+                 CREATE TABLE changeset_commits (
+                     changeset_id TEXT PRIMARY KEY REFERENCES changesets(changeset_id),
+                     workspace_id TEXT NOT NULL,
+                     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                     idempotency_key TEXT NOT NULL,
+                     changeset_digest TEXT NOT NULL,
+                     validation_results_digest TEXT NOT NULL,
+                     previous_state TEXT NOT NULL,
+                     resulting_state TEXT NOT NULL,
+                     authoritative_sequence INTEGER NOT NULL
+                         CHECK (authoritative_sequence > 0),
+                     committed_at TEXT NOT NULL,
+                     edit_count INTEGER NOT NULL CHECK (edit_count > 0),
+                     UNIQUE (workspace_id, principal_id, idempotency_key)
+                 ) STRICT;
+                 INSERT INTO schema_migrations (version, name)
+                 VALUES (7, 'commit-approved-changesets');
+                 UPDATE workspace_metadata SET schema_version = 7 WHERE singleton = 1;
+                 PRAGMA user_version = 7;",
+            )
+            .map_err(|error| CommitChangeSetError::Storage(error.to_string())),
+        7 => Ok(()),
+        version => Err(CommitChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
     }
@@ -2346,6 +2506,396 @@ fn replay_approval(
     })
 }
 
+struct VerifiedCommitProposal {
+    changeset: InspectedChangeSet,
+    changeset_digest: ContentDigest,
+    validation_results_digest: ContentDigest,
+}
+
+struct PendingCommitState {
+    previous_state: ContentDigest,
+    resulting_state: ContentDigest,
+    authoritative_sequence: u64,
+}
+
+struct PersistedCommitRow {
+    idempotency_key: String,
+    changeset_digest: String,
+    validation_results_digest: String,
+    previous_state: String,
+    resulting_state: String,
+    authoritative_sequence: i64,
+    committed_at: String,
+    edit_count: i64,
+}
+
+fn commit_verified_transaction(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    command: &CommitChangeSetCommand,
+) -> Result<CommittedChangeSet, CommitChangeSetError> {
+    let verified = verified_commit_proposal(transaction, workspace_id, principal_id, command)?;
+    if verified.changeset.status == ChangeSetStatus::Committed {
+        return replay_commit(transaction, command, &verified);
+    }
+    reject_reused_commit_key(transaction, workspace_id, principal_id, command)?;
+    let (current_sequence, current_state) = reproducible_known_state(transaction, workspace_id)
+        .map_err(CommitChangeSetError::Integrity)?;
+    if current_sequence != verified.changeset.base_authoritative_sequence
+        || current_state != verified.changeset.base_state
+    {
+        return Err(CommitChangeSetError::BaseStateConflict);
+    }
+    reject_existing_schema_targets(transaction, &verified.changeset)?;
+    let resulting_sequence =
+        apply_schema_edits(transaction, &verified.changeset, current_sequence)?;
+    let (_, resulting_state) =
+        reproducible_known_state_at(transaction, workspace_id, resulting_sequence)
+            .map_err(CommitChangeSetError::Integrity)?;
+    let pending = PendingCommitState {
+        previous_state: current_state,
+        resulting_state,
+        authoritative_sequence: resulting_sequence,
+    };
+    persist_commit(transaction, command, &verified, &pending)?;
+    Ok(CommittedChangeSet {
+        changeset_id: command.changeset_id,
+        workspace_id,
+        principal_id,
+        changeset_digest: verified.changeset_digest,
+        validation_results_digest: verified.validation_results_digest,
+        previous_state: pending.previous_state,
+        resulting_state: pending.resulting_state,
+        authoritative_sequence: pending.authoritative_sequence,
+        committed_at: command.committed_at,
+        status: ChangeSetStatus::Committed,
+        edit_count: u32::try_from(verified.changeset.edits.len())
+            .map_err(|_| CommitChangeSetError::Integrity("Edit count exceeds u32".to_owned()))?,
+    })
+}
+
+fn verified_commit_proposal(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    command: &CommitChangeSetCommand,
+) -> Result<VerifiedCommitProposal, CommitChangeSetError> {
+    let row = load_inspected_changeset(
+        transaction,
+        command.changeset_id,
+        workspace_id,
+        principal_id,
+        7,
+    )
+    .map_err(commit_from_inspection)?;
+    let edits = load_inspected_edits(transaction, command.changeset_id, 7)
+        .map_err(commit_from_inspection)?;
+    let changeset = row
+        .into_inspected(command.changeset_id, workspace_id, principal_id, edits)
+        .map_err(commit_from_inspection)?;
+    if !matches!(
+        changeset.status,
+        ChangeSetStatus::Approved | ChangeSetStatus::Committed
+    ) {
+        return Err(CommitChangeSetError::NotApproved);
+    }
+    let validation = validate_inspected_changeset(&changeset).map_err(commit_from_validation)?;
+    if !validation.valid {
+        return Err(CommitChangeSetError::EvidenceMissing);
+    }
+    let validation_results_digest = exact_valid_evidence(
+        transaction,
+        command.changeset_id,
+        validation.changeset_digest,
+        changeset.base_state,
+        &changeset.validation_profile,
+        validation.validation_results_digest,
+    )
+    .map_err(commit_from_submission)?;
+    replay_submission(
+        transaction,
+        &changeset,
+        validation.changeset_digest,
+        validation_results_digest,
+        u32::try_from(changeset.edits.len())
+            .map_err(|_| CommitChangeSetError::Integrity("Edit count exceeds u32".to_owned()))?,
+    )
+    .map_err(commit_from_submission)?;
+    verify_approval_evidence(
+        transaction,
+        &changeset,
+        validation.changeset_digest,
+        validation_results_digest,
+    )?;
+    Ok(VerifiedCommitProposal {
+        changeset,
+        changeset_digest: validation.changeset_digest,
+        validation_results_digest,
+    })
+}
+
+fn verify_approval_evidence(
+    connection: &Connection,
+    changeset: &InspectedChangeSet,
+    changeset_digest: ContentDigest,
+    validation_results_digest: ContentDigest,
+) -> Result<(), CommitChangeSetError> {
+    let persisted: Option<(String, String, String, String)> = connection
+        .query_row(
+            "SELECT approval_name, changeset_digest, validation_results_digest, principal_id
+             FROM changeset_approvals WHERE changeset_id = ?1",
+            [changeset.changeset_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    let (approval_name, persisted_changeset, persisted_validation, persisted_principal) =
+        persisted.ok_or(CommitChangeSetError::EvidenceMissing)?;
+    proof_application::ApprovalName::new(approval_name)
+        .map_err(|error| CommitChangeSetError::Integrity(error.to_string()))?;
+    if persisted_changeset != changeset_digest.to_string()
+        || persisted_validation != validation_results_digest.to_string()
+        || persisted_principal != changeset.principal_id.to_string()
+    {
+        return Err(CommitChangeSetError::Integrity(
+            "persisted approval does not match exact validated ChangeSet evidence".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn reject_reused_commit_key(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    command: &CommitChangeSetCommand,
+) -> Result<(), CommitChangeSetError> {
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT changeset_id FROM changeset_commits
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                command.idempotency_key.to_string(),
+            ),
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    if existing.is_some_and(|changeset_id| changeset_id != command.changeset_id.to_string()) {
+        return Err(CommitChangeSetError::IdempotencyKeyReused);
+    }
+    Ok(())
+}
+
+fn reject_existing_schema_targets(
+    connection: &Connection,
+    changeset: &InspectedChangeSet,
+) -> Result<(), CommitChangeSetError> {
+    for edit in &changeset.edits {
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM schema_versions
+                     WHERE schema_id = ?1 AND schema_version = ?2
+                 )",
+                (edit.schema_id.as_str(), edit.schema_version.get()),
+                |row| row.get(0),
+            )
+            .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+        if exists {
+            return Err(CommitChangeSetError::TargetConflict);
+        }
+    }
+    Ok(())
+}
+
+fn apply_schema_edits(
+    transaction: &Transaction<'_>,
+    changeset: &InspectedChangeSet,
+    current_sequence: u64,
+) -> Result<u64, CommitChangeSetError> {
+    let mut sequence = current_sequence;
+    for edit in &changeset.edits {
+        sequence = sequence.checked_add(1).ok_or_else(|| {
+            CommitChangeSetError::Integrity("authoritative sequence overflow".to_owned())
+        })?;
+        let stored_sequence = i64::try_from(sequence).map_err(|_| {
+            CommitChangeSetError::Integrity(
+                "authoritative sequence exceeds local storage range".to_owned(),
+            )
+        })?;
+        transaction
+            .execute(
+                "INSERT INTO schema_versions (
+                     schema_id, schema_version, document_json, document_digest,
+                     changeset_id, edit_id, authoritative_sequence
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (
+                    edit.schema_id.as_str(),
+                    edit.schema_version.get(),
+                    edit.canonical_document.as_str(),
+                    edit.document_digest.to_string(),
+                    changeset.changeset_id.to_string(),
+                    edit.edit_id.to_string(),
+                    stored_sequence,
+                ),
+            )
+            .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    }
+    Ok(sequence)
+}
+
+fn persist_commit(
+    transaction: &Transaction<'_>,
+    command: &CommitChangeSetCommand,
+    verified: &VerifiedCommitProposal,
+    pending: &PendingCommitState,
+) -> Result<(), CommitChangeSetError> {
+    let stored_sequence = i64::try_from(pending.authoritative_sequence).map_err(|_| {
+        CommitChangeSetError::Integrity(
+            "authoritative sequence exceeds local storage range".to_owned(),
+        )
+    })?;
+    let edit_count = i64::try_from(verified.changeset.edits.len())
+        .map_err(|_| CommitChangeSetError::Integrity("Edit count exceeds i64".to_owned()))?;
+    transaction
+        .execute(
+            "INSERT INTO changeset_commits (
+                 changeset_id, workspace_id, principal_id, idempotency_key,
+                 changeset_digest, validation_results_digest, previous_state,
+                 resulting_state, authoritative_sequence, committed_at, edit_count
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            (
+                command.changeset_id.to_string(),
+                verified.changeset.workspace_id.to_string(),
+                verified.changeset.principal_id.to_string(),
+                command.idempotency_key.to_string(),
+                verified.changeset_digest.to_string(),
+                verified.validation_results_digest.to_string(),
+                pending.previous_state.to_string(),
+                pending.resulting_state.to_string(),
+                stored_sequence,
+                command.committed_at.to_string(),
+                edit_count,
+            ),
+        )
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    let updated_state = transaction
+        .execute(
+            "UPDATE known_state
+             SET authoritative_sequence = ?1, state_digest = ?2
+             WHERE singleton = 1 AND authoritative_sequence = ?3 AND state_digest = ?4",
+            (
+                stored_sequence,
+                pending.resulting_state.to_string(),
+                i64::try_from(verified.changeset.base_authoritative_sequence).map_err(|_| {
+                    CommitChangeSetError::Integrity(
+                        "base authoritative sequence exceeds local storage range".to_owned(),
+                    )
+                })?,
+                pending.previous_state.to_string(),
+            ),
+        )
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    if updated_state != 1 {
+        return Err(CommitChangeSetError::BaseStateConflict);
+    }
+    let updated_changeset = transaction
+        .execute(
+            "UPDATE changesets SET lifecycle_status = 'committed'
+             WHERE changeset_id = ?1 AND lifecycle_status = 'approved'",
+            [command.changeset_id.to_string()],
+        )
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    if updated_changeset != 1 {
+        return Err(CommitChangeSetError::NotApproved);
+    }
+    Ok(())
+}
+
+fn replay_commit(
+    connection: &Connection,
+    command: &CommitChangeSetCommand,
+    verified: &VerifiedCommitProposal,
+) -> Result<CommittedChangeSet, CommitChangeSetError> {
+    let persisted: Option<PersistedCommitRow> = connection
+        .query_row(
+            "SELECT idempotency_key, changeset_digest, validation_results_digest,
+                    previous_state, resulting_state, authoritative_sequence,
+                    committed_at, edit_count
+             FROM changeset_commits WHERE changeset_id = ?1",
+            [command.changeset_id.to_string()],
+            |row| {
+                Ok(PersistedCommitRow {
+                    idempotency_key: row.get(0)?,
+                    changeset_digest: row.get(1)?,
+                    validation_results_digest: row.get(2)?,
+                    previous_state: row.get(3)?,
+                    resulting_state: row.get(4)?,
+                    authoritative_sequence: row.get(5)?,
+                    committed_at: row.get(6)?,
+                    edit_count: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+    let persisted = persisted.ok_or(CommitChangeSetError::EvidenceMissing)?;
+    if persisted.idempotency_key != command.idempotency_key.to_string() {
+        return Err(CommitChangeSetError::IdempotencyKeyReused);
+    }
+    if persisted.changeset_digest != verified.changeset_digest.to_string()
+        || persisted.validation_results_digest != verified.validation_results_digest.to_string()
+    {
+        return Err(CommitChangeSetError::Integrity(
+            "persisted commit does not match exact approved ChangeSet evidence".to_owned(),
+        ));
+    }
+    let previous_state = persisted
+        .previous_state
+        .parse::<ContentDigest>()
+        .map_err(|error| CommitChangeSetError::Integrity(error.to_string()))?;
+    let resulting_state = persisted
+        .resulting_state
+        .parse::<ContentDigest>()
+        .map_err(|error| CommitChangeSetError::Integrity(error.to_string()))?;
+    let authoritative_sequence = u64::try_from(persisted.authoritative_sequence).map_err(|_| {
+        CommitChangeSetError::Integrity("authoritative sequence must be non-negative".to_owned())
+    })?;
+    let committed_at =
+        persisted
+            .committed_at
+            .parse()
+            .map_err(|error: proof_application::TimestampError| {
+                CommitChangeSetError::Integrity(error.to_string())
+            })?;
+    let edit_count = u32::try_from(persisted.edit_count)
+        .map_err(|_| CommitChangeSetError::Integrity("Edit count exceeds u32".to_owned()))?;
+    if previous_state != verified.changeset.base_state
+        || edit_count as usize != verified.changeset.edits.len()
+    {
+        return Err(CommitChangeSetError::Integrity(
+            "persisted commit scope does not match the ChangeSet".to_owned(),
+        ));
+    }
+    Ok(CommittedChangeSet {
+        changeset_id: verified.changeset.changeset_id,
+        workspace_id: verified.changeset.workspace_id,
+        principal_id: verified.changeset.principal_id,
+        changeset_digest: verified.changeset_digest,
+        validation_results_digest: verified.validation_results_digest,
+        previous_state,
+        resulting_state,
+        authoritative_sequence,
+        committed_at,
+        status: ChangeSetStatus::Committed,
+        edit_count,
+    })
+}
+
 fn verified_edit_batch(
     edits: &[SchemaCreateEdit],
 ) -> Result<ContentDigest, AddChangeSetEditsError> {
@@ -2634,33 +3184,114 @@ fn verified_known_state(
     connection: &Connection,
     workspace_id: WorkspaceId,
 ) -> Result<(u64, ContentDigest), CreateChangeSetError> {
-    let (sequence, digest): (i64, String) = connection
+    reproducible_known_state(connection, workspace_id).map_err(CreateChangeSetError::Integrity)
+}
+
+fn reproducible_known_state(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+) -> Result<(u64, ContentDigest), String> {
+    let (sequence, persisted_digest): (i64, String) = connection
         .query_row(
             "SELECT authoritative_sequence, state_digest
              FROM known_state WHERE singleton = 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
-    let sequence = u64::try_from(sequence).map_err(|_| {
-        CreateChangeSetError::Integrity("authoritative sequence must be non-negative".to_owned())
-    })?;
-    if sequence != 0 {
-        return Err(CreateChangeSetError::Integrity(
-            "non-empty authoritative state is not supported by this build".to_owned(),
-        ));
-    }
-    let digest = digest
+        .map_err(|error| error.to_string())?;
+    let sequence = u64::try_from(sequence)
+        .map_err(|_| "authoritative sequence must be non-negative".to_owned())?;
+    let persisted_digest = persisted_digest
         .parse::<ContentDigest>()
-        .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?;
-    let expected = initial_known_state_digest(workspace_id)
-        .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?;
-    if digest != expected {
-        return Err(CreateChangeSetError::Integrity(
-            "Known State digest does not match the reproducible initial state".to_owned(),
-        ));
+        .map_err(|error| error.to_string())?;
+    let (_, expected_digest) = reproducible_known_state_at(connection, workspace_id, sequence)?;
+    if persisted_digest != expected_digest {
+        return Err(
+            "Known State digest does not match reproducible authoritative state".to_owned(),
+        );
     }
-    Ok((sequence, digest))
+    Ok((sequence, persisted_digest))
+}
+
+fn reproducible_known_state_at(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    sequence: u64,
+) -> Result<(u64, ContentDigest), String> {
+    let schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if schema_version < 7 {
+        if sequence != 0 {
+            return Err(
+                "authoritative state exists without the required Schema projection".to_owned(),
+            );
+        }
+        return initial_known_state_digest(workspace_id)
+            .map(|digest| (sequence, digest))
+            .map_err(|error| error.to_string());
+    }
+    let mut statement = connection
+        .prepare(
+            "SELECT schema_id, schema_version, document_json, document_digest,
+                    authoritative_sequence
+             FROM schema_versions
+             ORDER BY schema_id, schema_version",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut schemas = Vec::new();
+    let mut sequences = Vec::new();
+    for row in rows {
+        let (schema_id, schema_version, document, document_digest, record_sequence) =
+            row.map_err(|error| error.to_string())?;
+        let schema_id = SchemaId::new(schema_id).map_err(|error| error.to_string())?;
+        let schema_version = SchemaVersion::new(
+            u32::try_from(schema_version)
+                .map_err(|_| "Schema version must be positive".to_owned())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let document_digest = document_digest
+            .parse::<ContentDigest>()
+            .map_err(|error| error.to_string())?;
+        let canonical = parse_strict(document.as_bytes())
+            .and_then(|value| canonicalize(&value))
+            .map_err(|error| error.to_string())?;
+        if canonical.as_str() != document
+            || digest(ArtifactKind::SchemaVersionV1, &canonical) != document_digest
+        {
+            return Err("authoritative Schema content failed digest verification".to_owned());
+        }
+        schemas.push((schema_id, schema_version, document_digest));
+        sequences.push(
+            u64::try_from(record_sequence)
+                .map_err(|_| "authoritative sequence must be positive".to_owned())?,
+        );
+    }
+    sequences.sort_unstable();
+    if sequences.len()
+        != usize::try_from(sequence)
+            .map_err(|_| "authoritative sequence exceeds addressable local state".to_owned())?
+        || sequences
+            .iter()
+            .enumerate()
+            .any(|(index, actual)| *actual != u64::try_from(index + 1).unwrap_or(u64::MAX))
+    {
+        return Err("authoritative Schema sequences are incomplete or non-contiguous".to_owned());
+    }
+    known_state_digest(workspace_id, sequence, &schemas)
+        .map(|digest| (sequence, digest))
+        .map_err(|error| error.to_string())
 }
 
 fn insert_draft(

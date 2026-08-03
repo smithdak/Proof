@@ -993,6 +993,103 @@ pub fn approve_changeset(
     repository.approve_changeset(command)
 }
 
+/// Input for atomically committing one approved `ChangeSet`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CommitChangeSetCommand {
+    /// Exact approved proposal to apply.
+    pub changeset_id: ChangeSetId,
+    /// Explicit retry identity for this consequential transition.
+    pub idempotency_key: IdempotencyKey,
+    /// Injected canonical time for a newly persisted commit.
+    pub committed_at: Timestamp,
+}
+
+/// Result of one atomic authoritative `ChangeSet` commit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommittedChangeSet {
+    /// Stable committed proposal identity.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated committing Principal.
+    pub principal_id: PrincipalId,
+    /// Exact proposal digest applied by the transaction.
+    pub changeset_digest: ContentDigest,
+    /// Exact validation-results artifact rechecked at commit time.
+    pub validation_results_digest: ContentDigest,
+    /// Known State required before the transaction began.
+    pub previous_state: ContentDigest,
+    /// Reproducible Known State produced by the transaction.
+    pub resulting_state: ContentDigest,
+    /// Last authoritative sequence included in the resulting state.
+    pub authoritative_sequence: u64,
+    /// Canonical persisted commit time.
+    pub committed_at: Timestamp,
+    /// Resulting lifecycle state.
+    pub status: ChangeSetStatus,
+    /// Number of ordered Edits atomically applied.
+    pub edit_count: u32,
+}
+
+/// Persistence port for atomic authoritative `ChangeSet` commits.
+pub trait ChangeSetCommitRepository {
+    /// Applies an approved proposal or replays its original commit result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommitChangeSetError`] without partial authoritative effects
+    /// when evidence, base state, idempotency, or target checks fail.
+    fn commit_changeset(
+        &self,
+        command: CommitChangeSetCommand,
+    ) -> Result<CommittedChangeSet, CommitChangeSetError>;
+}
+
+/// A `ChangeSet` commit failed without partially changing authoritative state.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum CommitChangeSetError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// No visible `ChangeSet` has the requested identity.
+    #[error("the requested ChangeSet was not found")]
+    NotFound,
+    /// The proposal has not reached approved state.
+    #[error("only an approved ChangeSet can be committed")]
+    NotApproved,
+    /// Exact validation, submission, or approval evidence is absent.
+    #[error("exact approved ChangeSet evidence is required before commit")]
+    EvidenceMissing,
+    /// Authoritative state advanced beyond the proposal's declared base.
+    #[error("the current Known State no longer matches the ChangeSet base")]
+    BaseStateConflict,
+    /// An immutable Schema-version target already exists.
+    #[error("one or more ChangeSet targets already exist in authoritative state")]
+    TargetConflict,
+    /// The retry key was already bound to different input.
+    #[error("the idempotency key was already used with different input")]
+    IdempotencyKeyReused,
+    /// Persisted or canonical state failed deterministic verification.
+    #[error("ChangeSet commit integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local commit state could not be persisted safely.
+    #[error("local ChangeSet commit storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Commits a `ChangeSet` through the configured authoritative-state port.
+///
+/// # Errors
+///
+/// Returns [`CommitChangeSetError`] unless the complete proposal and resulting
+/// Known State can be committed atomically.
+pub fn commit_changeset(
+    repository: &impl ChangeSetCommitRepository,
+    command: CommitChangeSetCommand,
+) -> Result<CommittedChangeSet, CommitChangeSetError> {
+    repository.commit_changeset(command)
+}
+
 /// Data returned by the initial `status` operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StatusData {

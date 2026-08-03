@@ -6,13 +6,14 @@ use std::{
 
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, ApprovalName, ApproveChangeSetCommand,
-    ApproveChangeSetError, ArtifactKind, ChangeSetId, ChangeSetIntent, ContentDigest,
-    CreateChangeSetCommand, CreateChangeSetError, EditId, IdempotencyKey,
-    InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId, SchemaCreateEdit, SchemaId,
-    SchemaVersion, SubmitChangeSetCommand, SubmitChangeSetError, Timestamp, WorkspaceId,
-    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
-    approve_changeset, create_changeset, initialize_workspace, inspect_changeset, submit_changeset,
-    validate_changeset, workspace_status,
+    ApproveChangeSetError, ArtifactKind, ChangeSetId, ChangeSetIntent, CommitChangeSetCommand,
+    CommitChangeSetError, ContentDigest, CreateChangeSetCommand, CreateChangeSetError, EditId,
+    IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId,
+    SchemaCreateEdit, SchemaId, SchemaVersion, SubmitChangeSetCommand, SubmitChangeSetError,
+    Timestamp, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
+    add_changeset_edits, approve_changeset, commit_changeset, create_changeset,
+    initialize_workspace, inspect_changeset, submit_changeset, validate_changeset,
+    workspace_status,
 };
 use proof_canonical::{canonicalize, digest, initial_known_state_digest};
 use proof_local::LocalWorkspace;
@@ -26,6 +27,8 @@ const OTHER_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000031";
 const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
 const ADD_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000041";
 const OTHER_ADD_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000042";
+const COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000043";
+const OTHER_COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000044";
 const EDIT_ID: &str = "019c0000-0000-7000-8000-000000000050";
 const OTHER_EDIT_ID: &str = "019c0000-0000-7000-8000-000000000051";
 const CREATED_AT: &str = "2026-08-03T14:00:00Z";
@@ -121,7 +124,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 6);
+    assert_eq!(schema_version, 7);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -242,7 +245,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 6);
+    assert_eq!(status.storage_schema_version, 7);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -448,7 +451,9 @@ fn draft_creation_migrates_a_verified_version_one_workspace_atomically() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_approvals;
+            "DROP TABLE changeset_commits;
+             DROP TABLE schema_versions;
+             DROP TABLE changeset_approvals;
              DROP TABLE changeset_submissions;
              DROP TABLE changeset_validations;
              DROP TABLE changeset_add_operations;
@@ -599,7 +604,9 @@ fn adding_edits_migrates_schema_version_two_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_approvals;
+            "DROP TABLE changeset_commits;
+             DROP TABLE schema_versions;
+             DROP TABLE changeset_approvals;
              DROP TABLE changeset_submissions;
              DROP TABLE changeset_validations;
              DROP TABLE changeset_add_operations;
@@ -994,8 +1001,10 @@ fn approval_requires_submission_and_replays_exact_digest_bound_evidence() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_approvals;
-             DELETE FROM schema_migrations WHERE version = 6;
+            "DROP TABLE changeset_commits;
+             DROP TABLE schema_versions;
+             DROP TABLE changeset_approvals;
+             DELETE FROM schema_migrations WHERE version >= 6;
              UPDATE workspace_metadata SET schema_version = 5 WHERE singleton = 1;
              PRAGMA user_version = 5;",
         )
@@ -1031,6 +1040,256 @@ fn approval_requires_submission_and_replays_exact_digest_bound_evidence() {
 }
 
 #[test]
+fn approved_changeset_commits_atomically_and_replays_the_original_result() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    prepare_approved_changeset(
+        &repository,
+        CHANGESET_ID,
+        EDIT_ID,
+        "article",
+        IDEMPOTENCY_KEY,
+        ADD_IDEMPOTENCY_KEY,
+    );
+    let commit = |committed_at: &str| {
+        commit_changeset(
+            &repository,
+            CommitChangeSetCommand {
+                changeset_id: CHANGESET_ID.parse().unwrap(),
+                idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+                committed_at: committed_at.parse().unwrap(),
+            },
+        )
+    };
+
+    let first = commit("2026-08-03T17:00:00Z").unwrap();
+    let replay = commit("2026-08-03T18:00:00Z").unwrap();
+
+    assert_eq!(first, replay);
+    assert_eq!(first.status, proof_application::ChangeSetStatus::Committed);
+    assert_eq!(first.authoritative_sequence, 1);
+    assert_ne!(first.previous_state, first.resulting_state);
+    assert_eq!(first.committed_at.to_string(), "2026-08-03T17:00:00Z");
+    let status = workspace_status(&repository).unwrap();
+    let WorkspaceStatus::Initialized(status) = status else {
+        panic!("Workspace should remain initialized");
+    };
+    assert_eq!(status.authoritative_sequence, 1);
+    assert_eq!(status.state_digest, first.resulting_state);
+    let next = create_changeset(
+        &repository,
+        CreateChangeSetCommand {
+            changeset_id: OTHER_CHANGESET_ID.parse().unwrap(),
+            intent: ChangeSetIntent::new("Define another Schema").unwrap(),
+            requested_base_state: None,
+            idempotency_key: OTHER_COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            created_at: CREATED_AT.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(next.base_authoritative_sequence, 1);
+    assert_eq!(next.base_state, first.resulting_state);
+}
+
+#[test]
+fn commit_rejects_a_stale_base_without_partial_authoritative_effects() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    prepare_approved_changeset(
+        &repository,
+        CHANGESET_ID,
+        EDIT_ID,
+        "article",
+        IDEMPOTENCY_KEY,
+        ADD_IDEMPOTENCY_KEY,
+    );
+    prepare_approved_changeset(
+        &repository,
+        OTHER_CHANGESET_ID,
+        OTHER_EDIT_ID,
+        "cta",
+        OTHER_ADD_IDEMPOTENCY_KEY,
+        OTHER_COMMIT_IDEMPOTENCY_KEY,
+    );
+    commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T17:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    let error = commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: OTHER_CHANGESET_ID.parse().unwrap(),
+            idempotency_key: OTHER_COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T18:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error, CommitChangeSetError::BaseStateConflict);
+    let connection = repository.open_database().unwrap();
+    let schema_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
+        .unwrap();
+    let commit_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM changeset_commits", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(schema_count, 1);
+    assert_eq!(commit_count, 1);
+    assert_eq!(
+        inspect_changeset(&repository, OTHER_CHANGESET_ID.parse().unwrap())
+            .unwrap()
+            .status,
+        proof_application::ChangeSetStatus::Approved
+    );
+}
+
+#[test]
+fn commit_migrates_an_approved_version_six_workspace_in_its_transaction() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    prepare_approved_changeset(
+        &repository,
+        CHANGESET_ID,
+        EDIT_ID,
+        "article",
+        IDEMPOTENCY_KEY,
+        ADD_IDEMPOTENCY_KEY,
+    );
+    repository
+        .open_database()
+        .unwrap()
+        .execute_batch(
+            "DROP TABLE changeset_commits;
+             DROP TABLE schema_versions;
+             DELETE FROM schema_migrations WHERE version = 7;
+             UPDATE workspace_metadata SET schema_version = 6 WHERE singleton = 1;
+             PRAGMA user_version = 6;",
+        )
+        .unwrap();
+
+    let committed = commit_changeset(
+        &repository,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-03T17:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(committed.authoritative_sequence, 1);
+    let connection = repository.open_database().unwrap();
+    let schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version, 7);
+}
+
+#[test]
+fn commit_storage_failure_rolls_back_every_authoritative_write() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define related Schemas", None),
+    )
+    .unwrap();
+    add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![
+                schema_edit(EDIT_ID, "article", 1, "Article"),
+                schema_edit(OTHER_EDIT_ID, "cta", 1, "CTA"),
+            ],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    validate_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+    submit_changeset(
+        &repository,
+        SubmitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            submitted_at: "2026-08-03T15:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    approve_changeset(
+        &repository,
+        ApproveChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            approval: ApprovalName::new("editorial").unwrap(),
+            approved_at: "2026-08-03T16:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    repository
+        .open_database()
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER reject_cta_schema
+             BEFORE INSERT ON schema_versions
+             WHEN NEW.schema_id = 'cta'
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected storage failure');
+             END;",
+        )
+        .unwrap();
+
+    assert!(matches!(
+        commit_changeset(
+            &repository,
+            CommitChangeSetCommand {
+                changeset_id: CHANGESET_ID.parse().unwrap(),
+                idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+                committed_at: "2026-08-03T17:00:00Z".parse().unwrap(),
+            },
+        ),
+        Err(CommitChangeSetError::Storage(_))
+    ));
+    let connection = repository.open_database().unwrap();
+    let schema_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
+        .unwrap();
+    let commit_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM changeset_commits", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let (sequence, state): (i64, String) = connection
+        .query_row(
+            "SELECT authoritative_sequence, state_digest FROM known_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(schema_count, 0);
+    assert_eq!(commit_count, 0);
+    assert_eq!(sequence, 0);
+    assert_eq!(
+        state,
+        initial_known_state_digest(WORKSPACE_ID.parse().unwrap())
+            .unwrap()
+            .to_string()
+    );
+    assert_eq!(
+        inspect_changeset(&repository, CHANGESET_ID.parse().unwrap())
+            .unwrap()
+            .status,
+        proof_application::ChangeSetStatus::Approved
+    );
+}
+
+#[test]
 fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
@@ -1042,7 +1301,9 @@ fn validation_migrates_schema_version_three_in_the_same_transaction() {
     let connection = repository.open_database().unwrap();
     connection
         .execute_batch(
-            "DROP TABLE changeset_approvals;
+            "DROP TABLE changeset_commits;
+             DROP TABLE schema_versions;
+             DROP TABLE changeset_approvals;
              DROP TABLE changeset_submissions;
              DROP TABLE changeset_validations;
              ALTER TABLE changesets DROP COLUMN lifecycle_status;
@@ -1096,6 +1357,54 @@ fn altered_journal_mode_is_detected_without_repairing_it() {
         .pragma_query_value(None, "journal_mode", |row| row.get(0))
         .unwrap();
     assert_eq!(journal_mode, "delete");
+}
+
+fn prepare_approved_changeset(
+    repository: &LocalWorkspace,
+    changeset_id: &str,
+    edit_id: &str,
+    schema_id: &str,
+    draft_key: &str,
+    add_key: &str,
+) {
+    create_changeset(
+        repository,
+        CreateChangeSetCommand {
+            changeset_id: changeset_id.parse().unwrap(),
+            intent: ChangeSetIntent::new(format!("Define {schema_id} Schema")).unwrap(),
+            requested_base_state: None,
+            idempotency_key: draft_key.parse().unwrap(),
+            created_at: CREATED_AT.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    add_changeset_edits(
+        repository,
+        AddChangeSetEditsCommand {
+            changeset_id: changeset_id.parse().unwrap(),
+            edits: vec![schema_edit(edit_id, schema_id, 1, schema_id)],
+            idempotency_key: add_key.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    validate_changeset(repository, changeset_id.parse().unwrap()).unwrap();
+    submit_changeset(
+        repository,
+        SubmitChangeSetCommand {
+            changeset_id: changeset_id.parse().unwrap(),
+            submitted_at: "2026-08-03T15:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    approve_changeset(
+        repository,
+        ApproveChangeSetCommand {
+            changeset_id: changeset_id.parse().unwrap(),
+            approval: ApprovalName::new("editorial").unwrap(),
+            approved_at: "2026-08-03T16:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
 }
 
 fn initialized_repository(directory: &TestDirectory) -> LocalWorkspace {

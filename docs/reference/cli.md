@@ -136,6 +136,15 @@ a different approval name conflicts. The initial local policy permits the
 bootstrap Human Principal to approve their submitted proposal; stronger
 separation-of-duties profiles remain an explicit policy extension.
 
+`changeset commit --idempotency-key <uuid>` rechecks the exact validation,
+submission, and approval evidence and compares the proposal's declared base to
+the current reproducible Known State. It then writes every immutable Schema
+version, advances the contiguous authoritative sequence, records the commit,
+updates Known State, and transitions the ChangeSet to `committed` in one
+immediate SQLite transaction. A stale base, existing target, reused key, or
+storage failure leaves authoritative state unchanged. Retrying the same
+ChangeSet and key returns the original commit result and timestamp.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules

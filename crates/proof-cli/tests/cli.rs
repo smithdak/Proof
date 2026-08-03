@@ -7,6 +7,7 @@ use std::{
 
 const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
 const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
+const COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000043";
 const UNKNOWN_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000099";
 
 #[test]
@@ -147,7 +148,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 6);
+    assert_eq!(status["data"]["storage_schema_version"], 7);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -652,6 +653,85 @@ fn changeset_validate_returns_digest_bound_success_evidence() {
     assert_eq!(
         approved["data"]["approved_at"],
         approval_replay["data"]["approved_at"]
+    );
+}
+
+#[test]
+fn changeset_commit_advances_known_state_and_replays_identically() {
+    let directory = TestDirectory::new();
+    let changeset_id = create_changeset_with_schema_edit(&directory);
+    for action in ["validate", "submit"] {
+        assert!(
+            proof_command(directory.path())
+                .args(["changeset", action, &changeset_id])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "changeset",
+                "approve",
+                &changeset_id,
+                "--approval",
+                "editorial",
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let committed = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "commit",
+            &changeset_id,
+            "--idempotency-key",
+            COMMIT_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    let commit_replay = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "commit",
+            &changeset_id,
+            "--idempotency-key",
+            COMMIT_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(committed.status.success());
+    assert!(commit_replay.status.success());
+    let committed: serde_json::Value = serde_json::from_slice(&committed.stdout).unwrap();
+    let commit_replay: serde_json::Value = serde_json::from_slice(&commit_replay.stdout).unwrap();
+    assert_eq!(committed["operation"], "changeset.commit");
+    assert_eq!(committed["data"]["status"], "committed");
+    assert_eq!(committed["data"]["authoritative_sequence"], 1);
+    assert_ne!(
+        committed["data"]["previous_state"],
+        committed["data"]["resulting_state"]
+    );
+    assert_eq!(
+        committed["data"]["committed_at"],
+        commit_replay["data"]["committed_at"]
+    );
+    let status = proof_command(directory.path())
+        .args(["--output", "json", "status"])
+        .output()
+        .unwrap();
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status["data"]["authoritative_sequence"], 1);
+    assert_eq!(
+        status["data"]["state_digest"],
+        committed["data"]["resulting_state"]
     );
 }
 
