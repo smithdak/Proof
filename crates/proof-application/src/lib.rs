@@ -3,8 +3,9 @@
 //! Transport-independent application contracts for Proof.
 
 pub use proof_domain::{
-    ContentDigest, CorrelationId, IdentifierError, OperationId, PrincipalId, PrincipalType,
-    WorkspaceId,
+    ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
+    CorrelationId, IdempotencyKey, IdentifierError, OperationId, PrincipalId, PrincipalType,
+    Timestamp, TimestampError, WorkspaceId,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -385,6 +386,105 @@ pub fn workspace_status(
     repository: &impl WorkspaceStatusRepository,
 ) -> Result<WorkspaceStatus, WorkspaceStatusError> {
     repository.status()
+}
+
+/// The policy profile applied to initial local `ChangeSet`s.
+pub const LOCAL_POLICY_PROFILE: &str = "proof.local/policy/default/v1";
+/// The validation profile applied to initial local `ChangeSet`s.
+pub const LOCAL_VALIDATION_PROFILE: &str = "proof.local/validation/default/v1";
+
+/// Input for creating an empty intent-scoped `ChangeSet` draft.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreateChangeSetCommand {
+    /// Candidate identity used when no idempotent result already exists.
+    pub changeset_id: ChangeSetId,
+    /// Normalized reason for the proposed governed mutation.
+    pub intent: ChangeSetIntent,
+    /// Caller-required base state, or the current state when omitted.
+    pub requested_base_state: Option<ContentDigest>,
+    /// Caller-visible retry identity for draft creation.
+    pub idempotency_key: IdempotencyKey,
+    /// Injected creation time used for a newly persisted draft.
+    pub created_at: Timestamp,
+}
+
+/// A persisted empty `ChangeSet` bound to identity and exact Known State.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DraftChangeSet {
+    /// Stable `ChangeSet` identity.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated initiating Principal.
+    pub principal_id: PrincipalId,
+    /// Normalized declared intent.
+    pub intent: ChangeSetIntent,
+    /// Exact authoritative sequence observed at creation.
+    pub base_authoritative_sequence: u64,
+    /// Exact Known State digest observed at creation.
+    pub base_state: ContentDigest,
+    /// Stable retry identity for this creation request.
+    pub idempotency_key: IdempotencyKey,
+    /// Canonical creation timestamp.
+    pub created_at: Timestamp,
+    /// Current lifecycle state.
+    pub status: ChangeSetStatus,
+    /// Versioned policy profile required for this proposal.
+    pub policy_profile: String,
+    /// Versioned validation profile required for this proposal.
+    pub validation_profile: String,
+    /// Number of ordered Edits currently in the draft.
+    pub edit_count: u32,
+}
+
+/// Persistence port for creating local `ChangeSet` drafts.
+pub trait ChangeSetRepository {
+    /// Creates a draft or returns the prior result for an identical retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CreateChangeSetError`] without persisting a partial draft when
+    /// authentication, base-state, idempotency, integrity, or storage checks fail.
+    fn create_draft(
+        &self,
+        command: CreateChangeSetCommand,
+    ) -> Result<DraftChangeSet, CreateChangeSetError>;
+}
+
+/// `ChangeSet` draft creation failed without changing authoritative content.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum CreateChangeSetError {
+    /// No initialized Workspace was selected.
+    #[error("the selected location is not an initialized Workspace")]
+    WorkspaceUninitialized,
+    /// The operating-system identity is not bound to an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// The requested base digest is no longer the current Known State.
+    #[error("the requested base state does not match current Known State")]
+    BaseStateConflict,
+    /// The idempotency key was previously used with different normalized input.
+    #[error("the idempotency key was already used with different input")]
+    IdempotencyKeyReused,
+    /// Persisted state failed verification.
+    #[error("Workspace integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local persistence could not complete the operation safely.
+    #[error("local ChangeSet storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Creates a draft `ChangeSet` through the configured persistence port.
+///
+/// # Errors
+///
+/// Returns [`CreateChangeSetError`] when the repository cannot return a safely
+/// persisted or idempotently replayed draft.
+pub fn create_changeset(
+    repository: &impl ChangeSetRepository,
+    command: CreateChangeSetCommand,
+) -> Result<DraftChangeSet, CreateChangeSetError> {
+    repository.create_draft(command)
 }
 
 /// Data returned by the initial `status` operation.

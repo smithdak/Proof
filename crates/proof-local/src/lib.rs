@@ -9,12 +9,15 @@ use std::{
 };
 
 use proof_application::{
-    ContentDigest, InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
-    PrincipalId, PrincipalType, WorkspaceId, WorkspaceInitializationError, WorkspaceRepository,
-    WorkspaceStatus, WorkspaceStatusError, WorkspaceStatusRepository,
+    ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ContentDigest, CreateChangeSetCommand,
+    CreateChangeSetError, DraftChangeSet, IdempotencyKey, InitializeWorkspaceCommand,
+    InitializedWorkspace, InitializedWorkspaceStatus, LOCAL_POLICY_PROFILE,
+    LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus, WorkspaceStatusError,
+    WorkspaceStatusRepository,
 };
 use proof_canonical::initial_known_state_digest;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 const CONFIG_API_VERSION: &str = "proof.dev/workspace/v1";
@@ -184,6 +187,112 @@ impl WorkspaceRepository for LocalWorkspace {
         Ok(InitializedWorkspace {
             workspace_id: command.workspace_id,
             principal_id: command.bootstrap_principal_id,
+        })
+    }
+}
+
+impl ChangeSetRepository for LocalWorkspace {
+    fn create_draft(
+        &self,
+        command: CreateChangeSetCommand,
+    ) -> Result<DraftChangeSet, CreateChangeSetError> {
+        let has_config = path_exists(&self.config_path()).map_err(changeset_from_initialization)?;
+        let has_runtime =
+            path_exists(&self.runtime_path()).map_err(changeset_from_initialization)?;
+        if !has_config && !has_runtime {
+            return Err(CreateChangeSetError::WorkspaceUninitialized);
+        }
+        if !has_config || !has_runtime {
+            return Err(CreateChangeSetError::Integrity(
+                "the selected Workspace has incomplete local state".to_owned(),
+            ));
+        }
+
+        let config = self.read_config().map_err(changeset_from_initialization)?;
+        let workspace_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| CreateChangeSetError::Unauthenticated)?;
+        let mut connection = self
+            .open_database()
+            .map_err(changeset_from_initialization)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+        let (database_id, bootstrap_principal_id, schema_version): (String, String, u32) =
+            transaction
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
+                     FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+        if database_id != workspace_id.to_string() {
+            return Err(CreateChangeSetError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+        let principal_id =
+            authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
+                .map_err(changeset_from_status)?;
+        ensure_changeset_schema(&transaction, schema_version)?;
+        let (base_authoritative_sequence, base_state) =
+            verified_known_state(&transaction, workspace_id)?;
+        let requested_base_state = command.requested_base_state.map(|value| value.to_string());
+
+        if let Some(persisted) = find_idempotent_draft(
+            &transaction,
+            workspace_id,
+            principal_id,
+            command.idempotency_key,
+        )? {
+            if persisted.intent != command.intent.as_str()
+                || persisted.requested_base_state != requested_base_state
+            {
+                return Err(CreateChangeSetError::IdempotencyKeyReused);
+            }
+            let draft = persisted.into_draft()?;
+            transaction
+                .commit()
+                .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+            return Ok(draft);
+        }
+
+        if command
+            .requested_base_state
+            .is_some_and(|requested| requested != base_state)
+        {
+            return Err(CreateChangeSetError::BaseStateConflict);
+        }
+        insert_draft(
+            &transaction,
+            &command,
+            workspace_id,
+            principal_id,
+            base_authoritative_sequence,
+            base_state,
+            requested_base_state.as_deref(),
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+
+        Ok(DraftChangeSet {
+            changeset_id: command.changeset_id,
+            workspace_id,
+            principal_id,
+            intent: command.intent,
+            base_authoritative_sequence,
+            base_state,
+            idempotency_key: command.idempotency_key,
+            created_at: command.created_at,
+            status: ChangeSetStatus::Draft,
+            policy_profile: LOCAL_POLICY_PROFILE.to_owned(),
+            validation_profile: LOCAL_VALIDATION_PROFILE.to_owned(),
+            edit_count: 0,
         })
     }
 }
@@ -365,7 +474,25 @@ fn initialize_database(
                  authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence >= 0),
                  state_digest TEXT NOT NULL
              ) STRICT;
-             PRAGMA user_version = 1;",
+             CREATE TABLE changesets (
+                 changeset_id TEXT PRIMARY KEY,
+                 workspace_id TEXT NOT NULL,
+                 principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                 intent TEXT NOT NULL CHECK (length(intent) > 0),
+                 requested_base_state TEXT,
+                 base_authoritative_sequence INTEGER NOT NULL
+                     CHECK (base_authoritative_sequence >= 0),
+                 base_state TEXT NOT NULL,
+                 idempotency_key TEXT NOT NULL,
+                 created_at TEXT NOT NULL,
+                 status TEXT NOT NULL CHECK (status = 'draft'),
+                 policy_profile TEXT NOT NULL,
+                 validation_profile TEXT NOT NULL,
+                 UNIQUE (workspace_id, principal_id, idempotency_key)
+             ) STRICT;
+             INSERT INTO schema_migrations (version, name)
+             VALUES (2, 'create-draft-changesets');
+             PRAGMA user_version = 2;",
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     transaction
@@ -385,7 +512,7 @@ fn initialize_database(
         .execute(
             "INSERT INTO workspace_metadata (
                  singleton, workspace_id, bootstrap_principal_id, schema_version
-             ) VALUES (1, ?1, ?2, 1)",
+             ) VALUES (1, ?1, ?2, 2)",
             [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -489,6 +616,252 @@ fn status_from_initialization(error: WorkspaceInitializationError) -> WorkspaceS
         WorkspaceInitializationError::RootUnavailable(detail)
         | WorkspaceInitializationError::Storage(detail) => WorkspaceStatusError::Storage(detail),
     }
+}
+
+fn changeset_from_initialization(error: WorkspaceInitializationError) -> CreateChangeSetError {
+    match error {
+        WorkspaceInitializationError::IdentityUnavailable(_) => {
+            CreateChangeSetError::Unauthenticated
+        }
+        WorkspaceInitializationError::AlreadyExists => CreateChangeSetError::Integrity(
+            "unexpected initialization conflict while creating ChangeSet".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => CreateChangeSetError::Storage(detail),
+    }
+}
+
+fn changeset_from_status(error: WorkspaceStatusError) -> CreateChangeSetError {
+    match error {
+        WorkspaceStatusError::Unauthenticated => CreateChangeSetError::Unauthenticated,
+        WorkspaceStatusError::Incomplete => CreateChangeSetError::Integrity(
+            "the selected Workspace has incomplete local state".to_owned(),
+        ),
+        WorkspaceStatusError::Integrity(detail) => CreateChangeSetError::Integrity(detail),
+        WorkspaceStatusError::Storage(detail) => CreateChangeSetError::Storage(detail),
+    }
+}
+
+fn ensure_changeset_schema(
+    transaction: &Transaction<'_>,
+    metadata_schema_version: u32,
+) -> Result<(), CreateChangeSetError> {
+    let migration_version: u32 = transaction
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(CreateChangeSetError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+    match migration_version {
+        1 => transaction
+            .execute_batch(
+                "CREATE TABLE changesets (
+                     changeset_id TEXT PRIMARY KEY,
+                     workspace_id TEXT NOT NULL,
+                     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                     intent TEXT NOT NULL CHECK (length(intent) > 0),
+                     requested_base_state TEXT,
+                     base_authoritative_sequence INTEGER NOT NULL
+                         CHECK (base_authoritative_sequence >= 0),
+                     base_state TEXT NOT NULL,
+                     idempotency_key TEXT NOT NULL,
+                     created_at TEXT NOT NULL,
+                     status TEXT NOT NULL CHECK (status = 'draft'),
+                     policy_profile TEXT NOT NULL,
+                     validation_profile TEXT NOT NULL,
+                     UNIQUE (workspace_id, principal_id, idempotency_key)
+                 ) STRICT;
+                 INSERT INTO schema_migrations (version, name)
+                 VALUES (2, 'create-draft-changesets');
+                 UPDATE workspace_metadata SET schema_version = 2 WHERE singleton = 1;
+                 PRAGMA user_version = 2;",
+            )
+            .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
+        2 => Ok(()),
+        version => Err(CreateChangeSetError::Integrity(format!(
+            "unsupported local schema version {version}"
+        ))),
+    }
+}
+
+fn verified_known_state(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+) -> Result<(u64, ContentDigest), CreateChangeSetError> {
+    let (sequence, digest): (i64, String) = connection
+        .query_row(
+            "SELECT authoritative_sequence, state_digest
+             FROM known_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+    let sequence = u64::try_from(sequence).map_err(|_| {
+        CreateChangeSetError::Integrity("authoritative sequence must be non-negative".to_owned())
+    })?;
+    if sequence != 0 {
+        return Err(CreateChangeSetError::Integrity(
+            "non-empty authoritative state is not supported by this build".to_owned(),
+        ));
+    }
+    let digest = digest
+        .parse::<ContentDigest>()
+        .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?;
+    let expected = initial_known_state_digest(workspace_id)
+        .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?;
+    if digest != expected {
+        return Err(CreateChangeSetError::Integrity(
+            "Known State digest does not match the reproducible initial state".to_owned(),
+        ));
+    }
+    Ok((sequence, digest))
+}
+
+fn insert_draft(
+    transaction: &Transaction<'_>,
+    command: &CreateChangeSetCommand,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    base_authoritative_sequence: u64,
+    base_state: ContentDigest,
+    requested_base_state: Option<&str>,
+) -> Result<(), CreateChangeSetError> {
+    let base_authoritative_sequence = i64::try_from(base_authoritative_sequence).map_err(|_| {
+        CreateChangeSetError::Integrity(
+            "authoritative sequence exceeds local storage range".to_owned(),
+        )
+    })?;
+    transaction
+        .execute(
+            "INSERT INTO changesets (
+                 changeset_id, workspace_id, principal_id, intent,
+                 requested_base_state, base_authoritative_sequence, base_state,
+                 idempotency_key, created_at, status, policy_profile,
+                 validation_profile
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            (
+                command.changeset_id.to_string(),
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                command.intent.as_str(),
+                requested_base_state,
+                base_authoritative_sequence,
+                base_state.to_string(),
+                command.idempotency_key.to_string(),
+                command.created_at.to_string(),
+                ChangeSetStatus::Draft.to_string(),
+                LOCAL_POLICY_PROFILE,
+                LOCAL_VALIDATION_PROFILE,
+            ),
+        )
+        .map_err(|error| CreateChangeSetError::Storage(error.to_string()))?;
+    Ok(())
+}
+
+struct PersistedDraft {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    intent: String,
+    requested_base_state: Option<String>,
+    base_authoritative_sequence: i64,
+    base_state: String,
+    idempotency_key: String,
+    created_at: String,
+    status: String,
+    policy_profile: String,
+    validation_profile: String,
+}
+
+impl PersistedDraft {
+    fn into_draft(self) -> Result<DraftChangeSet, CreateChangeSetError> {
+        if self.status != ChangeSetStatus::Draft.to_string()
+            || self.policy_profile != LOCAL_POLICY_PROFILE
+            || self.validation_profile != LOCAL_VALIDATION_PROFILE
+        {
+            return Err(CreateChangeSetError::Integrity(
+                "persisted ChangeSet contract fields are unsupported".to_owned(),
+            ));
+        }
+        Ok(DraftChangeSet {
+            changeset_id: parse_changeset_field(&self.changeset_id, "ChangeSet identity")?,
+            workspace_id: parse_changeset_field(&self.workspace_id, "Workspace identity")?,
+            principal_id: parse_changeset_field(&self.principal_id, "Principal identity")?,
+            intent: ChangeSetIntent::new(self.intent)
+                .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?,
+            base_authoritative_sequence: u64::try_from(self.base_authoritative_sequence).map_err(
+                |_| {
+                    CreateChangeSetError::Integrity(
+                        "base authoritative sequence must be non-negative".to_owned(),
+                    )
+                },
+            )?,
+            base_state: parse_changeset_field(&self.base_state, "base state digest")?,
+            idempotency_key: parse_changeset_field(&self.idempotency_key, "idempotency key")?,
+            created_at: parse_changeset_field(&self.created_at, "creation timestamp")?,
+            status: ChangeSetStatus::Draft,
+            policy_profile: self.policy_profile,
+            validation_profile: self.validation_profile,
+            edit_count: 0,
+        })
+    }
+}
+
+fn parse_changeset_field<T>(value: &str, field: &str) -> Result<T, CreateChangeSetError>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    value.parse::<T>().map_err(|error| {
+        CreateChangeSetError::Integrity(format!("invalid persisted {field}: {error}"))
+    })
+}
+
+fn find_idempotent_draft(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    idempotency_key: IdempotencyKey,
+) -> Result<Option<PersistedDraft>, CreateChangeSetError> {
+    connection
+        .query_row(
+            "SELECT changeset_id, workspace_id, principal_id, intent,
+                    requested_base_state, base_authoritative_sequence, base_state,
+                    idempotency_key, created_at, status, policy_profile,
+                    validation_profile
+             FROM changesets
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            [
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                idempotency_key.to_string(),
+            ],
+            |row| {
+                Ok(PersistedDraft {
+                    changeset_id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    principal_id: row.get(2)?,
+                    intent: row.get(3)?,
+                    requested_base_state: row.get(4)?,
+                    base_authoritative_sequence: row.get(5)?,
+                    base_state: row.get(6)?,
+                    idempotency_key: row.get(7)?,
+                    created_at: row.get(8)?,
+                    status: row.get(9)?,
+                    policy_profile: row.get(10)?,
+                    validation_profile: row.get(11)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| CreateChangeSetError::Storage(error.to_string()))
 }
 
 fn authenticated_principal(

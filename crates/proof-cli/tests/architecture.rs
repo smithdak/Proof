@@ -22,7 +22,7 @@ fn inward_dependency_boundaries_are_enforced() {
 
     assert_eq!(
         domain,
-        BTreeSet::from(["thiserror".to_owned(), "uuid".to_owned()])
+        BTreeSet::from(["thiserror".to_owned(), "time".to_owned(), "uuid".to_owned(),])
     );
     assert_eq!(
         application,

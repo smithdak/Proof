@@ -79,6 +79,13 @@ proof changeset approve <changeset-id> --approval editorial
 proof changeset commit <changeset-id> --idempotency-key <uuid>
 ```
 
+The implemented local `changeset create` operation trims and bounds the
+declared intent, authenticates the Workspace bootstrap Principal, and binds the
+draft to the current verified Known State when `--base-state` is omitted. It
+returns a generated UUIDv7 idempotency key unless the caller supplies one.
+Retrying the same normalized input with that key returns the original draft;
+reusing it with different input fails explicitly.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules

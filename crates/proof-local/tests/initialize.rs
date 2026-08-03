@@ -5,8 +5,10 @@ use std::{
 };
 
 use proof_application::{
-    InitializeWorkspaceCommand, PrincipalId, WorkspaceId, WorkspaceInitializationError,
-    WorkspaceStatus, WorkspaceStatusError, initialize_workspace, workspace_status,
+    ChangeSetId, ChangeSetIntent, ContentDigest, CreateChangeSetCommand, CreateChangeSetError,
+    IdempotencyKey, InitializeWorkspaceCommand, PrincipalId, Timestamp, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, create_changeset,
+    initialize_workspace, workspace_status,
 };
 use proof_canonical::initial_known_state_digest;
 use proof_local::LocalWorkspace;
@@ -15,6 +17,10 @@ const WORKSPACE_ID: &str = "019c0000-0000-7000-8000-000000000010";
 const OTHER_WORKSPACE_ID: &str = "019c0000-0000-7000-8000-000000000011";
 const PRINCIPAL_ID: &str = "019c0000-0000-7000-8000-000000000020";
 const OTHER_PRINCIPAL_ID: &str = "019c0000-0000-7000-8000-000000000021";
+const CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000030";
+const OTHER_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000031";
+const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
+const CREATED_AT: &str = "2026-08-03T14:00:00Z";
 
 #[test]
 fn initialization_creates_config_private_layout_and_sqlite_metadata() {
@@ -107,7 +113,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 1);
+    assert_eq!(schema_version, 2);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -228,7 +234,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 1);
+    assert_eq!(status.storage_schema_version, 2);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -322,6 +328,148 @@ fn disabled_bootstrap_principal_fails_authentication() {
 }
 
 #[test]
+fn draft_changeset_is_bound_to_principal_intent_and_known_state() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    let expected_state = initial_known_state_digest(WORKSPACE_ID.parse().unwrap()).unwrap();
+
+    let draft = create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "  Publish the launch article  ", None),
+    )
+    .unwrap();
+
+    assert_eq!(draft.changeset_id.to_string(), CHANGESET_ID);
+    assert_eq!(draft.workspace_id.to_string(), WORKSPACE_ID);
+    assert_eq!(draft.principal_id.to_string(), PRINCIPAL_ID);
+    assert_eq!(draft.intent.as_str(), "Publish the launch article");
+    assert_eq!(draft.base_authoritative_sequence, 0);
+    assert_eq!(draft.base_state, expected_state);
+    assert_eq!(draft.idempotency_key.to_string(), IDEMPOTENCY_KEY);
+    assert_eq!(draft.created_at.to_string(), CREATED_AT);
+    assert_eq!(draft.status.to_string(), "draft");
+    assert_eq!(draft.policy_profile, "proof.local/policy/default/v1");
+    assert_eq!(
+        draft.validation_profile,
+        "proof.local/validation/default/v1"
+    );
+    assert_eq!(draft.edit_count, 0);
+
+    let connection = repository.open_database().unwrap();
+    let persisted: (String, String, String, i64, String) = connection
+        .query_row(
+            "SELECT workspace_id, principal_id, intent,
+                    base_authoritative_sequence, base_state
+             FROM changesets WHERE changeset_id = ?1",
+            [CHANGESET_ID],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(persisted.0, WORKSPACE_ID);
+    assert_eq!(persisted.1, PRINCIPAL_ID);
+    assert_eq!(persisted.2, "Publish the launch article");
+    assert_eq!(persisted.3, 0);
+    assert_eq!(persisted.4, expected_state.to_string());
+}
+
+#[test]
+fn stale_requested_base_state_rejects_without_persisting_a_draft() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    let stale = format!("blake3:{}", "00".repeat(32))
+        .parse::<ContentDigest>()
+        .unwrap();
+
+    let error = create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Publish the launch article", Some(stale)),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, CreateChangeSetError::BaseStateConflict);
+    let count: i64 = repository
+        .open_database()
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM changesets", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn changeset_creation_is_idempotent_and_rejects_key_reuse() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    let first = create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Publish the launch article", None),
+    )
+    .unwrap();
+    let replay = create_changeset(
+        &repository,
+        draft_command(OTHER_CHANGESET_ID, "Publish the launch article", None),
+    )
+    .unwrap();
+
+    assert_eq!(replay, first);
+    let error = create_changeset(
+        &repository,
+        draft_command(OTHER_CHANGESET_ID, "Different intent", None),
+    )
+    .unwrap_err();
+    assert_eq!(error, CreateChangeSetError::IdempotencyKeyReused);
+    let count: i64 = repository
+        .open_database()
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM changesets", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn draft_creation_migrates_a_verified_version_one_workspace_atomically() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    let connection = repository.open_database().unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE changesets;
+         DELETE FROM schema_migrations WHERE version = 2;
+         UPDATE workspace_metadata SET schema_version = 1 WHERE singleton = 1;
+         PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    drop(connection);
+
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Publish the launch article", None),
+    )
+    .unwrap();
+
+    let connection = repository.open_database().unwrap();
+    let metadata_version: u32 = connection
+        .query_row(
+            "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let pragma_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(metadata_version, 2);
+    assert_eq!(pragma_version, 2);
+}
+
+#[test]
 fn altered_journal_mode_is_detected_without_repairing_it() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
@@ -353,6 +501,20 @@ fn initialized_repository(directory: &TestDirectory) -> LocalWorkspace {
     )
     .unwrap();
     repository
+}
+
+fn draft_command(
+    changeset_id: &str,
+    intent: &str,
+    requested_base_state: Option<ContentDigest>,
+) -> CreateChangeSetCommand {
+    CreateChangeSetCommand {
+        changeset_id: changeset_id.parse::<ChangeSetId>().unwrap(),
+        intent: ChangeSetIntent::new(intent).unwrap(),
+        requested_base_state,
+        idempotency_key: IDEMPOTENCY_KEY.parse::<IdempotencyKey>().unwrap(),
+        created_at: CREATED_AT.parse::<Timestamp>().unwrap(),
+    }
 }
 
 #[cfg(unix)]

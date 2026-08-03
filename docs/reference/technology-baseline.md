@@ -29,6 +29,7 @@ These are current stable candidates verified during the August 2026 documentatio
 | Workspace configuration | `toml` | `1.1.4` |
 | Domain errors | `thiserror` | `2.0.19` |
 | Operational IDs | `uuid` | `1.24.0` |
+| UTC timestamps | `time` | `0.3.55` |
 | Content digest | `blake3` | `1.8.5` |
 | Local SQLite | `rusqlite` | `0.40.1` |
 | Local OS identity | `rustix` | `1.1.4` |
@@ -152,6 +153,7 @@ Updates are grouped by compatibility risk and accompanied by the relevant test a
 - [Tracing releases](https://github.com/tokio-rs/tracing/releases)
 - [rusqlite releases](https://github.com/rusqlite/rusqlite/releases)
 - [rustix releases](https://github.com/bytecodealliance/rustix/releases)
+- [time releases](https://github.com/time-rs/time/releases)
 - [SQLx changelog](https://github.com/transact-rs/sqlx/blob/main/CHANGELOG.md)
 - [BLAKE3 releases](https://github.com/BLAKE3-team/BLAKE3/releases)
 - [OpenAPI Specification 3.2.0](https://spec.openapis.org/oas/v3.2.0.html)

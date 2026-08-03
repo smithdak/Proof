@@ -1,12 +1,19 @@
 #![forbid(unsafe_code)]
 
-use std::{env, io, path::PathBuf, process};
+use std::{
+    env, io,
+    path::PathBuf,
+    process,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
-    CorrelationId, ExitCode, InitializeWorkspaceCommand, OperationId, PrincipalId, Problem,
-    ResultEnvelope, StatusData, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
-    WorkspaceStatusError, initialize_workspace, workspace_status,
+    ChangeSetId, ChangeSetIntent, ContentDigest, CorrelationId, CreateChangeSetCommand,
+    CreateChangeSetError, DraftChangeSet, ExitCode, IdempotencyKey, InitializeWorkspaceCommand,
+    OperationId, PrincipalId, Problem, ResultEnvelope, StatusData, Timestamp, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, create_changeset,
+    initialize_workspace, workspace_status,
 };
 use proof_local::LocalWorkspace;
 use serde::Serialize;
@@ -74,6 +81,27 @@ enum Command {
     Init,
     /// Report the current implementation and Workspace status.
     Status,
+    /// Work with atomic, intent-scoped governed proposals.
+    Changeset {
+        #[command(subcommand)]
+        action: ChangeSetAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ChangeSetAction {
+    /// Create an empty draft bound to an exact base state.
+    Create {
+        /// Declare why this governed proposal exists.
+        #[arg(long)]
+        intent: String,
+        /// Require an exact Known State digest; defaults to current state.
+        #[arg(long)]
+        base_state: Option<String>,
+        /// Supply a `UUIDv7` retry key; one is generated when omitted.
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
 }
 
 impl Command {
@@ -81,6 +109,9 @@ impl Command {
         match self {
             Self::Init => "init",
             Self::Status => "status",
+            Self::Changeset {
+                action: ChangeSetAction::Create { .. },
+            } => "changeset.create",
         }
     }
 }
@@ -155,6 +186,21 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
     let exit_code = match command {
         Command::Init => initialize_local_workspace(output, context, workspace)?,
         Command::Status => inspect_local_workspace(output, context, workspace)?,
+        Command::Changeset {
+            action:
+                ChangeSetAction::Create {
+                    intent,
+                    base_state,
+                    idempotency_key,
+                },
+        } => create_local_changeset(
+            output,
+            context,
+            workspace,
+            intent,
+            base_state,
+            idempotency_key,
+        )?,
     };
     Ok(exit_code)
 }
@@ -365,6 +411,167 @@ fn workspace_problem(
     Box::new(problem)
 }
 
+fn create_local_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    intent: String,
+    requested_base_state: Option<String>,
+    idempotency_key: Option<String>,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| changeset_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| changeset_root_problem(context))?;
+    let intent = ChangeSetIntent::new(intent)
+        .map_err(|error| changeset_input_problem(context, error.to_string()))?;
+    let requested_base_state = requested_base_state
+        .map(|value| {
+            value
+                .parse::<ContentDigest>()
+                .map_err(|error| changeset_input_problem(context, error.to_string()))
+        })
+        .transpose()?;
+    let idempotency_key = idempotency_key
+        .map(|value| {
+            value
+                .parse::<IdempotencyKey>()
+                .map_err(|error| changeset_input_problem(context, error.to_string()))
+        })
+        .transpose()?
+        .unwrap_or_else(generated_idempotency_key);
+    let command = CreateChangeSetCommand {
+        changeset_id: generated_changeset_id(),
+        intent,
+        requested_base_state,
+        idempotency_key,
+        created_at: current_timestamp()
+            .map_err(|detail| internal_problem("changeset.create", context, detail))?,
+    };
+    let draft = create_changeset(&repository, command)
+        .map_err(|error| changeset_problem(&error, context))?;
+    render_created_changeset(output, context, &draft);
+    Ok(ExitCode::Success)
+}
+
+fn render_created_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    draft: &DraftChangeSet,
+) {
+    let data = CreatedChangeSetData::from(draft);
+    let mut result = ResultEnvelope::success(
+        "changeset.create",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(draft.workspace_id.to_string());
+    result.meta.principal_id = Some(draft.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("Created ChangeSet {}", result.data.changeset_id);
+            println!("status: {}", result.data.status);
+            println!("intent: {}", result.data.intent);
+            println!("base state: {}", result.data.base_state);
+            println!("idempotency key: {}", result.data.idempotency_key);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn changeset_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "changeset.create",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn changeset_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The ChangeSet creation input is invalid",
+        "proof.input.schema_mismatch",
+        "changeset.create",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn changeset_problem(error: &CreateChangeSetError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        CreateChangeSetError::WorkspaceUninitialized => (
+            "urn:proof:problem:resource-not-found",
+            "The selected location is not an initialized Workspace",
+            "proof.resource.not_found",
+            false,
+        ),
+        CreateChangeSetError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        CreateChangeSetError::BaseStateConflict => (
+            "urn:proof:problem:state-conflict",
+            "The requested base state is not current",
+            "proof.state.conflict",
+            false,
+        ),
+        CreateChangeSetError::IdempotencyKeyReused => (
+            "urn:proof:problem:idempotency-key-reused",
+            "The idempotency key was already used with different input",
+            "proof.idempotency.key_reused",
+            false,
+        ),
+        CreateChangeSetError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The selected Workspace could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        CreateChangeSetError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "changeset.create",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, CreateChangeSetError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
+fn internal_problem(operation: &str, context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:internal",
+        "Proof could not construct the operation safely",
+        "proof.internal.error",
+        operation,
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
 fn render_problem(output: OutputFormat, problem: &Problem) -> ExitCode {
     let exit_code = problem.exit_code();
     match output {
@@ -387,6 +594,41 @@ struct InitializedWorkspaceData {
     workspace_root: String,
     config_path: String,
     database_path: String,
+}
+
+#[derive(Serialize)]
+struct CreatedChangeSetData {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    intent: String,
+    base_authoritative_sequence: u64,
+    base_state: String,
+    idempotency_key: String,
+    created_at: String,
+    status: String,
+    policy_profile: String,
+    validation_profile: String,
+    edit_count: u32,
+}
+
+impl From<&DraftChangeSet> for CreatedChangeSetData {
+    fn from(draft: &DraftChangeSet) -> Self {
+        Self {
+            changeset_id: draft.changeset_id.to_string(),
+            workspace_id: draft.workspace_id.to_string(),
+            principal_id: draft.principal_id.to_string(),
+            intent: draft.intent.to_string(),
+            base_authoritative_sequence: draft.base_authoritative_sequence,
+            base_state: draft.base_state.to_string(),
+            idempotency_key: draft.idempotency_key.to_string(),
+            created_at: draft.created_at.to_string(),
+            status: draft.status.to_string(),
+            policy_profile: draft.policy_profile.clone(),
+            validation_profile: draft.validation_profile.clone(),
+            edit_count: draft.edit_count,
+        }
+    }
 }
 
 fn write_json(value: &impl Serialize) {
@@ -413,4 +655,21 @@ fn generated_workspace_id() -> WorkspaceId {
 
 fn generated_principal_id() -> PrincipalId {
     PrincipalId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
+}
+
+fn generated_changeset_id() -> ChangeSetId {
+    ChangeSetId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
+}
+
+fn generated_idempotency_key() -> IdempotencyKey {
+    IdempotencyKey::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
+}
+
+fn current_timestamp() -> Result<Timestamp, String> {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock precedes Unix epoch: {error}"))?;
+    let nanoseconds = i128::try_from(duration.as_nanos())
+        .map_err(|_| "system clock exceeds timestamp range".to_owned())?;
+    Timestamp::from_unix_timestamp_nanos(nanoseconds).map_err(|error| error.to_string())
 }

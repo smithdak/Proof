@@ -8,6 +8,7 @@
 use std::{fmt, str::FromStr};
 
 use thiserror::Error;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::{Uuid, Version};
 
 /// An operational identifier was malformed or used the wrong UUID version.
@@ -73,6 +74,161 @@ operational_id!(
 );
 operational_id!(WorkspaceId, "The identity of one governed Workspace.");
 operational_id!(PrincipalId, "The identity of one authenticated Principal.");
+operational_id!(
+    ChangeSetId,
+    "The identity of one atomic governed `ChangeSet`."
+);
+operational_id!(
+    IdempotencyKey,
+    "A caller-visible identity used to make an operation safely repeatable."
+);
+
+/// Maximum UTF-8 byte length of a declared `ChangeSet` intent.
+pub const MAX_CHANGESET_INTENT_BYTES: usize = 4_096;
+
+/// A normalized, non-empty statement of why a `ChangeSet` exists.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ChangeSetIntent(String);
+
+impl ChangeSetIntent {
+    /// Normalizes and validates a declared intent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ChangeSetIntentError`] when the normalized intent is empty or
+    /// exceeds [`MAX_CHANGESET_INTENT_BYTES`].
+    pub fn new(value: impl Into<String>) -> Result<Self, ChangeSetIntentError> {
+        let value = value.into().trim().to_owned();
+        if value.is_empty() {
+            return Err(ChangeSetIntentError::Empty);
+        }
+        if value.len() > MAX_CHANGESET_INTENT_BYTES {
+            return Err(ChangeSetIntentError::TooLong);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the normalized intent text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ChangeSetIntent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// A declared `ChangeSet` intent was unsafe or incomplete.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum ChangeSetIntentError {
+    /// Whitespace normalization left no intent.
+    #[error("ChangeSet intent must not be empty")]
+    Empty,
+    /// The intent exceeded the bounded command contract.
+    #[error("ChangeSet intent must not exceed {MAX_CHANGESET_INTENT_BYTES} UTF-8 bytes")]
+    TooLong,
+}
+
+/// A canonical RFC 3339 timestamp in UTC.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Timestamp(OffsetDateTime);
+
+impl Timestamp {
+    /// Constructs a timestamp from nanoseconds since the Unix epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TimestampError::OutOfRange`] when the value cannot be
+    /// represented by the timestamp contract.
+    pub fn from_unix_timestamp_nanos(value: i128) -> Result<Self, TimestampError> {
+        let value = OffsetDateTime::from_unix_timestamp_nanos(value)
+            .map_err(|_| TimestampError::OutOfRange)?;
+        value
+            .format(&Rfc3339)
+            .map_err(|_| TimestampError::OutOfRange)?;
+        Ok(Self(value))
+    }
+}
+
+impl fmt::Display for Timestamp {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self.0.format(&Rfc3339).map_err(|_| fmt::Error)?;
+        formatter.write_str(&value)
+    }
+}
+
+impl FromStr for Timestamp {
+    type Err = TimestampError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if !value.ends_with('Z') {
+            return Err(TimestampError::NonCanonical);
+        }
+        let parsed =
+            OffsetDateTime::parse(value, &Rfc3339).map_err(|_| TimestampError::InvalidRfc3339)?;
+        let timestamp = Self(parsed);
+        if timestamp.to_string() != value {
+            return Err(TimestampError::NonCanonical);
+        }
+        Ok(timestamp)
+    }
+}
+
+/// An external timestamp was invalid or non-canonical.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum TimestampError {
+    /// The value was outside the supported calendar range.
+    #[error("timestamp is outside the supported range")]
+    OutOfRange,
+    /// The value was not RFC 3339.
+    #[error("timestamp must use RFC 3339 syntax")]
+    InvalidRfc3339,
+    /// The value was not the canonical UTC `Z` representation.
+    #[error("timestamp must use canonical UTC `Z` form")]
+    NonCanonical,
+}
+
+/// The lifecycle state of one governed `ChangeSet`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ChangeSetStatus {
+    /// The proposal may still receive Edits.
+    Draft,
+    /// Deterministic validation is executing.
+    Validating,
+    /// Validation passed for the exact proposal digest.
+    Ready,
+    /// The proposal was submitted for governed review.
+    Submitted,
+    /// Required approval has been recorded.
+    Approved,
+    /// The proposal atomically changed authoritative state.
+    Committed,
+    /// The proposal failed validation or policy.
+    Rejected,
+    /// A replacement proposal made this one obsolete.
+    Superseded,
+    /// The proposal exceeded its permitted lifetime.
+    Expired,
+}
+
+impl fmt::Display for ChangeSetStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Draft => formatter.write_str("draft"),
+            Self::Validating => formatter.write_str("validating"),
+            Self::Ready => formatter.write_str("ready"),
+            Self::Submitted => formatter.write_str("submitted"),
+            Self::Approved => formatter.write_str("approved"),
+            Self::Committed => formatter.write_str("committed"),
+            Self::Rejected => formatter.write_str("rejected"),
+            Self::Superseded => formatter.write_str("superseded"),
+            Self::Expired => formatter.write_str("expired"),
+        }
+    }
+}
 
 /// The actor class associated with an authenticated Principal.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -232,8 +388,9 @@ pub enum DigestParseError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ArtifactKind, ContentDigest, CorrelationId, DigestAlgorithm, DigestParseError,
-        IdentifierError, OperationId, PrincipalId, PrincipalType,
+        ArtifactKind, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
+        CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, OperationId,
+        PrincipalId, PrincipalType, Timestamp, TimestampError,
     };
     use uuid::Uuid;
 
@@ -258,6 +415,40 @@ mod tests {
         assert_eq!(
             PrincipalType::SystemComponent.to_string(),
             "system_component"
+        );
+    }
+
+    #[test]
+    fn changeset_intent_is_trimmed_bounded_and_nonempty() {
+        let intent = ChangeSetIntent::new("  Publish the launch article  ").unwrap();
+
+        assert_eq!(intent.as_str(), "Publish the launch article");
+        assert_eq!(
+            ChangeSetIntent::new(" \n ").unwrap_err(),
+            ChangeSetIntentError::Empty
+        );
+        assert_eq!(
+            ChangeSetIntent::new("x".repeat(4_097)).unwrap_err(),
+            ChangeSetIntentError::TooLong
+        );
+        assert_eq!(ChangeSetStatus::Draft.to_string(), "draft");
+        assert_eq!(ChangeSetStatus::Committed.to_string(), "committed");
+    }
+
+    #[test]
+    fn timestamps_use_canonical_rfc3339_utc_form() {
+        let timestamp = "2026-08-03T14:00:00Z".parse::<Timestamp>().unwrap();
+
+        assert_eq!(timestamp.to_string(), "2026-08-03T14:00:00Z");
+        assert_eq!(
+            "2026-08-03T09:00:00-05:00"
+                .parse::<Timestamp>()
+                .unwrap_err(),
+            TimestampError::NonCanonical
+        );
+        assert_eq!(
+            "not-a-time".parse::<Timestamp>().unwrap_err(),
+            TimestampError::NonCanonical
         );
     }
 
