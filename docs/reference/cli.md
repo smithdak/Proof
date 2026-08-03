@@ -86,6 +86,21 @@ returns a generated UUIDv7 idempotency key unless the caller supplies one.
 Retrying the same normalized input with that key returns the original draft;
 reusing it with different input fails explicitly.
 
+The implemented `changeset add` operation accepts strict NDJSON records. The
+first typed Edit contract creates an immutable Schema version:
+
+```json
+{"api_version":"proof.dev/edit/v1","kind":"schema.create","schema_id":"article","schema_version":1,"document":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}}
+```
+
+Schema identifiers begin with a lowercase ASCII letter and contain at most 128
+bytes using lowercase letters, digits, `.`, `_`, or `-`. A batch contains 1 to
+100 records and is bounded to 1 MiB. Proof rejects duplicate JSON properties,
+unsupported fields, ambiguous numbers, invalid dialect declarations, duplicate
+Schema-version targets, and partial batches. Documents are stored as RFC 8785
+canonical JSON with a domain-separated digest. Supplying the same idempotency
+key and normalized ordered batch returns the original Edit identities.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules

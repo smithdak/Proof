@@ -3,20 +3,23 @@
 //! Local filesystem and `SQLite` adapters for Proof.
 
 use std::{
+    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
 };
 
+use proof_application::ArtifactKind;
 use proof_application::{
-    ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ContentDigest, CreateChangeSetCommand,
-    CreateChangeSetError, DraftChangeSet, IdempotencyKey, InitializeWorkspaceCommand,
-    InitializedWorkspace, InitializedWorkspaceStatus, LOCAL_POLICY_PROFILE,
-    LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, WorkspaceId,
-    WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus, WorkspaceStatusError,
-    WorkspaceStatusRepository,
+    AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ChangeSetEditRepository,
+    ChangeSetId, ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ContentDigest,
+    CreateChangeSetCommand, CreateChangeSetError, DraftChangeSet, EditId, IdempotencyKey,
+    InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
+    LOCAL_POLICY_PROFILE, LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, SchemaCreateEdit,
+    WorkspaceId, WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus,
+    WorkspaceStatusError, WorkspaceStatusRepository,
 };
-use proof_canonical::initial_known_state_digest;
+use proof_canonical::{canonicalize, digest, initial_known_state_digest, parse_strict};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,73 @@ const CONFIG_FILE: &str = "proof.toml";
 const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
+const INITIAL_DATABASE_SCHEMA: &str = "CREATE TABLE schema_migrations (
+    version INTEGER PRIMARY KEY CHECK (version > 0),
+    name TEXT NOT NULL UNIQUE
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (1, 'initialize-local-workspace');
+CREATE TABLE principals (
+    principal_id TEXT PRIMARY KEY,
+    principal_type TEXT NOT NULL CHECK (
+        principal_type IN ('human', 'service', 'agent', 'system_component')
+    ),
+    identity_provider TEXT NOT NULL,
+    identity_subject TEXT NOT NULL,
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    UNIQUE (identity_provider, identity_subject)
+) STRICT;
+CREATE TABLE workspace_metadata (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    workspace_id TEXT NOT NULL,
+    bootstrap_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    schema_version INTEGER NOT NULL CHECK (schema_version > 0)
+) STRICT;
+CREATE TABLE known_state (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence >= 0),
+    state_digest TEXT NOT NULL
+) STRICT;
+CREATE TABLE changesets (
+    changeset_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    intent TEXT NOT NULL CHECK (length(intent) > 0),
+    requested_base_state TEXT,
+    base_authoritative_sequence INTEGER NOT NULL CHECK (base_authoritative_sequence >= 0),
+    base_state TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status = 'draft'),
+    policy_profile TEXT NOT NULL,
+    validation_profile TEXT NOT NULL,
+    UNIQUE (workspace_id, principal_id, idempotency_key)
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (2, 'create-draft-changesets');
+CREATE TABLE changeset_edits (
+    changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+    ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+    edit_id TEXT NOT NULL UNIQUE,
+    edit_kind TEXT NOT NULL CHECK (edit_kind = 'schema.create'),
+    schema_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+    document_json TEXT NOT NULL,
+    document_digest TEXT NOT NULL,
+    PRIMARY KEY (changeset_id, ordinal),
+    UNIQUE (changeset_id, edit_kind, schema_id, schema_version)
+) STRICT;
+CREATE TABLE changeset_add_operations (
+    workspace_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+    idempotency_key TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
+    first_ordinal INTEGER NOT NULL CHECK (first_ordinal > 0),
+    added_count INTEGER NOT NULL CHECK (added_count > 0),
+    total_edit_count INTEGER NOT NULL CHECK (total_edit_count > 0),
+    PRIMARY KEY (workspace_id, principal_id, changeset_id, idempotency_key)
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (3, 'append-typed-changeset-edits');
+PRAGMA user_version = 3;";
 
 struct LocalIdentity {
     provider: &'static str,
@@ -297,6 +367,112 @@ impl ChangeSetRepository for LocalWorkspace {
     }
 }
 
+impl ChangeSetEditRepository for LocalWorkspace {
+    fn add_edits(
+        &self,
+        command: AddChangeSetEditsCommand,
+    ) -> Result<AddedChangeSetEdits, AddChangeSetEditsError> {
+        let request_digest = verified_edit_batch(&command.edits)?;
+        let config = self.read_config().map_err(edit_from_initialization)?;
+        let workspace_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| AddChangeSetEditsError::Unauthenticated)?;
+        let mut connection = self.open_database().map_err(edit_from_initialization)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        let (database_id, bootstrap_principal_id, schema_version): (String, String, u32) =
+            transaction
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
+                     FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        if database_id != workspace_id.to_string() {
+            return Err(AddChangeSetEditsError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+        let principal_id =
+            authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
+                .map_err(edit_from_status)?;
+        ensure_changeset_schema(&transaction, schema_version).map_err(edit_from_create)?;
+        let schema_version: u32 = transaction
+            .query_row(
+                "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        ensure_edit_schema(&transaction, schema_version)?;
+        require_editable_changeset(
+            &transaction,
+            workspace_id,
+            principal_id,
+            command.changeset_id,
+        )?;
+
+        if let Some(result) = replay_edit_batch(
+            &transaction,
+            workspace_id,
+            principal_id,
+            command.changeset_id,
+            command.idempotency_key,
+            request_digest,
+        )? {
+            transaction
+                .commit()
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+            return Ok(result);
+        }
+
+        reject_duplicate_targets(&transaction, command.changeset_id, &command.edits)?;
+        let existing_count = count_changeset_edits(&transaction, command.changeset_id)?;
+        let first_ordinal = existing_count
+            .checked_add(1)
+            .ok_or_else(|| AddChangeSetEditsError::Integrity("Edit ordinal overflow".to_owned()))?;
+        append_edit_batch(
+            &transaction,
+            command.changeset_id,
+            first_ordinal,
+            &command.edits,
+        )?;
+        let added_count = u32::try_from(command.edits.len()).map_err(|_| {
+            AddChangeSetEditsError::Integrity("Edit batch count exceeds u32".to_owned())
+        })?;
+        let total_edit_count = existing_count
+            .checked_add(added_count)
+            .ok_or_else(|| AddChangeSetEditsError::Integrity("Edit count overflow".to_owned()))?;
+        record_edit_batch(
+            &transaction,
+            workspace_id,
+            principal_id,
+            &command,
+            request_digest,
+            first_ordinal,
+            added_count,
+            total_edit_count,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+
+        Ok(AddedChangeSetEdits {
+            changeset_id: command.changeset_id,
+            workspace_id,
+            principal_id,
+            first_ordinal,
+            edit_ids: command.edits.into_iter().map(|edit| edit.edit_id).collect(),
+            total_edit_count,
+        })
+    }
+}
+
 impl WorkspaceStatusRepository for LocalWorkspace {
     fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError> {
         let has_config = path_exists(&self.config_path()).map_err(status_from_initialization)?;
@@ -446,54 +622,7 @@ fn initialize_database(
         .transaction()
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     transaction
-        .execute_batch(
-            "CREATE TABLE schema_migrations (
-                 version INTEGER PRIMARY KEY CHECK (version > 0),
-                 name TEXT NOT NULL UNIQUE
-             ) STRICT;
-             INSERT INTO schema_migrations (version, name)
-             VALUES (1, 'initialize-local-workspace');
-             CREATE TABLE principals (
-                 principal_id TEXT PRIMARY KEY,
-                 principal_type TEXT NOT NULL CHECK (
-                     principal_type IN ('human', 'service', 'agent', 'system_component')
-                 ),
-                 identity_provider TEXT NOT NULL,
-                 identity_subject TEXT NOT NULL,
-                 enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-                 UNIQUE (identity_provider, identity_subject)
-             ) STRICT;
-             CREATE TABLE workspace_metadata (
-                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                 workspace_id TEXT NOT NULL,
-                 bootstrap_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
-                 schema_version INTEGER NOT NULL CHECK (schema_version > 0)
-             ) STRICT;
-             CREATE TABLE known_state (
-                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                 authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence >= 0),
-                 state_digest TEXT NOT NULL
-             ) STRICT;
-             CREATE TABLE changesets (
-                 changeset_id TEXT PRIMARY KEY,
-                 workspace_id TEXT NOT NULL,
-                 principal_id TEXT NOT NULL REFERENCES principals(principal_id),
-                 intent TEXT NOT NULL CHECK (length(intent) > 0),
-                 requested_base_state TEXT,
-                 base_authoritative_sequence INTEGER NOT NULL
-                     CHECK (base_authoritative_sequence >= 0),
-                 base_state TEXT NOT NULL,
-                 idempotency_key TEXT NOT NULL,
-                 created_at TEXT NOT NULL,
-                 status TEXT NOT NULL CHECK (status = 'draft'),
-                 policy_profile TEXT NOT NULL,
-                 validation_profile TEXT NOT NULL,
-                 UNIQUE (workspace_id, principal_id, idempotency_key)
-             ) STRICT;
-             INSERT INTO schema_migrations (version, name)
-             VALUES (2, 'create-draft-changesets');
-             PRAGMA user_version = 2;",
-        )
+        .execute_batch(INITIAL_DATABASE_SCHEMA)
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     transaction
         .execute(
@@ -512,7 +641,7 @@ fn initialize_database(
         .execute(
             "INSERT INTO workspace_metadata (
                  singleton, workspace_id, bootstrap_principal_id, schema_version
-             ) VALUES (1, ?1, ?2, 2)",
+             ) VALUES (1, ?1, ?2, 3)",
             [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -642,6 +771,44 @@ fn changeset_from_status(error: WorkspaceStatusError) -> CreateChangeSetError {
     }
 }
 
+fn edit_from_initialization(error: WorkspaceInitializationError) -> AddChangeSetEditsError {
+    match error {
+        WorkspaceInitializationError::IdentityUnavailable(_) => {
+            AddChangeSetEditsError::Unauthenticated
+        }
+        WorkspaceInitializationError::AlreadyExists => AddChangeSetEditsError::Integrity(
+            "unexpected initialization conflict while appending Edits".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => AddChangeSetEditsError::Storage(detail),
+    }
+}
+
+fn edit_from_status(error: WorkspaceStatusError) -> AddChangeSetEditsError {
+    match error {
+        WorkspaceStatusError::Unauthenticated => AddChangeSetEditsError::Unauthenticated,
+        WorkspaceStatusError::Incomplete => AddChangeSetEditsError::Integrity(
+            "the selected Workspace has incomplete local state".to_owned(),
+        ),
+        WorkspaceStatusError::Integrity(detail) => AddChangeSetEditsError::Integrity(detail),
+        WorkspaceStatusError::Storage(detail) => AddChangeSetEditsError::Storage(detail),
+    }
+}
+
+fn edit_from_create(error: CreateChangeSetError) -> AddChangeSetEditsError {
+    match error {
+        CreateChangeSetError::Unauthenticated => AddChangeSetEditsError::Unauthenticated,
+        CreateChangeSetError::Integrity(detail) => AddChangeSetEditsError::Integrity(detail),
+        CreateChangeSetError::Storage(detail) => AddChangeSetEditsError::Storage(detail),
+        CreateChangeSetError::WorkspaceUninitialized => AddChangeSetEditsError::NotFound,
+        CreateChangeSetError::BaseStateConflict | CreateChangeSetError::IdempotencyKeyReused => {
+            AddChangeSetEditsError::Integrity(
+                "unexpected draft-creation error while migrating Edit storage".to_owned(),
+            )
+        }
+    }
+}
+
 fn ensure_changeset_schema(
     transaction: &Transaction<'_>,
     metadata_schema_version: u32,
@@ -684,11 +851,343 @@ fn ensure_changeset_schema(
                  PRAGMA user_version = 2;",
             )
             .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
-        2 => Ok(()),
+        2 | 3 => Ok(()),
         version => Err(CreateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
     }
+}
+
+fn ensure_edit_schema(
+    transaction: &Transaction<'_>,
+    metadata_schema_version: u32,
+) -> Result<(), AddChangeSetEditsError> {
+    let migration_version: u32 = transaction
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(AddChangeSetEditsError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+    match migration_version {
+        2 => transaction
+            .execute_batch(
+                "CREATE TABLE changeset_edits (
+                     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+                     ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+                     edit_id TEXT NOT NULL UNIQUE,
+                     edit_kind TEXT NOT NULL CHECK (edit_kind = 'schema.create'),
+                     schema_id TEXT NOT NULL,
+                     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+                     document_json TEXT NOT NULL,
+                     document_digest TEXT NOT NULL,
+                     PRIMARY KEY (changeset_id, ordinal),
+                     UNIQUE (changeset_id, edit_kind, schema_id, schema_version)
+                 ) STRICT;
+                 CREATE TABLE changeset_add_operations (
+                     workspace_id TEXT NOT NULL,
+                     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+                     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+                     idempotency_key TEXT NOT NULL,
+                     request_digest TEXT NOT NULL,
+                     first_ordinal INTEGER NOT NULL CHECK (first_ordinal > 0),
+                     added_count INTEGER NOT NULL CHECK (added_count > 0),
+                     total_edit_count INTEGER NOT NULL CHECK (total_edit_count > 0),
+                     PRIMARY KEY (workspace_id, principal_id, changeset_id, idempotency_key)
+                 ) STRICT;
+                 INSERT INTO schema_migrations (version, name)
+                 VALUES (3, 'append-typed-changeset-edits');
+                 UPDATE workspace_metadata SET schema_version = 3 WHERE singleton = 1;
+                 PRAGMA user_version = 3;",
+            )
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string())),
+        3 => Ok(()),
+        version => Err(AddChangeSetEditsError::Integrity(format!(
+            "unsupported local schema version {version}"
+        ))),
+    }
+}
+
+fn verified_edit_batch(
+    edits: &[SchemaCreateEdit],
+) -> Result<ContentDigest, AddChangeSetEditsError> {
+    if edits.is_empty() || edits.len() > proof_application::MAX_EDITS_PER_BATCH {
+        return Err(AddChangeSetEditsError::InvalidBatchSize);
+    }
+    let mut targets = BTreeSet::new();
+    let mut manifest = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let value = parse_strict(edit.canonical_document.as_bytes())
+            .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+        let canonical = canonicalize(&value)
+            .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+        if canonical.as_str() != edit.canonical_document {
+            return Err(AddChangeSetEditsError::Integrity(
+                "Schema document is not RFC 8785 canonical JSON".to_owned(),
+            ));
+        }
+        let Some(document) = value.as_object() else {
+            return Err(AddChangeSetEditsError::Integrity(
+                "Schema document root must be a JSON object".to_owned(),
+            ));
+        };
+        if document.get("$schema").and_then(serde_json::Value::as_str)
+            != Some("https://json-schema.org/draft/2020-12/schema")
+        {
+            return Err(AddChangeSetEditsError::Integrity(
+                "Schema document must declare JSON Schema Draft 2020-12".to_owned(),
+            ));
+        }
+        let expected_digest = digest(ArtifactKind::SchemaVersionV1, &canonical);
+        if expected_digest != edit.document_digest {
+            return Err(AddChangeSetEditsError::Integrity(
+                "Schema document digest does not match canonical content".to_owned(),
+            ));
+        }
+        if !targets.insert((edit.schema_id.clone(), edit.schema_version)) {
+            return Err(AddChangeSetEditsError::DuplicateTarget);
+        }
+        manifest.push(serde_json::json!({
+            "document_digest": edit.document_digest.to_string(),
+            "kind": "schema.create",
+            "schema_id": edit.schema_id.to_string(),
+            "schema_version": edit.schema_version.get(),
+        }));
+    }
+    let canonical = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/edit-batch/v1",
+        "edits": manifest,
+    }))
+    .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+    Ok(digest(ArtifactKind::EditBatchV1, &canonical))
+}
+
+fn require_editable_changeset(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    changeset_id: ChangeSetId,
+) -> Result<(), AddChangeSetEditsError> {
+    let status: Option<String> = connection
+        .query_row(
+            "SELECT status FROM changesets
+             WHERE changeset_id = ?1 AND workspace_id = ?2 AND principal_id = ?3",
+            [
+                changeset_id.to_string(),
+                workspace_id.to_string(),
+                principal_id.to_string(),
+            ],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    match status.as_deref() {
+        None => Err(AddChangeSetEditsError::NotFound),
+        Some("draft") => Ok(()),
+        Some(_) => Err(AddChangeSetEditsError::NotDraft),
+    }
+}
+
+fn replay_edit_batch(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    changeset_id: ChangeSetId,
+    idempotency_key: IdempotencyKey,
+    request_digest: ContentDigest,
+) -> Result<Option<AddedChangeSetEdits>, AddChangeSetEditsError> {
+    let persisted: Option<(String, i64, i64, i64)> = connection
+        .query_row(
+            "SELECT request_digest, first_ordinal, added_count, total_edit_count
+             FROM changeset_add_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2
+               AND changeset_id = ?3 AND idempotency_key = ?4",
+            [
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                changeset_id.to_string(),
+                idempotency_key.to_string(),
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    let Some((persisted_digest, first_ordinal, added_count, total_edit_count)) = persisted else {
+        return Ok(None);
+    };
+    let persisted_digest = persisted_digest
+        .parse::<ContentDigest>()
+        .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+    if persisted_digest != request_digest {
+        return Err(AddChangeSetEditsError::IdempotencyKeyReused);
+    }
+    let first_ordinal = positive_u32(first_ordinal, "first Edit ordinal")?;
+    let added_count = positive_u32(added_count, "added Edit count")?;
+    let total_edit_count = positive_u32(total_edit_count, "total Edit count")?;
+    let final_ordinal = first_ordinal
+        .checked_add(added_count - 1)
+        .ok_or_else(|| AddChangeSetEditsError::Integrity("Edit ordinal overflow".to_owned()))?;
+    let mut statement = connection
+        .prepare(
+            "SELECT edit_id FROM changeset_edits
+             WHERE changeset_id = ?1 AND ordinal BETWEEN ?2 AND ?3
+             ORDER BY ordinal",
+        )
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    let edit_ids = statement
+        .query_map(
+            (
+                changeset_id.to_string(),
+                i64::from(first_ordinal),
+                i64::from(final_ordinal),
+            ),
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?
+        .map(|result| {
+            result
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?
+                .parse::<EditId>()
+                .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if edit_ids.len() != usize::try_from(added_count).unwrap_or(usize::MAX) {
+        return Err(AddChangeSetEditsError::Integrity(
+            "idempotent Edit result is incomplete".to_owned(),
+        ));
+    }
+    Ok(Some(AddedChangeSetEdits {
+        changeset_id,
+        workspace_id,
+        principal_id,
+        first_ordinal,
+        edit_ids,
+        total_edit_count,
+    }))
+}
+
+fn positive_u32(value: i64, field: &str) -> Result<u32, AddChangeSetEditsError> {
+    u32::try_from(value)
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| AddChangeSetEditsError::Integrity(format!("{field} must be positive")))
+}
+
+fn reject_duplicate_targets(
+    connection: &Connection,
+    changeset_id: ChangeSetId,
+    edits: &[SchemaCreateEdit],
+) -> Result<(), AddChangeSetEditsError> {
+    for edit in edits {
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS (
+                     SELECT 1 FROM changeset_edits
+                     WHERE changeset_id = ?1 AND edit_kind = 'schema.create'
+                       AND schema_id = ?2 AND schema_version = ?3
+                 )",
+                (
+                    changeset_id.to_string(),
+                    edit.schema_id.as_str(),
+                    edit.schema_version.get(),
+                ),
+                |row| row.get(0),
+            )
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        if exists {
+            return Err(AddChangeSetEditsError::DuplicateTarget);
+        }
+    }
+    Ok(())
+}
+
+fn count_changeset_edits(
+    connection: &Connection,
+    changeset_id: ChangeSetId,
+) -> Result<u32, AddChangeSetEditsError> {
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM changeset_edits WHERE changeset_id = ?1",
+            [changeset_id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    u32::try_from(count)
+        .map_err(|_| AddChangeSetEditsError::Integrity("Edit count exceeds u32".to_owned()))
+}
+
+fn append_edit_batch(
+    transaction: &Transaction<'_>,
+    changeset_id: ChangeSetId,
+    first_ordinal: u32,
+    edits: &[SchemaCreateEdit],
+) -> Result<(), AddChangeSetEditsError> {
+    for (offset, edit) in edits.iter().enumerate() {
+        let offset = u32::try_from(offset)
+            .map_err(|_| AddChangeSetEditsError::Integrity("Edit offset exceeds u32".to_owned()))?;
+        let ordinal = first_ordinal
+            .checked_add(offset)
+            .ok_or_else(|| AddChangeSetEditsError::Integrity("Edit ordinal overflow".to_owned()))?;
+        transaction
+            .execute(
+                "INSERT INTO changeset_edits (
+                     changeset_id, ordinal, edit_id, edit_kind, schema_id,
+                     schema_version, document_json, document_digest
+                 ) VALUES (?1, ?2, ?3, 'schema.create', ?4, ?5, ?6, ?7)",
+                (
+                    changeset_id.to_string(),
+                    ordinal,
+                    edit.edit_id.to_string(),
+                    edit.schema_id.as_str(),
+                    edit.schema_version.get(),
+                    &edit.canonical_document,
+                    edit.document_digest.to_string(),
+                ),
+            )
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the operation record binds its full authentication and result scope"
+)]
+fn record_edit_batch(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+    command: &AddChangeSetEditsCommand,
+    request_digest: ContentDigest,
+    first_ordinal: u32,
+    added_count: u32,
+    total_edit_count: u32,
+) -> Result<(), AddChangeSetEditsError> {
+    transaction
+        .execute(
+            "INSERT INTO changeset_add_operations (
+                 workspace_id, principal_id, changeset_id, idempotency_key,
+                 request_digest, first_ordinal, added_count, total_edit_count
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                command.changeset_id.to_string(),
+                command.idempotency_key.to_string(),
+                request_digest.to_string(),
+                first_ordinal,
+                added_count,
+                total_edit_count,
+            ),
+        )
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    Ok(())
 }
 
 fn verified_known_state(

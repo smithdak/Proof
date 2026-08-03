@@ -13,6 +13,7 @@ All notable project changes are documented here. The format follows [Keep a Chan
 - Added verified local Workspace status with migration checks and a reproducible initial Known State digest.
 - Added a Human bootstrap Principal bound to the authenticated Unix user for local Workspace operations.
 - Added idempotent local ChangeSet draft creation bound to declared intent, Principal, and exact Known State.
+- Added atomic ordered Schema-create Edit batches with strict NDJSON input and canonical document digests.
 - Ratified the **Proof** product name and tagline, “Every release carries its proof.”
 - Defined the product vision, scope, roadmap, and complete local MVP loop.
 - Defined constitutional invariants for mutation, authority, validation, publication, state, interfaces, and security.

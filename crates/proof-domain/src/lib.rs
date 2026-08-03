@@ -82,6 +82,100 @@ operational_id!(
     IdempotencyKey,
     "A caller-visible identity used to make an operation safely repeatable."
 );
+operational_id!(EditId, "The identity of one ordered `ChangeSet` Edit.");
+
+/// Maximum UTF-8 byte length of a logical Schema identifier.
+pub const MAX_SCHEMA_ID_BYTES: usize = 128;
+
+/// A stable, human-meaningful Schema identifier.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SchemaId(String);
+
+impl SchemaId {
+    /// Validates the initial lowercase logical identifier profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaIdError`] unless the value starts with a lowercase
+    /// letter and contains only lowercase ASCII letters, digits, `.`, `_`, or
+    /// `-` within [`MAX_SCHEMA_ID_BYTES`].
+    pub fn new(value: impl Into<String>) -> Result<Self, SchemaIdError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > MAX_SCHEMA_ID_BYTES {
+            return Err(SchemaIdError::InvalidLength);
+        }
+        let mut bytes = value.bytes();
+        if !bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
+            || !bytes.all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'_' | b'-')
+            })
+        {
+            return Err(SchemaIdError::InvalidCharacters);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the logical identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for SchemaId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// A logical Schema identifier violated the initial profile.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum SchemaIdError {
+    /// The identifier was empty or too long.
+    #[error("Schema identifier must contain 1 to {MAX_SCHEMA_ID_BYTES} UTF-8 bytes")]
+    InvalidLength,
+    /// The identifier used characters outside the stable lowercase profile.
+    #[error(
+        "Schema identifier must start with a lowercase letter and use only lowercase ASCII letters, digits, `.`, `_`, or `-`"
+    )]
+    InvalidCharacters,
+}
+
+/// A positive immutable Schema version number.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SchemaVersion(std::num::NonZeroU32);
+
+impl SchemaVersion {
+    /// Constructs a positive Schema version.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaVersionError`] for version zero.
+    pub fn new(value: u32) -> Result<Self, SchemaVersionError> {
+        std::num::NonZeroU32::new(value)
+            .map(Self)
+            .ok_or(SchemaVersionError)
+    }
+
+    /// Returns the numeric version.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl fmt::Display for SchemaVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// A Schema version must be positive.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[error("Schema version must be greater than zero")]
+pub struct SchemaVersionError;
 
 /// Maximum UTF-8 byte length of a declared `ChangeSet` intent.
 pub const MAX_CHANGESET_INTENT_BYTES: usize = 4_096;
@@ -267,6 +361,10 @@ pub enum ArtifactKind {
     ValidationResultsV1,
     /// Reproducible authoritative Workspace state.
     KnownStateV1,
+    /// An immutable JSON Schema version document.
+    SchemaVersionV1,
+    /// One ordered batch of typed `ChangeSet` Edits.
+    EditBatchV1,
 }
 
 impl ArtifactKind {
@@ -279,6 +377,8 @@ impl ArtifactKind {
             Self::ContextPackV1 => "proof:context-pack:v1",
             Self::ValidationResultsV1 => "proof:validation-results:v1",
             Self::KnownStateV1 => "proof:known-state:v1",
+            Self::SchemaVersionV1 => "proof:schema-version:v1",
+            Self::EditBatchV1 => "proof:edit-batch:v1",
         }
     }
 }
@@ -390,7 +490,8 @@ mod tests {
     use super::{
         ArtifactKind, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
         CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, OperationId,
-        PrincipalId, PrincipalType, Timestamp, TimestampError,
+        PrincipalId, PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError,
+        Timestamp, TimestampError,
     };
     use uuid::Uuid;
 
@@ -449,6 +550,28 @@ mod tests {
         assert_eq!(
             "not-a-time".parse::<Timestamp>().unwrap_err(),
             TimestampError::NonCanonical
+        );
+    }
+
+    #[test]
+    fn schema_identifiers_and_versions_have_a_stable_profile() {
+        let schema_id = SchemaId::new("launch.article-v2").unwrap();
+        let version = SchemaVersion::new(3).unwrap();
+
+        assert_eq!(schema_id.as_str(), "launch.article-v2");
+        assert_eq!(version.get(), 3);
+        assert_eq!(
+            SchemaId::new("Article").unwrap_err(),
+            SchemaIdError::InvalidCharacters
+        );
+        assert_eq!(SchemaVersion::new(0).unwrap_err(), SchemaVersionError);
+        assert_eq!(
+            ArtifactKind::SchemaVersionV1.derive_key_context(),
+            "proof:schema-version:v1"
+        );
+        assert_eq!(
+            ArtifactKind::EditBatchV1.derive_key_context(),
+            "proof:edit-batch:v1"
         );
     }
 

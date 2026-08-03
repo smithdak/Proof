@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
 use std::{
-    env, io,
+    env, fs,
+    io::{self, Read},
     path::PathBuf,
     process,
     time::{SystemTime, UNIX_EPOCH},
@@ -9,14 +10,17 @@ use std::{
 
 use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
+    AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ArtifactKind,
     ChangeSetId, ChangeSetIntent, ContentDigest, CorrelationId, CreateChangeSetCommand,
-    CreateChangeSetError, DraftChangeSet, ExitCode, IdempotencyKey, InitializeWorkspaceCommand,
-    OperationId, PrincipalId, Problem, ResultEnvelope, StatusData, Timestamp, WorkspaceId,
-    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, create_changeset,
-    initialize_workspace, workspace_status,
+    CreateChangeSetError, DraftChangeSet, EditId, ExitCode, IdempotencyKey,
+    InitializeWorkspaceCommand, OperationId, PrincipalId, Problem, ResultEnvelope,
+    SchemaCreateEdit, SchemaId, SchemaVersion, StatusData, Timestamp, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
+    create_changeset, initialize_workspace, workspace_status,
 };
+use proof_canonical::{canonicalize, digest, parse_strict};
 use proof_local::LocalWorkspace;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -102,6 +106,17 @@ enum ChangeSetAction {
         #[arg(long)]
         idempotency_key: Option<String>,
     },
+    /// Atomically append typed Edits from an NDJSON file or stdin.
+    Add {
+        /// Target draft `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+        /// Read typed Edit records from this file, or `-` for stdin.
+        #[arg(long)]
+        file: PathBuf,
+        /// Supply a `UUIDv7` retry key; one is generated when omitted.
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
 }
 
 impl Command {
@@ -112,6 +127,9 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Create { .. },
             } => "changeset.create",
+            Self::Changeset {
+                action: ChangeSetAction::Add { .. },
+            } => "changeset.add",
         }
     }
 }
@@ -199,6 +217,21 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
             workspace,
             intent,
             base_state,
+            idempotency_key,
+        )?,
+        Command::Changeset {
+            action:
+                ChangeSetAction::Add {
+                    changeset_id,
+                    file,
+                    idempotency_key,
+                },
+        } => add_local_changeset_edits(
+            output,
+            context,
+            workspace,
+            &changeset_id,
+            &file,
             idempotency_key,
         )?,
     };
@@ -572,6 +605,228 @@ fn internal_problem(operation: &str, context: ExecutionContext, detail: String) 
     Box::new(problem)
 }
 
+fn add_local_changeset_edits(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    changeset_id: &str,
+    file: &std::path::Path,
+    idempotency_key: Option<String>,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| edit_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| edit_root_problem(context))?;
+    let changeset_id = changeset_id
+        .parse::<ChangeSetId>()
+        .map_err(|error| edit_input_problem(context, error.to_string()))?;
+    let idempotency_key = idempotency_key
+        .map(|value| {
+            value
+                .parse::<IdempotencyKey>()
+                .map_err(|error| edit_input_problem(context, error.to_string()))
+        })
+        .transpose()?
+        .unwrap_or_else(generated_idempotency_key);
+    let bytes = read_edit_source(file).map_err(|error| edit_input_problem(context, error))?;
+    let edits = parse_edit_records(&bytes).map_err(|error| edit_input_problem(context, error))?;
+    let result = add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id,
+            edits,
+            idempotency_key,
+        },
+    )
+    .map_err(|error| edit_problem(&error, context))?;
+    render_added_edits(output, context, &result, idempotency_key);
+    Ok(ExitCode::Success)
+}
+
+fn render_added_edits(
+    output: OutputFormat,
+    context: ExecutionContext,
+    added: &AddedChangeSetEdits,
+    idempotency_key: IdempotencyKey,
+) {
+    let data = AddedEditsData {
+        changeset_id: added.changeset_id.to_string(),
+        first_ordinal: added.first_ordinal,
+        edit_ids: added.edit_ids.iter().map(ToString::to_string).collect(),
+        added_count: added.edit_ids.len(),
+        total_edit_count: added.total_edit_count,
+        idempotency_key: idempotency_key.to_string(),
+    };
+    let mut result = ResultEnvelope::success(
+        "changeset.add",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(added.workspace_id.to_string());
+    result.meta.principal_id = Some(added.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!(
+                "Added {} Edit(s) to ChangeSet {}",
+                result.data.added_count, result.data.changeset_id
+            );
+            println!("first ordinal: {}", result.data.first_ordinal);
+            println!("total edits: {}", result.data.total_edit_count);
+            println!("idempotency key: {}", result.data.idempotency_key);
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn edit_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "changeset.add",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn edit_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The Edit input is invalid",
+        "proof.input.schema_mismatch",
+        "changeset.add",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn edit_problem(error: &AddChangeSetEditsError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        AddChangeSetEditsError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        AddChangeSetEditsError::NotFound => (
+            "urn:proof:problem:resource-not-found",
+            "The requested ChangeSet was not found",
+            "proof.resource.not_found",
+            false,
+        ),
+        AddChangeSetEditsError::NotDraft => (
+            "urn:proof:problem:changeset-not-draft",
+            "Edits can only be appended to a draft ChangeSet",
+            "proof.changeset.not_draft",
+            false,
+        ),
+        AddChangeSetEditsError::InvalidBatchSize => (
+            "urn:proof:problem:input-schema-mismatch",
+            "The Edit batch size is invalid",
+            "proof.input.schema_mismatch",
+            false,
+        ),
+        AddChangeSetEditsError::DuplicateTarget => (
+            "urn:proof:problem:changeset-duplicate-target",
+            "The draft already contains the requested Schema version",
+            "proof.changeset.duplicate_target",
+            false,
+        ),
+        AddChangeSetEditsError::IdempotencyKeyReused => (
+            "urn:proof:problem:idempotency-key-reused",
+            "The idempotency key was already used with different input",
+            "proof.idempotency.key_reused",
+            false,
+        ),
+        AddChangeSetEditsError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The Edit batch or Workspace could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        AddChangeSetEditsError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "changeset.add",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, AddChangeSetEditsError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
+const MAX_EDIT_INPUT_BYTES: u64 = 1_048_576;
+
+fn read_edit_source(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    if path.as_os_str() == "-" {
+        read_limited(io::stdin().lock())
+    } else {
+        let file = fs::File::open(path)
+            .map_err(|error| format!("could not open Edit input `{}`: {error}", path.display()))?;
+        read_limited(file)
+    }
+}
+
+fn read_limited(reader: impl Read) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_EDIT_INPUT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("could not read Edit input: {error}"))?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_EDIT_INPUT_BYTES {
+        return Err(format!(
+            "Edit input must not exceed {MAX_EDIT_INPUT_BYTES} bytes"
+        ));
+    }
+    Ok(bytes)
+}
+
+fn parse_edit_records(bytes: &[u8]) -> Result<Vec<SchemaCreateEdit>, String> {
+    let mut edits = Vec::new();
+    let mut lines = bytes.split(|byte| *byte == b'\n').peekable();
+    let mut index = 0_usize;
+    while let Some(raw_line) = lines.next() {
+        index += 1;
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if line.is_empty() {
+            if lines.peek().is_none() {
+                continue;
+            }
+            return Err(format!("Edit record line {index} is empty"));
+        }
+        let value =
+            parse_strict(line).map_err(|error| format!("Edit record line {index}: {error}"))?;
+        let input: SchemaCreateEditInput = serde_json::from_value(value)
+            .map_err(|error| format!("Edit record line {index}: {error}"))?;
+        edits.push(input.into_edit(index)?);
+        if edits.len() > proof_application::MAX_EDITS_PER_BATCH {
+            return Err(format!(
+                "Edit batch must not exceed {} records",
+                proof_application::MAX_EDITS_PER_BATCH
+            ));
+        }
+    }
+    if edits.is_empty() {
+        return Err("Edit input must contain at least one record".to_owned());
+    }
+    Ok(edits)
+}
+
 fn render_problem(output: OutputFormat, problem: &Problem) -> ExitCode {
     let exit_code = problem.exit_code();
     match output {
@@ -610,6 +865,69 @@ struct CreatedChangeSetData {
     policy_profile: String,
     validation_profile: String,
     edit_count: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SchemaCreateEditInput {
+    api_version: String,
+    kind: String,
+    schema_id: String,
+    schema_version: u32,
+    document: serde_json::Value,
+}
+
+impl SchemaCreateEditInput {
+    fn into_edit(self, line: usize) -> Result<SchemaCreateEdit, String> {
+        if self.api_version != "proof.dev/edit/v1" {
+            return Err(format!(
+                "Edit record line {line}: unsupported api_version `{}`",
+                self.api_version
+            ));
+        }
+        if self.kind != "schema.create" {
+            return Err(format!(
+                "Edit record line {line}: unsupported kind `{}`",
+                self.kind
+            ));
+        }
+        let schema_id = SchemaId::new(self.schema_id)
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        let schema_version = SchemaVersion::new(self.schema_version)
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        let Some(document) = self.document.as_object() else {
+            return Err(format!(
+                "Edit record line {line}: Schema document root must be a JSON object"
+            ));
+        };
+        if document.get("$schema").and_then(serde_json::Value::as_str)
+            != Some("https://json-schema.org/draft/2020-12/schema")
+        {
+            return Err(format!(
+                "Edit record line {line}: Schema document must declare JSON Schema Draft 2020-12"
+            ));
+        }
+        let canonical = canonicalize(&self.document)
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        let document_digest = digest(ArtifactKind::SchemaVersionV1, &canonical);
+        Ok(SchemaCreateEdit {
+            edit_id: generated_edit_id(),
+            schema_id,
+            schema_version,
+            canonical_document: canonical.as_str().to_owned(),
+            document_digest,
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct AddedEditsData {
+    changeset_id: String,
+    first_ordinal: u32,
+    edit_ids: Vec<String>,
+    added_count: usize,
+    total_edit_count: u32,
+    idempotency_key: String,
 }
 
 impl From<&DraftChangeSet> for CreatedChangeSetData {
@@ -659,6 +977,10 @@ fn generated_principal_id() -> PrincipalId {
 
 fn generated_changeset_id() -> ChangeSetId {
     ChangeSetId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
+}
+
+fn generated_edit_id() -> EditId {
+    EditId::from_uuid(Uuid::now_v7()).expect("UUIDv7 generation must produce version 7")
 }
 
 fn generated_idempotency_key() -> IdempotencyKey {

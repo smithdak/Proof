@@ -3,8 +3,9 @@
 //! Transport-independent application contracts for Proof.
 
 pub use proof_domain::{
-    ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
-    CorrelationId, IdempotencyKey, IdentifierError, OperationId, PrincipalId, PrincipalType,
+    ArtifactKind, ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus,
+    ContentDigest, CorrelationId, EditId, IdempotencyKey, IdentifierError, OperationId,
+    PrincipalId, PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError,
     Timestamp, TimestampError, WorkspaceId,
 };
 use serde::Serialize;
@@ -485,6 +486,110 @@ pub fn create_changeset(
     command: CreateChangeSetCommand,
 ) -> Result<DraftChangeSet, CreateChangeSetError> {
     repository.create_draft(command)
+}
+
+/// Maximum number of Edits accepted in one atomic add operation.
+pub const MAX_EDITS_PER_BATCH: usize = 100;
+
+/// A typed proposal to create one immutable JSON Schema version.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaCreateEdit {
+    /// Candidate identity used when no idempotent result exists.
+    pub edit_id: EditId,
+    /// Stable logical Schema identity.
+    pub schema_id: SchemaId,
+    /// Positive immutable version.
+    pub schema_version: SchemaVersion,
+    /// RFC 8785 canonical JSON Schema document.
+    pub canonical_document: String,
+    /// Domain-separated digest of the canonical document.
+    pub document_digest: ContentDigest,
+}
+
+/// Input for atomically appending ordered Edits to a draft `ChangeSet`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AddChangeSetEditsCommand {
+    /// Target draft identity.
+    pub changeset_id: ChangeSetId,
+    /// Non-empty ordered Edit batch.
+    pub edits: Vec<SchemaCreateEdit>,
+    /// Caller-visible retry identity for this exact normalized batch.
+    pub idempotency_key: IdempotencyKey,
+}
+
+/// Result of atomically appending an ordered Edit batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AddedChangeSetEdits {
+    /// Target draft identity.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated Principal that appended the batch.
+    pub principal_id: PrincipalId,
+    /// First one-based ordinal assigned by this operation.
+    pub first_ordinal: u32,
+    /// Edit identities in persisted order.
+    pub edit_ids: Vec<EditId>,
+    /// Total number of Edits now present in the draft.
+    pub total_edit_count: u32,
+}
+
+/// Persistence port for atomically appending typed Edits.
+pub trait ChangeSetEditRepository {
+    /// Appends the batch or returns the original result for an identical retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AddChangeSetEditsError`] without a partial append.
+    fn add_edits(
+        &self,
+        command: AddChangeSetEditsCommand,
+    ) -> Result<AddedChangeSetEdits, AddChangeSetEditsError>;
+}
+
+/// Appending Edits to a draft `ChangeSet` failed atomically.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum AddChangeSetEditsError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// The target `ChangeSet` does not exist in this Workspace.
+    #[error("the requested ChangeSet was not found")]
+    NotFound,
+    /// The target is no longer editable.
+    #[error("Edits can only be appended to a draft ChangeSet")]
+    NotDraft,
+    /// The batch was empty or exceeded its contract limit.
+    #[error("an Edit batch must contain 1 to {MAX_EDITS_PER_BATCH} records")]
+    InvalidBatchSize,
+    /// The same Schema target appears more than once in the draft.
+    #[error("the draft already contains the requested Schema version target")]
+    DuplicateTarget,
+    /// The retry key was previously used with different normalized input.
+    #[error("the idempotency key was already used with different input")]
+    IdempotencyKeyReused,
+    /// Persisted or canonical state failed verification.
+    #[error("Workspace integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local persistence could not complete safely.
+    #[error("local ChangeSet storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Atomically appends typed Edits through the configured persistence port.
+///
+/// # Errors
+///
+/// Returns [`AddChangeSetEditsError`] when the repository cannot append or
+/// safely replay the complete batch.
+pub fn add_changeset_edits(
+    repository: &impl ChangeSetEditRepository,
+    command: AddChangeSetEditsCommand,
+) -> Result<AddedChangeSetEdits, AddChangeSetEditsError> {
+    if command.edits.is_empty() || command.edits.len() > MAX_EDITS_PER_BATCH {
+        return Err(AddChangeSetEditsError::InvalidBatchSize);
+    }
+    repository.add_edits(command)
 }
 
 /// Data returned by the initial `status` operation.

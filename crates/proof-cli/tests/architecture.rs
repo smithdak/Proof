@@ -53,6 +53,7 @@ fn inward_dependency_boundaries_are_enforced() {
             "rusqlite".to_owned(),
             "rustix".to_owned(),
             "serde".to_owned(),
+            "serde_json".to_owned(),
             "thiserror".to_owned(),
             "toml".to_owned(),
         ]),
@@ -63,6 +64,7 @@ fn inward_dependency_boundaries_are_enforced() {
         BTreeSet::from([
             "clap".to_owned(),
             "proof-application".to_owned(),
+            "proof-canonical".to_owned(),
             "proof-local".to_owned(),
             "serde".to_owned(),
             "serde_json".to_owned(),

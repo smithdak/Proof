@@ -146,7 +146,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 2);
+    assert_eq!(status["data"]["storage_schema_version"], 3);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -327,6 +327,141 @@ fn changeset_create_rejects_stale_base_and_empty_intent_without_a_draft() {
         rusqlite::Connection::open(directory.path().join(".proof/state/proof.db")).unwrap();
     let count: i64 = connection
         .query_row("SELECT COUNT(*) FROM changesets", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn changeset_add_appends_ordered_schema_edits_and_replays_identically() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let created = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "create",
+            "--intent",
+            "Define launch Schemas",
+        ])
+        .output()
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let changeset_id = created["data"]["changeset_id"].as_str().unwrap();
+    let edit_path = directory.path().join("edits.ndjson");
+    fs::write(
+        &edit_path,
+        concat!(
+            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"article\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}}\n",
+            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"cta\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}}\n"
+        ),
+    )
+    .unwrap();
+    let run_add = || {
+        proof_command(directory.path())
+            .args([
+                "--output",
+                "json",
+                "changeset",
+                "add",
+                changeset_id,
+                "--file",
+                edit_path.to_str().unwrap(),
+                "--idempotency-key",
+                IDEMPOTENCY_KEY,
+            ])
+            .output()
+            .unwrap()
+    };
+
+    let first = run_add();
+    let replay = run_add();
+    assert!(first.status.success());
+    assert!(replay.status.success());
+    let first: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    let replay: serde_json::Value = serde_json::from_slice(&replay.stdout).unwrap();
+    assert_eq!(first["operation"], "changeset.add");
+    assert_eq!(first["data"]["first_ordinal"], 1);
+    assert_eq!(first["data"]["added_count"], 2);
+    assert_eq!(first["data"]["total_edit_count"], 2);
+    assert_eq!(first["data"]["idempotency_key"], IDEMPOTENCY_KEY);
+    assert_eq!(first["data"]["edit_ids"].as_array().unwrap().len(), 2);
+    assert_eq!(replay["data"], first["data"]);
+
+    let connection =
+        rusqlite::Connection::open(directory.path().join(".proof/state/proof.db")).unwrap();
+    let targets: String = connection
+        .query_row(
+            "SELECT group_concat(schema_id, ',')
+             FROM (SELECT schema_id FROM changeset_edits ORDER BY ordinal)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(targets, "article,cta");
+}
+
+#[test]
+fn changeset_add_rejects_invalid_typed_input_without_partial_append() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let created = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "create",
+            "--intent",
+            "Define Schema",
+        ])
+        .output()
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let changeset_id = created["data"]["changeset_id"].as_str().unwrap();
+    let edit_path = directory.path().join("invalid.ndjson");
+    fs::write(
+        &edit_path,
+        concat!(
+            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"article\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\"}}\n",
+            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"Invalid ID\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let output = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "add",
+            changeset_id,
+            "--file",
+            edit_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.input.schema_mismatch");
+    let connection =
+        rusqlite::Connection::open(directory.path().join(".proof/state/proof.db")).unwrap();
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM changeset_edits", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count, 0);
 }

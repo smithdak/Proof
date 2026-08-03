@@ -10,7 +10,7 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 **Milestone 0 — implementation foundation.**
 
-The Rust workspace, architectural dependency boundaries, operational identifiers, canonical artifact digests, authenticated local bootstrap Principal, local Workspace initialization and verification, idempotent ChangeSet draft creation, shared result contracts, and initial Known State are implemented. There is no public release yet. The next milestone is the first local end-to-end proof loop.
+The Rust workspace, architectural dependency boundaries, operational identifiers, canonical artifact digests, authenticated local bootstrap Principal, local Workspace initialization and verification, idempotent ChangeSet drafts, ordered Schema-create Edits, shared result contracts, and initial Known State are implemented. There is no public release yet. The next milestone is the first local end-to-end proof loop.
 
 | Area | Status |
 | --- | --- |
