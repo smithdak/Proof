@@ -17,6 +17,8 @@ fn inward_dependency_boundaries_are_enforced() {
     let domain = normal_dependencies(packages, "proof-domain");
     let application = normal_dependencies(packages, "proof-application");
     let canonical = normal_dependencies(packages, "proof-canonical");
+    let local = normal_dependencies(packages, "proof-local");
+    let cli = normal_dependencies(packages, "proof-cli");
 
     assert_eq!(
         domain,
@@ -24,7 +26,11 @@ fn inward_dependency_boundaries_are_enforced() {
     );
     assert_eq!(
         application,
-        BTreeSet::from(["proof-domain".to_owned(), "serde".to_owned()]),
+        BTreeSet::from([
+            "proof-domain".to_owned(),
+            "serde".to_owned(),
+            "thiserror".to_owned(),
+        ]),
         "application contracts may depend inward, never on interface or adapter crates"
     );
     assert_eq!(
@@ -38,6 +44,29 @@ fn inward_dependency_boundaries_are_enforced() {
             "thiserror".to_owned(),
         ]),
         "canonicalization may use deterministic codecs and hashing, never interfaces or storage"
+    );
+    assert_eq!(
+        local,
+        BTreeSet::from([
+            "proof-application".to_owned(),
+            "rusqlite".to_owned(),
+            "serde".to_owned(),
+            "thiserror".to_owned(),
+            "toml".to_owned(),
+        ]),
+        "local storage is an adapter and may only depend inward plus infrastructure libraries"
+    );
+    assert_eq!(
+        cli,
+        BTreeSet::from([
+            "clap".to_owned(),
+            "proof-application".to_owned(),
+            "proof-local".to_owned(),
+            "serde".to_owned(),
+            "serde_json".to_owned(),
+            "uuid".to_owned(),
+        ]),
+        "the CLI may compose application contracts and adapters but owns no domain behavior"
     );
 }
 

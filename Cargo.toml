@@ -4,6 +4,7 @@ members = [
     "crates/proof-canonical",
     "crates/proof-cli",
     "crates/proof-domain",
+    "crates/proof-local",
 ]
 resolver = "3"
 
@@ -20,7 +21,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_json_canonicalizer = "0.3.2"
 thiserror = "2.0.19"
+toml = "1.1.4"
 uuid = { version = "1.24.0", features = ["serde", "v7"] }
+rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

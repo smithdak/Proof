@@ -71,6 +71,7 @@ operational_id!(
     CorrelationId,
     "The identity connecting operations in one larger workflow."
 );
+operational_id!(WorkspaceId, "The identity of one governed Workspace.");
 
 /// A versioned domain-artifact class used for cryptographic separation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

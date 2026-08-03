@@ -2,8 +2,9 @@
 
 //! Transport-independent application contracts for Proof.
 
-pub use proof_domain::{CorrelationId, IdentifierError, OperationId};
+pub use proof_domain::{CorrelationId, IdentifierError, OperationId, WorkspaceId};
 use serde::Serialize;
+use thiserror::Error;
 
 /// The stable API version for non-streaming command results.
 pub const RESULT_API_VERSION: &str = "proof.dev/result/v1";
@@ -257,6 +258,61 @@ impl ExitCode {
     }
 }
 
+/// Input for the Workspace initialization application operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InitializeWorkspaceCommand {
+    /// Identity assigned to the new Workspace.
+    pub workspace_id: WorkspaceId,
+}
+
+/// Successful result of initializing one Workspace repository.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InitializedWorkspace {
+    /// Persisted Workspace identity.
+    pub workspace_id: WorkspaceId,
+}
+
+/// Persistence port used by the Workspace initialization operation.
+pub trait WorkspaceRepository {
+    /// Atomically initializes empty Workspace storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceInitializationError`] if storage already exists or
+    /// the adapter cannot safely persist the initial Workspace.
+    fn initialize(
+        &self,
+        command: InitializeWorkspaceCommand,
+    ) -> Result<InitializedWorkspace, WorkspaceInitializationError>;
+}
+
+/// Workspace initialization failed without committing a usable Workspace.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum WorkspaceInitializationError {
+    /// Workspace state or configuration already exists at the selected target.
+    #[error("a Workspace is already initialized at the selected location")]
+    AlreadyExists,
+    /// The selected root is missing, inaccessible, or not a directory.
+    #[error("the selected Workspace root is unavailable: {0}")]
+    RootUnavailable(String),
+    /// Local storage failed while initializing the Workspace.
+    #[error("Workspace storage initialization failed: {0}")]
+    Storage(String),
+}
+
+/// Initializes a Workspace through the configured persistence port.
+///
+/// # Errors
+///
+/// Returns [`WorkspaceInitializationError`] without producing a successful
+/// result when the repository rejects or cannot persist the operation.
+pub fn initialize_workspace(
+    repository: &impl WorkspaceRepository,
+    command: InitializeWorkspaceCommand,
+) -> Result<InitializedWorkspace, WorkspaceInitializationError> {
+    repository.initialize(command)
+}
+
 /// Data returned by the initial `status` operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StatusData {
@@ -269,10 +325,10 @@ pub struct StatusData {
 impl StatusData {
     /// Returns the status of the implementation foundation.
     #[must_use]
-    pub const fn foundation() -> Self {
+    pub const fn foundation(workspace_selected: bool) -> Self {
         Self {
             implementation_stage: "foundation",
-            workspace_selected: false,
+            workspace_selected,
         }
     }
 }
@@ -290,7 +346,7 @@ mod tests {
             "status",
             OPERATION_ID.parse::<OperationId>().unwrap(),
             CORRELATION_ID.parse::<CorrelationId>().unwrap(),
-            StatusData::foundation(),
+            StatusData::foundation(false),
         );
         let value = serde_json::to_value(result).unwrap();
 

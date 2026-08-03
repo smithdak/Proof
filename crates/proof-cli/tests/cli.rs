@@ -1,4 +1,9 @@
-use std::process::Command;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
 
@@ -41,12 +46,74 @@ fn invalid_correlation_id_is_a_structured_input_problem() {
         .expect("proof executable should run");
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["code"], "proof.input.schema_mismatch");
     assert_eq!(value["operation"], "status");
     assert_eq!(value["retryable"], false);
+}
+
+#[test]
+fn init_creates_a_local_workspace_and_returns_structured_paths() {
+    let directory = TestDirectory::new();
+    let output = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "--correlation-id",
+            CORRELATION_ID,
+            "init",
+        ])
+        .output()
+        .expect("proof executable should run");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let workspace_id = value["data"]["workspace_id"].as_str().unwrap();
+
+    assert_eq!(value["operation"], "init");
+    assert_eq!(value["correlation_id"], CORRELATION_ID);
+    assert_eq!(value["meta"]["workspace_id"], workspace_id);
+    assert_eq!(
+        value["data"]["workspace_root"],
+        directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+    );
+    assert_eq!(workspace_id.as_bytes()[14], b'7');
+    assert!(directory.path().join("proof.toml").is_file());
+    assert!(directory.path().join(".proof/state/proof.db").is_file());
+}
+
+#[test]
+fn repeated_init_returns_a_structured_conflict_without_overwrite() {
+    let directory = TestDirectory::new();
+    let first = proof_command(directory.path())
+        .arg("init")
+        .output()
+        .unwrap();
+    assert!(first.status.success());
+    let config_before = fs::read(directory.path().join("proof.toml")).unwrap();
+
+    let second = proof_command(directory.path())
+        .args(["--output", "json", "init"])
+        .output()
+        .unwrap();
+
+    assert_eq!(second.status.code(), Some(5));
+    assert!(second.stderr.is_empty());
+    let problem: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.state.conflict");
+    assert_eq!(problem["operation"], "init");
+    assert_eq!(
+        fs::read(directory.path().join("proof.toml")).unwrap(),
+        config_before
+    );
 }
 
 #[test]
@@ -61,4 +128,34 @@ fn status_human_output_is_a_projection_of_status_data() {
     assert!(stdout.contains("Proof 0.1.0"));
     assert!(stdout.contains("implementation: foundation"));
     assert!(stdout.contains("workspace selected: false"));
+}
+
+fn proof_command(current_directory: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_proof"));
+    command.current_dir(current_directory);
+    command
+}
+
+static DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct TestDirectory(PathBuf);
+
+impl TestDirectory {
+    fn new() -> Self {
+        let sequence = DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("proof-cli-test-{}-{sequence}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }

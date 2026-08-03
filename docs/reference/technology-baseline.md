@@ -26,6 +26,7 @@ These are current stable candidates verified during the August 2026 documentatio
 | CLI parsing | `clap` | `4.6.5` |
 | Serialization | `serde` | `1.0.229` |
 | Canonical JSON | `serde_json_canonicalizer` | `0.3.2` |
+| Workspace configuration | `toml` | `1.1.4` |
 | Domain errors | `thiserror` | `2.0.19` |
 | Operational IDs | `uuid` | `1.24.0` |
 | Content digest | `blake3` | `1.8.5` |
@@ -142,6 +143,7 @@ Updates are grouped by compatibility risk and accompanied by the relevant test a
 - [clap releases](https://github.com/clap-rs/clap/releases)
 - [Serde releases](https://github.com/serde-rs/serde/releases)
 - [serde_json_canonicalizer releases](https://github.com/evik42/serde-json-canonicalizer/releases)
+- [toml releases](https://github.com/toml-rs/toml/releases)
 - [thiserror releases](https://github.com/dtolnay/thiserror/releases)
 - [UUID releases](https://github.com/uuid-rs/uuid/releases)
 - [Tokio releases](https://github.com/tokio-rs/tokio/releases)
