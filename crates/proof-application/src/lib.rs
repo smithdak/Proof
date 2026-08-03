@@ -2,7 +2,7 @@
 
 //! Transport-independent application contracts for Proof.
 
-pub use proof_domain::{CorrelationId, IdentifierError, OperationId, WorkspaceId};
+pub use proof_domain::{ContentDigest, CorrelationId, IdentifierError, OperationId, WorkspaceId};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -313,6 +313,65 @@ pub fn initialize_workspace(
     repository.initialize(command)
 }
 
+/// Current state of a selected Workspace repository.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspaceStatus {
+    /// No Workspace configuration or private state exists.
+    Uninitialized,
+    /// Configuration, storage, and Known State agree.
+    Initialized(InitializedWorkspaceStatus),
+}
+
+/// Verified status of an initialized Workspace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InitializedWorkspaceStatus {
+    /// Verified Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Version of the local persistent schema.
+    pub storage_schema_version: u32,
+    /// Last authoritative fact sequence included in this state.
+    pub authoritative_sequence: u64,
+    /// Reproducible digest of this Known State.
+    pub state_digest: ContentDigest,
+}
+
+/// Persistence port used to inspect and verify Workspace state.
+pub trait WorkspaceStatusRepository {
+    /// Inspects the selected repository without mutating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceStatusError`] when partial, corrupt, or unavailable
+    /// storage prevents a verified status result.
+    fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError>;
+}
+
+/// Workspace state could not be inspected or verified.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum WorkspaceStatusError {
+    /// Only part of the required Workspace layout exists.
+    #[error("the selected Workspace has incomplete local state")]
+    Incomplete,
+    /// Persisted representations disagree or fail verification.
+    #[error("Workspace integrity verification failed: {0}")]
+    Integrity(String),
+    /// Storage could not be read safely.
+    #[error("Workspace storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Inspects a Workspace through the configured persistence port.
+///
+/// # Errors
+///
+/// Returns [`WorkspaceStatusError`] when the repository cannot produce a
+/// verified status result.
+pub fn workspace_status(
+    repository: &impl WorkspaceStatusRepository,
+) -> Result<WorkspaceStatus, WorkspaceStatusError> {
+    repository.status()
+}
+
 /// Data returned by the initial `status` operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StatusData {
@@ -320,6 +379,20 @@ pub struct StatusData {
     pub implementation_stage: &'static str,
     /// Whether an initialized Workspace was selected.
     pub workspace_selected: bool,
+    /// Whether configuration and private state form a verified Workspace.
+    pub workspace_initialized: bool,
+    /// Verified Workspace identity when initialized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    /// Local persistent schema version when initialized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_schema_version: Option<u32>,
+    /// Last authoritative sequence included in Known State.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authoritative_sequence: Option<u64>,
+    /// Reproducible Known State digest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_digest: Option<String>,
 }
 
 impl StatusData {
@@ -329,6 +402,28 @@ impl StatusData {
         Self {
             implementation_stage: "foundation",
             workspace_selected,
+            workspace_initialized: false,
+            workspace_id: None,
+            storage_schema_version: None,
+            authoritative_sequence: None,
+            state_digest: None,
+        }
+    }
+
+    /// Projects a verified repository status into the stable CLI data shape.
+    #[must_use]
+    pub fn from_workspace(workspace_selected: bool, status: WorkspaceStatus) -> Self {
+        match status {
+            WorkspaceStatus::Uninitialized => Self::foundation(workspace_selected),
+            WorkspaceStatus::Initialized(status) => Self {
+                implementation_stage: "foundation",
+                workspace_selected,
+                workspace_initialized: true,
+                workspace_id: Some(status.workspace_id.to_string()),
+                storage_schema_version: Some(status.storage_schema_version),
+                authoritative_sequence: Some(status.authoritative_sequence),
+                state_digest: Some(status.state_digest.to_string()),
+            },
         }
     }
 }

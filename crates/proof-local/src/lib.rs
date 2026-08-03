@@ -9,10 +9,12 @@ use std::{
 };
 
 use proof_application::{
-    InitializeWorkspaceCommand, InitializedWorkspace, WorkspaceId, WorkspaceInitializationError,
-    WorkspaceRepository,
+    ContentDigest, InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
+    WorkspaceId, WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus,
+    WorkspaceStatusError, WorkspaceStatusRepository,
 };
-use rusqlite::Connection;
+use proof_canonical::initial_known_state_digest;
+use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
 const CONFIG_API_VERSION: &str = "proof.dev/workspace/v1";
@@ -144,7 +146,13 @@ impl WorkspaceRepository for LocalWorkspace {
         }
 
         let database_path = runtime_path.join("state/proof.db");
-        initialize_database(&database_path, command.workspace_id.to_string())?;
+        let initial_state_digest = initial_known_state_digest(command.workspace_id)
+            .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+        initialize_database(
+            &database_path,
+            command.workspace_id.to_string(),
+            initial_state_digest.to_string(),
+        )?;
         set_private_file_permissions(&database_path)?;
 
         let config = WorkspaceConfig::new(command.workspace_id.to_string());
@@ -166,6 +174,101 @@ impl WorkspaceRepository for LocalWorkspace {
         Ok(InitializedWorkspace {
             workspace_id: command.workspace_id,
         })
+    }
+}
+
+impl WorkspaceStatusRepository for LocalWorkspace {
+    fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError> {
+        let has_config = path_exists(&self.config_path()).map_err(status_from_initialization)?;
+        let has_runtime = path_exists(&self.runtime_path()).map_err(status_from_initialization)?;
+        match (has_config, has_runtime) {
+            (false, false) => return Ok(WorkspaceStatus::Uninitialized),
+            (true, false) | (false, true) => return Err(WorkspaceStatusError::Incomplete),
+            (true, true) => {}
+        }
+
+        let config = self.read_config().map_err(status_from_initialization)?;
+        let configured_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
+        let connection = open_database_for_status(&self.database_path())?;
+        let journal_mode: String = connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+        if journal_mode != "wal" {
+            return Err(WorkspaceStatusError::Integrity(
+                "local database is not using WAL journal mode".to_owned(),
+            ));
+        }
+        let (database_id, metadata_schema_version): (String, u32) = connection
+            .query_row(
+                "SELECT workspace_id, schema_version
+                 FROM workspace_metadata WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+        let database_id = database_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
+        if database_id != configured_id {
+            return Err(WorkspaceStatusError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+
+        let migration_version: u32 = connection
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+        let pragma_schema_version: u32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+        if metadata_schema_version != migration_version
+            || migration_version != pragma_schema_version
+        {
+            return Err(WorkspaceStatusError::Integrity(
+                "persistent schema version records differ".to_owned(),
+            ));
+        }
+
+        let (authoritative_sequence, persisted_digest): (i64, String) = connection
+            .query_row(
+                "SELECT authoritative_sequence, state_digest
+                 FROM known_state WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+        let authoritative_sequence = u64::try_from(authoritative_sequence).map_err(|_| {
+            WorkspaceStatusError::Integrity(
+                "authoritative sequence must be non-negative".to_owned(),
+            )
+        })?;
+        if authoritative_sequence != 0 {
+            return Err(WorkspaceStatusError::Integrity(
+                "non-empty authoritative state is not supported by this build".to_owned(),
+            ));
+        }
+        let persisted_digest = persisted_digest
+            .parse::<ContentDigest>()
+            .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
+        let expected_digest = initial_known_state_digest(configured_id)
+            .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
+        if persisted_digest != expected_digest {
+            return Err(WorkspaceStatusError::Integrity(
+                "Known State digest does not match the reproducible initial state".to_owned(),
+            ));
+        }
+
+        Ok(WorkspaceStatus::Initialized(InitializedWorkspaceStatus {
+            workspace_id: configured_id,
+            storage_schema_version: migration_version,
+            authoritative_sequence,
+            state_digest: persisted_digest,
+        }))
     }
 }
 
@@ -208,6 +311,7 @@ pub struct StorageConfig {
 fn initialize_database(
     path: &Path,
     workspace_id: String,
+    initial_state_digest: String,
 ) -> Result<(), WorkspaceInitializationError> {
     let mut connection = open_database_at(path)?;
     let transaction = connection
@@ -226,6 +330,11 @@ fn initialize_database(
                  workspace_id TEXT NOT NULL,
                  schema_version INTEGER NOT NULL CHECK (schema_version > 0)
              ) STRICT;
+             CREATE TABLE known_state (
+                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                 authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence >= 0),
+                 state_digest TEXT NOT NULL
+             ) STRICT;
              PRAGMA user_version = 1;",
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -234,6 +343,13 @@ fn initialize_database(
             "INSERT INTO workspace_metadata (singleton, workspace_id, schema_version)
              VALUES (1, ?1, 1)",
             [workspace_id],
+        )
+        .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    transaction
+        .execute(
+            "INSERT INTO known_state (singleton, authoritative_sequence, state_digest)
+             VALUES (1, 0, ?1)",
+            [initial_state_digest],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     transaction
@@ -251,6 +367,18 @@ fn open_database_at(path: &Path) -> Result<Connection, WorkspaceInitializationEr
     connection
         .pragma_update(None, "journal_mode", "WAL")
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    Ok(connection)
+}
+
+fn open_database_for_status(path: &Path) -> Result<Connection, WorkspaceStatusError> {
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .map_err(|error| WorkspaceStatusError::Storage(error.to_string()))?;
     Ok(connection)
 }
 
@@ -304,6 +432,16 @@ fn set_private_file_permissions(_path: &Path) -> Result<(), WorkspaceInitializat
 
 fn storage_error(action: &str, error: &io::Error) -> WorkspaceInitializationError {
     WorkspaceInitializationError::Storage(format!("{action}: {error}"))
+}
+
+fn status_from_initialization(error: WorkspaceInitializationError) -> WorkspaceStatusError {
+    match error {
+        WorkspaceInitializationError::AlreadyExists => WorkspaceStatusError::Integrity(
+            "unexpected initialization conflict while reading status".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => WorkspaceStatusError::Storage(detail),
+    }
 }
 
 struct InitializationCleanup {

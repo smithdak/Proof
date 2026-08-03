@@ -5,7 +5,8 @@ use std::{env, io, path::PathBuf, process};
 use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
     CorrelationId, ExitCode, InitializeWorkspaceCommand, OperationId, Problem, ResultEnvelope,
-    StatusData, WorkspaceId, WorkspaceInitializationError, initialize_workspace,
+    StatusData, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
+    initialize_workspace, workspace_status,
 };
 use proof_local::LocalWorkspace;
 use serde::Serialize;
@@ -153,33 +154,98 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
 
     let exit_code = match command {
         Command::Init => initialize_local_workspace(output, context, workspace)?,
-        Command::Status => render_status(output, context, workspace.is_some()),
+        Command::Status => inspect_local_workspace(output, context, workspace)?,
     };
     Ok(exit_code)
 }
 
-fn render_status(
-    output: OutputFormat,
-    context: ExecutionContext,
-    workspace_selected: bool,
-) -> ExitCode {
-    let result = ResultEnvelope::success(
-        "status",
-        context.operation_id,
-        context.correlation_id,
-        StatusData::foundation(workspace_selected),
-    );
+fn render_status(output: OutputFormat, context: ExecutionContext, data: StatusData) -> ExitCode {
+    let result =
+        ResultEnvelope::success("status", context.operation_id, context.correlation_id, data);
 
     match output {
         OutputFormat::Text => {
             println!("Proof {}", result.meta.proof_version);
             println!("implementation: {}", result.data.implementation_stage);
             println!("workspace selected: {}", result.data.workspace_selected);
+            println!(
+                "workspace initialized: {}",
+                result.data.workspace_initialized
+            );
+            if let Some(workspace_id) = &result.data.workspace_id {
+                println!("workspace id: {workspace_id}");
+            }
+            if let Some(sequence) = result.data.authoritative_sequence {
+                println!("authoritative sequence: {sequence}");
+            }
+            if let Some(state_digest) = &result.data.state_digest {
+                println!("state digest: {state_digest}");
+            }
         }
         OutputFormat::Json => write_json(&result),
     }
 
     ExitCode::Success
+}
+
+fn inspect_local_workspace(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+) -> Result<ExitCode, Box<Problem>> {
+    let explicitly_selected = selected_workspace.is_some();
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| status_root_problem(context))?,
+    };
+    let repository = LocalWorkspace::new(root).map_err(|_| status_root_problem(context))?;
+    let status =
+        workspace_status(&repository).map_err(|error| workspace_status_problem(&error, context))?;
+    let workspace_selected =
+        explicitly_selected || matches!(status, WorkspaceStatus::Initialized(_));
+    let data = StatusData::from_workspace(workspace_selected, status);
+    Ok(render_status(output, context, data))
+}
+
+fn status_root_problem(context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        "status",
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn workspace_status_problem(
+    error: &WorkspaceStatusError,
+    context: ExecutionContext,
+) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        WorkspaceStatusError::Incomplete | WorkspaceStatusError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The selected Workspace could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        WorkspaceStatusError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local Workspace storage could not be inspected",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "status",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.retryable = retryable;
+    Box::new(problem)
 }
 
 fn initialize_local_workspace(

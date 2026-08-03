@@ -84,6 +84,8 @@ pub enum ArtifactKind {
     ContextPackV1,
     /// Validation findings bound to exact input.
     ValidationResultsV1,
+    /// Reproducible authoritative Workspace state.
+    KnownStateV1,
 }
 
 impl ArtifactKind {
@@ -95,6 +97,7 @@ impl ArtifactKind {
             Self::ChangeSetV1 => "proof:changeset:v1",
             Self::ContextPackV1 => "proof:context-pack:v1",
             Self::ValidationResultsV1 => "proof:validation-results:v1",
+            Self::KnownStateV1 => "proof:known-state:v1",
         }
     }
 }

@@ -1,0 +1,9 @@
+{
+  "manifest": {
+    "api_version": "proof.dev/known-state/v1",
+    "authoritative_sequence": 0,
+    "workspace_id": "019c0000-0000-7000-8000-000000000001"
+  },
+  "context": "proof:known-state:v1",
+  "digest": "blake3:c32873fd9a1c173e5d8fd9542bccab6acd5ff9001ba14f9a900a266282b70f37"
+}

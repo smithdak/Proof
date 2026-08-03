@@ -374,6 +374,7 @@ name = "proof-local"
 version = "0.1.0"
 dependencies = [
  "proof-application",
+ "proof-canonical",
  "rusqlite",
  "serde",
  "thiserror",

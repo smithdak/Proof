@@ -4,7 +4,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use proof_domain::{ArtifactKind, ContentDigest};
+use proof_domain::{ArtifactKind, ContentDigest, WorkspaceId};
 use serde::{
     Deserialize, Deserializer,
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -97,6 +97,24 @@ pub fn digest(kind: ArtifactKind, canonical: &CanonicalJson) -> ContentDigest {
     let mut hasher = blake3::Hasher::new_derive_key(kind.derive_key_context());
     hasher.update(canonical.as_bytes());
     ContentDigest::blake3(*hasher.finalize().as_bytes())
+}
+
+/// Computes the reproducible digest of an empty initial Workspace state.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the initial Known State manifest cannot
+/// be represented by the canonical JSON profile.
+pub fn initial_known_state_digest(
+    workspace_id: WorkspaceId,
+) -> Result<ContentDigest, CanonicalizationError> {
+    let manifest = serde_json::json!({
+        "api_version": "proof.dev/known-state/v1",
+        "authoritative_sequence": 0,
+        "workspace_id": workspace_id.to_string(),
+    });
+    let canonical = canonicalize(&manifest)?;
+    Ok(digest(ArtifactKind::KnownStateV1, &canonical))
 }
 
 fn validate_safe_integers(value: &Value) -> Result<(), CanonicalizationError> {
@@ -227,8 +245,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        CanonicalizationError, MAX_SAFE_INTEGER, canonicalize, digest, parse_and_canonicalize,
-        parse_strict,
+        CanonicalizationError, MAX_SAFE_INTEGER, canonicalize, digest, initial_known_state_digest,
+        parse_and_canonicalize, parse_strict,
     };
 
     #[test]
@@ -347,6 +365,48 @@ mod tests {
         for invalid in vectors["invalid"].as_array().unwrap() {
             assert!(invalid.as_str().unwrap().parse::<OperationId>().is_err());
         }
+    }
+
+    #[test]
+    fn initial_known_state_is_bound_to_workspace_identity() {
+        let first = "019c0000-0000-7000-8000-000000000001".parse().unwrap();
+        let second = "019c0000-0000-7000-8000-000000000002".parse().unwrap();
+
+        assert_ne!(
+            initial_known_state_digest(first).unwrap(),
+            initial_known_state_digest(second).unwrap()
+        );
+    }
+
+    #[test]
+    fn initial_known_state_matches_the_portable_golden_vector() {
+        let vector: Value = serde_json::from_slice(include_bytes!(
+            "../../../conformance/v1/digests/initial-known-state.json"
+        ))
+        .unwrap();
+        let workspace_id = vector["manifest"]["workspace_id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let expected = vector["digest"]
+            .as_str()
+            .unwrap()
+            .parse::<ContentDigest>()
+            .unwrap();
+
+        assert_eq!(
+            vector["context"],
+            ArtifactKind::KnownStateV1.derive_key_context()
+        );
+        assert_eq!(initial_known_state_digest(workspace_id).unwrap(), expected);
+        assert_eq!(
+            digest(
+                ArtifactKind::KnownStateV1,
+                &canonicalize(&vector["manifest"]).unwrap()
+            ),
+            expected
+        );
     }
 
     #[derive(Deserialize)]

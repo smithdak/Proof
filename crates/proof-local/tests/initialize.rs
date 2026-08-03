@@ -5,8 +5,10 @@ use std::{
 };
 
 use proof_application::{
-    InitializeWorkspaceCommand, WorkspaceId, WorkspaceInitializationError, initialize_workspace,
+    InitializeWorkspaceCommand, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
+    WorkspaceStatusError, initialize_workspace, workspace_status,
 };
+use proof_canonical::initial_known_state_digest;
 use proof_local::LocalWorkspace;
 
 const WORKSPACE_ID: &str = "019c0000-0000-7000-8000-000000000010";
@@ -58,12 +60,26 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
             |row| row.get(0),
         )
         .unwrap();
+    let (authoritative_sequence, state_digest): (i64, String) = connection
+        .query_row(
+            "SELECT authoritative_sequence, state_digest FROM known_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
 
     assert_eq!(persisted_id, WORKSPACE_ID);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
     assert_eq!(schema_version, 1);
     assert_eq!(migration_name, "initialize-local-workspace");
+    assert_eq!(authoritative_sequence, 0);
+    assert_eq!(
+        state_digest,
+        initial_known_state_digest(workspace_id)
+            .unwrap()
+            .to_string()
+    );
 
     #[cfg(unix)]
     assert_private_permissions(&repository);
@@ -148,6 +164,117 @@ fn unsafe_storage_paths_in_configuration_are_rejected() {
         repository.read_config(),
         Err(WorkspaceInitializationError::Storage(_))
     ));
+}
+
+#[test]
+fn status_distinguishes_uninitialized_and_verified_workspaces() {
+    let directory = TestDirectory::new();
+    let repository = LocalWorkspace::new(directory.path()).unwrap();
+    assert_eq!(
+        workspace_status(&repository).unwrap(),
+        WorkspaceStatus::Uninitialized
+    );
+    initialize_workspace(
+        &repository,
+        InitializeWorkspaceCommand {
+            workspace_id: WORKSPACE_ID.parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    let WorkspaceStatus::Initialized(status) = workspace_status(&repository).unwrap() else {
+        panic!("initialized Workspace must return verified status");
+    };
+    assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
+    assert_eq!(status.storage_schema_version, 1);
+    assert_eq!(status.authoritative_sequence, 0);
+    assert_eq!(
+        status.state_digest,
+        initial_known_state_digest(status.workspace_id).unwrap()
+    );
+}
+
+#[test]
+fn partial_workspace_layout_fails_closed() {
+    let directory = TestDirectory::new();
+    fs::create_dir(directory.path().join(".proof")).unwrap();
+    let repository = LocalWorkspace::new(directory.path()).unwrap();
+
+    assert_eq!(
+        workspace_status(&repository).unwrap_err(),
+        WorkspaceStatusError::Incomplete
+    );
+}
+
+#[test]
+fn mismatched_workspace_identities_fail_integrity_verification() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    repository
+        .open_database()
+        .unwrap()
+        .execute(
+            "UPDATE workspace_metadata SET workspace_id = ?1 WHERE singleton = 1",
+            [OTHER_WORKSPACE_ID],
+        )
+        .unwrap();
+
+    assert!(matches!(
+        workspace_status(&repository),
+        Err(WorkspaceStatusError::Integrity(_))
+    ));
+}
+
+#[test]
+fn altered_known_state_digest_fails_integrity_verification() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    repository
+        .open_database()
+        .unwrap()
+        .execute(
+            "UPDATE known_state SET state_digest = ?1 WHERE singleton = 1",
+            [format!("blake3:{}", "00".repeat(32))],
+        )
+        .unwrap();
+
+    assert!(matches!(
+        workspace_status(&repository),
+        Err(WorkspaceStatusError::Integrity(_))
+    ));
+}
+
+#[test]
+fn altered_journal_mode_is_detected_without_repairing_it() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    let connection = repository.open_database().unwrap();
+    connection
+        .pragma_update(None, "journal_mode", "DELETE")
+        .unwrap();
+    drop(connection);
+
+    assert!(matches!(
+        workspace_status(&repository),
+        Err(WorkspaceStatusError::Integrity(_))
+    ));
+    let connection = rusqlite::Connection::open(repository.database_path()).unwrap();
+    let journal_mode: String = connection
+        .pragma_query_value(None, "journal_mode", |row| row.get(0))
+        .unwrap();
+    assert_eq!(journal_mode, "delete");
+}
+
+fn initialized_repository(directory: &TestDirectory) -> LocalWorkspace {
+    let repository = LocalWorkspace::new(directory.path()).unwrap();
+    initialize_workspace(
+        &repository,
+        InitializeWorkspaceCommand {
+            workspace_id: WORKSPACE_ID.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    repository
 }
 
 #[cfg(unix)]

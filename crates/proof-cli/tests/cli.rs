@@ -30,6 +30,7 @@ fn status_emits_the_stable_json_envelope() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["data"]["implementation_stage"], "foundation");
     assert_eq!(value["data"]["workspace_selected"], false);
+    assert_eq!(value["data"]["workspace_initialized"], false);
 }
 
 #[test]
@@ -114,6 +115,54 @@ fn repeated_init_returns_a_structured_conflict_without_overwrite() {
         fs::read(directory.path().join("proof.toml")).unwrap(),
         config_before
     );
+}
+
+#[test]
+fn status_verifies_an_initialized_workspace_and_known_state() {
+    let directory = TestDirectory::new();
+    let initialized = proof_command(directory.path())
+        .args(["--output", "json", "init"])
+        .output()
+        .unwrap();
+    let initialized: serde_json::Value = serde_json::from_slice(&initialized.stdout).unwrap();
+    let workspace_id = initialized["data"]["workspace_id"].clone();
+
+    let status = proof_command(directory.path())
+        .args(["--output", "json", "status"])
+        .output()
+        .unwrap();
+
+    assert!(status.status.success());
+    assert!(status.stderr.is_empty());
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status["data"]["workspace_selected"], true);
+    assert_eq!(status["data"]["workspace_initialized"], true);
+    assert_eq!(status["data"]["workspace_id"], workspace_id);
+    assert_eq!(status["data"]["storage_schema_version"], 1);
+    assert_eq!(status["data"]["authoritative_sequence"], 0);
+    assert!(
+        status["data"]["state_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("blake3:")
+    );
+}
+
+#[test]
+fn status_rejects_partial_workspace_state() {
+    let directory = TestDirectory::new();
+    fs::create_dir(directory.path().join(".proof")).unwrap();
+
+    let status = proof_command(directory.path())
+        .args(["--output", "json", "status"])
+        .output()
+        .unwrap();
+
+    assert_eq!(status.status.code(), Some(8));
+    assert!(status.stderr.is_empty());
+    let problem: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.evidence.incomplete");
+    assert_eq!(problem["operation"], "status");
 }
 
 #[test]

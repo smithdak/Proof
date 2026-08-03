@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 proof-application = { path = "../proof-application" }
+proof-canonical = { path = "../proof-canonical" }
 rusqlite.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -14,4 +15,3 @@ toml.workspace = true
 
 [lints]
 workspace = true
-

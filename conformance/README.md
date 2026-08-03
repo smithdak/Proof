@@ -8,6 +8,7 @@ The initial vectors cover:
 
 - RFC 8785 canonical JSON bytes and fixed-point serialization.
 - BLAKE3-256 outputs for each versioned derive-key context.
+- The empty initial Known State manifest and digest.
 - Accepted and rejected UUIDv7 operational identifiers.
 
 Digest values are algorithm-qualified and lowercase. Implementations must fail
