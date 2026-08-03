@@ -7,9 +7,10 @@ use std::{
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, ArtifactKind, ChangeSetId, ChangeSetIntent,
     ContentDigest, CreateChangeSetCommand, CreateChangeSetError, EditId, IdempotencyKey,
-    InitializeWorkspaceCommand, PrincipalId, SchemaCreateEdit, SchemaId, SchemaVersion, Timestamp,
-    WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
-    add_changeset_edits, create_changeset, initialize_workspace, workspace_status,
+    InitializeWorkspaceCommand, InspectChangeSetError, PrincipalId, SchemaCreateEdit, SchemaId,
+    SchemaVersion, Timestamp, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus,
+    WorkspaceStatusError, add_changeset_edits, create_changeset, initialize_workspace,
+    inspect_changeset, workspace_status,
 };
 use proof_canonical::{canonicalize, digest, initial_known_state_digest};
 use proof_local::LocalWorkspace;
@@ -617,6 +618,90 @@ fn adding_edits_migrates_schema_version_two_in_the_same_transaction() {
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
     assert_eq!(version, 3);
+}
+
+#[test]
+fn inspection_reconstructs_complete_changeset_and_ordered_edits() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define launch Schemas", None),
+    )
+    .unwrap();
+    add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![
+                schema_edit(EDIT_ID, "article", 1, "Article"),
+                schema_edit(OTHER_EDIT_ID, "cta", 1, "Call to action"),
+            ],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    let inspected = inspect_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap();
+
+    assert_eq!(inspected.workspace_id.to_string(), WORKSPACE_ID);
+    assert_eq!(inspected.principal_id.to_string(), PRINCIPAL_ID);
+    assert_eq!(inspected.intent.as_str(), "Define launch Schemas");
+    assert_eq!(inspected.status.to_string(), "draft");
+    assert_eq!(inspected.edits.len(), 2);
+    assert_eq!(inspected.edits[0].ordinal, 1);
+    assert_eq!(inspected.edits[0].schema_id.as_str(), "article");
+    assert_eq!(inspected.edits[1].ordinal, 2);
+    assert_eq!(inspected.edits[1].schema_id.as_str(), "cta");
+    assert!(
+        inspected.edits[0]
+            .canonical_document
+            .starts_with("{\"$schema\":")
+    );
+}
+
+#[test]
+fn inspection_returns_not_found_without_revealing_an_unknown_changeset() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+
+    assert_eq!(
+        inspect_changeset(&repository, CHANGESET_ID.parse().unwrap()).unwrap_err(),
+        InspectChangeSetError::NotFound
+    );
+}
+
+#[test]
+fn inspection_rejects_tampered_canonical_edit_evidence() {
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    create_changeset(
+        &repository,
+        draft_command(CHANGESET_ID, "Define launch Schemas", None),
+    )
+    .unwrap();
+    add_changeset_edits(
+        &repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![schema_edit(EDIT_ID, "article", 1, "Article")],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    repository
+        .open_database()
+        .unwrap()
+        .execute(
+            "UPDATE changeset_edits SET document_digest = ?1",
+            [format!("blake3:{}", "00".repeat(32))],
+        )
+        .unwrap();
+
+    assert!(matches!(
+        inspect_changeset(&repository, CHANGESET_ID.parse().unwrap()),
+        Err(InspectChangeSetError::Integrity(_))
+    ));
 }
 
 #[test]

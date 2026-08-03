@@ -12,12 +12,14 @@ use std::{
 use proof_application::ArtifactKind;
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ChangeSetEditRepository,
-    ChangeSetId, ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ContentDigest,
-    CreateChangeSetCommand, CreateChangeSetError, DraftChangeSet, EditId, IdempotencyKey,
-    InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
-    LOCAL_POLICY_PROFILE, LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, SchemaCreateEdit,
-    WorkspaceId, WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus,
-    WorkspaceStatusError, WorkspaceStatusRepository,
+    ChangeSetId, ChangeSetInspectionRepository, ChangeSetIntent, ChangeSetRepository,
+    ChangeSetStatus, ContentDigest, CreateChangeSetCommand, CreateChangeSetError, DraftChangeSet,
+    EditId, IdempotencyKey, InitializeWorkspaceCommand, InitializedWorkspace,
+    InitializedWorkspaceStatus, InspectChangeSetError, InspectedChangeSet,
+    InspectedSchemaCreateEdit, LOCAL_POLICY_PROFILE, LOCAL_VALIDATION_PROFILE, PrincipalId,
+    PrincipalType, SchemaCreateEdit, SchemaId, SchemaVersion, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus, WorkspaceStatusError,
+    WorkspaceStatusRepository,
 };
 use proof_canonical::{canonicalize, digest, initial_known_state_digest, parse_strict};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
@@ -473,6 +475,54 @@ impl ChangeSetEditRepository for LocalWorkspace {
     }
 }
 
+impl ChangeSetInspectionRepository for LocalWorkspace {
+    fn inspect_changeset(
+        &self,
+        changeset_id: ChangeSetId,
+    ) -> Result<InspectedChangeSet, InspectChangeSetError> {
+        let config = self.read_config().map_err(inspect_from_initialization)?;
+        let workspace_id = config
+            .workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+        let local_identity =
+            current_local_identity().map_err(|_| InspectChangeSetError::Unauthenticated)?;
+        let mut connection =
+            open_database_for_status(&self.database_path()).map_err(inspect_from_status)?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+        let (database_id, bootstrap_principal_id, metadata_schema_version): (String, String, u32) =
+            transaction
+                .query_row(
+                    "SELECT workspace_id, bootstrap_principal_id, schema_version
+                     FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+        if database_id != workspace_id.to_string() {
+            return Err(InspectChangeSetError::Integrity(
+                "configuration and database Workspace identities differ".to_owned(),
+            ));
+        }
+        let principal_id =
+            authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
+                .map_err(inspect_from_status)?;
+        let schema_version = inspect_schema_version(&transaction, metadata_schema_version)?;
+        if schema_version < 2 {
+            return Err(InspectChangeSetError::NotFound);
+        }
+        let row = load_inspected_changeset(&transaction, changeset_id, workspace_id, principal_id)?;
+        let edits = load_inspected_edits(&transaction, changeset_id, schema_version)?;
+        let inspected = row.into_inspected(changeset_id, workspace_id, principal_id, edits)?;
+        transaction
+            .commit()
+            .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+        Ok(inspected)
+    }
+}
+
 impl WorkspaceStatusRepository for LocalWorkspace {
     fn status(&self) -> Result<WorkspaceStatus, WorkspaceStatusError> {
         let has_config = path_exists(&self.config_path()).map_err(status_from_initialization)?;
@@ -807,6 +857,263 @@ fn edit_from_create(error: CreateChangeSetError) -> AddChangeSetEditsError {
             )
         }
     }
+}
+
+fn inspect_from_initialization(error: WorkspaceInitializationError) -> InspectChangeSetError {
+    match error {
+        WorkspaceInitializationError::IdentityUnavailable(_) => {
+            InspectChangeSetError::Unauthenticated
+        }
+        WorkspaceInitializationError::AlreadyExists => InspectChangeSetError::Integrity(
+            "unexpected initialization conflict while inspecting ChangeSet".to_owned(),
+        ),
+        WorkspaceInitializationError::RootUnavailable(detail)
+        | WorkspaceInitializationError::Storage(detail) => InspectChangeSetError::Storage(detail),
+    }
+}
+
+fn inspect_from_status(error: WorkspaceStatusError) -> InspectChangeSetError {
+    match error {
+        WorkspaceStatusError::Unauthenticated => InspectChangeSetError::Unauthenticated,
+        WorkspaceStatusError::Incomplete => InspectChangeSetError::Integrity(
+            "the selected Workspace has incomplete local state".to_owned(),
+        ),
+        WorkspaceStatusError::Integrity(detail) => InspectChangeSetError::Integrity(detail),
+        WorkspaceStatusError::Storage(detail) => InspectChangeSetError::Storage(detail),
+    }
+}
+
+fn inspect_schema_version(
+    connection: &Connection,
+    metadata_schema_version: u32,
+) -> Result<u32, InspectChangeSetError> {
+    let migration_version: u32 = connection
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(InspectChangeSetError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+    if !(1..=3).contains(&migration_version) {
+        return Err(InspectChangeSetError::Integrity(format!(
+            "unsupported local schema version {migration_version}"
+        )));
+    }
+    Ok(migration_version)
+}
+
+struct InspectedChangeSetRow {
+    intent: String,
+    requested_base_state: Option<String>,
+    base_authoritative_sequence: i64,
+    base_state: String,
+    idempotency_key: String,
+    created_at: String,
+    status: String,
+    policy_profile: String,
+    validation_profile: String,
+}
+
+impl InspectedChangeSetRow {
+    fn into_inspected(
+        self,
+        changeset_id: ChangeSetId,
+        workspace_id: WorkspaceId,
+        principal_id: PrincipalId,
+        edits: Vec<InspectedSchemaCreateEdit>,
+    ) -> Result<InspectedChangeSet, InspectChangeSetError> {
+        if self.status != ChangeSetStatus::Draft.to_string() {
+            return Err(InspectChangeSetError::Integrity(
+                "persisted ChangeSet lifecycle state is unsupported".to_owned(),
+            ));
+        }
+        if self.policy_profile != LOCAL_POLICY_PROFILE
+            || self.validation_profile != LOCAL_VALIDATION_PROFILE
+        {
+            return Err(InspectChangeSetError::Integrity(
+                "persisted ChangeSet profile is unsupported".to_owned(),
+            ));
+        }
+        let base_authoritative_sequence =
+            u64::try_from(self.base_authoritative_sequence).map_err(|_| {
+                InspectChangeSetError::Integrity(
+                    "base authoritative sequence must be non-negative".to_owned(),
+                )
+            })?;
+        let base_state = inspect_parse(&self.base_state, "base state digest")?;
+        if base_authoritative_sequence == 0 {
+            let expected = initial_known_state_digest(workspace_id)
+                .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+            if base_state != expected {
+                return Err(InspectChangeSetError::Integrity(
+                    "ChangeSet base digest does not match reproducible initial state".to_owned(),
+                ));
+            }
+        }
+        Ok(InspectedChangeSet {
+            changeset_id,
+            workspace_id,
+            principal_id,
+            intent: ChangeSetIntent::new(self.intent)
+                .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?,
+            base_authoritative_sequence,
+            base_state,
+            requested_base_state: self
+                .requested_base_state
+                .map(|value| inspect_parse(&value, "requested base state digest"))
+                .transpose()?,
+            idempotency_key: inspect_parse(&self.idempotency_key, "idempotency key")?,
+            created_at: inspect_parse(&self.created_at, "creation timestamp")?,
+            status: ChangeSetStatus::Draft,
+            policy_profile: self.policy_profile,
+            validation_profile: self.validation_profile,
+            edits,
+        })
+    }
+}
+
+fn inspect_parse<T>(value: &str, field: &str) -> Result<T, InspectChangeSetError>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    value.parse::<T>().map_err(|error| {
+        InspectChangeSetError::Integrity(format!("invalid persisted {field}: {error}"))
+    })
+}
+
+fn load_inspected_changeset(
+    connection: &Connection,
+    changeset_id: ChangeSetId,
+    workspace_id: WorkspaceId,
+    principal_id: PrincipalId,
+) -> Result<InspectedChangeSetRow, InspectChangeSetError> {
+    connection
+        .query_row(
+            "SELECT intent, requested_base_state, base_authoritative_sequence,
+                    base_state, idempotency_key, created_at, status,
+                    policy_profile, validation_profile
+             FROM changesets
+             WHERE changeset_id = ?1 AND workspace_id = ?2 AND principal_id = ?3",
+            [
+                changeset_id.to_string(),
+                workspace_id.to_string(),
+                principal_id.to_string(),
+            ],
+            |row| {
+                Ok(InspectedChangeSetRow {
+                    intent: row.get(0)?,
+                    requested_base_state: row.get(1)?,
+                    base_authoritative_sequence: row.get(2)?,
+                    base_state: row.get(3)?,
+                    idempotency_key: row.get(4)?,
+                    created_at: row.get(5)?,
+                    status: row.get(6)?,
+                    policy_profile: row.get(7)?,
+                    validation_profile: row.get(8)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?
+        .ok_or(InspectChangeSetError::NotFound)
+}
+
+fn load_inspected_edits(
+    connection: &Connection,
+    changeset_id: ChangeSetId,
+    schema_version: u32,
+) -> Result<Vec<InspectedSchemaCreateEdit>, InspectChangeSetError> {
+    if schema_version < 3 {
+        return Ok(Vec::new());
+    }
+    let mut statement = connection
+        .prepare(
+            "SELECT ordinal, edit_id, edit_kind, schema_id, schema_version,
+                    document_json, document_digest
+             FROM changeset_edits WHERE changeset_id = ?1 ORDER BY ordinal",
+        )
+        .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map([changeset_id.to_string()], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+    let mut edits = Vec::new();
+    for row in rows {
+        let (ordinal, edit_id, edit_kind, schema_id, schema_version, document, document_digest) =
+            row.map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+        let expected_ordinal = u32::try_from(edits.len() + 1).map_err(|_| {
+            InspectChangeSetError::Integrity("ChangeSet Edit count exceeds u32".to_owned())
+        })?;
+        let ordinal = u32::try_from(ordinal).map_err(|_| {
+            InspectChangeSetError::Integrity("Edit ordinal must be positive".to_owned())
+        })?;
+        if ordinal != expected_ordinal || edit_kind != "schema.create" {
+            return Err(InspectChangeSetError::Integrity(
+                "ChangeSet Edit ordering or kind is invalid".to_owned(),
+            ));
+        }
+        let canonical = parse_and_canonical_document(&document)?;
+        let document_digest: ContentDigest = inspect_parse(&document_digest, "document digest")?;
+        if digest(ArtifactKind::SchemaVersionV1, &canonical) != document_digest {
+            return Err(InspectChangeSetError::Integrity(
+                "Schema document digest does not match canonical content".to_owned(),
+            ));
+        }
+        edits.push(InspectedSchemaCreateEdit {
+            ordinal,
+            edit_id: inspect_parse(&edit_id, "Edit identity")?,
+            schema_id: SchemaId::new(schema_id)
+                .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?,
+            schema_version: SchemaVersion::new(u32::try_from(schema_version).map_err(|_| {
+                InspectChangeSetError::Integrity("Schema version must be positive".to_owned())
+            })?)
+            .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?,
+            canonical_document: document,
+            document_digest,
+        });
+    }
+    Ok(edits)
+}
+
+fn parse_and_canonical_document(
+    document: &str,
+) -> Result<proof_canonical::CanonicalJson, InspectChangeSetError> {
+    let value = parse_strict(document.as_bytes())
+        .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+    let canonical = canonicalize(&value)
+        .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+    if canonical.as_str() != document {
+        return Err(InspectChangeSetError::Integrity(
+            "Schema document is not canonical JSON".to_owned(),
+        ));
+    }
+    if value
+        .as_object()
+        .and_then(|object| object.get("$schema"))
+        .and_then(serde_json::Value::as_str)
+        != Some("https://json-schema.org/draft/2020-12/schema")
+    {
+        return Err(InspectChangeSetError::Integrity(
+            "Schema document dialect is invalid".to_owned(),
+        ));
+    }
+    Ok(canonical)
 }
 
 fn ensure_changeset_schema(

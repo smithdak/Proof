@@ -101,6 +101,14 @@ Schema-version targets, and partial batches. Documents are stored as RFC 8785
 canonical JSON with a domain-separated digest. Supplying the same idempotency
 key and normalized ordered batch returns the original Edit identities.
 
+`changeset get` reconstructs the complete authenticated draft and its Edits in
+persisted ordinal order. `changeset diff` projects those same verified records
+as proposed effects: a Schema-create Edit has a `null` before-state and an after
+state containing the parsed document, canonical JSON, and document digest.
+Both operations are read-only and fail integrity verification if identity,
+schema migration records, ordinals, canonical bytes, dialect, or digests do not
+agree. Human diff output is deterministic for the same persisted ChangeSet.
+
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution.
 
 ## Input rules

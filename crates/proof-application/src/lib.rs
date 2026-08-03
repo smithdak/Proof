@@ -592,6 +592,98 @@ pub fn add_changeset_edits(
     repository.add_edits(command)
 }
 
+/// A verified persisted Schema-create Edit in deterministic draft order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InspectedSchemaCreateEdit {
+    /// One-based position within the `ChangeSet`.
+    pub ordinal: u32,
+    /// Stable Edit identity.
+    pub edit_id: EditId,
+    /// Logical Schema target.
+    pub schema_id: SchemaId,
+    /// Immutable Schema version target.
+    pub schema_version: SchemaVersion,
+    /// RFC 8785 canonical JSON document.
+    pub canonical_document: String,
+    /// Verified domain-separated document digest.
+    pub document_digest: ContentDigest,
+}
+
+/// Complete verified read model for one persisted `ChangeSet`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InspectedChangeSet {
+    /// Stable `ChangeSet` identity.
+    pub changeset_id: ChangeSetId,
+    /// Owning Workspace identity.
+    pub workspace_id: WorkspaceId,
+    /// Authenticated initiating Principal.
+    pub principal_id: PrincipalId,
+    /// Normalized declared intent.
+    pub intent: ChangeSetIntent,
+    /// Exact authoritative base sequence.
+    pub base_authoritative_sequence: u64,
+    /// Exact base Known State digest.
+    pub base_state: ContentDigest,
+    /// Explicit caller-required base, when supplied at creation.
+    pub requested_base_state: Option<ContentDigest>,
+    /// Creation retry identity.
+    pub idempotency_key: IdempotencyKey,
+    /// Canonical creation timestamp.
+    pub created_at: Timestamp,
+    /// Current lifecycle state.
+    pub status: ChangeSetStatus,
+    /// Versioned policy profile.
+    pub policy_profile: String,
+    /// Versioned validation profile.
+    pub validation_profile: String,
+    /// Verified Edits in ordinal order.
+    pub edits: Vec<InspectedSchemaCreateEdit>,
+}
+
+/// Read-only port for verified `ChangeSet` reconstruction.
+pub trait ChangeSetInspectionRepository {
+    /// Reconstructs and verifies a `ChangeSet` without mutating local state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InspectChangeSetError`] when authentication, lookup,
+    /// persistence, or integrity checks fail.
+    fn inspect_changeset(
+        &self,
+        changeset_id: ChangeSetId,
+    ) -> Result<InspectedChangeSet, InspectChangeSetError>;
+}
+
+/// A `ChangeSet` could not be reconstructed as a verified read model.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum InspectChangeSetError {
+    /// The operating-system identity is not an enabled Principal.
+    #[error("the current local identity is not authenticated for this Workspace")]
+    Unauthenticated,
+    /// No visible `ChangeSet` has the requested identity.
+    #[error("the requested ChangeSet was not found")]
+    NotFound,
+    /// Persisted state failed deterministic verification.
+    #[error("ChangeSet integrity verification failed: {0}")]
+    Integrity(String),
+    /// Local state could not be read safely.
+    #[error("local ChangeSet storage is unavailable: {0}")]
+    Storage(String),
+}
+
+/// Reconstructs a verified `ChangeSet` through the configured read port.
+///
+/// # Errors
+///
+/// Returns [`InspectChangeSetError`] when no verified visible read model can
+/// be produced.
+pub fn inspect_changeset(
+    repository: &impl ChangeSetInspectionRepository,
+    changeset_id: ChangeSetId,
+) -> Result<InspectedChangeSet, InspectChangeSetError> {
+    repository.inspect_changeset(changeset_id)
+}
+
 /// Data returned by the initial `status` operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StatusData {

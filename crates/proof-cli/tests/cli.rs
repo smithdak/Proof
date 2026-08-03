@@ -7,6 +7,7 @@ use std::{
 
 const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
 const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
+const UNKNOWN_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000099";
 
 #[test]
 fn status_emits_the_stable_json_envelope() {
@@ -467,6 +468,86 @@ fn changeset_add_rejects_invalid_typed_input_without_partial_append() {
 }
 
 #[test]
+fn changeset_get_and_diff_reconstruct_verified_ordered_edits() {
+    let directory = TestDirectory::new();
+    let changeset_id = create_changeset_with_schema_edit(&directory);
+
+    let get = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "get", &changeset_id])
+        .output()
+        .unwrap();
+    assert!(get.status.success());
+    let get: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
+    assert_eq!(get["operation"], "changeset.get");
+    assert_eq!(get["data"]["changeset_id"], changeset_id);
+    assert_eq!(get["data"]["status"], "draft");
+    assert_eq!(get["data"]["edits"][0]["ordinal"], 1);
+    assert_eq!(get["data"]["edits"][0]["kind"], "schema.create");
+    assert_eq!(get["data"]["edits"][0]["schema_id"], "article");
+    assert_eq!(get["data"]["edits"][0]["document"]["type"], "object");
+    assert!(
+        get["data"]["edits"][0]["document_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("blake3:")
+    );
+    assert_eq!(get["meta"]["workspace_id"], get["data"]["workspace_id"]);
+    assert_eq!(get["meta"]["principal_id"], get["data"]["principal_id"]);
+
+    let diff = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "diff", &changeset_id])
+        .output()
+        .unwrap();
+    assert!(diff.status.success());
+    let diff: serde_json::Value = serde_json::from_slice(&diff.stdout).unwrap();
+    assert_eq!(diff["operation"], "changeset.diff");
+    assert_eq!(diff["data"]["edits"][0]["operation"], "schema.create");
+    assert!(diff["data"]["edits"][0]["before"].is_null());
+    assert_eq!(
+        diff["data"]["edits"][0]["after"]["document"]["type"],
+        "object"
+    );
+
+    let first_text = proof_command(directory.path())
+        .args(["changeset", "diff", &changeset_id])
+        .output()
+        .unwrap();
+    let second_text = proof_command(directory.path())
+        .args(["changeset", "diff", &changeset_id])
+        .output()
+        .unwrap();
+    assert_eq!(first_text.stdout, second_text.stdout);
+    assert!(
+        String::from_utf8(first_text.stdout)
+            .unwrap()
+            .contains("@@ 1 schema.create article@1")
+    );
+}
+
+#[test]
+fn changeset_get_returns_a_structured_not_found_problem() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+
+    let output = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "get", UNKNOWN_CHANGESET_ID])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.resource.not_found");
+    assert_eq!(problem["operation"], "changeset.get");
+}
+
+#[test]
 fn status_rejects_partial_workspace_state() {
     let directory = TestDirectory::new();
     fs::create_dir(directory.path().join(".proof")).unwrap();
@@ -501,6 +582,48 @@ fn proof_command(current_directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_proof"));
     command.current_dir(current_directory);
     command
+}
+
+fn create_changeset_with_schema_edit(directory: &TestDirectory) -> String {
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let created = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "changeset",
+            "create",
+            "--intent",
+            "Define article Schema",
+        ])
+        .output()
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let changeset_id = created["data"]["changeset_id"].as_str().unwrap().to_owned();
+    let edit_path = directory.path().join("inspect-edits.ndjson");
+    fs::write(
+        &edit_path,
+        "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"article\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}}\n",
+    )
+    .unwrap();
+    let added = proof_command(directory.path())
+        .args([
+            "changeset",
+            "add",
+            &changeset_id,
+            "--file",
+            edit_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+    changeset_id
 }
 
 static DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);

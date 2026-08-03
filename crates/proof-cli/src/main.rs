@@ -13,10 +13,11 @@ use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ArtifactKind,
     ChangeSetId, ChangeSetIntent, ContentDigest, CorrelationId, CreateChangeSetCommand,
     CreateChangeSetError, DraftChangeSet, EditId, ExitCode, IdempotencyKey,
-    InitializeWorkspaceCommand, OperationId, PrincipalId, Problem, ResultEnvelope,
-    SchemaCreateEdit, SchemaId, SchemaVersion, StatusData, Timestamp, WorkspaceId,
-    WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError, add_changeset_edits,
-    create_changeset, initialize_workspace, workspace_status,
+    InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet, OperationId,
+    PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion, StatusData,
+    Timestamp, WorkspaceId, WorkspaceInitializationError, WorkspaceStatus, WorkspaceStatusError,
+    add_changeset_edits, create_changeset, initialize_workspace, inspect_changeset,
+    workspace_status,
 };
 use proof_canonical::{canonicalize, digest, parse_strict};
 use proof_local::LocalWorkspace;
@@ -117,6 +118,16 @@ enum ChangeSetAction {
         #[arg(long)]
         idempotency_key: Option<String>,
     },
+    /// Return the complete verified `ChangeSet` read model.
+    Get {
+        /// Target `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+    },
+    /// Return a deterministic projection of proposed effects.
+    Diff {
+        /// Target `ChangeSet` `UUIDv7`.
+        changeset_id: String,
+    },
 }
 
 impl Command {
@@ -130,6 +141,12 @@ impl Command {
             Self::Changeset {
                 action: ChangeSetAction::Add { .. },
             } => "changeset.add",
+            Self::Changeset {
+                action: ChangeSetAction::Get { .. },
+            } => "changeset.get",
+            Self::Changeset {
+                action: ChangeSetAction::Diff { .. },
+            } => "changeset.diff",
         }
     }
 }
@@ -233,6 +250,24 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
             &changeset_id,
             &file,
             idempotency_key,
+        )?,
+        Command::Changeset {
+            action: ChangeSetAction::Get { changeset_id },
+        } => inspect_local_changeset(
+            output,
+            context,
+            workspace,
+            &changeset_id,
+            ChangeSetProjection::Get,
+        )?,
+        Command::Changeset {
+            action: ChangeSetAction::Diff { changeset_id },
+        } => inspect_local_changeset(
+            output,
+            context,
+            workspace,
+            &changeset_id,
+            ChangeSetProjection::Diff,
         )?,
     };
     Ok(exit_code)
@@ -827,6 +862,189 @@ fn parse_edit_records(bytes: &[u8]) -> Result<Vec<SchemaCreateEdit>, String> {
     Ok(edits)
 }
 
+#[derive(Clone, Copy)]
+enum ChangeSetProjection {
+    Get,
+    Diff,
+}
+
+impl ChangeSetProjection {
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::Get => "changeset.get",
+            Self::Diff => "changeset.diff",
+        }
+    }
+}
+
+fn inspect_local_changeset(
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+    changeset_id: &str,
+    projection: ChangeSetProjection,
+) -> Result<ExitCode, Box<Problem>> {
+    let root = match selected_workspace {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|_| inspection_root_problem(context, projection))?,
+    };
+    let repository =
+        LocalWorkspace::new(root).map_err(|_| inspection_root_problem(context, projection))?;
+    let changeset_id = changeset_id
+        .parse::<ChangeSetId>()
+        .map_err(|error| inspection_input_problem(context, projection, error.to_string()))?;
+    let inspected = inspect_changeset(&repository, changeset_id)
+        .map_err(|error| inspection_problem(&error, context, projection))?;
+    match projection {
+        ChangeSetProjection::Get => render_changeset_get(output, context, &inspected),
+        ChangeSetProjection::Diff => render_changeset_diff(output, context, &inspected),
+    }
+    Ok(ExitCode::Success)
+}
+
+fn render_changeset_get(
+    output: OutputFormat,
+    context: ExecutionContext,
+    inspected: &InspectedChangeSet,
+) {
+    let data = InspectedChangeSetData::from(inspected);
+    let mut result = ResultEnvelope::success(
+        "changeset.get",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(inspected.workspace_id.to_string());
+    result.meta.principal_id = Some(inspected.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("ChangeSet {}", result.data.changeset_id);
+            println!("status: {}", result.data.status);
+            println!("intent: {}", result.data.intent);
+            println!("base state: {}", result.data.base_state);
+            println!("edits: {}", result.data.edits.len());
+            for edit in &result.data.edits {
+                println!(
+                    "{}. {} {}@{} ({})",
+                    edit.ordinal,
+                    edit.kind,
+                    edit.schema_id,
+                    edit.schema_version,
+                    edit.document_digest
+                );
+            }
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn render_changeset_diff(
+    output: OutputFormat,
+    context: ExecutionContext,
+    inspected: &InspectedChangeSet,
+) {
+    let data = ChangeSetDiffData::from(inspected);
+    let mut result = ResultEnvelope::success(
+        "changeset.diff",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    result.meta.workspace_id = Some(inspected.workspace_id.to_string());
+    result.meta.principal_id = Some(inspected.principal_id.to_string());
+    match output {
+        OutputFormat::Text => {
+            println!("ChangeSet {}", result.data.changeset_id);
+            println!("base state: {}", result.data.base_state);
+            for edit in &result.data.edits {
+                println!(
+                    "@@ {} {} {}@{} {} @@",
+                    edit.ordinal, edit.operation, edit.schema_id, edit.schema_version, edit.edit_id
+                );
+                println!("+ {}", edit.after.document_canonical);
+            }
+        }
+        OutputFormat::Json => write_json(&result),
+    }
+}
+
+fn inspection_root_problem(
+    context: ExecutionContext,
+    projection: ChangeSetProjection,
+) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:resource-not-found",
+        "The selected Workspace root is unavailable",
+        "proof.resource.not_found",
+        projection.operation(),
+        context.operation_id,
+        context.correlation_id,
+    ))
+}
+
+fn inspection_input_problem(
+    context: ExecutionContext,
+    projection: ChangeSetProjection,
+    detail: String,
+) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The ChangeSet identifier is invalid",
+        "proof.input.schema_mismatch",
+        projection.operation(),
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn inspection_problem(
+    error: &InspectChangeSetError,
+    context: ExecutionContext,
+    projection: ChangeSetProjection,
+) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        InspectChangeSetError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        InspectChangeSetError::NotFound => (
+            "urn:proof:problem:resource-not-found",
+            "The requested ChangeSet was not found",
+            "proof.resource.not_found",
+            false,
+        ),
+        InspectChangeSetError::Integrity(_) => (
+            "urn:proof:problem:evidence-incomplete",
+            "The requested ChangeSet could not be verified",
+            "proof.evidence.incomplete",
+            false,
+        ),
+        InspectChangeSetError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local ChangeSet storage is unavailable",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        projection.operation(),
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, InspectChangeSetError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
+}
+
 fn render_problem(output: OutputFormat, problem: &Problem) -> ExitCode {
     let exit_code = problem.exit_code();
     match output {
@@ -928,6 +1146,126 @@ struct AddedEditsData {
     added_count: usize,
     total_edit_count: u32,
     idempotency_key: String,
+}
+
+#[derive(Serialize)]
+struct InspectedChangeSetData {
+    changeset_id: String,
+    workspace_id: String,
+    principal_id: String,
+    intent: String,
+    base_authoritative_sequence: u64,
+    base_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    requested_base_state: Option<String>,
+    idempotency_key: String,
+    created_at: String,
+    status: String,
+    policy_profile: String,
+    validation_profile: String,
+    edits: Vec<InspectedEditData>,
+}
+
+#[derive(Serialize)]
+struct InspectedEditData {
+    ordinal: u32,
+    edit_id: String,
+    kind: &'static str,
+    schema_id: String,
+    schema_version: u32,
+    document: serde_json::Value,
+    document_canonical: String,
+    document_digest: String,
+}
+
+impl From<&InspectedChangeSet> for InspectedChangeSetData {
+    fn from(changeset: &InspectedChangeSet) -> Self {
+        Self {
+            changeset_id: changeset.changeset_id.to_string(),
+            workspace_id: changeset.workspace_id.to_string(),
+            principal_id: changeset.principal_id.to_string(),
+            intent: changeset.intent.to_string(),
+            base_authoritative_sequence: changeset.base_authoritative_sequence,
+            base_state: changeset.base_state.to_string(),
+            requested_base_state: changeset
+                .requested_base_state
+                .map(|value| value.to_string()),
+            idempotency_key: changeset.idempotency_key.to_string(),
+            created_at: changeset.created_at.to_string(),
+            status: changeset.status.to_string(),
+            policy_profile: changeset.policy_profile.clone(),
+            validation_profile: changeset.validation_profile.clone(),
+            edits: changeset
+                .edits
+                .iter()
+                .map(|edit| InspectedEditData {
+                    ordinal: edit.ordinal,
+                    edit_id: edit.edit_id.to_string(),
+                    kind: "schema.create",
+                    schema_id: edit.schema_id.to_string(),
+                    schema_version: edit.schema_version.get(),
+                    document: serde_json::from_str(&edit.canonical_document)
+                        .expect("verified canonical JSON must deserialize"),
+                    document_canonical: edit.canonical_document.clone(),
+                    document_digest: edit.document_digest.to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ChangeSetDiffData {
+    changeset_id: String,
+    base_authoritative_sequence: u64,
+    base_state: String,
+    edits: Vec<SchemaCreateDiffData>,
+}
+
+#[derive(Serialize)]
+struct SchemaCreateDiffData {
+    ordinal: u32,
+    edit_id: String,
+    operation: &'static str,
+    schema_id: String,
+    schema_version: u32,
+    before: Option<SchemaDiffState>,
+    after: SchemaDiffState,
+}
+
+#[derive(Serialize)]
+struct SchemaDiffState {
+    document: serde_json::Value,
+    document_canonical: String,
+    document_digest: String,
+}
+
+impl From<&InspectedChangeSet> for ChangeSetDiffData {
+    fn from(changeset: &InspectedChangeSet) -> Self {
+        Self {
+            changeset_id: changeset.changeset_id.to_string(),
+            base_authoritative_sequence: changeset.base_authoritative_sequence,
+            base_state: changeset.base_state.to_string(),
+            edits: changeset
+                .edits
+                .iter()
+                .map(|edit| SchemaCreateDiffData {
+                    ordinal: edit.ordinal,
+                    edit_id: edit.edit_id.to_string(),
+                    operation: "schema.create",
+                    schema_id: edit.schema_id.to_string(),
+                    schema_version: edit.schema_version.get(),
+                    before: None,
+                    after: SchemaDiffState {
+                        document: serde_json::from_str(&edit.canonical_document)
+                            .expect("verified canonical JSON must deserialize"),
+                        document_canonical: edit.canonical_document.clone(),
+                        document_digest: edit.document_digest.to_string(),
+                    },
+                })
+                .collect(),
+        }
+    }
 }
 
 impl From<&DraftChangeSet> for CreatedChangeSetData {
