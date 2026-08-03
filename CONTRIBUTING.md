@@ -47,6 +47,19 @@ An accepted ADR records why the decision was reasonable at the time. It is not r
 - Link to external standards rather than copying them.
 - Include an `as of` date for current-version claims.
 
+## Documentation checks
+
+Run both checks before proposing a documentation change:
+
+```bash
+npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2
+node scripts/check-doc-links.mjs
+```
+
+The Markdown lint version is pinned so local and review results use the same
+rules engine. Update the command, validation evidence, and baseline together
+when intentionally upgrading it.
+
 ## Future implementation checks
 
 Once code exists, changes will be expected to pass:
