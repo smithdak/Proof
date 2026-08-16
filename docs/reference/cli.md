@@ -86,39 +86,61 @@ returns a generated UUIDv7 idempotency key unless the caller supplies one.
 Retrying the same normalized input with that key returns the original draft;
 reusing it with different input fails explicitly.
 
-The implemented `changeset add` operation accepts strict NDJSON records. The
-first typed Edit contract creates an immutable Schema version:
+The implemented `changeset add` operation accepts strict NDJSON records. One
+typed Edit contract creates an immutable Schema version:
 
 ```json
 {"api_version":"proof.dev/edit/v1","kind":"schema.create","schema_id":"article","schema_version":1,"document":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}}
 ```
 
+The initial Object mutation contract creates revision 1 under an exact Schema:
+
+```json
+{"api_version":"proof.dev/edit/v1","kind":"object.create","object_id":"019c0000-0000-7000-8000-000000000001","schema_id":"article","schema_version":1,"content":{"title":"Launch"}}
+```
+
+The caller supplies a canonical lowercase UUIDv7 Object identity so a retried
+request cannot silently create a second logical Object. Proof normalizes the
+first revision to `1`, lifecycle state to `active`, and relationships to `[]`.
+The content root must be a JSON object. Replacement, patch, relationship,
+localization, and tombstone Edits remain deliberately outside this initial
+profile.
+
 Schema identifiers begin with a lowercase ASCII letter and contain at most 128
 bytes using lowercase letters, digits, `.`, `_`, or `-`. A batch contains 1 to
 100 records and is bounded to 1 MiB. Proof rejects duplicate JSON properties,
 unsupported fields, ambiguous numbers, invalid dialect declarations, duplicate
-Schema-version targets, and partial batches. Documents are stored as RFC 8785
-canonical JSON with a domain-separated digest. Supplying the same idempotency
-key and normalized ordered batch returns the original Edit identities.
+Schema-version or Object targets, and partial batches. Documents and Object
+content are stored as RFC 8785 canonical JSON with domain-separated digests.
+Supplying the same idempotency key and normalized ordered batch returns the
+original Edit identities.
 
 `changeset get` reconstructs the complete authenticated draft and its Edits in
 persisted ordinal order. `changeset diff` projects those same verified records
 as proposed effects: a Schema-create Edit has a `null` before-state and an after
 state containing the parsed document, canonical JSON, and document digest.
-Both operations are read-only and fail integrity verification if identity,
-schema migration records, ordinals, canonical bytes, dialect, or digests do not
-agree. Human diff output is deterministic for the same persisted ChangeSet.
+An Object-create Edit similarly projects its Object identity as the target, a
+`null` before-state, and a complete after-state containing the exact Schema
+reference, normalized revision, lifecycle and empty relationships, parsed and
+canonical content, and Object-revision digest. Both operations are read-only and fail integrity verification if
+identity, schema migration records, ordinals, canonical bytes, dialect, or
+digests do not agree. Human diff output is deterministic for the same persisted
+ChangeSet.
 
 `changeset validate` reconstructs that same verified proposal, computes a
 domain-separated digest over its manifest and ordered Edits, and validates each
-Schema document against the bundled Draft 2020-12 metaschema. Validation
-results are canonicalized, digested, and persisted against the exact ChangeSet
-digest, base-state digest, validation profile, and pinned validator identity.
-An empty ChangeSet or invalid Schema returns `proof.validation.failed` with
-deterministically ordered findings and exit code 3 and seals the proposal as
-`rejected`. Successful validation seals the exact proposal as `ready`, so no
-further Edits can invalidate its evidence. Revalidating the sealed proposal
-reproduces the same ChangeSet and validation-results digests.
+Schema document against the bundled Draft 2020-12 metaschema. Object content is
+validated against the referenced immutable Schema from the declared base state
+or a valid lower-ordinal `schema.create` in the same ChangeSet. A later Schema
+Edit is intentionally not visible to an earlier Object Edit. Validation results
+are canonicalized, digested, and persisted against the exact ChangeSet digest,
+base-state digest, validation profile, and pinned validator identity. An empty
+ChangeSet, invalid Schema, missing Schema, or invalid Object returns
+`proof.validation.failed` with deterministically ordered findings and exit code
+3 and seals the proposal as `rejected`. Successful validation seals the exact
+proposal as `ready`, so no further Edits can invalidate its evidence.
+Revalidating the sealed proposal reproduces the same ChangeSet and
+validation-results digests.
 
 `changeset submit` accepts only a `ready` proposal with canonical valid evidence
 matching its exact ChangeSet digest, base state, validation profile, and pinned
@@ -139,19 +161,23 @@ separation-of-duties profiles remain an explicit policy extension.
 `changeset commit --idempotency-key <uuid>` rechecks the exact validation,
 submission, and approval evidence and compares the proposal's declared base to
 the current reproducible Known State. It then writes every immutable Schema
-version, advances the contiguous authoritative sequence, records the commit,
-updates Known State, and transitions the ChangeSet to `committed` in one
-immediate SQLite transaction. A stale base, existing target, reused key, or
-storage failure leaves authoritative state unchanged. Retrying the same
-ChangeSet and key returns the original commit result and timestamp.
+version and Object revision in Edit order, advances one shared contiguous
+authoritative sequence, records the commit, updates Known State, and transitions
+the ChangeSet to `committed` in one immediate SQLite transaction. A stale base,
+existing target, reused key, or storage failure leaves authoritative state
+unchanged. Retrying the same ChangeSet and key returns the original commit
+result and timestamp.
 
 `edition create` materializes the current non-empty Known State as one
 immutable canonical `proof.dev/edition/v1` manifest. The manifest binds the
 Workspace, authoritative sequence, Known State digest, ordered Schema set,
-Schema-set digest, and committed ChangeSet digests. Its Edition digest uses the
-`proof:edition:v1` domain; operational identity and creation time remain outside
-the content address. Repeated creation for unchanged state returns the same
-Edition, while reusing an idempotency key after state advances fails explicitly.
+optional ordered Object set, their domain-separated submanifest digests, and
+committed ChangeSet digests. Empty Object fields are omitted, preserving the
+exact canonical bytes and digests of existing Schema-only Editions. Its Edition
+digest uses the `proof:edition:v1` domain; operational identity and creation
+time remain outside the content address. Repeated creation for unchanged state
+returns the same Edition, while reusing an idempotency key after state advances
+fails explicitly.
 
 Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution. Edition creation accepts an explicit key and returns the generated key when omitted.
 

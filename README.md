@@ -8,9 +8,9 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 ## Project status
 
-**Milestone 0 — implementation foundation.**
+**Milestone 1 — local proof loop in progress.**
 
-The Rust workspace, architectural dependency boundaries, operational identifiers, canonical artifact digests, authenticated local bootstrap Principal, local Workspace initialization and verification, idempotent ChangeSet drafts, ordered Schema-create Edits, verified ChangeSet inspection and diffing, deterministic Schema validation evidence, validation-sealed lifecycle state, exact-evidence submission and approval, atomic Schema commits, reproducible Known State, immutable content-addressed Editions, and shared result contracts are implemented. There is no public release yet. The next milestone is the first local end-to-end proof loop.
+Milestone 0 is complete. The implemented local path now covers authenticated Workspace initialization, idempotent ChangeSet drafts, ordered Schema- and Object-create Edits, deterministic validation, exact-evidence submission and approval, atomic mixed commits, reproducible Object-bearing Known State, and immutable content-addressed Editions. Linux CI enforces the pinned Rust quality gate. Environment, Release, signed Proof, released-content query, and projection rebuild remain; there is no public release yet.
 
 | Area | Status |
 | --- | --- |
@@ -19,7 +19,8 @@ The Rust workspace, architectural dependency boundaries, operational identifiers
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Initial stable design |
-| Rust implementation | Foundation in progress |
+| Rust implementation | Local proof loop in progress |
+| Continuous integration | Linux quality gate |
 | Public release | Not available |
 
 ## Why Proof
@@ -121,7 +122,7 @@ proof release create --edition <edition-id> --environment preview
 proof verify <proof-id>
 ```
 
-These examples define the intended interface; they are not executable until the first implementation milestone ships. The complete contract is in [CLI reference](docs/reference/cli.md).
+These examples define the intended interface. The implemented subset and its exact input contracts are identified in the [CLI reference](docs/reference/cli.md); Environment, Release, Proof, and several read surfaces remain planned.
 
 ## Architecture direction
 

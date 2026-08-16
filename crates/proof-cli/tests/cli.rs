@@ -9,6 +9,7 @@ const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
 const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
 const COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000043";
 const EDITION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000070";
+const OBJECT_ID: &str = "019c0000-0000-7000-8000-000000000080";
 const UNKNOWN_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000099";
 
 #[test]
@@ -149,7 +150,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 8);
+    assert_eq!(status["data"]["storage_schema_version"], 9);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -335,7 +336,11 @@ fn changeset_create_rejects_stale_base_and_empty_intent_without_a_draft() {
 }
 
 #[test]
-fn changeset_add_appends_ordered_schema_edits_and_replays_identically() {
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI scenario verifies one mixed batch across add, replay, get, diff, and storage projections"
+)]
+fn changeset_add_appends_mixed_schema_and_object_edits_and_replays_identically() {
     let directory = TestDirectory::new();
     assert!(
         proof_command(directory.path())
@@ -352,7 +357,7 @@ fn changeset_add_appends_ordered_schema_edits_and_replays_identically() {
             "changeset",
             "create",
             "--intent",
-            "Define launch Schemas",
+            "Define an article Schema and Object",
         ])
         .output()
         .unwrap();
@@ -363,7 +368,7 @@ fn changeset_add_appends_ordered_schema_edits_and_replays_identically() {
         &edit_path,
         concat!(
             "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"article\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}}\n",
-            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",\"schema_id\":\"cta\",\"schema_version\":1,\"document\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}}\n"
+            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"object.create\",\"object_id\":\"019c0000-0000-7000-8000-000000000080\",\"schema_id\":\"article\",\"schema_version\":1,\"content\":{\"title\":\"First article\"}}\n"
         ),
     )
     .unwrap();
@@ -398,17 +403,64 @@ fn changeset_add_appends_ordered_schema_edits_and_replays_identically() {
     assert_eq!(first["data"]["edit_ids"].as_array().unwrap().len(), 2);
     assert_eq!(replay["data"], first["data"]);
 
+    let get = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "get", changeset_id])
+        .output()
+        .unwrap();
+    assert!(get.status.success());
+    let get: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
+    let object = &get["data"]["edits"][1];
+    assert_eq!(object["kind"], "object.create");
+    assert_eq!(object["object_id"], OBJECT_ID);
+    assert_eq!(object["schema_id"], "article");
+    assert_eq!(object["schema_version"], 1);
+    assert_eq!(object["revision"], 1);
+    assert_eq!(object["lifecycle_state"], "active");
+    assert_eq!(object["relationships"], serde_json::json!([]));
+    assert_eq!(object["content"]["title"], "First article");
+    assert!(
+        object["object_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("blake3:")
+    );
+
+    let diff = proof_command(directory.path())
+        .args(["--output", "json", "changeset", "diff", changeset_id])
+        .output()
+        .unwrap();
+    assert!(diff.status.success());
+    let diff: serde_json::Value = serde_json::from_slice(&diff.stdout).unwrap();
+    let object_diff = &diff["data"]["edits"][1];
+    assert_eq!(object_diff["operation"], "object.create");
+    assert_eq!(object_diff["object_id"], OBJECT_ID);
+    assert!(object_diff["before"].is_null());
+    assert_eq!(object_diff["after"]["schema_id"], "article");
+    assert_eq!(object_diff["after"]["schema_version"], 1);
+    assert_eq!(object_diff["after"]["revision"], 1);
+    assert_eq!(object_diff["after"]["lifecycle_state"], "active");
+    assert_eq!(object_diff["after"]["relationships"], serde_json::json!([]));
+    assert_eq!(object_diff["after"]["content"]["title"], "First article");
+
     let connection =
         rusqlite::Connection::open(directory.path().join(".proof/state/proof.db")).unwrap();
-    let targets: String = connection
-        .query_row(
-            "SELECT group_concat(schema_id, ',')
-             FROM (SELECT schema_id FROM changeset_edits ORDER BY ordinal)",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(targets, "article,cta");
+    let targets: Vec<(String, Option<String>)> = {
+        let mut statement = connection
+            .prepare("SELECT edit_kind, object_id FROM changeset_edits ORDER BY ordinal")
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(
+        targets,
+        vec![
+            ("schema.create".to_owned(), None),
+            ("object.create".to_owned(), Some(OBJECT_ID.to_owned())),
+        ]
+    );
 }
 
 #[test]

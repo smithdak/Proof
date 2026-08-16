@@ -4,9 +4,10 @@
 
 pub use proof_domain::{
     ArtifactKind, ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus,
-    ContentDigest, CorrelationId, EditId, EditionId, IdempotencyKey, IdentifierError, OperationId,
-    PrincipalId, PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError,
-    Timestamp, TimestampError, WorkspaceId,
+    ContentDigest, CorrelationId, EditId, EditionId, IdempotencyKey, IdentifierError, ObjectId,
+    ObjectLifecycleState, ObjectRevision, ObjectRevisionError, OperationId, PrincipalId,
+    PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError, Timestamp,
+    TimestampError, WorkspaceId,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -506,13 +507,50 @@ pub struct SchemaCreateEdit {
     pub document_digest: ContentDigest,
 }
 
+/// A typed proposal to create the first revision of one content Object.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectCreateEdit {
+    /// Candidate identity used when no idempotent result exists.
+    pub edit_id: EditId,
+    /// Stable identity assigned to the new Object.
+    pub object_id: ObjectId,
+    /// Logical Schema governing the Object content.
+    pub schema_id: SchemaId,
+    /// Immutable Schema version governing the Object content.
+    pub schema_version: SchemaVersion,
+    /// RFC 8785 canonical JSON Object content.
+    pub canonical_content: String,
+    /// Domain-separated digest of the canonical Object revision.
+    pub object_digest: ContentDigest,
+}
+
+/// One typed mutation proposed within an ordered `ChangeSet`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChangeSetEdit {
+    /// Create one immutable JSON Schema version.
+    SchemaCreate(SchemaCreateEdit),
+    /// Create the first accepted revision of one content Object.
+    ObjectCreate(ObjectCreateEdit),
+}
+
+impl ChangeSetEdit {
+    /// Returns the stable identity shared by every Edit kind.
+    #[must_use]
+    pub const fn edit_id(&self) -> EditId {
+        match self {
+            Self::SchemaCreate(edit) => edit.edit_id,
+            Self::ObjectCreate(edit) => edit.edit_id,
+        }
+    }
+}
+
 /// Input for atomically appending ordered Edits to a draft `ChangeSet`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AddChangeSetEditsCommand {
     /// Target draft identity.
     pub changeset_id: ChangeSetId,
     /// Non-empty ordered Edit batch.
-    pub edits: Vec<SchemaCreateEdit>,
+    pub edits: Vec<ChangeSetEdit>,
     /// Caller-visible retry identity for this exact normalized batch.
     pub idempotency_key: IdempotencyKey,
 }
@@ -609,6 +647,54 @@ pub struct InspectedSchemaCreateEdit {
     pub document_digest: ContentDigest,
 }
 
+/// A verified persisted Object-create Edit in deterministic draft order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InspectedObjectCreateEdit {
+    /// One-based position within the `ChangeSet`.
+    pub ordinal: u32,
+    /// Stable Edit identity.
+    pub edit_id: EditId,
+    /// Stable identity assigned to the new Object.
+    pub object_id: ObjectId,
+    /// Logical Schema governing the Object content.
+    pub schema_id: SchemaId,
+    /// Immutable Schema version governing the Object content.
+    pub schema_version: SchemaVersion,
+    /// RFC 8785 canonical JSON Object content.
+    pub canonical_content: String,
+    /// Verified domain-separated Object revision digest.
+    pub object_digest: ContentDigest,
+}
+
+/// One verified persisted Edit in deterministic `ChangeSet` order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InspectedChangeSetEdit {
+    /// A verified Schema-create Edit.
+    SchemaCreate(InspectedSchemaCreateEdit),
+    /// A verified Object-create Edit.
+    ObjectCreate(InspectedObjectCreateEdit),
+}
+
+impl InspectedChangeSetEdit {
+    /// Returns the one-based position shared by every inspected Edit kind.
+    #[must_use]
+    pub const fn ordinal(&self) -> u32 {
+        match self {
+            Self::SchemaCreate(edit) => edit.ordinal,
+            Self::ObjectCreate(edit) => edit.ordinal,
+        }
+    }
+
+    /// Returns the stable identity shared by every inspected Edit kind.
+    #[must_use]
+    pub const fn edit_id(&self) -> EditId {
+        match self {
+            Self::SchemaCreate(edit) => edit.edit_id,
+            Self::ObjectCreate(edit) => edit.edit_id,
+        }
+    }
+}
+
 /// Complete verified read model for one persisted `ChangeSet`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InspectedChangeSet {
@@ -637,7 +723,7 @@ pub struct InspectedChangeSet {
     /// Versioned validation profile.
     pub validation_profile: String,
     /// Verified Edits in ordinal order.
-    pub edits: Vec<InspectedSchemaCreateEdit>,
+    pub edits: Vec<InspectedChangeSetEdit>,
 }
 
 /// Read-only port for verified `ChangeSet` reconstruction.
@@ -1112,6 +1198,23 @@ pub struct EditionSchema {
     pub document_digest: ContentDigest,
 }
 
+/// One immutable accepted Object revision in an Edition manifest.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EditionObject {
+    /// Stable governed Object identity.
+    pub object_id: ObjectId,
+    /// Accepted immutable Object revision.
+    pub revision: ObjectRevision,
+    /// Logical Schema governing the Object content.
+    pub schema_id: SchemaId,
+    /// Immutable Schema version governing the Object content.
+    pub schema_version: SchemaVersion,
+    /// Accepted lifecycle state represented by the Edition.
+    pub lifecycle_state: ObjectLifecycleState,
+    /// Digest of the exact canonical Object revision.
+    pub object_digest: ContentDigest,
+}
+
 /// One committed `ChangeSet` reference in an Edition manifest.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EditionChangeSet {
@@ -1136,6 +1239,8 @@ pub struct Edition {
     pub state_digest: ContentDigest,
     /// Digest of the ordered Schema-set submanifest.
     pub schema_set_digest: ContentDigest,
+    /// Digest of the ordered Object-set submanifest, absent for Schema-only state.
+    pub object_set_digest: Option<ContentDigest>,
     /// Digest of the canonical Edition manifest.
     pub edition_digest: ContentDigest,
     /// Exact canonical Edition manifest JSON.
@@ -1144,6 +1249,8 @@ pub struct Edition {
     pub created_at: Timestamp,
     /// Ordered immutable Schema references.
     pub schemas: Vec<EditionSchema>,
+    /// Ordered immutable accepted Object revisions.
+    pub objects: Vec<EditionObject>,
     /// Authoritative `ChangeSet`s included in sequence order.
     pub changesets: Vec<EditionChangeSet>,
 }
@@ -1253,7 +1360,11 @@ impl StatusData {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApprovalName, CorrelationId, ExitCode, OperationId, ResultEnvelope, StatusData};
+    use super::{
+        ApprovalName, ChangeSetEdit, ContentDigest, CorrelationId, EditId, ExitCode,
+        InspectedChangeSetEdit, InspectedObjectCreateEdit, ObjectCreateEdit, ObjectId, OperationId,
+        ResultEnvelope, SchemaId, SchemaVersion, StatusData,
+    };
 
     const OPERATION_ID: &str = "019c0000-0000-7000-8000-000000000001";
     const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
@@ -1327,5 +1438,39 @@ mod tests {
         assert!(ApprovalName::new("").is_err());
         assert!(ApprovalName::new("Editorial").is_err());
         assert!(ApprovalName::new("x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn typed_object_edits_expose_shared_identity_and_order() {
+        let edit_id = "019c0000-0000-7000-8000-000000000003"
+            .parse::<EditId>()
+            .unwrap();
+        let object_id = "019c0000-0000-7000-8000-000000000004"
+            .parse::<ObjectId>()
+            .unwrap();
+        let schema_id = SchemaId::new("article").unwrap();
+        let schema_version = SchemaVersion::new(1).unwrap();
+        let object_digest = ContentDigest::blake3([0x42; 32]);
+        let proposed = ChangeSetEdit::ObjectCreate(ObjectCreateEdit {
+            edit_id,
+            object_id,
+            schema_id: schema_id.clone(),
+            schema_version,
+            canonical_content: r#"{"title":"Launch"}"#.to_owned(),
+            object_digest,
+        });
+        let inspected = InspectedChangeSetEdit::ObjectCreate(InspectedObjectCreateEdit {
+            ordinal: 2,
+            edit_id,
+            object_id,
+            schema_id,
+            schema_version,
+            canonical_content: r#"{"title":"Launch"}"#.to_owned(),
+            object_digest,
+        });
+
+        assert_eq!(proposed.edit_id(), edit_id);
+        assert_eq!(inspected.ordinal(), 2);
+        assert_eq!(inspected.edit_id(), edit_id);
     }
 }

@@ -6,6 +6,9 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Added a pinned Ubuntu quality gate for formatting, Clippy, workspace tests, documentation tests, and documentation links.
+- Added ordered `object.create` Edits with strict canonical input, Schema validation, atomic mixed ChangeSet commits, and immutable Object revisions.
+- Added Object-bearing Known State and Edition commitments while preserving Schema-only canonical digests.
 - Added the initial Rust 2024 workspace with enforced domain, application, and CLI dependency boundaries.
 - Added UUIDv7 operation identifiers, shared result and Problem contracts, and the first `proof status` command.
 - Added strict RFC 8785 canonical JSON and artifact-specific BLAKE3-256 content digests.

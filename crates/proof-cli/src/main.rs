@@ -11,11 +11,12 @@ use std::{
 use clap::{Parser, Subcommand, ValueEnum};
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApprovalName,
-    ApproveChangeSetCommand, ApproveChangeSetError, ApprovedChangeSet, ArtifactKind, ChangeSetId,
-    ChangeSetIntent, CommitChangeSetCommand, CommitChangeSetError, CommittedChangeSet,
+    ApproveChangeSetCommand, ApproveChangeSetError, ApprovedChangeSet, ArtifactKind, ChangeSetEdit,
+    ChangeSetId, ChangeSetIntent, CommitChangeSetCommand, CommitChangeSetError, CommittedChangeSet,
     ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError,
     CreateEditionCommand, CreateEditionError, DraftChangeSet, EditId, Edition, EditionId, ExitCode,
     IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet,
+    InspectedChangeSetEdit, ObjectCreateEdit, ObjectId, ObjectLifecycleState, ObjectRevision,
     OperationId, PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion,
     StatusData, SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet, Timestamp,
     ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
@@ -23,7 +24,7 @@ use proof_application::{
     commit_changeset, create_changeset, create_edition, initialize_workspace, inspect_changeset,
     submit_changeset, validate_changeset, workspace_status,
 };
-use proof_canonical::{canonicalize, digest, parse_strict};
+use proof_canonical::{canonicalize, digest, object_revision_digest, parse_strict};
 use proof_local::LocalWorkspace;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -923,7 +924,7 @@ fn read_limited(reader: impl Read) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn parse_edit_records(bytes: &[u8]) -> Result<Vec<SchemaCreateEdit>, String> {
+fn parse_edit_records(bytes: &[u8]) -> Result<Vec<ChangeSetEdit>, String> {
     let mut edits = Vec::new();
     let mut lines = bytes.split(|byte| *byte == b'\n').peekable();
     let mut index = 0_usize;
@@ -938,9 +939,21 @@ fn parse_edit_records(bytes: &[u8]) -> Result<Vec<SchemaCreateEdit>, String> {
         }
         let value =
             parse_strict(line).map_err(|error| format!("Edit record line {index}: {error}"))?;
-        let input: SchemaCreateEditInput = serde_json::from_value(value)
-            .map_err(|error| format!("Edit record line {index}: {error}"))?;
-        edits.push(input.into_edit(index)?);
+        let is_object_create = value
+            .as_object()
+            .and_then(|record| record.get("kind"))
+            .and_then(serde_json::Value::as_str)
+            == Some("object.create");
+        let edit = if is_object_create {
+            let input: ObjectCreateEditInput = serde_json::from_value(value)
+                .map_err(|error| format!("Edit record line {index}: {error}"))?;
+            ChangeSetEdit::ObjectCreate(input.into_edit(index)?)
+        } else {
+            let input: SchemaCreateEditInput = serde_json::from_value(value)
+                .map_err(|error| format!("Edit record line {index}: {error}"))?;
+            ChangeSetEdit::SchemaCreate(input.into_edit(index)?)
+        };
+        edits.push(edit);
         if edits.len() > proof_application::MAX_EDITS_PER_BATCH {
             return Err(format!(
                 "Edit batch must not exceed {} records",
@@ -1580,6 +1593,10 @@ fn render_created_edition(
             println!("Edition {} created", result.data.edition_id);
             println!("Edition digest: {}", result.data.edition_digest);
             println!("Known State: {}", result.data.state_digest);
+            if let Some(object_set_digest) = &result.data.object_set_digest {
+                println!("Object set: {object_set_digest}");
+            }
+            println!("objects: {}", result.data.object_count);
             println!("idempotency key: {}", result.data.idempotency_key);
         }
         OutputFormat::Json => write_json(&result),
@@ -1720,14 +1737,27 @@ fn render_changeset_get(
             println!("base state: {}", result.data.base_state);
             println!("edits: {}", result.data.edits.len());
             for edit in &result.data.edits {
-                println!(
-                    "{}. {} {}@{} ({})",
-                    edit.ordinal,
-                    edit.kind,
-                    edit.schema_id,
-                    edit.schema_version,
-                    edit.document_digest
-                );
+                match edit {
+                    InspectedEditData::SchemaCreate(edit) => println!(
+                        "{}. {} {}@{} ({})",
+                        edit.ordinal,
+                        edit.kind,
+                        edit.schema_id,
+                        edit.schema_version,
+                        edit.document_digest
+                    ),
+                    InspectedEditData::ObjectCreate(edit) => println!(
+                        "{}. {} {}@{} {}@{} {} ({})",
+                        edit.ordinal,
+                        edit.kind,
+                        edit.object_id,
+                        edit.revision,
+                        edit.schema_id,
+                        edit.schema_version,
+                        edit.lifecycle_state,
+                        edit.object_digest
+                    ),
+                }
             }
         }
         OutputFormat::Json => write_json(&result),
@@ -1753,11 +1783,32 @@ fn render_changeset_diff(
             println!("ChangeSet {}", result.data.changeset_id);
             println!("base state: {}", result.data.base_state);
             for edit in &result.data.edits {
-                println!(
-                    "@@ {} {} {}@{} {} @@",
-                    edit.ordinal, edit.operation, edit.schema_id, edit.schema_version, edit.edit_id
-                );
-                println!("+ {}", edit.after.document_canonical);
+                match edit {
+                    ChangeSetDiffEditData::SchemaCreate(edit) => {
+                        println!(
+                            "@@ {} {} {}@{} {} @@",
+                            edit.ordinal,
+                            edit.operation,
+                            edit.schema_id,
+                            edit.schema_version,
+                            edit.edit_id
+                        );
+                        println!("+ {}", edit.after.document_canonical);
+                    }
+                    ChangeSetDiffEditData::ObjectCreate(edit) => {
+                        println!(
+                            "@@ {} {} {}@{} {}@{} {} @@",
+                            edit.ordinal,
+                            edit.operation,
+                            edit.object_id,
+                            edit.after.revision,
+                            edit.after.schema_id,
+                            edit.after.schema_version,
+                            edit.edit_id
+                        );
+                        println!("+ {}", edit.after.content_canonical);
+                    }
+                }
             }
         }
         OutputFormat::Json => write_json(&result),
@@ -1938,6 +1989,65 @@ impl SchemaCreateEditInput {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObjectCreateEditInput {
+    api_version: String,
+    kind: String,
+    object_id: String,
+    schema_id: String,
+    schema_version: u32,
+    content: serde_json::Value,
+}
+
+impl ObjectCreateEditInput {
+    fn into_edit(self, line: usize) -> Result<ObjectCreateEdit, String> {
+        if self.api_version != "proof.dev/edit/v1" {
+            return Err(format!(
+                "Edit record line {line}: unsupported api_version `{}`",
+                self.api_version
+            ));
+        }
+        if self.kind != "object.create" {
+            return Err(format!(
+                "Edit record line {line}: unsupported kind `{}`",
+                self.kind
+            ));
+        }
+        let object_id = self
+            .object_id
+            .parse::<ObjectId>()
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        if object_id.to_string() != self.object_id {
+            return Err(format!(
+                "Edit record line {line}: Object identifier must be a canonical UUIDv7"
+            ));
+        }
+        let schema_id = SchemaId::new(self.schema_id)
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        let schema_version = SchemaVersion::new(self.schema_version)
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        if !self.content.is_object() {
+            return Err(format!(
+                "Edit record line {line}: Object content root must be a JSON object"
+            ));
+        }
+        let canonical = canonicalize(&self.content)
+            .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        let object_digest =
+            object_revision_digest(object_id, &schema_id, schema_version, &self.content)
+                .map_err(|error| format!("Edit record line {line}: {error}"))?;
+        Ok(ObjectCreateEdit {
+            edit_id: generated_edit_id(),
+            object_id,
+            schema_id,
+            schema_version,
+            canonical_content: canonical.as_str().to_owned(),
+            object_digest,
+        })
+    }
+}
+
 #[derive(Serialize)]
 struct AddedEditsData {
     changeset_id: String,
@@ -2080,10 +2190,13 @@ struct CreatedEditionData {
     authoritative_sequence: u64,
     state_digest: String,
     schema_set_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    object_set_digest: Option<String>,
     edition_digest: String,
     manifest: serde_json::Value,
     created_at: String,
     schema_count: usize,
+    object_count: usize,
     changeset_count: usize,
     idempotency_key: String,
 }
@@ -2099,10 +2212,12 @@ impl CreatedEditionData {
             authoritative_sequence: edition.authoritative_sequence,
             state_digest: edition.state_digest.to_string(),
             schema_set_digest: edition.schema_set_digest.to_string(),
+            object_set_digest: edition.object_set_digest.map(|digest| digest.to_string()),
             edition_digest: edition.edition_digest.to_string(),
             manifest,
             created_at: edition.created_at.to_string(),
             schema_count: edition.schemas.len(),
+            object_count: edition.objects.len(),
             changeset_count: edition.changesets.len(),
             idempotency_key: idempotency_key.to_string(),
         }
@@ -2128,7 +2243,14 @@ struct InspectedChangeSetData {
 }
 
 #[derive(Serialize)]
-struct InspectedEditData {
+#[serde(untagged)]
+enum InspectedEditData {
+    SchemaCreate(InspectedSchemaCreateEditData),
+    ObjectCreate(InspectedObjectCreateEditData),
+}
+
+#[derive(Serialize)]
+struct InspectedSchemaCreateEditData {
     ordinal: u32,
     edit_id: String,
     kind: &'static str,
@@ -2137,6 +2259,22 @@ struct InspectedEditData {
     document: serde_json::Value,
     document_canonical: String,
     document_digest: String,
+}
+
+#[derive(Serialize)]
+struct InspectedObjectCreateEditData {
+    ordinal: u32,
+    edit_id: String,
+    kind: &'static str,
+    object_id: String,
+    revision: u32,
+    schema_id: String,
+    schema_version: u32,
+    lifecycle_state: String,
+    relationships: Vec<serde_json::Value>,
+    content: serde_json::Value,
+    content_canonical: String,
+    object_digest: String,
 }
 
 impl From<&InspectedChangeSet> for InspectedChangeSetData {
@@ -2159,16 +2297,37 @@ impl From<&InspectedChangeSet> for InspectedChangeSetData {
             edits: changeset
                 .edits
                 .iter()
-                .map(|edit| InspectedEditData {
-                    ordinal: edit.ordinal,
-                    edit_id: edit.edit_id.to_string(),
-                    kind: "schema.create",
-                    schema_id: edit.schema_id.to_string(),
-                    schema_version: edit.schema_version.get(),
-                    document: serde_json::from_str(&edit.canonical_document)
-                        .expect("verified canonical JSON must deserialize"),
-                    document_canonical: edit.canonical_document.clone(),
-                    document_digest: edit.document_digest.to_string(),
+                .map(|edit| match edit {
+                    InspectedChangeSetEdit::SchemaCreate(edit) => {
+                        InspectedEditData::SchemaCreate(InspectedSchemaCreateEditData {
+                            ordinal: edit.ordinal,
+                            edit_id: edit.edit_id.to_string(),
+                            kind: "schema.create",
+                            schema_id: edit.schema_id.to_string(),
+                            schema_version: edit.schema_version.get(),
+                            document: serde_json::from_str(&edit.canonical_document)
+                                .expect("verified canonical JSON must deserialize"),
+                            document_canonical: edit.canonical_document.clone(),
+                            document_digest: edit.document_digest.to_string(),
+                        })
+                    }
+                    InspectedChangeSetEdit::ObjectCreate(edit) => {
+                        InspectedEditData::ObjectCreate(InspectedObjectCreateEditData {
+                            ordinal: edit.ordinal,
+                            edit_id: edit.edit_id.to_string(),
+                            kind: "object.create",
+                            object_id: edit.object_id.to_string(),
+                            revision: ObjectRevision::INITIAL.get(),
+                            schema_id: edit.schema_id.to_string(),
+                            schema_version: edit.schema_version.get(),
+                            lifecycle_state: ObjectLifecycleState::Active.to_string(),
+                            relationships: Vec::new(),
+                            content: serde_json::from_str(&edit.canonical_content)
+                                .expect("verified canonical JSON must deserialize"),
+                            content_canonical: edit.canonical_content.clone(),
+                            object_digest: edit.object_digest.to_string(),
+                        })
+                    }
                 })
                 .collect(),
         }
@@ -2180,7 +2339,14 @@ struct ChangeSetDiffData {
     changeset_id: String,
     base_authoritative_sequence: u64,
     base_state: String,
-    edits: Vec<SchemaCreateDiffData>,
+    edits: Vec<ChangeSetDiffEditData>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum ChangeSetDiffEditData {
+    SchemaCreate(SchemaCreateDiffData),
+    ObjectCreate(ObjectCreateDiffData),
 }
 
 #[derive(Serialize)]
@@ -2201,6 +2367,28 @@ struct SchemaDiffState {
     document_digest: String,
 }
 
+#[derive(Serialize)]
+struct ObjectCreateDiffData {
+    ordinal: u32,
+    edit_id: String,
+    operation: &'static str,
+    object_id: String,
+    before: Option<ObjectDiffState>,
+    after: ObjectDiffState,
+}
+
+#[derive(Serialize)]
+struct ObjectDiffState {
+    revision: u32,
+    schema_id: String,
+    schema_version: u32,
+    lifecycle_state: String,
+    relationships: Vec<serde_json::Value>,
+    content: serde_json::Value,
+    content_canonical: String,
+    object_digest: String,
+}
+
 impl From<&InspectedChangeSet> for ChangeSetDiffData {
     fn from(changeset: &InspectedChangeSet) -> Self {
         Self {
@@ -2210,19 +2398,43 @@ impl From<&InspectedChangeSet> for ChangeSetDiffData {
             edits: changeset
                 .edits
                 .iter()
-                .map(|edit| SchemaCreateDiffData {
-                    ordinal: edit.ordinal,
-                    edit_id: edit.edit_id.to_string(),
-                    operation: "schema.create",
-                    schema_id: edit.schema_id.to_string(),
-                    schema_version: edit.schema_version.get(),
-                    before: None,
-                    after: SchemaDiffState {
-                        document: serde_json::from_str(&edit.canonical_document)
-                            .expect("verified canonical JSON must deserialize"),
-                        document_canonical: edit.canonical_document.clone(),
-                        document_digest: edit.document_digest.to_string(),
-                    },
+                .map(|edit| match edit {
+                    InspectedChangeSetEdit::SchemaCreate(edit) => {
+                        ChangeSetDiffEditData::SchemaCreate(SchemaCreateDiffData {
+                            ordinal: edit.ordinal,
+                            edit_id: edit.edit_id.to_string(),
+                            operation: "schema.create",
+                            schema_id: edit.schema_id.to_string(),
+                            schema_version: edit.schema_version.get(),
+                            before: None,
+                            after: SchemaDiffState {
+                                document: serde_json::from_str(&edit.canonical_document)
+                                    .expect("verified canonical JSON must deserialize"),
+                                document_canonical: edit.canonical_document.clone(),
+                                document_digest: edit.document_digest.to_string(),
+                            },
+                        })
+                    }
+                    InspectedChangeSetEdit::ObjectCreate(edit) => {
+                        ChangeSetDiffEditData::ObjectCreate(ObjectCreateDiffData {
+                            ordinal: edit.ordinal,
+                            edit_id: edit.edit_id.to_string(),
+                            operation: "object.create",
+                            object_id: edit.object_id.to_string(),
+                            before: None,
+                            after: ObjectDiffState {
+                                revision: ObjectRevision::INITIAL.get(),
+                                schema_id: edit.schema_id.to_string(),
+                                schema_version: edit.schema_version.get(),
+                                lifecycle_state: ObjectLifecycleState::Active.to_string(),
+                                relationships: Vec::new(),
+                                content: serde_json::from_str(&edit.canonical_content)
+                                    .expect("verified canonical JSON must deserialize"),
+                                content_canonical: edit.canonical_content.clone(),
+                                object_digest: edit.object_digest.to_string(),
+                            },
+                        })
+                    }
                 })
                 .collect(),
         }

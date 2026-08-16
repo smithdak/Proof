@@ -4,7 +4,10 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use proof_domain::{ArtifactKind, ContentDigest, SchemaId, SchemaVersion, WorkspaceId};
+use proof_domain::{
+    ArtifactKind, ContentDigest, ObjectId, ObjectLifecycleState, ObjectRevision, SchemaId,
+    SchemaVersion, WorkspaceId,
+};
 use serde::{
     Deserialize, Deserializer,
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -99,6 +102,76 @@ pub fn digest(kind: ArtifactKind, canonical: &CanonicalJson) -> ContentDigest {
     ContentDigest::blake3(*hasher.finalize().as_bytes())
 }
 
+/// One accepted Object revision reference used by canonical state manifests.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectStateReference {
+    /// Stable governed Object identity.
+    pub object_id: ObjectId,
+    /// Accepted immutable revision.
+    pub revision: ObjectRevision,
+    /// Logical Schema governing the Object content.
+    pub schema_id: SchemaId,
+    /// Immutable Schema version governing the Object content.
+    pub schema_version: SchemaVersion,
+    /// Accepted lifecycle state.
+    pub lifecycle_state: ObjectLifecycleState,
+    /// Digest of the exact canonical Object revision.
+    pub object_digest: ContentDigest,
+}
+
+/// Computes the digest of the first immutable revision of an Object.
+///
+/// The initial Object profile normalizes revision to `1`, lifecycle state to
+/// `active`, and relationships to an empty ordered collection.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if `content` is not a JSON object or the
+/// revision manifest cannot be represented by the canonical JSON profile.
+pub fn object_revision_digest(
+    object_id: ObjectId,
+    schema_id: &SchemaId,
+    schema_version: SchemaVersion,
+    content: &Value,
+) -> Result<ContentDigest, CanonicalizationError> {
+    if !content.is_object() {
+        return Err(CanonicalizationError::InvalidJson(
+            "Object content must be a JSON object".to_owned(),
+        ));
+    }
+    let manifest = serde_json::json!({
+        "api_version": "proof.dev/object-revision/v1",
+        "content": content,
+        "lifecycle_state": ObjectLifecycleState::Active.to_string(),
+        "object_id": object_id.to_string(),
+        "relationships": [],
+        "revision": ObjectRevision::INITIAL.get(),
+        "schema_id": schema_id.as_str(),
+        "schema_version": schema_version.get(),
+    });
+    let canonical = canonicalize(&manifest)?;
+    Ok(digest(ArtifactKind::ObjectRevisionV1, &canonical))
+}
+
+/// Computes the digest of an ordered immutable Object-set manifest.
+///
+/// Entries must be supplied in ascending canonical Object identity order.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be represented by
+/// the canonical JSON profile.
+pub fn object_set_digest(
+    objects: &[ObjectStateReference],
+) -> Result<ContentDigest, CanonicalizationError> {
+    let manifest = serde_json::json!({
+        "api_version": "proof.dev/object-set/v1",
+        "objects": objects.iter().map(object_reference_value).collect::<Vec<_>>(),
+    });
+    let canonical = canonicalize(&manifest)?;
+    Ok(digest(ArtifactKind::ObjectSetV1, &canonical))
+}
+
 /// Computes the reproducible digest of an empty initial Workspace state.
 ///
 /// # Errors
@@ -126,6 +199,26 @@ pub fn known_state_digest(
     authoritative_sequence: u64,
     schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
 ) -> Result<ContentDigest, CanonicalizationError> {
+    known_state_digest_with_objects(workspace_id, authoritative_sequence, schemas, &[])
+}
+
+/// Computes a reproducible digest for authoritative Schema and Object state.
+///
+/// Schema entries must be supplied in ascending `(schema_id, version)` order;
+/// Object entries must be supplied in ascending canonical Object identity
+/// order. The `objects` member is omitted when empty so every existing
+/// Schema-only Known State retains its exact canonical bytes and digest.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be represented by
+/// the canonical JSON profile.
+pub fn known_state_digest_with_objects(
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+    schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
+    objects: &[ObjectStateReference],
+) -> Result<ContentDigest, CanonicalizationError> {
     let manifest = serde_json::json!({
         "api_version": "proof.dev/known-state/v1",
         "authoritative_sequence": authoritative_sequence,
@@ -146,8 +239,23 @@ pub fn known_state_digest(
                 .collect(),
         );
     }
+    if !objects.is_empty() {
+        manifest["objects"] =
+            serde_json::Value::Array(objects.iter().map(object_reference_value).collect());
+    }
     let canonical = canonicalize(&manifest)?;
     Ok(digest(ArtifactKind::KnownStateV1, &canonical))
+}
+
+fn object_reference_value(object: &ObjectStateReference) -> Value {
+    serde_json::json!({
+        "lifecycle_state": object.lifecycle_state.to_string(),
+        "object_digest": object.object_digest.to_string(),
+        "object_id": object.object_id.to_string(),
+        "revision": object.revision.get(),
+        "schema_id": object.schema_id.as_str(),
+        "schema_version": object.schema_version.get(),
+    })
 }
 
 fn validate_safe_integers(value: &Value) -> Result<(), CanonicalizationError> {
@@ -273,13 +381,17 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
 
 #[cfg(test)]
 mod tests {
-    use proof_domain::{ArtifactKind, ContentDigest, OperationId};
+    use proof_domain::{
+        ArtifactKind, ContentDigest, ObjectId, ObjectLifecycleState, ObjectRevision, OperationId,
+        SchemaId, SchemaVersion, WorkspaceId,
+    };
     use serde::Deserialize;
     use serde_json::{Value, json};
 
     use super::{
-        CanonicalizationError, MAX_SAFE_INTEGER, canonicalize, digest, initial_known_state_digest,
-        parse_and_canonicalize, parse_strict,
+        CanonicalizationError, MAX_SAFE_INTEGER, ObjectStateReference, canonicalize, digest,
+        initial_known_state_digest, known_state_digest, known_state_digest_with_objects,
+        object_revision_digest, object_set_digest, parse_and_canonicalize, parse_strict,
     };
 
     #[test]
@@ -439,6 +551,102 @@ mod tests {
                 &canonicalize(&vector["manifest"]).unwrap()
             ),
             expected
+        );
+    }
+
+    #[test]
+    fn schema_only_known_state_keeps_its_existing_digest_path() {
+        let workspace_id = "019c0000-0000-7000-8000-000000000001"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let schemas = vec![(
+            SchemaId::new("article").unwrap(),
+            SchemaVersion::new(1).unwrap(),
+            ContentDigest::blake3([0x11; 32]),
+        )];
+
+        assert_eq!(
+            known_state_digest(workspace_id, 1, &schemas).unwrap(),
+            known_state_digest_with_objects(workspace_id, 1, &schemas, &[]).unwrap()
+        );
+    }
+
+    #[test]
+    fn object_revision_and_state_commit_to_object_semantics() {
+        let workspace_id = "019c0000-0000-7000-8000-000000000001"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let object_id = "019c0000-0000-7000-8000-000000000002"
+            .parse::<ObjectId>()
+            .unwrap();
+        let other_object_id = "019c0000-0000-7000-8000-000000000003"
+            .parse::<ObjectId>()
+            .unwrap();
+        let schema_id = SchemaId::new("article").unwrap();
+        let schema_version = SchemaVersion::new(1).unwrap();
+        let content = json!({"title": "Launch"});
+        let object_digest =
+            object_revision_digest(object_id, &schema_id, schema_version, &content).unwrap();
+        let expected_revision = canonicalize(&json!({
+            "api_version": "proof.dev/object-revision/v1",
+            "content": {"title": "Launch"},
+            "lifecycle_state": "active",
+            "object_id": object_id.to_string(),
+            "relationships": [],
+            "revision": 1,
+            "schema_id": "article",
+            "schema_version": 1,
+        }))
+        .unwrap();
+        assert_eq!(
+            object_digest,
+            digest(ArtifactKind::ObjectRevisionV1, &expected_revision)
+        );
+        let reference = ObjectStateReference {
+            object_id,
+            revision: ObjectRevision::INITIAL,
+            schema_id: schema_id.clone(),
+            schema_version,
+            lifecycle_state: ObjectLifecycleState::Active,
+            object_digest,
+        };
+
+        assert_ne!(
+            object_digest,
+            object_revision_digest(other_object_id, &schema_id, schema_version, &content).unwrap()
+        );
+        assert_ne!(
+            known_state_digest(workspace_id, 1, &[]).unwrap(),
+            known_state_digest_with_objects(
+                workspace_id,
+                1,
+                &[],
+                std::slice::from_ref(&reference),
+            )
+            .unwrap()
+        );
+        let expected_object_set = canonicalize(&json!({
+            "api_version": "proof.dev/object-set/v1",
+            "objects": [{
+                "lifecycle_state": "active",
+                "object_digest": object_digest.to_string(),
+                "object_id": object_id.to_string(),
+                "revision": 1,
+                "schema_id": "article",
+                "schema_version": 1,
+            }],
+        }))
+        .unwrap();
+        assert_eq!(
+            object_set_digest(std::slice::from_ref(&reference)).unwrap(),
+            digest(ArtifactKind::ObjectSetV1, &expected_object_set)
+        );
+        assert!(
+            matches!(
+                object_revision_digest(object_id, &schema_id, schema_version, &json!(["invalid"])),
+                Err(CanonicalizationError::InvalidJson(_))
+            ),
+            "Object content roots must be JSON objects"
         );
     }
 

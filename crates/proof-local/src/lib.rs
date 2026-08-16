@@ -3,7 +3,7 @@
 //! Local filesystem and `SQLite` adapters for Proof.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
@@ -13,21 +13,24 @@ use proof_application::ArtifactKind;
 use proof_application::{
     AddChangeSetEditsCommand, AddChangeSetEditsError, AddedChangeSetEdits, ApproveChangeSetCommand,
     ApproveChangeSetError, ApprovedChangeSet, ChangeSetApprovalRepository,
-    ChangeSetCommitRepository, ChangeSetEditRepository, ChangeSetId, ChangeSetInspectionRepository,
-    ChangeSetIntent, ChangeSetRepository, ChangeSetStatus, ChangeSetSubmissionRepository,
-    ChangeSetValidationRepository, CommitChangeSetCommand, CommitChangeSetError,
-    CommittedChangeSet, ContentDigest, CreateChangeSetCommand, CreateChangeSetError,
-    CreateEditionCommand, CreateEditionError, DRAFT_2020_12_META_VALIDATOR, DraftChangeSet, EditId,
-    Edition, EditionChangeSet, EditionId, EditionRepository, EditionSchema, Finding,
-    IdempotencyKey, InitializeWorkspaceCommand, InitializedWorkspace, InitializedWorkspaceStatus,
-    InspectChangeSetError, InspectedChangeSet, InspectedSchemaCreateEdit, LOCAL_POLICY_PROFILE,
-    LOCAL_VALIDATION_PROFILE, PrincipalId, PrincipalType, SchemaCreateEdit, SchemaId,
-    SchemaVersion, Severity, SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet,
-    ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
-    WorkspaceRepository, WorkspaceStatus, WorkspaceStatusError, WorkspaceStatusRepository,
+    ChangeSetCommitRepository, ChangeSetEdit, ChangeSetEditRepository, ChangeSetId,
+    ChangeSetInspectionRepository, ChangeSetIntent, ChangeSetRepository, ChangeSetStatus,
+    ChangeSetSubmissionRepository, ChangeSetValidationRepository, CommitChangeSetCommand,
+    CommitChangeSetError, CommittedChangeSet, ContentDigest, CreateChangeSetCommand,
+    CreateChangeSetError, CreateEditionCommand, CreateEditionError, DRAFT_2020_12_META_VALIDATOR,
+    DraftChangeSet, EditId, Edition, EditionChangeSet, EditionId, EditionObject, EditionRepository,
+    EditionSchema, Finding, IdempotencyKey, InitializeWorkspaceCommand, InitializedWorkspace,
+    InitializedWorkspaceStatus, InspectChangeSetError, InspectedChangeSet, InspectedChangeSetEdit,
+    InspectedObjectCreateEdit, InspectedSchemaCreateEdit, LOCAL_POLICY_PROFILE,
+    LOCAL_VALIDATION_PROFILE, ObjectId, ObjectLifecycleState, ObjectRevision, PrincipalId,
+    PrincipalType, SchemaId, SchemaVersion, Severity, SubmitChangeSetCommand, SubmitChangeSetError,
+    SubmittedChangeSet, ValidateChangeSetError, ValidatedChangeSet, WorkspaceId,
+    WorkspaceInitializationError, WorkspaceRepository, WorkspaceStatus, WorkspaceStatusError,
+    WorkspaceStatusRepository,
 };
 use proof_canonical::{
-    canonicalize, digest, initial_known_state_digest, known_state_digest, parse_strict,
+    ObjectStateReference, canonicalize, digest, initial_known_state_digest,
+    known_state_digest_with_objects, object_revision_digest, object_set_digest, parse_strict,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,7 @@ const CONFIG_FILE: &str = "proof.toml";
 const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
+const OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const INITIAL_DATABASE_SCHEMA: &str = "CREATE TABLE schema_migrations (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     name TEXT NOT NULL UNIQUE
@@ -89,14 +93,24 @@ CREATE TABLE changeset_edits (
     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
     ordinal INTEGER NOT NULL CHECK (ordinal > 0),
     edit_id TEXT NOT NULL UNIQUE,
-    edit_kind TEXT NOT NULL CHECK (edit_kind = 'schema.create'),
+    edit_kind TEXT NOT NULL CHECK (edit_kind IN ('schema.create', 'object.create')),
     schema_id TEXT NOT NULL,
     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+    object_id TEXT,
     document_json TEXT NOT NULL,
     document_digest TEXT NOT NULL,
     PRIMARY KEY (changeset_id, ordinal),
-    UNIQUE (changeset_id, edit_kind, schema_id, schema_version)
+    CHECK (
+        (edit_kind = 'schema.create' AND object_id IS NULL) OR
+        (edit_kind = 'object.create' AND object_id IS NOT NULL)
+    )
 ) STRICT;
+CREATE UNIQUE INDEX changeset_schema_targets
+    ON changeset_edits(changeset_id, schema_id, schema_version)
+    WHERE edit_kind = 'schema.create';
+CREATE UNIQUE INDEX changeset_object_targets
+    ON changeset_edits(changeset_id, object_id)
+    WHERE edit_kind = 'object.create';
 CREATE TABLE changeset_add_operations (
     workspace_id TEXT NOT NULL,
     principal_id TEXT NOT NULL REFERENCES principals(principal_id),
@@ -170,6 +184,7 @@ CREATE TABLE editions (
     authoritative_sequence INTEGER NOT NULL CHECK (authoritative_sequence > 0),
     state_digest TEXT NOT NULL UNIQUE,
     schema_set_digest TEXT NOT NULL,
+    object_set_digest TEXT,
     edition_digest TEXT NOT NULL UNIQUE,
     manifest_json TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -183,7 +198,23 @@ CREATE TABLE edition_create_operations (
     PRIMARY KEY (workspace_id, principal_id, idempotency_key)
 ) STRICT;
 INSERT INTO schema_migrations (version, name) VALUES (8, 'create-immutable-editions');
-PRAGMA user_version = 8;";
+CREATE TABLE object_revisions (
+    object_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision = 1),
+    schema_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+    lifecycle_state TEXT NOT NULL CHECK (lifecycle_state = 'active'),
+    content_json TEXT NOT NULL,
+    object_digest TEXT NOT NULL,
+    changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+    edit_id TEXT NOT NULL UNIQUE REFERENCES changeset_edits(edit_id),
+    authoritative_sequence INTEGER NOT NULL UNIQUE CHECK (authoritative_sequence > 0),
+    PRIMARY KEY (object_id, revision),
+    FOREIGN KEY (schema_id, schema_version)
+        REFERENCES schema_versions(schema_id, schema_version)
+) STRICT;
+INSERT INTO schema_migrations (version, name) VALUES (9, 'create-immutable-objects');
+PRAGMA user_version = 9;";
 
 struct LocalIdentity {
     provider: &'static str,
@@ -457,11 +488,19 @@ impl ChangeSetRepository for LocalWorkspace {
 }
 
 impl ChangeSetEditRepository for LocalWorkspace {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the transaction keeps authentication, migration, replay, and atomic append checks together"
+    )]
     fn add_edits(
         &self,
         command: AddChangeSetEditsCommand,
     ) -> Result<AddedChangeSetEdits, AddChangeSetEditsError> {
         let request_digest = verified_edit_batch(&command.edits)?;
+        let has_object_edits = command
+            .edits
+            .iter()
+            .any(|edit| matches!(edit, ChangeSetEdit::ObjectCreate(_)));
         let config = self.read_config().map_err(edit_from_initialization)?;
         let workspace_id = config
             .workspace_id
@@ -499,7 +538,17 @@ impl ChangeSetEditRepository for LocalWorkspace {
             )
             .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
         ensure_edit_schema(&transaction, schema_version)?;
-        let schema_version = schema_version.max(3);
+        let mut schema_version: u32 = transaction
+            .query_row(
+                "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        if has_object_edits {
+            ensure_object_schema(&transaction, schema_version)?;
+            schema_version = 9;
+        }
         require_editable_changeset(
             &transaction,
             workspace_id,
@@ -531,6 +580,7 @@ impl ChangeSetEditRepository for LocalWorkspace {
             &transaction,
             command.changeset_id,
             first_ordinal,
+            schema_version,
             &command.edits,
         )?;
         let added_count = u32::try_from(command.edits.len()).map_err(|_| {
@@ -558,7 +608,11 @@ impl ChangeSetEditRepository for LocalWorkspace {
             workspace_id,
             principal_id,
             first_ordinal,
-            edit_ids: command.edits.into_iter().map(|edit| edit.edit_id).collect(),
+            edit_ids: command
+                .edits
+                .into_iter()
+                .map(|edit| edit.edit_id())
+                .collect(),
             total_edit_count,
         })
     }
@@ -662,11 +716,17 @@ impl ChangeSetValidationRepository for LocalWorkspace {
         ensure_validation_schema(&transaction, schema_version)?;
         let schema_version = workspace_schema_version(&transaction)?;
         ensure_lifecycle_schema(&transaction, schema_version)?;
+        let schema_version = workspace_schema_version(&transaction)?;
 
-        let row =
-            load_inspected_changeset(&transaction, changeset_id, workspace_id, principal_id, 5)
-                .map_err(validation_from_inspection)?;
-        let edits = load_inspected_edits(&transaction, changeset_id, 5)
+        let row = load_inspected_changeset(
+            &transaction,
+            changeset_id,
+            workspace_id,
+            principal_id,
+            schema_version,
+        )
+        .map_err(validation_from_inspection)?;
+        let edits = load_inspected_edits(&transaction, changeset_id, schema_version)
             .map_err(validation_from_inspection)?;
         let inspected = row
             .into_inspected(changeset_id, workspace_id, principal_id, edits)
@@ -677,7 +737,7 @@ impl ChangeSetValidationRepository for LocalWorkspace {
         ) {
             return Err(ValidateChangeSetError::NotValidatable);
         }
-        let mut validated = validate_inspected_changeset(&inspected)?;
+        let mut validated = validate_inspected_changeset(&transaction, &inspected)?;
         let target_status = if validated.valid {
             ChangeSetStatus::Ready
         } else {
@@ -752,16 +812,18 @@ impl ChangeSetSubmissionRepository for LocalWorkspace {
             workspace_schema_version(&transaction).map_err(submission_from_validation)?;
         ensure_lifecycle_schema(&transaction, schema_version)
             .map_err(submission_from_validation)?;
+        let schema_version =
+            workspace_schema_version(&transaction).map_err(submission_from_validation)?;
 
         let row = load_inspected_changeset(
             &transaction,
             command.changeset_id,
             workspace_id,
             principal_id,
-            5,
+            schema_version,
         )
         .map_err(submission_from_inspection)?;
-        let edits = load_inspected_edits(&transaction, command.changeset_id, 5)
+        let edits = load_inspected_edits(&transaction, command.changeset_id, schema_version)
             .map_err(submission_from_inspection)?;
         let inspected = row
             .into_inspected(command.changeset_id, workspace_id, principal_id, edits)
@@ -774,8 +836,8 @@ impl ChangeSetSubmissionRepository for LocalWorkspace {
         }
         let changeset_digest =
             changeset_digest_for(&inspected).map_err(SubmitChangeSetError::Integrity)?;
-        let current_validation =
-            validate_inspected_changeset(&inspected).map_err(submission_from_validation)?;
+        let current_validation = validate_inspected_changeset(&transaction, &inspected)
+            .map_err(submission_from_validation)?;
         if !current_validation.valid || current_validation.changeset_digest != changeset_digest {
             return Err(SubmitChangeSetError::ValidationEvidenceMissing);
         }
@@ -785,6 +847,7 @@ impl ChangeSetSubmissionRepository for LocalWorkspace {
             changeset_digest,
             inspected.base_state,
             &inspected.validation_profile,
+            &current_validation.validator,
             current_validation.validation_results_digest,
         )?;
         let edit_count = u32::try_from(inspected.edits.len())
@@ -839,15 +902,22 @@ impl ChangeSetApprovalRepository for LocalWorkspace {
             authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
                 .map_err(approval_from_status)?;
         ensure_approval_schema(&transaction, schema_version)?;
+        let schema_version: u32 = transaction
+            .query_row(
+                "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| ApproveChangeSetError::Storage(error.to_string()))?;
         let row = load_inspected_changeset(
             &transaction,
             command.changeset_id,
             workspace_id,
             principal_id,
-            6,
+            schema_version,
         )
         .map_err(approval_from_inspection)?;
-        let edits = load_inspected_edits(&transaction, command.changeset_id, 6)
+        let edits = load_inspected_edits(&transaction, command.changeset_id, schema_version)
             .map_err(approval_from_inspection)?;
         let inspected = row
             .into_inspected(command.changeset_id, workspace_id, principal_id, edits)
@@ -858,8 +928,8 @@ impl ChangeSetApprovalRepository for LocalWorkspace {
         ) {
             return Err(ApproveChangeSetError::NotSubmitted);
         }
-        let current_validation =
-            validate_inspected_changeset(&inspected).map_err(approval_from_validation)?;
+        let current_validation = validate_inspected_changeset(&transaction, &inspected)
+            .map_err(approval_from_validation)?;
         if !current_validation.valid {
             return Err(ApproveChangeSetError::EvidenceMissing);
         }
@@ -869,6 +939,7 @@ impl ChangeSetApprovalRepository for LocalWorkspace {
             current_validation.changeset_digest,
             inspected.base_state,
             &inspected.validation_profile,
+            &current_validation.validator,
             current_validation.validation_results_digest,
         )
         .map_err(approval_from_submission)?;
@@ -1121,7 +1192,7 @@ fn initialize_database(
         .execute(
             "INSERT INTO workspace_metadata (
                  singleton, workspace_id, bootstrap_principal_id, schema_version
-             ) VALUES (1, ?1, ?2, 8)",
+             ) VALUES (1, ?1, ?2, 9)",
             [workspace_id, principal_id],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -1566,7 +1637,7 @@ fn inspect_schema_version(
             "persistent schema version records differ".to_owned(),
         ));
     }
-    if !(1..=8).contains(&migration_version) {
+    if !(1..=9).contains(&migration_version) {
         return Err(InspectChangeSetError::Integrity(format!(
             "unsupported local schema version {migration_version}"
         )));
@@ -1592,7 +1663,7 @@ impl InspectedChangeSetRow {
         changeset_id: ChangeSetId,
         workspace_id: WorkspaceId,
         principal_id: PrincipalId,
-        edits: Vec<InspectedSchemaCreateEdit>,
+        edits: Vec<InspectedChangeSetEdit>,
     ) -> Result<InspectedChangeSet, InspectChangeSetError> {
         let status = parse_changeset_status(&self.status)?;
         if self.policy_profile != LOCAL_POLICY_PROFILE
@@ -1712,20 +1783,29 @@ fn load_inspected_changeset(
         .ok_or(InspectChangeSetError::NotFound)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the discriminated-union loader verifies every persisted field before constructing either Edit variant"
+)]
 fn load_inspected_edits(
     connection: &Connection,
     changeset_id: ChangeSetId,
     schema_version: u32,
-) -> Result<Vec<InspectedSchemaCreateEdit>, InspectChangeSetError> {
+) -> Result<Vec<InspectedChangeSetEdit>, InspectChangeSetError> {
     if schema_version < 3 {
         return Ok(Vec::new());
     }
+    let object_column = if schema_version >= 9 {
+        "object_id"
+    } else {
+        "NULL AS object_id"
+    };
     let mut statement = connection
-        .prepare(
+        .prepare(&format!(
             "SELECT ordinal, edit_id, edit_kind, schema_id, schema_version,
-                    document_json, document_digest
-             FROM changeset_edits WHERE changeset_id = ?1 ORDER BY ordinal",
-        )
+                    {object_column}, document_json, document_digest
+             FROM changeset_edits WHERE changeset_id = ?1 ORDER BY ordinal"
+        ))
         .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
     let rows = statement
         .query_map([changeset_id.to_string()], |row| {
@@ -1735,45 +1815,108 @@ fn load_inspected_edits(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
-                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
     let mut edits = Vec::new();
     for row in rows {
-        let (ordinal, edit_id, edit_kind, schema_id, schema_version, document, document_digest) =
-            row.map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
+        let (
+            ordinal,
+            edit_id,
+            edit_kind,
+            schema_id,
+            schema_version,
+            object_id,
+            document,
+            document_digest,
+        ) = row.map_err(|error| InspectChangeSetError::Storage(error.to_string()))?;
         let expected_ordinal = u32::try_from(edits.len() + 1).map_err(|_| {
             InspectChangeSetError::Integrity("ChangeSet Edit count exceeds u32".to_owned())
         })?;
         let ordinal = u32::try_from(ordinal).map_err(|_| {
             InspectChangeSetError::Integrity("Edit ordinal must be positive".to_owned())
         })?;
-        if ordinal != expected_ordinal || edit_kind != "schema.create" {
+        if ordinal != expected_ordinal {
             return Err(InspectChangeSetError::Integrity(
-                "ChangeSet Edit ordering or kind is invalid".to_owned(),
+                "ChangeSet Edit ordering is invalid".to_owned(),
             ));
         }
-        let canonical = parse_and_canonical_document(&document)?;
-        let document_digest: ContentDigest = inspect_parse(&document_digest, "document digest")?;
-        if digest(ArtifactKind::SchemaVersionV1, &canonical) != document_digest {
-            return Err(InspectChangeSetError::Integrity(
-                "Schema document digest does not match canonical content".to_owned(),
-            ));
+        let edit_id = inspect_parse(&edit_id, "Edit identity")?;
+        let schema_id = SchemaId::new(schema_id)
+            .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+        let schema_version = SchemaVersion::new(u32::try_from(schema_version).map_err(|_| {
+            InspectChangeSetError::Integrity("Schema version must be positive".to_owned())
+        })?)
+        .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+        let persisted_digest: ContentDigest = inspect_parse(&document_digest, "document digest")?;
+        match edit_kind.as_str() {
+            "schema.create" => {
+                if object_id.is_some() {
+                    return Err(InspectChangeSetError::Integrity(
+                        "Schema-create Edit contains an Object identity".to_owned(),
+                    ));
+                }
+                let canonical = parse_and_canonical_document(&document)?;
+                if digest(ArtifactKind::SchemaVersionV1, &canonical) != persisted_digest {
+                    return Err(InspectChangeSetError::Integrity(
+                        "Schema document digest does not match canonical content".to_owned(),
+                    ));
+                }
+                edits.push(InspectedChangeSetEdit::SchemaCreate(
+                    InspectedSchemaCreateEdit {
+                        ordinal,
+                        edit_id,
+                        schema_id,
+                        schema_version,
+                        canonical_document: document,
+                        document_digest: persisted_digest,
+                    },
+                ));
+            }
+            "object.create" => {
+                let raw_object_id = object_id.ok_or_else(|| {
+                    InspectChangeSetError::Integrity(
+                        "Object-create Edit is missing its Object identity".to_owned(),
+                    )
+                })?;
+                let object_id = raw_object_id
+                    .parse::<ObjectId>()
+                    .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+                if object_id.to_string() != raw_object_id {
+                    return Err(InspectChangeSetError::Integrity(
+                        "Object identity is not in canonical UUID form".to_owned(),
+                    ));
+                }
+                let (value, canonical) = parse_and_canonical_object(&document)?;
+                let expected =
+                    object_revision_digest(object_id, &schema_id, schema_version, &value)
+                        .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+                if expected != persisted_digest {
+                    return Err(InspectChangeSetError::Integrity(
+                        "Object revision digest does not match canonical content".to_owned(),
+                    ));
+                }
+                edits.push(InspectedChangeSetEdit::ObjectCreate(
+                    InspectedObjectCreateEdit {
+                        ordinal,
+                        edit_id,
+                        object_id,
+                        schema_id,
+                        schema_version,
+                        canonical_content: canonical.as_str().to_owned(),
+                        object_digest: persisted_digest,
+                    },
+                ));
+            }
+            _ => {
+                return Err(InspectChangeSetError::Integrity(
+                    "ChangeSet Edit kind is unsupported".to_owned(),
+                ));
+            }
         }
-        edits.push(InspectedSchemaCreateEdit {
-            ordinal,
-            edit_id: inspect_parse(&edit_id, "Edit identity")?,
-            schema_id: SchemaId::new(schema_id)
-                .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?,
-            schema_version: SchemaVersion::new(u32::try_from(schema_version).map_err(|_| {
-                InspectChangeSetError::Integrity("Schema version must be positive".to_owned())
-            })?)
-            .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?,
-            canonical_document: document,
-            document_digest,
-        });
     }
     Ok(edits)
 }
@@ -1845,7 +1988,7 @@ fn ensure_changeset_schema(
                  PRAGMA user_version = 2;",
             )
             .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
-        2..=8 => Ok(()),
+        2..=9 => Ok(()),
         version => Err(CreateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1901,7 +2044,7 @@ fn ensure_edit_schema(
                  PRAGMA user_version = 3;",
             )
             .map_err(|error| AddChangeSetEditsError::Storage(error.to_string())),
-        3..=8 => Ok(()),
+        3..=9 => Ok(()),
         version => Err(AddChangeSetEditsError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -1957,7 +2100,7 @@ fn ensure_validation_schema(
                  PRAGMA user_version = 4;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        4..=8 => Ok(()),
+        4..=9 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -2004,7 +2147,7 @@ fn ensure_lifecycle_schema(
                  PRAGMA user_version = 5;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        5..=8 => Ok(()),
+        5..=9 => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -2045,7 +2188,7 @@ fn ensure_approval_schema(
                  PRAGMA user_version = 6;",
             )
             .map_err(|error| ApproveChangeSetError::Storage(error.to_string())),
-        6..=8 => Ok(()),
+        6..=9 => Ok(()),
         version => Err(ApproveChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -2104,7 +2247,7 @@ fn ensure_commit_schema(
                  PRAGMA user_version = 7;",
             )
             .map_err(|error| CommitChangeSetError::Storage(error.to_string())),
-        7 | 8 => Ok(()),
+        7..=9 => Ok(()),
         version => Err(CommitChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -2157,14 +2300,175 @@ fn ensure_edition_schema(
                  PRAGMA user_version = 8;",
             )
             .map_err(|error| CreateEditionError::Storage(error.to_string())),
-        8 => Ok(()),
+        8 | 9 => Ok(()),
         version => Err(CreateEditionError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
     }
 }
 
+fn parse_and_canonical_object(
+    content: &str,
+) -> Result<(serde_json::Value, proof_canonical::CanonicalJson), InspectChangeSetError> {
+    let value = parse_strict(content.as_bytes())
+        .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+    if !value.is_object() {
+        return Err(InspectChangeSetError::Integrity(
+            "Object content root must be a JSON object".to_owned(),
+        ));
+    }
+    let canonical = canonicalize(&value)
+        .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
+    if canonical.as_str() != content {
+        return Err(InspectChangeSetError::Integrity(
+            "Object content is not canonical JSON".to_owned(),
+        ));
+    }
+    Ok((value, canonical))
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the v9 migration is intentionally one auditable transaction including the foreign-key-safe table rebuild"
+)]
+fn ensure_object_schema(
+    transaction: &Transaction<'_>,
+    metadata_schema_version: u32,
+) -> Result<(), AddChangeSetEditsError> {
+    let migration_version: u32 = transaction
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    let pragma_schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+    if metadata_schema_version != migration_version || migration_version != pragma_schema_version {
+        return Err(AddChangeSetEditsError::Integrity(
+            "persistent schema version records differ".to_owned(),
+        ));
+    }
+
+    let mut version = migration_version;
+    if version == 3 {
+        ensure_validation_schema(transaction, version)
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        version = 4;
+    }
+    if version == 4 {
+        ensure_lifecycle_schema(transaction, version)
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        version = 5;
+    }
+    if version == 5 {
+        ensure_approval_schema(transaction, version)
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        version = 6;
+    }
+    if version == 6 {
+        ensure_commit_schema(transaction, version)
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        version = 7;
+    }
+    if version == 7 {
+        ensure_edition_schema(transaction, version)
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        version = 8;
+    }
+    if version == 8 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE changeset_edits_v9 (
+                     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+                     ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+                     edit_id TEXT NOT NULL UNIQUE,
+                     edit_kind TEXT NOT NULL
+                         CHECK (edit_kind IN ('schema.create', 'object.create')),
+                     schema_id TEXT NOT NULL,
+                     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+                     object_id TEXT,
+                     document_json TEXT NOT NULL,
+                     document_digest TEXT NOT NULL,
+                     PRIMARY KEY (changeset_id, ordinal),
+                     CHECK (
+                         (edit_kind = 'schema.create' AND object_id IS NULL) OR
+                         (edit_kind = 'object.create' AND object_id IS NOT NULL)
+                     )
+                 ) STRICT;
+                 INSERT INTO changeset_edits_v9 (
+                     changeset_id, ordinal, edit_id, edit_kind, schema_id,
+                     schema_version, object_id, document_json, document_digest
+                 )
+                 SELECT changeset_id, ordinal, edit_id, edit_kind, schema_id,
+                        schema_version, NULL, document_json, document_digest
+                 FROM changeset_edits;
+                 CREATE TABLE schema_versions_v9 (
+                     schema_id TEXT NOT NULL,
+                     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+                     document_json TEXT NOT NULL,
+                     document_digest TEXT NOT NULL,
+                     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+                     edit_id TEXT NOT NULL UNIQUE REFERENCES changeset_edits_v9(edit_id),
+                     authoritative_sequence INTEGER NOT NULL UNIQUE
+                         CHECK (authoritative_sequence > 0),
+                     PRIMARY KEY (schema_id, schema_version)
+                 ) STRICT;
+                 INSERT INTO schema_versions_v9 (
+                     schema_id, schema_version, document_json, document_digest,
+                     changeset_id, edit_id, authoritative_sequence
+                 )
+                 SELECT schema_id, schema_version, document_json, document_digest,
+                        changeset_id, edit_id, authoritative_sequence
+                 FROM schema_versions;
+                 DROP TABLE schema_versions;
+                 DROP TABLE changeset_edits;
+                 ALTER TABLE changeset_edits_v9 RENAME TO changeset_edits;
+                 ALTER TABLE schema_versions_v9 RENAME TO schema_versions;
+                 CREATE UNIQUE INDEX changeset_schema_targets
+                     ON changeset_edits(changeset_id, schema_id, schema_version)
+                     WHERE edit_kind = 'schema.create';
+                 CREATE UNIQUE INDEX changeset_object_targets
+                     ON changeset_edits(changeset_id, object_id)
+                     WHERE edit_kind = 'object.create';
+                 CREATE TABLE object_revisions (
+                     object_id TEXT NOT NULL,
+                     revision INTEGER NOT NULL CHECK (revision = 1),
+                     schema_id TEXT NOT NULL,
+                     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+                     lifecycle_state TEXT NOT NULL CHECK (lifecycle_state = 'active'),
+                     content_json TEXT NOT NULL,
+                     object_digest TEXT NOT NULL,
+                     changeset_id TEXT NOT NULL REFERENCES changesets(changeset_id),
+                     edit_id TEXT NOT NULL UNIQUE REFERENCES changeset_edits(edit_id),
+                     authoritative_sequence INTEGER NOT NULL UNIQUE
+                         CHECK (authoritative_sequence > 0),
+                     PRIMARY KEY (object_id, revision),
+                     FOREIGN KEY (schema_id, schema_version)
+                         REFERENCES schema_versions(schema_id, schema_version)
+                 ) STRICT;
+                 ALTER TABLE editions ADD COLUMN object_set_digest TEXT;
+                 INSERT INTO schema_migrations (version, name)
+                 VALUES (9, 'create-immutable-objects');
+                 UPDATE workspace_metadata SET schema_version = 9 WHERE singleton = 1;
+                 PRAGMA user_version = 9;",
+            )
+            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        version = 9;
+    }
+    if version != 9 {
+        return Err(AddChangeSetEditsError::Integrity(format!(
+            "unsupported local schema version {version}"
+        )));
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "ordered Schema visibility and Object validation share one deterministic findings pass"
+)]
 fn validate_inspected_changeset(
+    connection: &Connection,
     changeset: &InspectedChangeSet,
 ) -> Result<ValidatedChangeSet, ValidateChangeSetError> {
     let changeset_digest =
@@ -2181,24 +2485,122 @@ fn validate_inspected_changeset(
         });
     }
     let meta_validator = jsonschema::draft202012::meta::validator();
+    let mut proposed_schemas = BTreeMap::new();
+    let mut invalid_proposed_schemas = BTreeSet::new();
     for edit in &changeset.edits {
-        let document = parse_strict(edit.canonical_document.as_bytes())
-            .map_err(|error| ValidateChangeSetError::Integrity(error.to_string()))?;
-        for error in meta_validator.iter_errors(&document) {
-            let index = edit.ordinal.checked_sub(1).ok_or_else(|| {
-                ValidateChangeSetError::Integrity("Edit ordinal must be positive".to_owned())
-            })?;
-            findings.push(Finding {
-                code: "proof.schema.meta_schema_invalid".to_owned(),
-                severity: Severity::Error,
-                pointer: Some(format!(
-                    "/edits/{index}/document{}",
-                    error.instance_path().as_str()
-                )),
-                validator: Some(DRAFT_2020_12_META_VALIDATOR.to_owned()),
-                message: error.to_string(),
-                repair: None,
-            });
+        let index = edit.ordinal().checked_sub(1).ok_or_else(|| {
+            ValidateChangeSetError::Integrity("Edit ordinal must be positive".to_owned())
+        })?;
+        match edit {
+            InspectedChangeSetEdit::SchemaCreate(edit) => {
+                let document = parse_strict(edit.canonical_document.as_bytes())
+                    .map_err(|error| ValidateChangeSetError::Integrity(error.to_string()))?;
+                let mut schema_invalid = false;
+                for error in meta_validator.iter_errors(&document) {
+                    schema_invalid = true;
+                    findings.push(Finding {
+                        code: "proof.schema.meta_schema_invalid".to_owned(),
+                        severity: Severity::Error,
+                        pointer: Some(format!(
+                            "/edits/{index}/document{}",
+                            error.instance_path().as_str()
+                        )),
+                        validator: Some(DRAFT_2020_12_META_VALIDATOR.to_owned()),
+                        message: error.to_string(),
+                        repair: None,
+                    });
+                }
+                let target = (edit.schema_id.clone(), edit.schema_version);
+                if schema_invalid {
+                    invalid_proposed_schemas.insert(target.clone());
+                }
+                proposed_schemas.insert(target, document);
+            }
+            InspectedChangeSetEdit::ObjectCreate(edit) => {
+                let content = parse_strict(edit.canonical_content.as_bytes())
+                    .map_err(|error| ValidateChangeSetError::Integrity(error.to_string()))?;
+                let target = (edit.schema_id.clone(), edit.schema_version);
+                if invalid_proposed_schemas.contains(&target) {
+                    continue;
+                }
+                let schema = if let Some(schema) = proposed_schemas.get(&target) {
+                    Some(schema.clone())
+                } else {
+                    connection
+                        .query_row(
+                            "SELECT document_json FROM schema_versions
+                             WHERE schema_id = ?1 AND schema_version = ?2
+                               AND authoritative_sequence <= ?3",
+                            (
+                                edit.schema_id.as_str(),
+                                edit.schema_version.get(),
+                                i64::try_from(changeset.base_authoritative_sequence).map_err(
+                                    |_| {
+                                        ValidateChangeSetError::Integrity(
+                                            "base authoritative sequence exceeds local storage range"
+                                                .to_owned(),
+                                        )
+                                    },
+                                )?,
+                            ),
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(|error| ValidateChangeSetError::Storage(error.to_string()))?
+                        .map(|document| {
+                            parse_strict(document.as_bytes()).map_err(|error| {
+                                ValidateChangeSetError::Integrity(error.to_string())
+                            })
+                        })
+                        .transpose()?
+                };
+                let Some(schema) = schema else {
+                    findings.push(Finding {
+                        code: "proof.schema.not_found".to_owned(),
+                        severity: Severity::Error,
+                        pointer: Some(format!("/edits/{index}/schema_id")),
+                        validator: Some(OBJECT_VALIDATOR.to_owned()),
+                        message: format!(
+                            "Schema `{}` version {} is not visible at this Edit ordinal",
+                            edit.schema_id, edit.schema_version
+                        ),
+                        repair: None,
+                    });
+                    continue;
+                };
+                let validator = match jsonschema::draft202012::new(&schema) {
+                    Ok(validator) => validator,
+                    Err(error) => {
+                        findings.push(Finding {
+                            code: "proof.schema.compile_failed".to_owned(),
+                            severity: Severity::Error,
+                            pointer: Some(format!("/edits/{index}/schema_id")),
+                            validator: Some(DRAFT_2020_12_META_VALIDATOR.to_owned()),
+                            message: error.to_string(),
+                            repair: None,
+                        });
+                        continue;
+                    }
+                };
+                for error in validator.iter_errors(&content) {
+                    let code = match error.kind().keyword() {
+                        "required" => "proof.schema.required",
+                        "type" => "proof.schema.type_mismatch",
+                        _ => "proof.schema.validation_failed",
+                    };
+                    findings.push(Finding {
+                        code: code.to_owned(),
+                        severity: Severity::Error,
+                        pointer: Some(format!(
+                            "/edits/{index}/content{}",
+                            error.instance_path().as_str()
+                        )),
+                        validator: Some(OBJECT_VALIDATOR.to_owned()),
+                        message: error.to_string(),
+                        repair: None,
+                    });
+                }
+            }
         }
     }
     findings.sort_by(|left, right| {
@@ -2209,6 +2611,15 @@ fn validate_inspected_changeset(
         ))
     });
     let valid = findings.is_empty();
+    let validator = if changeset
+        .edits
+        .iter()
+        .any(|edit| matches!(edit, InspectedChangeSetEdit::ObjectCreate(_)))
+    {
+        OBJECT_VALIDATOR
+    } else {
+        DRAFT_2020_12_META_VALIDATOR
+    };
     let results_value = serde_json::json!({
         "api_version": "proof.dev/validation-results/v1",
         "base_state": changeset.base_state.to_string(),
@@ -2217,7 +2628,7 @@ fn validate_inspected_changeset(
         "findings": findings,
         "valid": valid,
         "validation_profile": changeset.validation_profile,
-        "validator": DRAFT_2020_12_META_VALIDATOR,
+        "validator": validator,
     });
     let canonical_results = canonicalize(&results_value)
         .map_err(|error| ValidateChangeSetError::Integrity(error.to_string()))?;
@@ -2231,7 +2642,7 @@ fn validate_inspected_changeset(
         changeset_digest,
         base_state: changeset.base_state,
         validation_profile: changeset.validation_profile.clone(),
-        validator: DRAFT_2020_12_META_VALIDATOR.to_owned(),
+        validator: validator.to_owned(),
         valid,
         findings,
         validation_results_digest,
@@ -2245,20 +2656,36 @@ fn validate_inspected_changeset(
 }
 
 fn changeset_digest_for(changeset: &InspectedChangeSet) -> Result<ContentDigest, String> {
+    let edits = changeset
+        .edits
+        .iter()
+        .map(|edit| match edit {
+            InspectedChangeSetEdit::SchemaCreate(edit) => serde_json::json!({
+                "document_digest": edit.document_digest.to_string(),
+                "edit_id": edit.edit_id.to_string(),
+                "kind": "schema.create",
+                "ordinal": edit.ordinal,
+                "schema_id": edit.schema_id.to_string(),
+                "schema_version": edit.schema_version.get(),
+            }),
+            InspectedChangeSetEdit::ObjectCreate(edit) => serde_json::json!({
+                "edit_id": edit.edit_id.to_string(),
+                "kind": "object.create",
+                "object_digest": edit.object_digest.to_string(),
+                "object_id": edit.object_id.to_string(),
+                "ordinal": edit.ordinal,
+                "schema_id": edit.schema_id.to_string(),
+                "schema_version": edit.schema_version.get(),
+            }),
+        })
+        .collect::<Vec<_>>();
     let changeset_manifest = serde_json::json!({
         "api_version": "proof.dev/changeset/v1",
         "base_authoritative_sequence": changeset.base_authoritative_sequence,
         "base_state": changeset.base_state.to_string(),
         "changeset_id": changeset.changeset_id.to_string(),
         "created_at": changeset.created_at.to_string(),
-        "edits": changeset.edits.iter().map(|edit| serde_json::json!({
-            "document_digest": edit.document_digest.to_string(),
-            "edit_id": edit.edit_id.to_string(),
-            "kind": "schema.create",
-            "ordinal": edit.ordinal,
-            "schema_id": edit.schema_id.to_string(),
-            "schema_version": edit.schema_version.get(),
-        })).collect::<Vec<_>>(),
+        "edits": edits,
         "idempotency_key": changeset.idempotency_key.to_string(),
         "intent": changeset.intent.to_string(),
         "policy_profile": changeset.policy_profile,
@@ -2344,6 +2771,7 @@ fn exact_valid_evidence(
     changeset_digest: ContentDigest,
     base_state: ContentDigest,
     validation_profile: &str,
+    validator: &str,
     expected_results_digest: ContentDigest,
 ) -> Result<ContentDigest, SubmitChangeSetError> {
     let evidence: Option<(String, String, String)> = connection
@@ -2355,7 +2783,7 @@ fn exact_valid_evidence(
                 changeset_id.to_string(),
                 changeset_digest.to_string(),
                 validation_profile,
-                DRAFT_2020_12_META_VALIDATOR,
+                validator,
             ),
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -2387,8 +2815,7 @@ fn exact_valid_evidence(
             .get("validation_profile")
             .and_then(serde_json::Value::as_str)
             != Some(validation_profile)
-        || value.get("validator").and_then(serde_json::Value::as_str)
-            != Some(DRAFT_2020_12_META_VALIDATOR)
+        || value.get("validator").and_then(serde_json::Value::as_str) != Some(validator)
         || value.get("valid").and_then(serde_json::Value::as_bool) != Some(true)
     {
         return Err(SubmitChangeSetError::Integrity(
@@ -2682,9 +3109,8 @@ fn commit_verified_transaction(
     {
         return Err(CommitChangeSetError::BaseStateConflict);
     }
-    reject_existing_schema_targets(transaction, &verified.changeset)?;
-    let resulting_sequence =
-        apply_schema_edits(transaction, &verified.changeset, current_sequence)?;
+    reject_existing_targets(transaction, &verified.changeset)?;
+    let resulting_sequence = apply_edits(transaction, &verified.changeset, current_sequence)?;
     let (_, resulting_state) =
         reproducible_known_state_at(transaction, workspace_id, resulting_sequence)
             .map_err(CommitChangeSetError::Integrity)?;
@@ -2716,15 +3142,22 @@ fn verified_commit_proposal(
     principal_id: PrincipalId,
     command: &CommitChangeSetCommand,
 ) -> Result<VerifiedCommitProposal, CommitChangeSetError> {
+    let schema_version: u32 = transaction
+        .query_row(
+            "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
     let row = load_inspected_changeset(
         transaction,
         command.changeset_id,
         workspace_id,
         principal_id,
-        7,
+        schema_version,
     )
     .map_err(commit_from_inspection)?;
-    let edits = load_inspected_edits(transaction, command.changeset_id, 7)
+    let edits = load_inspected_edits(transaction, command.changeset_id, schema_version)
         .map_err(commit_from_inspection)?;
     let changeset = row
         .into_inspected(command.changeset_id, workspace_id, principal_id, edits)
@@ -2735,7 +3168,8 @@ fn verified_commit_proposal(
     ) {
         return Err(CommitChangeSetError::NotApproved);
     }
-    let validation = validate_inspected_changeset(&changeset).map_err(commit_from_validation)?;
+    let validation =
+        validate_inspected_changeset(transaction, &changeset).map_err(commit_from_validation)?;
     if !validation.valid {
         return Err(CommitChangeSetError::EvidenceMissing);
     }
@@ -2745,6 +3179,7 @@ fn verified_commit_proposal(
         validation.changeset_digest,
         changeset.base_state,
         &changeset.validation_profile,
+        &validation.validator,
         validation.validation_results_digest,
     )
     .map_err(commit_from_submission)?;
@@ -2825,21 +3260,32 @@ fn reject_reused_commit_key(
     Ok(())
 }
 
-fn reject_existing_schema_targets(
+fn reject_existing_targets(
     connection: &Connection,
     changeset: &InspectedChangeSet,
 ) -> Result<(), CommitChangeSetError> {
     for edit in &changeset.edits {
-        let exists: bool = connection
-            .query_row(
-                "SELECT EXISTS(
-                     SELECT 1 FROM schema_versions
-                     WHERE schema_id = ?1 AND schema_version = ?2
-                 )",
-                (edit.schema_id.as_str(), edit.schema_version.get()),
-                |row| row.get(0),
-            )
-            .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+        let exists: bool = match edit {
+            InspectedChangeSetEdit::SchemaCreate(edit) => connection
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM schema_versions
+                         WHERE schema_id = ?1 AND schema_version = ?2
+                     )",
+                    (edit.schema_id.as_str(), edit.schema_version.get()),
+                    |row| row.get(0),
+                )
+                .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?,
+            InspectedChangeSetEdit::ObjectCreate(edit) => connection
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM object_revisions WHERE object_id = ?1
+                     )",
+                    [edit.object_id.to_string()],
+                    |row| row.get(0),
+                )
+                .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?,
+        };
         if exists {
             return Err(CommitChangeSetError::TargetConflict);
         }
@@ -2847,7 +3293,7 @@ fn reject_existing_schema_targets(
     Ok(())
 }
 
-fn apply_schema_edits(
+fn apply_edits(
     transaction: &Transaction<'_>,
     changeset: &InspectedChangeSet,
     current_sequence: u64,
@@ -2862,23 +3308,44 @@ fn apply_schema_edits(
                 "authoritative sequence exceeds local storage range".to_owned(),
             )
         })?;
-        transaction
-            .execute(
-                "INSERT INTO schema_versions (
-                     schema_id, schema_version, document_json, document_digest,
-                     changeset_id, edit_id, authoritative_sequence
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                (
-                    edit.schema_id.as_str(),
-                    edit.schema_version.get(),
-                    edit.canonical_document.as_str(),
-                    edit.document_digest.to_string(),
-                    changeset.changeset_id.to_string(),
-                    edit.edit_id.to_string(),
-                    stored_sequence,
-                ),
-            )
-            .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?;
+        match edit {
+            InspectedChangeSetEdit::SchemaCreate(edit) => transaction
+                .execute(
+                    "INSERT INTO schema_versions (
+                         schema_id, schema_version, document_json, document_digest,
+                         changeset_id, edit_id, authoritative_sequence
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    (
+                        edit.schema_id.as_str(),
+                        edit.schema_version.get(),
+                        edit.canonical_document.as_str(),
+                        edit.document_digest.to_string(),
+                        changeset.changeset_id.to_string(),
+                        edit.edit_id.to_string(),
+                        stored_sequence,
+                    ),
+                )
+                .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?,
+            InspectedChangeSetEdit::ObjectCreate(edit) => transaction
+                .execute(
+                    "INSERT INTO object_revisions (
+                         object_id, revision, schema_id, schema_version, lifecycle_state,
+                         content_json, object_digest, changeset_id, edit_id,
+                         authoritative_sequence
+                     ) VALUES (?1, 1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8)",
+                    (
+                        edit.object_id.to_string(),
+                        edit.schema_id.as_str(),
+                        edit.schema_version.get(),
+                        edit.canonical_content.as_str(),
+                        edit.object_digest.to_string(),
+                        changeset.changeset_id.to_string(),
+                        edit.edit_id.to_string(),
+                        stored_sequence,
+                    ),
+                )
+                .map_err(|error| CommitChangeSetError::Storage(error.to_string()))?,
+        };
     }
     Ok(sequence)
 }
@@ -3016,6 +3483,26 @@ fn replay_commit(
             "persisted commit scope does not match the ChangeSet".to_owned(),
         ));
     }
+    let expected_sequence = verified
+        .changeset
+        .base_authoritative_sequence
+        .checked_add(u64::from(edit_count))
+        .ok_or_else(|| {
+            CommitChangeSetError::Integrity("authoritative sequence overflow".to_owned())
+        })?;
+    verify_edit_projections(connection, &verified.changeset, expected_sequence)
+        .map_err(CommitChangeSetError::Integrity)?;
+    let (_, reproduced_state) = reproducible_known_state_at(
+        connection,
+        verified.changeset.workspace_id,
+        expected_sequence,
+    )
+    .map_err(CommitChangeSetError::Integrity)?;
+    if authoritative_sequence != expected_sequence || resulting_state != reproduced_state {
+        return Err(CommitChangeSetError::Integrity(
+            "persisted commit result does not match reproducible authoritative state".to_owned(),
+        ));
+    }
     Ok(CommittedChangeSet {
         changeset_id: verified.changeset.changeset_id,
         workspace_id: verified.changeset.workspace_id,
@@ -3033,10 +3520,15 @@ fn replay_commit(
 
 struct EditionManifest {
     schema_set_digest: ContentDigest,
+    object_set_digest: Option<ContentDigest>,
     manifest_json: String,
     edition_digest: ContentDigest,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Edition replay, content addressing, persistence, and result construction form one atomic operation"
+)]
 fn create_current_edition(
     transaction: &Transaction<'_>,
     workspace_id: WorkspaceId,
@@ -3081,37 +3573,67 @@ fn create_current_edition(
         return load_edition(transaction, edition_id);
     }
     let schemas = load_edition_schemas(transaction, authoritative_sequence)?;
-    let changesets = load_edition_changesets(transaction, authoritative_sequence)?;
+    let objects = load_edition_objects(transaction, authoritative_sequence)?;
+    let changesets = load_edition_changesets(transaction, workspace_id, authoritative_sequence)?;
     let manifest = build_edition_manifest(
         workspace_id,
         authoritative_sequence,
         state_digest,
         &schemas,
+        &objects,
         &changesets,
     )?;
-    transaction
-        .execute(
-            "INSERT INTO editions (
-                 edition_id, workspace_id, principal_id, authoritative_sequence,
-                 state_digest, schema_set_digest, edition_digest, manifest_json, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            (
-                command.edition_id.to_string(),
-                workspace_id.to_string(),
-                principal_id.to_string(),
-                i64::try_from(authoritative_sequence).map_err(|_| {
-                    CreateEditionError::Integrity(
-                        "authoritative sequence exceeds local storage range".to_owned(),
-                    )
-                })?,
-                state_digest.to_string(),
-                manifest.schema_set_digest.to_string(),
-                manifest.edition_digest.to_string(),
-                manifest.manifest_json.as_str(),
-                command.created_at.to_string(),
-            ),
+    let stored_sequence = i64::try_from(authoritative_sequence).map_err(|_| {
+        CreateEditionError::Integrity(
+            "authoritative sequence exceeds local storage range".to_owned(),
         )
+    })?;
+    let schema_version: u32 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    if schema_version >= 9 {
+        transaction
+            .execute(
+                "INSERT INTO editions (
+                     edition_id, workspace_id, principal_id, authoritative_sequence,
+                     state_digest, schema_set_digest, object_set_digest, edition_digest,
+                     manifest_json, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                (
+                    command.edition_id.to_string(),
+                    workspace_id.to_string(),
+                    principal_id.to_string(),
+                    stored_sequence,
+                    state_digest.to_string(),
+                    manifest.schema_set_digest.to_string(),
+                    manifest.object_set_digest.map(|digest| digest.to_string()),
+                    manifest.edition_digest.to_string(),
+                    manifest.manifest_json.as_str(),
+                    command.created_at.to_string(),
+                ),
+            )
+            .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    } else {
+        transaction
+            .execute(
+                "INSERT INTO editions (
+                     edition_id, workspace_id, principal_id, authoritative_sequence,
+                     state_digest, schema_set_digest, edition_digest, manifest_json, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                (
+                    command.edition_id.to_string(),
+                    workspace_id.to_string(),
+                    principal_id.to_string(),
+                    stored_sequence,
+                    state_digest.to_string(),
+                    manifest.schema_set_digest.to_string(),
+                    manifest.edition_digest.to_string(),
+                    manifest.manifest_json.as_str(),
+                    command.created_at.to_string(),
+                ),
+            )
+            .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    }
     record_edition_operation(
         transaction,
         workspace_id,
@@ -3127,10 +3649,12 @@ fn create_current_edition(
         authoritative_sequence,
         state_digest,
         schema_set_digest: manifest.schema_set_digest,
+        object_set_digest: manifest.object_set_digest,
         edition_digest: manifest.edition_digest,
         manifest_json: manifest.manifest_json,
         created_at: command.created_at,
         schemas,
+        objects,
         changesets,
     })
 }
@@ -3194,15 +3718,40 @@ fn record_edition_operation(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Edition loading reconstructs and verifies the complete immutable aggregate before returning it"
+)]
 fn load_edition(
     connection: &Connection,
     edition_id: EditionId,
 ) -> Result<Edition, CreateEditionError> {
-    let persisted: (String, String, i64, String, String, String, String, String) = connection
+    let schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let object_set_column = if schema_version >= 9 {
+        "object_set_digest"
+    } else {
+        "NULL AS object_set_digest"
+    };
+    let persisted: (
+        String,
+        String,
+        i64,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+    ) = connection
         .query_row(
-            "SELECT workspace_id, principal_id, authoritative_sequence, state_digest,
-                    schema_set_digest, edition_digest, manifest_json, created_at
-             FROM editions WHERE edition_id = ?1",
+            &format!(
+                "SELECT workspace_id, principal_id, authoritative_sequence, state_digest,
+                        schema_set_digest, {object_set_column}, edition_digest,
+                        manifest_json, created_at
+                 FROM editions WHERE edition_id = ?1"
+            ),
             [edition_id.to_string()],
             |row| {
                 Ok((
@@ -3214,6 +3763,7 @@ fn load_edition(
                     row.get(5)?,
                     row.get(6)?,
                     row.get(7)?,
+                    row.get(8)?,
                 ))
             },
         )
@@ -3233,17 +3783,20 @@ fn load_edition(
         .parse::<ContentDigest>()
         .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
     let schemas = load_edition_schemas(connection, authoritative_sequence)?;
-    let changesets = load_edition_changesets(connection, authoritative_sequence)?;
+    let objects = load_edition_objects(connection, authoritative_sequence)?;
+    let changesets = load_edition_changesets(connection, workspace_id, authoritative_sequence)?;
     let expected = build_edition_manifest(
         workspace_id,
         authoritative_sequence,
         state_digest,
         &schemas,
+        &objects,
         &changesets,
     )?;
     if persisted.4 != expected.schema_set_digest.to_string()
-        || persisted.5 != expected.edition_digest.to_string()
-        || persisted.6 != expected.manifest_json
+        || persisted.5 != expected.object_set_digest.map(|digest| digest.to_string())
+        || persisted.6 != expected.edition_digest.to_string()
+        || persisted.7 != expected.manifest_json
     {
         return Err(CreateEditionError::Integrity(
             "persisted Edition does not match its canonical manifest".to_owned(),
@@ -3258,7 +3811,7 @@ fn load_edition(
         ));
     }
     let created_at = persisted
-        .7
+        .8
         .parse()
         .map_err(|error: proof_application::TimestampError| {
             CreateEditionError::Integrity(error.to_string())
@@ -3270,10 +3823,12 @@ fn load_edition(
         authoritative_sequence,
         state_digest,
         schema_set_digest: expected.schema_set_digest,
+        object_set_digest: expected.object_set_digest,
         edition_digest: expected.edition_digest,
         manifest_json: expected.manifest_json,
         created_at,
         schemas,
+        objects,
         changesets,
     })
 }
@@ -3324,13 +3879,124 @@ fn load_edition_schemas(
     Ok(schemas)
 }
 
-fn load_edition_changesets(
+fn load_edition_objects(
     connection: &Connection,
     authoritative_sequence: u64,
-) -> Result<Vec<EditionChangeSet>, CreateEditionError> {
+) -> Result<Vec<EditionObject>, CreateEditionError> {
+    let schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    if schema_version < 9 {
+        return Ok(Vec::new());
+    }
     let mut statement = connection
         .prepare(
-            "SELECT changeset_id, changeset_digest FROM changeset_commits
+            "SELECT object_id, revision, schema_id, schema_version, lifecycle_state,
+                    content_json, object_digest
+             FROM object_revisions WHERE authoritative_sequence <= ?1
+             ORDER BY object_id, revision",
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map(
+            [i64::try_from(authoritative_sequence).map_err(|_| {
+                CreateEditionError::Integrity("invalid Edition sequence".to_owned())
+            })?],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            },
+        )
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let mut objects = Vec::new();
+    for row in rows {
+        let (
+            raw_object_id,
+            revision,
+            schema_id,
+            schema_version,
+            lifecycle_state,
+            content,
+            persisted_digest,
+        ) = row.map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        let object_id = raw_object_id
+            .parse::<ObjectId>()
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        if object_id.to_string() != raw_object_id {
+            return Err(CreateEditionError::Integrity(
+                "invalid canonical Object identity".to_owned(),
+            ));
+        }
+        let revision =
+            ObjectRevision::new(u32::try_from(revision).map_err(|_| {
+                CreateEditionError::Integrity("invalid Object revision".to_owned())
+            })?)
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        if revision != ObjectRevision::INITIAL || lifecycle_state != "active" {
+            return Err(CreateEditionError::Integrity(
+                "invalid Object metadata".to_owned(),
+            ));
+        }
+        let schema_id = SchemaId::new(schema_id)
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let schema_version = SchemaVersion::new(
+            u32::try_from(schema_version)
+                .map_err(|_| CreateEditionError::Integrity("invalid Schema version".to_owned()))?,
+        )
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let value = parse_strict(content.as_bytes())
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let canonical = canonicalize(&value)
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let object_digest = persisted_digest
+            .parse::<ContentDigest>()
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        if !value.is_object()
+            || canonical.as_str() != content
+            || object_revision_digest(object_id, &schema_id, schema_version, &value)
+                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?
+                != object_digest
+        {
+            return Err(CreateEditionError::Integrity(
+                "Edition Object content failed digest verification".to_owned(),
+            ));
+        }
+        objects.push(EditionObject {
+            object_id,
+            revision,
+            schema_id,
+            schema_version,
+            lifecycle_state: ObjectLifecycleState::Active,
+            object_digest,
+        });
+    }
+    Ok(objects)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "Edition ChangeSets are reconstructed with their evidence and authoritative projection links before inclusion"
+)]
+fn load_edition_changesets(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+) -> Result<Vec<EditionChangeSet>, CreateEditionError> {
+    let storage_schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, changeset_digest, workspace_id, principal_id,
+                    authoritative_sequence, edit_count
+             FROM changeset_commits
              WHERE authoritative_sequence <= ?1 ORDER BY authoritative_sequence",
         )
         .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
@@ -3339,23 +4005,157 @@ fn load_edition_changesets(
             [i64::try_from(authoritative_sequence).map_err(|_| {
                 CreateEditionError::Integrity("invalid Edition sequence".to_owned())
             })?],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            },
         )
         .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
     let mut changesets = Vec::new();
     for row in rows {
-        let (changeset_id, changeset_digest) =
-            row.map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        let (
+            raw_changeset_id,
+            persisted_digest,
+            persisted_workspace_id,
+            persisted_principal_id,
+            commit_sequence,
+            edit_count,
+        ) = row.map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+        let changeset_id = raw_changeset_id
+            .parse::<ChangeSetId>()
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        if changeset_id.to_string() != raw_changeset_id
+            || persisted_workspace_id != workspace_id.to_string()
+        {
+            return Err(CreateEditionError::Integrity(
+                "committed ChangeSet scope is not canonical".to_owned(),
+            ));
+        }
+        let principal_id = persisted_principal_id
+            .parse::<PrincipalId>()
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        if principal_id.to_string() != persisted_principal_id {
+            return Err(CreateEditionError::Integrity(
+                "committed Principal identity is not canonical".to_owned(),
+            ));
+        }
+        let row = load_inspected_changeset(
+            connection,
+            changeset_id,
+            workspace_id,
+            principal_id,
+            storage_schema_version,
+        )
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let edits = load_inspected_edits(connection, changeset_id, storage_schema_version)
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        let inspected = row
+            .into_inspected(changeset_id, workspace_id, principal_id, edits)
+            .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+        if inspected.status != ChangeSetStatus::Committed {
+            return Err(CreateEditionError::Integrity(
+                "Edition references a ChangeSet that is not committed".to_owned(),
+            ));
+        }
+        let changeset_digest =
+            changeset_digest_for(&inspected).map_err(CreateEditionError::Integrity)?;
+        if persisted_digest != changeset_digest.to_string()
+            || usize::try_from(edit_count).ok() != Some(inspected.edits.len())
+        {
+            return Err(CreateEditionError::Integrity(
+                "committed ChangeSet does not match its canonical proposal".to_owned(),
+            ));
+        }
+        let expected_commit_sequence = inspected
+            .base_authoritative_sequence
+            .checked_add(u64::try_from(inspected.edits.len()).map_err(|_| {
+                CreateEditionError::Integrity("ChangeSet Edit count exceeds u64".to_owned())
+            })?)
+            .ok_or_else(|| {
+                CreateEditionError::Integrity("authoritative sequence overflow".to_owned())
+            })?;
+        if u64::try_from(commit_sequence).ok() != Some(expected_commit_sequence) {
+            return Err(CreateEditionError::Integrity(
+                "committed ChangeSet sequence does not match its ordered Edits".to_owned(),
+            ));
+        }
+        verify_edit_projections(connection, &inspected, authoritative_sequence)
+            .map_err(CreateEditionError::Integrity)?;
         changesets.push(EditionChangeSet {
-            changeset_id: changeset_id
-                .parse::<ChangeSetId>()
-                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
-            changeset_digest: changeset_digest
-                .parse::<ContentDigest>()
-                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+            changeset_id,
+            changeset_digest,
         });
     }
     Ok(changesets)
+}
+
+fn verify_edit_projections(
+    connection: &Connection,
+    changeset: &InspectedChangeSet,
+    edition_sequence: u64,
+) -> Result<(), String> {
+    for edit in &changeset.edits {
+        let expected_sequence = changeset
+            .base_authoritative_sequence
+            .checked_add(u64::from(edit.ordinal()))
+            .ok_or_else(|| "authoritative sequence overflow".to_owned())?;
+        if expected_sequence > edition_sequence {
+            return Err("ChangeSet exceeds its authoritative boundary".to_owned());
+        }
+        let matches_projection = match edit {
+            InspectedChangeSetEdit::SchemaCreate(edit) => connection
+                .query_row(
+                    "SELECT changeset_id = ?1 AND schema_id = ?2 AND schema_version = ?3
+                            AND document_digest = ?4 AND authoritative_sequence = ?5
+                     FROM schema_versions WHERE edit_id = ?6",
+                    (
+                        changeset.changeset_id.to_string(),
+                        edit.schema_id.as_str(),
+                        edit.schema_version.get(),
+                        edit.document_digest.to_string(),
+                        i64::try_from(expected_sequence).map_err(|_| {
+                            "authoritative sequence exceeds local storage range".to_owned()
+                        })?,
+                        edit.edit_id.to_string(),
+                    ),
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?,
+            InspectedChangeSetEdit::ObjectCreate(edit) => connection
+                .query_row(
+                    "SELECT changeset_id = ?1 AND object_id = ?2 AND revision = 1
+                            AND schema_id = ?3 AND schema_version = ?4
+                            AND lifecycle_state = 'active' AND object_digest = ?5
+                            AND authoritative_sequence = ?6
+                     FROM object_revisions WHERE edit_id = ?7",
+                    (
+                        changeset.changeset_id.to_string(),
+                        edit.object_id.to_string(),
+                        edit.schema_id.as_str(),
+                        edit.schema_version.get(),
+                        edit.object_digest.to_string(),
+                        i64::try_from(expected_sequence).map_err(|_| {
+                            "authoritative sequence exceeds local storage range".to_owned()
+                        })?,
+                        edit.edit_id.to_string(),
+                    ),
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?,
+        };
+        if matches_projection != Some(true) {
+            return Err("committed Edit does not match its authoritative projection".to_owned());
+        }
+    }
+    Ok(())
 }
 
 fn build_edition_manifest(
@@ -3363,6 +4163,7 @@ fn build_edition_manifest(
     authoritative_sequence: u64,
     state_digest: ContentDigest,
     schemas: &[EditionSchema],
+    objects: &[EditionObject],
     changesets: &[EditionChangeSet],
 ) -> Result<EditionManifest, CreateEditionError> {
     let schema_values: Vec<_> = schemas
@@ -3381,6 +4182,38 @@ fn build_edition_manifest(
     }))
     .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
     let schema_set_digest = digest(ArtifactKind::SchemaSetV1, &schema_set);
+    let object_references = objects
+        .iter()
+        .map(|object| ObjectStateReference {
+            object_id: object.object_id,
+            revision: object.revision,
+            schema_id: object.schema_id.clone(),
+            schema_version: object.schema_version,
+            lifecycle_state: object.lifecycle_state,
+            object_digest: object.object_digest,
+        })
+        .collect::<Vec<_>>();
+    let object_values = object_references
+        .iter()
+        .map(|object| {
+            serde_json::json!({
+                "lifecycle_state": object.lifecycle_state.to_string(),
+                "object_digest": object.object_digest.to_string(),
+                "object_id": object.object_id.to_string(),
+                "revision": object.revision.get(),
+                "schema_id": object.schema_id.as_str(),
+                "schema_version": object.schema_version.get(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let object_set_digest = if object_references.is_empty() {
+        None
+    } else {
+        Some(
+            object_set_digest(&object_references)
+                .map_err(|error| CreateEditionError::Integrity(error.to_string()))?,
+        )
+    };
     let changeset_values: Vec<_> = changesets
         .iter()
         .map(|changeset| {
@@ -3390,7 +4223,7 @@ fn build_edition_manifest(
             })
         })
         .collect();
-    let manifest = canonicalize(&serde_json::json!({
+    let mut manifest_value = serde_json::json!({
         "api_version": "proof.dev/edition/v1",
         "authoritative_sequence": authoritative_sequence,
         "changesets": changeset_values,
@@ -3398,60 +4231,108 @@ fn build_edition_manifest(
         "schemas": schema_values,
         "state_digest": state_digest.to_string(),
         "workspace_id": workspace_id.to_string(),
-    }))
-    .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
+    });
+    if let Some(object_set_digest) = object_set_digest {
+        manifest_value["object_set_digest"] =
+            serde_json::Value::String(object_set_digest.to_string());
+        manifest_value["objects"] = serde_json::Value::Array(object_values);
+    }
+    let manifest = canonicalize(&manifest_value)
+        .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
     Ok(EditionManifest {
         schema_set_digest,
+        object_set_digest,
         edition_digest: digest(ArtifactKind::EditionV1, &manifest),
         manifest_json: manifest.as_str().to_owned(),
     })
 }
 
-fn verified_edit_batch(
-    edits: &[SchemaCreateEdit],
-) -> Result<ContentDigest, AddChangeSetEditsError> {
+fn verified_edit_batch(edits: &[ChangeSetEdit]) -> Result<ContentDigest, AddChangeSetEditsError> {
     if edits.is_empty() || edits.len() > proof_application::MAX_EDITS_PER_BATCH {
         return Err(AddChangeSetEditsError::InvalidBatchSize);
     }
-    let mut targets = BTreeSet::new();
+    let mut schema_targets = BTreeSet::new();
+    let mut object_targets = BTreeSet::new();
     let mut manifest = Vec::with_capacity(edits.len());
     for edit in edits {
-        let value = parse_strict(edit.canonical_document.as_bytes())
-            .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
-        let canonical = canonicalize(&value)
-            .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
-        if canonical.as_str() != edit.canonical_document {
-            return Err(AddChangeSetEditsError::Integrity(
-                "Schema document is not RFC 8785 canonical JSON".to_owned(),
-            ));
+        match edit {
+            ChangeSetEdit::SchemaCreate(edit) => {
+                let value = parse_strict(edit.canonical_document.as_bytes())
+                    .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+                let canonical = canonicalize(&value)
+                    .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+                if canonical.as_str() != edit.canonical_document {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Schema document is not RFC 8785 canonical JSON".to_owned(),
+                    ));
+                }
+                let Some(document) = value.as_object() else {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Schema document root must be a JSON object".to_owned(),
+                    ));
+                };
+                if document.get("$schema").and_then(serde_json::Value::as_str)
+                    != Some("https://json-schema.org/draft/2020-12/schema")
+                {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Schema document must declare JSON Schema Draft 2020-12".to_owned(),
+                    ));
+                }
+                let expected_digest = digest(ArtifactKind::SchemaVersionV1, &canonical);
+                if expected_digest != edit.document_digest {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Schema document digest does not match canonical content".to_owned(),
+                    ));
+                }
+                if !schema_targets.insert((edit.schema_id.clone(), edit.schema_version)) {
+                    return Err(AddChangeSetEditsError::DuplicateTarget);
+                }
+                manifest.push(serde_json::json!({
+                    "document_digest": edit.document_digest.to_string(),
+                    "kind": "schema.create",
+                    "schema_id": edit.schema_id.to_string(),
+                    "schema_version": edit.schema_version.get(),
+                }));
+            }
+            ChangeSetEdit::ObjectCreate(edit) => {
+                let value = parse_strict(edit.canonical_content.as_bytes())
+                    .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+                if !value.is_object() {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Object content root must be a JSON object".to_owned(),
+                    ));
+                }
+                let canonical = canonicalize(&value)
+                    .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+                if canonical.as_str() != edit.canonical_content {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Object content is not RFC 8785 canonical JSON".to_owned(),
+                    ));
+                }
+                let expected_digest = object_revision_digest(
+                    edit.object_id,
+                    &edit.schema_id,
+                    edit.schema_version,
+                    &value,
+                )
+                .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
+                if expected_digest != edit.object_digest {
+                    return Err(AddChangeSetEditsError::Integrity(
+                        "Object revision digest does not match canonical content".to_owned(),
+                    ));
+                }
+                if !object_targets.insert(edit.object_id) {
+                    return Err(AddChangeSetEditsError::DuplicateTarget);
+                }
+                manifest.push(serde_json::json!({
+                    "kind": "object.create",
+                    "object_digest": edit.object_digest.to_string(),
+                    "object_id": edit.object_id.to_string(),
+                    "schema_id": edit.schema_id.to_string(),
+                    "schema_version": edit.schema_version.get(),
+                }));
+            }
         }
-        let Some(document) = value.as_object() else {
-            return Err(AddChangeSetEditsError::Integrity(
-                "Schema document root must be a JSON object".to_owned(),
-            ));
-        };
-        if document.get("$schema").and_then(serde_json::Value::as_str)
-            != Some("https://json-schema.org/draft/2020-12/schema")
-        {
-            return Err(AddChangeSetEditsError::Integrity(
-                "Schema document must declare JSON Schema Draft 2020-12".to_owned(),
-            ));
-        }
-        let expected_digest = digest(ArtifactKind::SchemaVersionV1, &canonical);
-        if expected_digest != edit.document_digest {
-            return Err(AddChangeSetEditsError::Integrity(
-                "Schema document digest does not match canonical content".to_owned(),
-            ));
-        }
-        if !targets.insert((edit.schema_id.clone(), edit.schema_version)) {
-            return Err(AddChangeSetEditsError::DuplicateTarget);
-        }
-        manifest.push(serde_json::json!({
-            "document_digest": edit.document_digest.to_string(),
-            "kind": "schema.create",
-            "schema_id": edit.schema_id.to_string(),
-            "schema_version": edit.schema_version.get(),
-        }));
     }
     let canonical = canonicalize(&serde_json::json!({
         "api_version": "proof.dev/edit-batch/v1",
@@ -3583,24 +4464,37 @@ fn positive_u32(value: i64, field: &str) -> Result<u32, AddChangeSetEditsError> 
 fn reject_duplicate_targets(
     connection: &Connection,
     changeset_id: ChangeSetId,
-    edits: &[SchemaCreateEdit],
+    edits: &[ChangeSetEdit],
 ) -> Result<(), AddChangeSetEditsError> {
     for edit in edits {
-        let exists: bool = connection
-            .query_row(
-                "SELECT EXISTS (
-                     SELECT 1 FROM changeset_edits
-                     WHERE changeset_id = ?1 AND edit_kind = 'schema.create'
-                       AND schema_id = ?2 AND schema_version = ?3
-                 )",
-                (
-                    changeset_id.to_string(),
-                    edit.schema_id.as_str(),
-                    edit.schema_version.get(),
-                ),
-                |row| row.get(0),
-            )
-            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+        let exists: bool = match edit {
+            ChangeSetEdit::SchemaCreate(edit) => connection
+                .query_row(
+                    "SELECT EXISTS (
+                         SELECT 1 FROM changeset_edits
+                         WHERE changeset_id = ?1 AND edit_kind = 'schema.create'
+                           AND schema_id = ?2 AND schema_version = ?3
+                     )",
+                    (
+                        changeset_id.to_string(),
+                        edit.schema_id.as_str(),
+                        edit.schema_version.get(),
+                    ),
+                    |row| row.get(0),
+                )
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?,
+            ChangeSetEdit::ObjectCreate(edit) => connection
+                .query_row(
+                    "SELECT EXISTS (
+                         SELECT 1 FROM changeset_edits
+                         WHERE changeset_id = ?1 AND edit_kind = 'object.create'
+                           AND object_id = ?2
+                     )",
+                    (changeset_id.to_string(), edit.object_id.to_string()),
+                    |row| row.get(0),
+                )
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?,
+        };
         if exists {
             return Err(AddChangeSetEditsError::DuplicateTarget);
         }
@@ -3627,7 +4521,8 @@ fn append_edit_batch(
     transaction: &Transaction<'_>,
     changeset_id: ChangeSetId,
     first_ordinal: u32,
-    edits: &[SchemaCreateEdit],
+    storage_schema_version: u32,
+    edits: &[ChangeSetEdit],
 ) -> Result<(), AddChangeSetEditsError> {
     for (offset, edit) in edits.iter().enumerate() {
         let offset = u32::try_from(offset)
@@ -3635,13 +4530,9 @@ fn append_edit_batch(
         let ordinal = first_ordinal
             .checked_add(offset)
             .ok_or_else(|| AddChangeSetEditsError::Integrity("Edit ordinal overflow".to_owned()))?;
-        transaction
-            .execute(
-                "INSERT INTO changeset_edits (
-                     changeset_id, ordinal, edit_id, edit_kind, schema_id,
-                     schema_version, document_json, document_digest
-                 ) VALUES (?1, ?2, ?3, 'schema.create', ?4, ?5, ?6, ?7)",
-                (
+        match edit {
+            ChangeSetEdit::SchemaCreate(edit) => {
+                let parameters = (
                     changeset_id.to_string(),
                     ordinal,
                     edit.edit_id.to_string(),
@@ -3649,9 +4540,45 @@ fn append_edit_batch(
                     edit.schema_version.get(),
                     &edit.canonical_document,
                     edit.document_digest.to_string(),
-                ),
-            )
-            .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
+                );
+                if storage_schema_version >= 9 {
+                    transaction.execute(
+                        "INSERT INTO changeset_edits (
+                             changeset_id, ordinal, edit_id, edit_kind, schema_id,
+                             schema_version, object_id, document_json, document_digest
+                         ) VALUES (?1, ?2, ?3, 'schema.create', ?4, ?5, NULL, ?6, ?7)",
+                        parameters,
+                    )
+                } else {
+                    transaction.execute(
+                        "INSERT INTO changeset_edits (
+                             changeset_id, ordinal, edit_id, edit_kind, schema_id,
+                             schema_version, document_json, document_digest
+                         ) VALUES (?1, ?2, ?3, 'schema.create', ?4, ?5, ?6, ?7)",
+                        parameters,
+                    )
+                }
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?
+            }
+            ChangeSetEdit::ObjectCreate(edit) => transaction
+                .execute(
+                    "INSERT INTO changeset_edits (
+                         changeset_id, ordinal, edit_id, edit_kind, schema_id,
+                         schema_version, object_id, document_json, document_digest
+                     ) VALUES (?1, ?2, ?3, 'object.create', ?4, ?5, ?6, ?7, ?8)",
+                    (
+                        changeset_id.to_string(),
+                        ordinal,
+                        edit.edit_id.to_string(),
+                        edit.schema_id.as_str(),
+                        edit.schema_version.get(),
+                        edit.object_id.to_string(),
+                        &edit.canonical_content,
+                        edit.object_digest.to_string(),
+                    ),
+                )
+                .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?,
+        };
     }
     Ok(())
 }
@@ -3721,9 +4648,17 @@ fn reproducible_known_state(
             "Known State digest does not match reproducible authoritative state".to_owned(),
         );
     }
+    if sequence > 0 {
+        load_edition_changesets(connection, workspace_id, sequence)
+            .map_err(|error| error.to_string())?;
+    }
     Ok((sequence, persisted_digest))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Known State reproduction verifies both authoritative projections and their shared sequence in one pass"
+)]
 fn reproducible_known_state_at(
     connection: &Connection,
     workspace_id: WorkspaceId,
@@ -3793,6 +4728,95 @@ fn reproducible_known_state_at(
                 .map_err(|_| "authoritative sequence must be positive".to_owned())?,
         );
     }
+    let mut objects = Vec::new();
+    if schema_version >= 9 {
+        let mut statement = connection
+            .prepare(
+                "SELECT object_id, revision, schema_id, schema_version, lifecycle_state,
+                        content_json, object_digest, authoritative_sequence
+                 FROM object_revisions WHERE authoritative_sequence <= ?1
+                 ORDER BY object_id, revision",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(
+                [i64::try_from(sequence).map_err(|_| {
+                    "authoritative sequence exceeds local storage range".to_owned()
+                })?],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            let (
+                raw_object_id,
+                revision,
+                schema_id,
+                schema_version,
+                lifecycle_state,
+                content,
+                persisted_digest,
+                record_sequence,
+            ) = row.map_err(|error| error.to_string())?;
+            let object_id = raw_object_id
+                .parse::<ObjectId>()
+                .map_err(|error| error.to_string())?;
+            if object_id.to_string() != raw_object_id {
+                return Err("authoritative Object identity is not canonical".to_owned());
+            }
+            let revision = ObjectRevision::new(
+                u32::try_from(revision)
+                    .map_err(|_| "Object revision must be positive".to_owned())?,
+            )
+            .map_err(|error| error.to_string())?;
+            if revision != ObjectRevision::INITIAL || lifecycle_state != "active" {
+                return Err("authoritative Object metadata is unsupported".to_owned());
+            }
+            let schema_id = SchemaId::new(schema_id).map_err(|error| error.to_string())?;
+            let schema_version = SchemaVersion::new(
+                u32::try_from(schema_version)
+                    .map_err(|_| "Schema version must be positive".to_owned())?,
+            )
+            .map_err(|error| error.to_string())?;
+            let value = parse_strict(content.as_bytes()).map_err(|error| error.to_string())?;
+            if !value.is_object() {
+                return Err("authoritative Object content must be a JSON object".to_owned());
+            }
+            let canonical = canonicalize(&value).map_err(|error| error.to_string())?;
+            let persisted_digest = persisted_digest
+                .parse::<ContentDigest>()
+                .map_err(|error| error.to_string())?;
+            if canonical.as_str() != content
+                || object_revision_digest(object_id, &schema_id, schema_version, &value)
+                    .map_err(|error| error.to_string())?
+                    != persisted_digest
+            {
+                return Err("authoritative Object content failed digest verification".to_owned());
+            }
+            objects.push(ObjectStateReference {
+                object_id,
+                revision,
+                schema_id,
+                schema_version,
+                lifecycle_state: ObjectLifecycleState::Active,
+                object_digest: persisted_digest,
+            });
+            sequences.push(
+                u64::try_from(record_sequence)
+                    .map_err(|_| "authoritative sequence must be positive".to_owned())?,
+            );
+        }
+    }
     sequences.sort_unstable();
     if sequences.len()
         != usize::try_from(sequence)
@@ -3802,9 +4826,9 @@ fn reproducible_known_state_at(
             .enumerate()
             .any(|(index, actual)| *actual != u64::try_from(index + 1).unwrap_or(u64::MAX))
     {
-        return Err("authoritative Schema sequences are incomplete or non-contiguous".to_owned());
+        return Err("authoritative sequences are incomplete or non-contiguous".to_owned());
     }
-    known_state_digest(workspace_id, sequence, &schemas)
+    known_state_digest_with_objects(workspace_id, sequence, &schemas, &objects)
         .map(|digest| (sequence, digest))
         .map_err(|error| error.to_string())
 }

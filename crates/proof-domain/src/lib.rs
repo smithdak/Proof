@@ -83,6 +83,7 @@ operational_id!(
     "A caller-visible identity used to make an operation safely repeatable."
 );
 operational_id!(EditId, "The identity of one ordered `ChangeSet` Edit.");
+operational_id!(ObjectId, "The identity of one governed content Object.");
 operational_id!(
     EditionId,
     "The identity of one immutable Workspace Edition."
@@ -180,6 +181,58 @@ impl fmt::Display for SchemaVersion {
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 #[error("Schema version must be greater than zero")]
 pub struct SchemaVersionError;
+
+/// A positive immutable Object revision number.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ObjectRevision(std::num::NonZeroU32);
+
+impl ObjectRevision {
+    /// The first accepted revision produced when an Object is created.
+    pub const INITIAL: Self = Self(std::num::NonZeroU32::MIN);
+
+    /// Constructs a positive Object revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ObjectRevisionError`] for revision zero.
+    pub fn new(value: u32) -> Result<Self, ObjectRevisionError> {
+        std::num::NonZeroU32::new(value)
+            .map(Self)
+            .ok_or(ObjectRevisionError)
+    }
+
+    /// Returns the numeric revision.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl fmt::Display for ObjectRevision {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// An Object revision must be positive.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[error("Object revision must be greater than zero")]
+pub struct ObjectRevisionError;
+
+/// The accepted lifecycle state of a governed content Object.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ObjectLifecycleState {
+    /// The Object is active and eligible for inclusion in Editions.
+    Active,
+}
+
+impl fmt::Display for ObjectLifecycleState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Active => formatter.write_str("active"),
+        }
+    }
+}
 
 /// Maximum UTF-8 byte length of a declared `ChangeSet` intent.
 pub const MAX_CHANGESET_INTENT_BYTES: usize = 4_096;
@@ -371,6 +424,10 @@ pub enum ArtifactKind {
     EditBatchV1,
     /// One immutable ordered set of Schema versions.
     SchemaSetV1,
+    /// One immutable accepted Object revision.
+    ObjectRevisionV1,
+    /// One immutable ordered set of Object revisions.
+    ObjectSetV1,
 }
 
 impl ArtifactKind {
@@ -386,6 +443,8 @@ impl ArtifactKind {
             Self::SchemaVersionV1 => "proof:schema-version:v1",
             Self::EditBatchV1 => "proof:edit-batch:v1",
             Self::SchemaSetV1 => "proof:schema-set:v1",
+            Self::ObjectRevisionV1 => "proof:object-revision:v1",
+            Self::ObjectSetV1 => "proof:object-set:v1",
         }
     }
 }
@@ -496,9 +555,10 @@ pub enum DigestParseError {
 mod tests {
     use super::{
         ArtifactKind, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
-        CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, OperationId,
-        PrincipalId, PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError,
-        Timestamp, TimestampError,
+        CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, ObjectId,
+        ObjectLifecycleState, ObjectRevision, ObjectRevisionError, OperationId, PrincipalId,
+        PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError, Timestamp,
+        TimestampError,
     };
     use uuid::Uuid;
 
@@ -579,6 +639,26 @@ mod tests {
         assert_eq!(
             ArtifactKind::EditBatchV1.derive_key_context(),
             "proof:edit-batch:v1"
+        );
+    }
+
+    #[test]
+    fn object_identity_and_revisions_have_a_stable_profile() {
+        let object_id = UUID_V7.parse::<ObjectId>().expect("valid UUIDv7");
+        let revision = ObjectRevision::new(3).expect("positive revision");
+
+        assert_eq!(object_id.to_string(), UUID_V7);
+        assert_eq!(revision.get(), 3);
+        assert_eq!(ObjectRevision::INITIAL.get(), 1);
+        assert_eq!(ObjectRevision::new(0).unwrap_err(), ObjectRevisionError);
+        assert_eq!(ObjectLifecycleState::Active.to_string(), "active");
+        assert_eq!(
+            ArtifactKind::ObjectRevisionV1.derive_key_context(),
+            "proof:object-revision:v1"
+        );
+        assert_eq!(
+            ArtifactKind::ObjectSetV1.derive_key_context(),
+            "proof:object-set:v1"
         );
     }
 
