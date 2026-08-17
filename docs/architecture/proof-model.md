@@ -123,8 +123,14 @@ Different artifact types use distinct derive-key contexts, for example:
 proof:edition:v1
 proof:changeset:v1
 proof:context-pack:v1
+proof:operation-effect:v1
 proof:validation-results:v1
 ```
+
+`OperationEffectV1` is an internal reconstruction commitment over an
+operation's normalized request, canonical identity, and immutable result. It
+detects incomplete or inconsistent local evidence; it is not a signature and
+does not extend the portable Proof trust boundary beyond signed envelopes.
 
 Proof subjects exported through ecosystems that require SHA-256 MAY include both BLAKE3 and SHA-256 digests. Algorithms are never inferred from digest length.
 

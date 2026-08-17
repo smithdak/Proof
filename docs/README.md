@@ -1,6 +1,6 @@
 # Proof documentation
 
-This documentation is the authoritative pre-implementation baseline for Proof. It separates durable product and architectural decisions from changeable implementation details.
+This documentation separates durable product and architectural decisions from changeable implementation details. Milestone 1's local proof loop is implemented; Milestone 2 has begun with bounded read authority, ContextPacks, capability discovery, and a dual-era MCP stdio adapter for current stateless and legacy initialized clients. Delegated reads still accept caller-supplied Agent Principal and Delegation identifiers; only the local Human path is adapter-authenticated. Authenticated Agent bindings, delegated mutations, and the collaboration server are not implemented.
 
 ## Reading paths
 
@@ -31,6 +31,11 @@ This documentation is the authoritative pre-implementation baseline for Proof. I
 
 - [Architecture decision records](decisions/README.md)
 
+### Execute current work
+
+- [Rolling-wave work map](work/map.md)
+- [Work-control protocol](work/README.md)
+
 ## Document status
 
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are used as requirement terms.
@@ -60,6 +65,8 @@ Documentation changes follow a docs-as-code workflow:
 
 ## Current baseline
 
-**Baseline date:** August 3, 2026  
-**Product phase:** Pre-implementation  
+**Baseline date:** August 17, 2026
+
+**Product phase:** Milestone 1 complete; Milestone 2 read-authority slice begun
+
 **Documentation version:** 0.1

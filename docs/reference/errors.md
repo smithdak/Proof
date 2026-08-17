@@ -146,4 +146,4 @@ Restricted diagnostics are correlated through `operation_id` and available only 
 
 ## MCP mapping
 
-The MCP adapter preserves the full Problem object as structured tool error data. It does not flatten repairable findings into one prose message. Transport-level protocol failures remain distinct from successful tool invocation that returns a domain problem.
+The MCP adapter preserves the full Problem object as JSON `TextContent` in a successful JSON-RPC tool result with `isError: true`. It omits `structuredContent` for domain failures because each advertised output Schema describes only that tool's success data. It does not flatten repairable findings into one prose message. Transport-level protocol failures remain distinct from a completed tool invocation that returns a domain Problem.

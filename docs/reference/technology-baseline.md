@@ -1,7 +1,7 @@
 # Technology baseline
 
 **Status:** Ratified for implementation start  
-**As of:** August 3, 2026
+**As of:** August 16, 2026
 
 This document records the implementation baseline, not a promise to depend on every listed library. Exact dependency versions will be locked in `Cargo.lock`, reviewed by automated update tooling, and changed through normal compatibility and security review.
 
@@ -31,6 +31,10 @@ These are current stable candidates verified during the August 2026 documentatio
 | Operational IDs | `uuid` | `1.24.0` |
 | UTC timestamps | `time` | `0.3.55` |
 | Content digest | `blake3` | `1.8.5` |
+| Base64 transport encoding | `base64` | `0.22.1` |
+| Ed25519 signatures | `ed25519-dalek` | `3.0.0` |
+| Signing-key randomness | `getrandom` | `0.4.3` |
+| Secret-memory zeroization | `zeroize` | `1.9.0` |
 | Local SQLite | `rusqlite` | `0.40.1` |
 | Local OS identity | `rustix` | `1.1.4` |
 | JSON Schema validation | `jsonschema` | `0.49.3` |
@@ -92,8 +96,9 @@ Version policy:
 - Axum/Tower for the server HTTP adapter.
 - RFC 9457 Problem Details for HTTP errors.
 - OpenAPI 3.2.0 generated or validated from the same operation contracts.
-- Stable MCP `2025-11-25` first; protocol negotiation required.
-- The July 2026 MCP revision remains gated until its final upstream release and SDK conformance.
+- MCP `2026-07-28` is the preferred stateless contract: per-request `_meta` declares the protocol version and client capabilities, and `server/discover` exposes supported versions and server capabilities.
+- MCP `2025-11-25` remains as an initialization-based legacy compatibility path. Both eras invoke the same application operations and never derive authority from transport state.
+- Newline-delimited stdio is the first transport. The adapter bounds each untrusted input message before JSON allocation and keeps stdout protocol-clean.
 
 ### Observability
 

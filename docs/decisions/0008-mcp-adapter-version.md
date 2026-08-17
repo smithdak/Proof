@@ -1,7 +1,9 @@
 # ADR-0008: Target stable MCP 2025-11-25 first
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR-0010](0010-dual-era-mcp.md)
 **Date:** 2026-08-03
+
+**Correction:** The premise below was already factually incorrect on this ADR's date: MCP `2026-07-28` had become a final release on July 28, 2026, not a release candidate. The original text is retained as decision history; ADR-0010 records the corrected baseline.
 
 ## Context
 

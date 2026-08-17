@@ -1,10 +1,12 @@
 [workspace]
 members = [
     "crates/proof-application",
+    "crates/proof-attestation",
     "crates/proof-canonical",
     "crates/proof-cli",
     "crates/proof-domain",
     "crates/proof-local",
+    "crates/proof-mcp",
 ]
 resolver = "3"
 
@@ -16,6 +18,7 @@ publish = false
 
 [workspace.dependencies]
 blake3 = "1.8.5"
+base64 = "0.22.1"
 clap = { version = "4.6.5", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -24,9 +27,12 @@ thiserror = "2.0.19"
 time = { version = "0.3.55", features = ["formatting", "parsing"] }
 toml = "1.1.4"
 uuid = { version = "1.24.0", features = ["serde", "v7"] }
+zeroize = "1.9.0"
 rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"] }
 rustix = { version = "1.1.4", features = ["process"] }
 jsonschema = { version = "0.49.3", default-features = false }
+ed25519-dalek = "3.0.0"
+getrandom = "0.4.3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -6,6 +6,8 @@ Proof is in its early implementation phase. Contributions should strengthen the 
 
 Issues and documentation proposals are welcome. External code contributions are not accepted until the project selects an open-source license and contribution-signing policy. This prevents contributors and users from operating under unclear rights.
 
+The repository-local [rolling-wave work map](docs/work/map.md) is canonical for active execution scope, dependencies, claims, and completion evidence. GitHub Issues may mirror work for discussion or visibility, but they do not replace the repository work item.
+
 ## Before proposing a change
 
 Read:
@@ -49,28 +51,34 @@ An accepted ADR records why the decision was reasonable at the time. It is not r
 
 ## Documentation checks
 
-Run both checks before proposing a documentation change:
+Run all checks before proposing a documentation change:
 
 ```bash
 npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2
 node scripts/check-doc-links.mjs
+node scripts/check-work-items.mjs
 ```
 
 The Markdown lint version is pinned so local and review results use the same
 rules engine. Update the command, validation evidence, and baseline together
 when intentionally upgrading it.
 
-## Future implementation checks
+## Current implementation quality gate
 
-Once code exists, changes will be expected to pass:
+Code changes are expected to pass the enforced Ubuntu workflow commands:
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo nextest run --workspace --all-features
-cargo test --doc --workspace
-cargo deny check
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-targets --all-features
+cargo test --locked --doc --workspace --all-features
+node scripts/check-doc-links.mjs
+node scripts/check-work-items.mjs
 ```
+
+Coverage, `cargo nextest`, dependency advisory/license checks, semantic-version
+checks, fuzzing, and mutation testing remain planned release/tooling gates; they
+are not enforced by current CI.
 
 Contributions affecting public contracts will also update conformance fixtures, golden vectors, compatibility notes, and the changelog.
 

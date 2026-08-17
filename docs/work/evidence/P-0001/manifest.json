@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "item_id": "P-0001",
+  "base_sha": "3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d",
+  "item_work_commit": "pending-completion-record",
+  "branch": "main",
+  "local_origin_main": "9f69e80cc631385b4f1942b76c584924d756aea9",
+  "live_remote_verified": false,
+  "qualified_at": "2026-08-17T19:44:53.684Z",
+  "inventory": {
+    "tracked_modified_before_evidence": 26,
+    "untracked_before_evidence": 26,
+    "total_before_evidence": 52,
+    "evidence_paths_added": 2,
+    "unrelated_paths": [],
+    "generated_excluded": {
+      "path": "target/",
+      "file_count": 20027,
+      "bytes": 8704856843
+    },
+    "runtime_proof_directory_present": false
+  },
+  "environment": {
+    "windows": {
+      "os": "Windows 11 Professional NT 10.0.26100.0 x86-64",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "node": "v26.1.0",
+      "git": "2.43.0.windows.1",
+      "runtime_qualified": false
+    },
+    "linux": {
+      "distribution": "Ubuntu 24.04.4 LTS",
+      "kernel": "5.15.167.4-microsoft-standard-WSL2",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "node": "v22.23.1",
+      "git": "2.43.0"
+    }
+  },
+  "commands": [
+    {
+      "surface": "windows",
+      "command": "cargo metadata --locked --no-deps --format-version 1",
+      "exit_code": 0,
+      "result": "seven workspace packages resolved from the locked graph"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo check --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "compile-only boundary passed"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo fmt --all --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "197 passed, 0 failed, 0 ignored"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "six crate targets, 0 failures"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "103 internal documentation links"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "six work items"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "git -c safe.directory=/mnt/d/github/Proof -c core.autocrlf=true diff --check",
+      "exit_code": 0,
+      "result": "passed with Windows checkout normalization"
+    },
+    {
+      "surface": "windows",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
+      "exit_code": 0,
+      "result": "40 Markdown files, 0 issues"
+    },
+    {
+      "surface": "windows",
+      "command": "rg -n --hidden -g '!target/**' -g '!.git/**' -P 'AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}' .",
+      "exit_code": 1,
+      "result": "expected no-match exit; no credential-shaped literals found"
+    }
+  ],
+  "artifact_digests": [
+    {"path": "Cargo.lock", "algorithm": "sha256", "digest": "aa1cf91cf9561a994ae2757018db33ccf3cc923b02bbbe61d8984e8a04a9748e"},
+    {"path": ".github/workflows/ci.yml", "algorithm": "sha256", "digest": "b345b365fd181326d42190961a175ed417a0c4146feb01010b11d939333854bf"},
+    {"path": "scripts/check-work-items.mjs", "algorithm": "sha256", "digest": "68b191d9baca785a9de0e4e97ba98b465b951acbd9b326ae47ce68c2e66c08f6"},
+    {"path": "crates/proof-domain/src/lib.rs", "algorithm": "sha256", "digest": "e71641320ec105911c8b4712238e7ae25b86c0fe6011f1e958b81b4a57d8b203"},
+    {"path": "crates/proof-application/src/lib.rs", "algorithm": "sha256", "digest": "f407f3c5339e690dcb17d32ee4bceae9e9ee69b24f9c978a7967656b5c4851dd"},
+    {"path": "crates/proof-attestation/src/lib.rs", "algorithm": "sha256", "digest": "b2cef121b6659316a2a73f5b30ddc15cc1b75c4abc4d0a4b80bbce12259b4698"},
+    {"path": "crates/proof-local/src/lib.rs", "algorithm": "sha256", "digest": "ffc2e757058c60e201cdb7ff643138da74469af80ac0c74b48bea40bd898f407"},
+    {"path": "crates/proof-local/tests/initialize.rs", "algorithm": "sha256", "digest": "27802d35d212f8fd0a339a46dd7083db6837663c06aab9da1f974245d47ed23a"},
+    {"path": "crates/proof-cli/src/main.rs", "algorithm": "sha256", "digest": "2822c44f5bcc06dec2bcd11b1fda29a8c45c837dec528eae115e442ead56b169"},
+    {"path": "crates/proof-mcp/src/lib.rs", "algorithm": "sha256", "digest": "2b568f971bf4c57b4d01417e054c2f25548c678187bc57e969cd1f3c87349f75"},
+    {"path": "crates/proof-mcp/src/backend.rs", "algorithm": "sha256", "digest": "3b6e92dc1ae1b0ae3e2a31c1777b8b518773cb2961f08004aa8a71c52e9ce963"}
+  ],
+  "evidence_paths": [
+    "docs/work/evidence/P-0001/receipt.md",
+    "docs/work/evidence/P-0001/manifest.json"
+  ],
+  "boundaries": {
+    "pushed": false,
+    "tagged": false,
+    "released": false,
+    "published": false,
+    "provider_traffic": false,
+    "windows_runtime_qualified": false,
+    "signed_release_gate_qualified": false
+  }
+}

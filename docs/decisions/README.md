@@ -1,6 +1,6 @@
 # Architecture decision records
 
-Architecture decision records preserve the context and consequences of durable choices. They are immutable after acceptance except for status and links; a materially changed decision receives a new ADR that supersedes the previous one.
+Architecture decision records preserve the context and consequences of durable choices. They are immutable after acceptance except for status, links, and clearly labeled factual errata that preserve the original decision text. A materially changed decision receives a new ADR that supersedes the previous one.
 
 ## Status values
 
@@ -21,8 +21,9 @@ Architecture decision records preserve the context and consequences of durable c
 | [0005](0005-uuidv7-identifiers.md) | UUIDv7 operational identifiers | Accepted |
 | [0006](0006-dsse-in-toto-proof-envelope.md) | DSSE and in-toto structure for portable Proofs | Accepted |
 | [0007](0007-modular-monolith.md) | Begin as a modular monolith with storage adapters | Accepted |
-| [0008](0008-mcp-adapter-version.md) | Target stable MCP 2025-11-25 first | Accepted |
+| [0008](0008-mcp-adapter-version.md) | Target stable MCP 2025-11-25 first | Superseded by 0010 |
 | [0009](0009-local-bootstrap-principal.md) | Bind the local bootstrap Principal to the operating-system user | Accepted |
+| [0010](0010-dual-era-mcp.md) | Prefer stateless MCP 2026 while retaining legacy initialization | Accepted |
 
 ## Template
 

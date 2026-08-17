@@ -1,7 +1,8 @@
 # CLI contract
 
-**Status:** Initial stable design  
-**Baseline:** August 3, 2026
+**Status:** Milestone 1 implemented; Milestone 2 read-authority slice implemented
+
+**Baseline:** August 16, 2026
 
 The `proof` executable is the first complete interface to the product. It is designed for interactive human use, shell composition, and reliable agent invocation.
 
@@ -29,7 +30,7 @@ Proposed global options:
 --workspace <PATH|ID>     Select a Workspace
 --profile <NAME>          Select configuration and credentials
 --principal <ID>          Select an operating Principal when policy permits
---delegation <ID|PATH>    Present an explicit Delegation
+--delegation <ID>         Present an explicit Delegation
 --output <FORMAT>         table | text | json | ndjson | yaml
 --color <WHEN>            auto | always | never
 --quiet                   Suppress non-result output
@@ -63,6 +64,39 @@ proof verify <SUBJECT>
 ```
 
 Objects intentionally have no direct `create`, `update`, or `delete` commands. Object mutations are Edits in a ChangeSet.
+
+The grammar above is the compatibility target. The implemented executable currently exposes:
+
+```text
+proof init
+proof status
+proof changeset create|get|add|diff|validate|submit|approve|commit
+proof edition create
+proof environment create|get
+proof release create|get|rollback|verify
+proof object query
+proof projection rebuild [--dry-run]
+proof principal create-agent
+proof delegation grant|get|revoke|verify
+proof context build|get|verify
+proof capability list
+proof verify --file <PATH> --trusted-key-id <ed25519:HEX> --expected-envelope-digest <blake3:HEX>
+```
+
+`--principal` and `--delegation` are a required pair for delegated `status`, released-Object query, and ContextPack operations. In this slice they are caller-supplied identifiers, not proof of an authenticated Agent binding. Plain `status` and released-Object query use the authenticated local Human. Explicit authority is rejected on operations that cannot enforce it; it is never silently ignored. This slice accepts a Delegation ID, not a path to a Delegation document.
+
+An Environment is a logical, versioned release target and policy binding; it is not a content package or directory. The local adapter target kind is `proof.local/released-state/v1`. Promotion creates an immutable Release and signed Proof. Rollback creates another immutable Release selecting an earlier Edition and advances the derived Environment pointer; it does not rewrite either Release.
+
+A ContextPack is a bounded, immutable package assembled from exact released Objects under an explicit Agent Principal and Delegation. Object count, canonical byte size, task identity, expiry, and idempotency are part of the operation input and persisted evidence.
+
+The standalone offline verifier checks canonical DSSE/in-toto bytes, a caller-supplied expected envelope digest, and the Ed25519 signature against a caller-supplied trusted key ID. It does not verify Workspace policy or persisted Release evidence. `release verify` is the operation that verifies the persisted local Release, Proof subjects, evidence, and configured trust.
+
+The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP `2025-11-25` for capability discovery, delegated Workspace status, delegated released-Object query, and ContextPack build. Modern requests are independent and carry protocol version plus client capabilities in per-request `_meta`; they do not require `initialize`. The server implements `server/discover`, returns `resultType: "complete"` on modern results, and publishes public cache hints for discovery and the deterministic tool registry. Legacy clients retain the `initialize` / `notifications/initialized` path. Every authority-bearing tool call supplies its Principal and Delegation explicitly; MCP session state is not authority. This is a read/evidence slice, not a delegated mutation or collaboration server.
+
+Linux CI is the current quality gate. It does not establish release
+eligibility, signed artifacts, an SBOM, provenance, reproducibility, or public
+distribution. Windows builds and local test runs do not constitute live
+Windows runtime qualification or published Windows support.
 
 ## Mutation flow
 
@@ -179,7 +213,7 @@ time remain outside the content address. Repeated creation for unchanged state
 returns the same Edition, while reusing an idempotency key after state advances
 fails explicitly.
 
-Mutation commands accept `--dry-run` where they can calculate a result without committing. `commit`, `release create`, `release promote`, and `release rollback` require an idempotency key; the CLI generates one only when running interactively and shows it before execution. Edition creation accepts an explicit key and returns the generated key when omitted.
+Projection rebuild accepts `--dry-run` to reproduce and compare all derived state without writing repairs. `changeset commit`, `release create`, and `release rollback` require an explicit idempotency key. Edition, Environment, Agent Principal, Delegation, and ContextPack creation accept explicit keys and return the generated key when their command grammar permits omission.
 
 ## Input rules
 

@@ -75,6 +75,14 @@ operational_id!(
 operational_id!(WorkspaceId, "The identity of one governed Workspace.");
 operational_id!(PrincipalId, "The identity of one authenticated Principal.");
 operational_id!(
+    DelegationId,
+    "The identity of one immutable bounded authority Delegation."
+);
+operational_id!(
+    ContextPackId,
+    "The identity of one content-addressed agent `ContextPack`."
+);
+operational_id!(
     ChangeSetId,
     "The identity of one atomic governed `ChangeSet`."
 );
@@ -88,6 +96,8 @@ operational_id!(
     EditionId,
     "The identity of one immutable Workspace Edition."
 );
+operational_id!(ReleaseId, "The identity of one immutable Release fact.");
+operational_id!(ProofId, "The identity of one portable Proof artifact.");
 
 /// Maximum UTF-8 byte length of a logical Schema identifier.
 pub const MAX_SCHEMA_ID_BYTES: usize = 128;
@@ -144,6 +154,72 @@ pub enum SchemaIdError {
     /// The identifier used characters outside the stable lowercase profile.
     #[error(
         "Schema identifier must start with a lowercase letter and use only lowercase ASCII letters, digits, `.`, `_`, or `-`"
+    )]
+    InvalidCharacters,
+}
+
+/// Maximum UTF-8 byte length of a logical Environment identifier.
+pub const MAX_ENVIRONMENT_ID_BYTES: usize = 128;
+
+/// A stable lowercase delivery-target identifier such as `preview`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct EnvironmentId(String);
+
+impl EnvironmentId {
+    /// Validates the stable lowercase Environment identifier profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentIdError`] unless the value starts with a lowercase
+    /// letter and uses only lowercase ASCII letters, digits, `.`, `_`, or `-`.
+    pub fn new(value: impl Into<String>) -> Result<Self, EnvironmentIdError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > MAX_ENVIRONMENT_ID_BYTES {
+            return Err(EnvironmentIdError::InvalidLength);
+        }
+        let mut bytes = value.bytes();
+        if !bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
+            || !bytes.all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'_' | b'-')
+            })
+        {
+            return Err(EnvironmentIdError::InvalidCharacters);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the logical Environment identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for EnvironmentId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for EnvironmentId {
+    type Err = EnvironmentIdError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
+/// A logical Environment identifier violated the stable profile.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum EnvironmentIdError {
+    /// The identifier was empty or too long.
+    #[error("Environment identifier must contain 1 to {MAX_ENVIRONMENT_ID_BYTES} UTF-8 bytes")]
+    InvalidLength,
+    /// The identifier used unsupported characters.
+    #[error(
+        "Environment identifier must start with a lowercase letter and use only lowercase ASCII letters, digits, `.`, `_`, or `-`"
     )]
     InvalidCharacters,
 }
@@ -284,7 +360,7 @@ pub enum ChangeSetIntentError {
 }
 
 /// A canonical RFC 3339 timestamp in UTC.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Timestamp(OffsetDateTime);
 
 impl Timestamp {
@@ -301,6 +377,13 @@ impl Timestamp {
             .format(&Rfc3339)
             .map_err(|_| TimestampError::OutOfRange)?;
         Ok(Self(value))
+    }
+
+    /// Returns nanoseconds since the Unix epoch for deterministic ordering and
+    /// storage comparisons.
+    #[must_use]
+    pub const fn unix_timestamp_nanos(self) -> i128 {
+        self.0.unix_timestamp_nanos()
     }
 }
 
@@ -394,6 +477,24 @@ pub enum PrincipalType {
     SystemComponent,
 }
 
+/// The immutable reason a Release selected an Edition for an Environment.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ReleaseKind {
+    /// Select an Edition as the next forward release.
+    Promotion,
+    /// Select an Edition from an earlier Release without rewriting history.
+    Rollback,
+}
+
+impl fmt::Display for ReleaseKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Promotion => formatter.write_str("promotion"),
+            Self::Rollback => formatter.write_str("rollback"),
+        }
+    }
+}
+
 impl fmt::Display for PrincipalType {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -422,12 +523,28 @@ pub enum ArtifactKind {
     SchemaVersionV1,
     /// One ordered batch of typed `ChangeSet` Edits.
     EditBatchV1,
+    /// One immutable result of an idempotent operation.
+    OperationEffectV1,
     /// One immutable ordered set of Schema versions.
     SchemaSetV1,
     /// One immutable accepted Object revision.
     ObjectRevisionV1,
     /// One immutable ordered set of Object revisions.
     ObjectSetV1,
+    /// One immutable versioned Environment configuration.
+    EnvironmentConfigV1,
+    /// One immutable Environment Release fact.
+    ReleaseV1,
+    /// One portable DSSE Proof envelope.
+    ProofEnvelopeV1,
+    /// One immutable bounded authority Delegation.
+    DelegationV1,
+    /// One immutable Agent Principal registration.
+    PrincipalRegistrationV1,
+    /// One deterministic authorization evaluation result.
+    AuthorizationDecisionV1,
+    /// One exact versioned policy bundle.
+    PolicyBundleV1,
 }
 
 impl ArtifactKind {
@@ -442,9 +559,17 @@ impl ArtifactKind {
             Self::KnownStateV1 => "proof:known-state:v1",
             Self::SchemaVersionV1 => "proof:schema-version:v1",
             Self::EditBatchV1 => "proof:edit-batch:v1",
+            Self::OperationEffectV1 => "proof:operation-effect:v1",
             Self::SchemaSetV1 => "proof:schema-set:v1",
             Self::ObjectRevisionV1 => "proof:object-revision:v1",
             Self::ObjectSetV1 => "proof:object-set:v1",
+            Self::EnvironmentConfigV1 => "proof:environment-config:v1",
+            Self::ReleaseV1 => "proof:release:v1",
+            Self::ProofEnvelopeV1 => "proof:proof-envelope:v1",
+            Self::DelegationV1 => "proof:delegation:v1",
+            Self::PrincipalRegistrationV1 => "proof:principal-registration:v1",
+            Self::AuthorizationDecisionV1 => "proof:authorization-decision:v1",
+            Self::PolicyBundleV1 => "proof:policy-bundle:v1",
         }
     }
 }
@@ -689,6 +814,10 @@ mod tests {
         assert_ne!(
             ArtifactKind::EditionV1.derive_key_context(),
             ArtifactKind::ChangeSetV1.derive_key_context()
+        );
+        assert_eq!(
+            ArtifactKind::OperationEffectV1.derive_key_context(),
+            "proof:operation-effect:v1"
         );
     }
 

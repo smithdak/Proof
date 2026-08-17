@@ -1,15 +1,34 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
+
+use proof_application::{
+    DelegatedAction, DelegationConstraints, DelegationScope, GrantDelegationCommand, Timestamp,
+    grant_delegation,
+};
+use proof_attestation::{
+    Ed25519SigningProvider, InTotoStatement, InTotoSubject, sign_release_statement,
+};
+use proof_local::LocalWorkspace;
 
 const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
 const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000040";
 const COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000043";
 const EDITION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000070";
 const OBJECT_ID: &str = "019c0000-0000-7000-8000-000000000080";
+const ENVIRONMENT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000081";
+const RELEASE_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000082";
+const SECOND_RELEASE_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000083";
+const ROLLBACK_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000084";
+const AGENT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000085";
+const DELEGATION_ID: &str = "019c0000-0000-7000-8000-000000000086";
+const DELEGATION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000087";
+const CONTEXT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000088";
 const UNKNOWN_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000099";
 
 #[test]
@@ -33,9 +52,276 @@ fn status_emits_the_stable_json_envelope() {
     assert_eq!(value["operation"], "status");
     assert_eq!(value["correlation_id"], CORRELATION_ID);
     assert_eq!(value["ok"], true);
-    assert_eq!(value["data"]["implementation_stage"], "foundation");
+    assert_eq!(value["data"]["implementation_stage"], "local-proof-loop");
     assert_eq!(value["data"]["workspace_selected"], false);
     assert_eq!(value["data"]["workspace_initialized"], false);
+}
+
+#[test]
+fn explicit_authority_is_rejected_when_the_operation_cannot_honor_it() {
+    let directory = TestDirectory::new();
+    let output = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "--principal",
+            "019c0000-0000-7000-8000-000000000001",
+            "init",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(4));
+    assert!(output.stderr.is_empty());
+    let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.auth.denied");
+    assert_eq!(problem["operation"], "init");
+}
+
+#[test]
+fn status_rejects_a_partial_delegated_authority_selection() {
+    let directory = TestDirectory::new();
+    let output = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "--principal",
+            "019c0000-0000-7000-8000-000000000001",
+            "status",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.input.schema_mismatch");
+    assert_eq!(problem["operation"], "status");
+}
+
+#[test]
+fn delegated_query_and_context_reject_partial_authority_before_storage_access() {
+    let directory = TestDirectory::new();
+    for arguments in [
+        vec![
+            "--output",
+            "json",
+            "--principal",
+            "019c0000-0000-7000-8000-000000000001",
+            "object",
+            "query",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+        ],
+        vec![
+            "--output",
+            "json",
+            "--principal",
+            "019c0000-0000-7000-8000-000000000001",
+            "context",
+            "get",
+            "019c0000-0000-7000-8000-000000000090",
+        ],
+    ] {
+        let output = proof_command(directory.path())
+            .args(arguments)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let problem: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(problem["code"], "proof.input.schema_mismatch");
+    }
+}
+
+#[test]
+fn agent_and_delegation_commands_project_immutable_grant_and_revocation_evidence() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let created = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "principal",
+            "create-agent",
+            "--display-name",
+            "Release reader",
+            "--idempotency-key",
+            AGENT_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(created.status.success());
+    let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let principal_id = created["data"]["principal_id"].as_str().unwrap();
+    assert_eq!(created["data"]["principal_type"], "agent");
+    assert_eq!(created["data"]["display_name"], "Release reader");
+
+    let not_before = timestamp_after_seconds(60);
+    let expires_at = timestamp_after_seconds(120);
+    let granted = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "delegation",
+            "grant",
+            "--recipient",
+            principal_id,
+            "--action",
+            "workspace:status",
+            "--max-objects",
+            "1",
+            "--max-context-bytes",
+            "1024",
+            "--not-before",
+            &not_before,
+            "--expires-at",
+            &expires_at,
+            "--idempotency-key",
+            DELEGATION_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        granted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&granted.stderr)
+    );
+    let granted: serde_json::Value = serde_json::from_slice(&granted.stdout).unwrap();
+    let delegation_id = granted["data"]["delegation_id"].as_str().unwrap();
+    assert_eq!(granted["data"]["recipient_principal_id"], principal_id);
+    assert_eq!(
+        granted["data"]["actions"],
+        serde_json::json!(["workspace:status"])
+    );
+    assert_eq!(granted["data"]["constraints"]["allow_subdelegation"], false);
+
+    let pending = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "delegation",
+            "verify",
+            delegation_id,
+            "--operating-principal",
+            principal_id,
+            "--action",
+            "workspace:status",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(pending.status.code(), Some(4));
+    let pending: serde_json::Value = serde_json::from_slice(&pending.stdout).unwrap();
+    assert_eq!(pending["code"], "proof.delegation.not_yet_valid");
+
+    let revoked = proof_command(directory.path())
+        .args(["--output", "json", "delegation", "revoke", delegation_id])
+        .output()
+        .unwrap();
+    assert!(revoked.status.success());
+    let revoked: serde_json::Value = serde_json::from_slice(&revoked.stdout).unwrap();
+    assert!(revoked["data"]["revoked_at"].is_string());
+
+    let fetched = proof_command(directory.path())
+        .args(["--output", "json", "delegation", "get", delegation_id])
+        .output()
+        .unwrap();
+    assert!(fetched.status.success());
+    let fetched: serde_json::Value = serde_json::from_slice(&fetched.stdout).unwrap();
+    assert_eq!(fetched["data"]["revoked_at"], revoked["data"]["revoked_at"]);
+    assert_eq!(
+        fetched["data"]["delegation_digest"],
+        granted["data"]["delegation_digest"]
+    );
+}
+
+#[test]
+fn offline_verify_requires_explicit_digest_and_key_trust_without_policy_overclaim() {
+    let directory = TestDirectory::new();
+    let signer = Ed25519SigningProvider::from_secret_bytes(&[7_u8; 32]);
+    let statement = InTotoStatement::release(
+        vec![InTotoSubject {
+            name: "edition/019c0000-0000-7000-8000-000000000070".to_owned(),
+            digest: BTreeMap::from([("blake3".to_owned(), "0".repeat(64))]),
+        }],
+        serde_json::json!({ "release_id": "019c0000-0000-7000-8000-000000000071" }),
+    );
+    let signed_envelope = sign_release_statement(&statement, &signer).unwrap();
+    let envelope = directory.path().join("release.dsse.json");
+    fs::write(&envelope, &signed_envelope.envelope_json).unwrap();
+
+    let output = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "verify",
+            "--file",
+            envelope.to_str().unwrap(),
+            "--trusted-key-id",
+            &signed_envelope.key_id,
+            "--expected-envelope-digest",
+            &signed_envelope.envelope_digest.to_string(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["operation"], "proof.verify");
+    assert_eq!(value["data"]["signature_valid"], true);
+    assert_eq!(value["data"]["digest_valid"], true);
+    assert_eq!(value["data"]["canonical_envelope"], true);
+    assert_eq!(value["data"]["workspace_evidence_verified"], false);
+    assert_eq!(value["data"]["workspace_policy_verified"], false);
+    assert_eq!(value["data"]["key_id"], signed_envelope.key_id);
+
+    let digest_mismatch = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "verify",
+            "--file",
+            envelope.to_str().unwrap(),
+            "--trusted-key-id",
+            &signed_envelope.key_id,
+            "--expected-envelope-digest",
+            &format!("blake3:{}", "0".repeat(64)),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(digest_mismatch.status.code(), Some(8));
+    let problem: serde_json::Value = serde_json::from_slice(&digest_mismatch.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.digest.mismatch");
+    assert_eq!(problem["operation"], "proof.verify");
+
+    let invalid_trust = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "verify",
+            "--file",
+            envelope.to_str().unwrap(),
+            "--trusted-key-id",
+            "ed25519:not-a-key",
+            "--expected-envelope-digest",
+            &signed_envelope.envelope_digest.to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(invalid_trust.status.code(), Some(2));
+    let problem: serde_json::Value = serde_json::from_slice(&invalid_trust.stdout).unwrap();
+    assert_eq!(problem["code"], "proof.input.schema_mismatch");
 }
 
 #[test]
@@ -150,7 +436,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 9);
+    assert_eq!(status["data"]["storage_schema_version"], 10);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -868,6 +1154,397 @@ fn edition_create_returns_a_stable_content_addressed_manifest() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one end-to-end scenario proves the release, authority, rollback, and rebuild invariants together"
+)]
+fn local_release_query_proof_rollback_and_projection_rebuild_form_one_verified_loop() {
+    let directory = TestDirectory::new();
+    let edition_id = create_committed_edition_with_object(&directory);
+    let status_before = proof_command(directory.path())
+        .args(["--output", "json", "status"])
+        .output()
+        .unwrap();
+    let status_before: serde_json::Value = serde_json::from_slice(&status_before.stdout).unwrap();
+    let expected_state = status_before["data"]["state_digest"].as_str().unwrap();
+
+    let environment = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "environment",
+            "create",
+            "preview",
+            "--required-approval",
+            "editorial",
+            "--idempotency-key",
+            ENVIRONMENT_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        environment.status.success(),
+        "{}",
+        String::from_utf8_lossy(&environment.stderr)
+    );
+    let environment: serde_json::Value = serde_json::from_slice(&environment.stdout).unwrap();
+    assert_eq!(environment["data"]["environment_id"], "preview");
+    assert_eq!(
+        environment["data"]["target_kind"],
+        "proof.local/released-state/v1"
+    );
+    assert!(environment["data"]["current_release_id"].is_null());
+
+    let first_release = create_release(&directory, &edition_id, RELEASE_IDEMPOTENCY_KEY);
+    assert_eq!(first_release["data"]["kind"], "promotion");
+    assert_eq!(first_release["data"]["release_sequence"], 1);
+    assert!(
+        first_release["data"]["key_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("ed25519:")
+    );
+    assert!(first_release["data"]["proof_envelope_json"].is_string());
+    let first_release_id = first_release["data"]["release_id"].as_str().unwrap();
+
+    let fetched = proof_command(directory.path())
+        .args(["--output", "json", "release", "get", first_release_id])
+        .output()
+        .unwrap();
+    assert!(fetched.status.success());
+    let fetched: serde_json::Value = serde_json::from_slice(&fetched.stdout).unwrap();
+    assert_eq!(
+        fetched["data"]["proof_envelope_digest"],
+        first_release["data"]["proof_envelope_digest"]
+    );
+
+    let verified = proof_command(directory.path())
+        .args(["--output", "json", "release", "verify", first_release_id])
+        .output()
+        .unwrap();
+    assert!(verified.status.success());
+    let verified: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
+    for check in [
+        "signature_valid",
+        "subjects_valid",
+        "evidence_complete",
+        "trusted",
+        "valid",
+    ] {
+        assert_eq!(verified["data"][check], true, "failed check: {check}");
+    }
+
+    let envelope_path = directory.path().join("persisted-release.dsse.json");
+    fs::write(
+        &envelope_path,
+        first_release["data"]["proof_envelope_json"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let offline = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "verify",
+            "--file",
+            envelope_path.to_str().unwrap(),
+            "--trusted-key-id",
+            first_release["data"]["key_id"].as_str().unwrap(),
+            "--expected-envelope-digest",
+            first_release["data"]["proof_envelope_digest"]
+                .as_str()
+                .unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(offline.status.success());
+
+    let queried = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "object",
+            "query",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+        ])
+        .output()
+        .unwrap();
+    assert!(queried.status.success());
+    let queried: serde_json::Value = serde_json::from_slice(&queried.stdout).unwrap();
+    assert_eq!(queried["data"]["delegation_id"], serde_json::Value::Null);
+    assert_eq!(queried["data"]["objects"][0]["object_id"], OBJECT_ID);
+    assert_eq!(
+        queried["data"]["objects"][0]["canonical_content"],
+        "{\"title\":\"First article\"}"
+    );
+
+    let agent = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "principal",
+            "create-agent",
+            "--display-name",
+            "Released content agent",
+            "--idempotency-key",
+            AGENT_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(agent.status.success());
+    let agent: serde_json::Value = serde_json::from_slice(&agent.stdout).unwrap();
+    let agent_id = agent["data"]["principal_id"].as_str().unwrap();
+    let issued_at = timestamp_at_offset_seconds(0);
+    let delegation_expires = Timestamp::from_unix_timestamp_nanos(
+        issued_at.unix_timestamp_nanos() + i128::from(3_600 * 1_000_000_000_u64),
+    )
+    .unwrap();
+    let repository = LocalWorkspace::new(directory.path()).unwrap();
+    let delegation = grant_delegation(
+        &repository,
+        GrantDelegationCommand {
+            delegation_id: DELEGATION_ID.parse().unwrap(),
+            recipient_principal_id: agent_id.parse().unwrap(),
+            actions: vec![
+                DelegatedAction::WorkspaceStatus,
+                DelegatedAction::ObjectQueryReleased,
+                DelegatedAction::ContextBuild,
+            ],
+            scope: DelegationScope {
+                workspace_id: status_before["data"]["workspace_id"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                environment_ids: vec!["preview".parse().unwrap()],
+                object_ids: vec![OBJECT_ID.parse().unwrap()],
+            },
+            constraints: DelegationConstraints {
+                max_objects: 1,
+                max_context_bytes: 1_048_576,
+                allow_subdelegation: false,
+            },
+            not_before: issued_at,
+            expires_at: delegation_expires,
+            idempotency_key: DELEGATION_IDEMPOTENCY_KEY.parse().unwrap(),
+            issued_at,
+        },
+    )
+    .unwrap();
+    assert_eq!(delegation.delegation_id.to_string(), DELEGATION_ID);
+
+    let delegated_status = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "--principal",
+            agent_id,
+            "--delegation",
+            DELEGATION_ID,
+            "status",
+        ])
+        .output()
+        .unwrap();
+    assert!(delegated_status.status.success());
+    let delegated_status: serde_json::Value =
+        serde_json::from_slice(&delegated_status.stdout).unwrap();
+    assert_eq!(delegated_status["data"]["principal_id"], agent_id);
+    assert_eq!(delegated_status["data"]["delegation_id"], DELEGATION_ID);
+    assert!(delegated_status["data"]["authorization_decision_digest"].is_string());
+
+    let delegated_query = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "--principal",
+            agent_id,
+            "--delegation",
+            DELEGATION_ID,
+            "object",
+            "query",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+        ])
+        .output()
+        .unwrap();
+    assert!(delegated_query.status.success());
+    let delegated_query: serde_json::Value =
+        serde_json::from_slice(&delegated_query.stdout).unwrap();
+    assert_eq!(delegated_query["data"]["principal_id"], agent_id);
+    assert_eq!(delegated_query["data"]["delegation_id"], DELEGATION_ID);
+
+    let context_expires = timestamp_after_seconds(1_800);
+    let context = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "--principal",
+            agent_id,
+            "--delegation",
+            DELEGATION_ID,
+            "context",
+            "build",
+            "--task-id",
+            "release-read-test",
+            "--intent",
+            "Read the exact released article",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+            "--max-objects",
+            "1",
+            "--max-bytes",
+            "1048576",
+            "--expires-at",
+            &context_expires,
+            "--idempotency-key",
+            CONTEXT_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        context.status.success(),
+        "{}",
+        String::from_utf8_lossy(&context.stderr)
+    );
+    let context: serde_json::Value = serde_json::from_slice(&context.stdout).unwrap();
+    let context_pack_id = context["data"]["context_pack_id"].as_str().unwrap();
+    assert_eq!(context["data"]["delegation_id"], DELEGATION_ID);
+    assert_eq!(
+        context["data"]["object_ids"],
+        serde_json::json!([OBJECT_ID])
+    );
+    assert!(context["data"]["manifest_json"].is_string());
+    for action in ["get", "verify"] {
+        let output = proof_command(directory.path())
+            .args([
+                "--output",
+                "json",
+                "--principal",
+                agent_id,
+                "--delegation",
+                DELEGATION_ID,
+                "context",
+                action,
+                context_pack_id,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        if action == "verify" {
+            assert_eq!(output["data"]["valid"], true);
+        } else {
+            assert_eq!(output["data"]["context_pack_id"], context_pack_id);
+        }
+    }
+
+    let second_release = create_release(&directory, &edition_id, SECOND_RELEASE_IDEMPOTENCY_KEY);
+    let second_release_id = second_release["data"]["release_id"].as_str().unwrap();
+    let rollback = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "release",
+            "rollback",
+            "--environment",
+            "preview",
+            "--to-release",
+            first_release_id,
+            "--idempotency-key",
+            ROLLBACK_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(rollback.status.success());
+    let rollback: serde_json::Value = serde_json::from_slice(&rollback.stdout).unwrap();
+    assert_eq!(rollback["data"]["kind"], "rollback");
+    assert_eq!(rollback["data"]["previous_release_id"], second_release_id);
+    assert_eq!(
+        rollback["data"]["rollback_target_release_id"],
+        first_release_id
+    );
+    assert_ne!(rollback["data"]["release_id"], first_release_id);
+
+    let clean_dry_run = rebuild(&directory, true);
+    assert_eq!(clean_dry_run["data"]["changed"], false);
+    assert_eq!(clean_dry_run["data"]["state_digest"], expected_state);
+
+    let database = directory.path().join(".proof/state/proof.db");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE known_state SET state_digest = ?1 WHERE singleton = 1",
+            [format!("blake3:{}", "0".repeat(64))],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE object_revisions SET content_json = '{\"title\":\"tampered\"}' WHERE object_id = ?1",
+            [OBJECT_ID],
+        )
+        .unwrap();
+    connection
+        .execute("DELETE FROM environment_current_releases", [])
+        .unwrap();
+    drop(connection);
+
+    let drift = rebuild(&directory, true);
+    assert_eq!(drift["data"]["changed"], true);
+    assert_eq!(drift["data"]["state_digest"], expected_state);
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let still_tampered: String = connection
+        .query_row(
+            "SELECT content_json FROM object_revisions WHERE object_id = ?1",
+            [OBJECT_ID],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(still_tampered, "{\"title\":\"tampered\"}");
+    drop(connection);
+
+    let repaired = rebuild(&directory, false);
+    assert_eq!(repaired["data"]["changed"], true);
+    assert_eq!(repaired["data"]["state_digest"], expected_state);
+    let status_after = proof_command(directory.path())
+        .args(["--output", "json", "status"])
+        .output()
+        .unwrap();
+    assert!(status_after.status.success());
+    let status_after: serde_json::Value = serde_json::from_slice(&status_after.stdout).unwrap();
+    assert_eq!(status_after["data"]["state_digest"], expected_state);
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let restored_content: String = connection
+        .query_row(
+            "SELECT content_json FROM object_revisions WHERE object_id = ?1",
+            [OBJECT_ID],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(restored_content, "{\"title\":\"First article\"}");
+    let pointer_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM environment_current_releases",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(pointer_count, 1);
+    assert_eq!(rebuild(&directory, true)["data"]["changed"], false);
+}
+
+#[test]
 fn edition_create_rejects_an_empty_workspace() {
     let directory = TestDirectory::new();
     assert!(
@@ -1014,7 +1691,7 @@ fn status_human_output_is_a_projection_of_status_data() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Proof 0.1.0"));
-    assert!(stdout.contains("implementation: foundation"));
+    assert!(stdout.contains("implementation: local-proof-loop"));
     assert!(stdout.contains("workspace selected: false"));
 }
 
@@ -1064,6 +1741,139 @@ fn create_changeset_with_schema_edit(directory: &TestDirectory) -> String {
         .unwrap();
     assert!(added.status.success());
     changeset_id
+}
+
+fn create_committed_edition_with_object(directory: &TestDirectory) -> String {
+    let changeset_id = create_changeset_with_schema_edit(directory);
+    let object_edit_path = directory.path().join("object-edit.ndjson");
+    fs::write(
+        &object_edit_path,
+        format!(
+            "{{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"object.create\",\"object_id\":\"{OBJECT_ID}\",\"schema_id\":\"article\",\"schema_version\":1,\"content\":{{\"title\":\"First article\"}}}}\n"
+        ),
+    )
+    .unwrap();
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "changeset",
+                "add",
+                &changeset_id,
+                "--file",
+                object_edit_path.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    for action in ["validate", "submit"] {
+        assert!(
+            proof_command(directory.path())
+                .args(["changeset", action, &changeset_id])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "changeset",
+                "approve",
+                &changeset_id,
+                "--approval",
+                "editorial",
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "changeset",
+                "commit",
+                &changeset_id,
+                "--idempotency-key",
+                COMMIT_IDEMPOTENCY_KEY,
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let edition = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "edition",
+            "create",
+            "--idempotency-key",
+            EDITION_IDEMPOTENCY_KEY,
+        ])
+        .output()
+        .unwrap();
+    assert!(edition.status.success());
+    let edition: serde_json::Value = serde_json::from_slice(&edition.stdout).unwrap();
+    edition["data"]["edition_id"].as_str().unwrap().to_owned()
+}
+
+fn create_release(
+    directory: &TestDirectory,
+    edition_id: &str,
+    idempotency_key: &str,
+) -> serde_json::Value {
+    let release = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "release",
+            "create",
+            "--edition",
+            edition_id,
+            "--environment",
+            "preview",
+            "--idempotency-key",
+            idempotency_key,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        release.status.success(),
+        "{}",
+        String::from_utf8_lossy(&release.stderr)
+    );
+    serde_json::from_slice(&release.stdout).unwrap()
+}
+
+fn rebuild(directory: &TestDirectory, dry_run: bool) -> serde_json::Value {
+    let mut command = proof_command(directory.path());
+    command.args(["--output", "json", "projection", "rebuild"]);
+    if dry_run {
+        command.arg("--dry-run");
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn timestamp_at_offset_seconds(seconds: u64) -> Timestamp {
+    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let now_nanos = i128::try_from(elapsed.as_nanos()).unwrap();
+    let offset_nanos = i128::from(seconds).checked_mul(1_000_000_000).unwrap();
+    Timestamp::from_unix_timestamp_nanos(now_nanos.checked_add(offset_nanos).unwrap()).unwrap()
+}
+
+fn timestamp_after_seconds(seconds: u64) -> String {
+    timestamp_at_offset_seconds(seconds).to_string()
 }
 
 static DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);

@@ -16,9 +16,11 @@ fn inward_dependency_boundaries_are_enforced() {
     let packages = metadata["packages"].as_array().unwrap();
     let domain = normal_dependencies(packages, "proof-domain");
     let application = normal_dependencies(packages, "proof-application");
+    let attestation = normal_dependencies(packages, "proof-attestation");
     let canonical = normal_dependencies(packages, "proof-canonical");
     let local = normal_dependencies(packages, "proof-local");
     let cli = normal_dependencies(packages, "proof-cli");
+    let mcp = normal_dependencies(packages, "proof-mcp");
 
     assert_eq!(
         domain,
@@ -32,6 +34,21 @@ fn inward_dependency_boundaries_are_enforced() {
             "thiserror".to_owned(),
         ]),
         "application contracts may depend inward, never on interface or adapter crates"
+    );
+    assert_eq!(
+        attestation,
+        BTreeSet::from([
+            "base64".to_owned(),
+            "ed25519-dalek".to_owned(),
+            "getrandom".to_owned(),
+            "proof-canonical".to_owned(),
+            "proof-domain".to_owned(),
+            "serde".to_owned(),
+            "serde_json".to_owned(),
+            "thiserror".to_owned(),
+            "zeroize".to_owned(),
+        ]),
+        "attestation may depend on deterministic codecs, cryptography, and inward domain contracts"
     );
     assert_eq!(
         canonical,
@@ -50,6 +67,7 @@ fn inward_dependency_boundaries_are_enforced() {
         BTreeSet::from([
             "jsonschema".to_owned(),
             "proof-application".to_owned(),
+            "proof-attestation".to_owned(),
             "proof-canonical".to_owned(),
             "rusqlite".to_owned(),
             "rustix".to_owned(),
@@ -57,6 +75,7 @@ fn inward_dependency_boundaries_are_enforced() {
             "serde_json".to_owned(),
             "thiserror".to_owned(),
             "toml".to_owned(),
+            "zeroize".to_owned(),
         ]),
         "local storage is an adapter and may only depend inward plus infrastructure libraries"
     );
@@ -65,6 +84,7 @@ fn inward_dependency_boundaries_are_enforced() {
         BTreeSet::from([
             "clap".to_owned(),
             "proof-application".to_owned(),
+            "proof-attestation".to_owned(),
             "proof-canonical".to_owned(),
             "proof-local".to_owned(),
             "serde".to_owned(),
@@ -72,6 +92,18 @@ fn inward_dependency_boundaries_are_enforced() {
             "uuid".to_owned(),
         ]),
         "the CLI may compose application contracts and adapters but owns no domain behavior"
+    );
+    assert_eq!(
+        mcp,
+        BTreeSet::from([
+            "clap".to_owned(),
+            "proof-application".to_owned(),
+            "proof-local".to_owned(),
+            "serde".to_owned(),
+            "serde_json".to_owned(),
+            "uuid".to_owned(),
+        ]),
+        "the MCP interface may compose application contracts and adapters but owns no domain behavior"
     );
 }
 

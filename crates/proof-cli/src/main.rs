@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod authority_cli;
+mod release_cli;
+
 use std::{
     env, fs,
     io::{self, Read},
@@ -14,20 +17,28 @@ use proof_application::{
     ApproveChangeSetCommand, ApproveChangeSetError, ApprovedChangeSet, ArtifactKind, ChangeSetEdit,
     ChangeSetId, ChangeSetIntent, CommitChangeSetCommand, CommitChangeSetError, CommittedChangeSet,
     ContentDigest, CorrelationId, CreateChangeSetCommand, CreateChangeSetError,
-    CreateEditionCommand, CreateEditionError, DraftChangeSet, EditId, Edition, EditionId, ExitCode,
+    CreateEditionCommand, CreateEditionError, DelegatedWorkspaceStatusCommand,
+    DelegatedWorkspaceStatusError, DraftChangeSet, EditId, Edition, EditionId, ExitCode,
     IdempotencyKey, InitializeWorkspaceCommand, InspectChangeSetError, InspectedChangeSet,
     InspectedChangeSetEdit, ObjectCreateEdit, ObjectId, ObjectLifecycleState, ObjectRevision,
     OperationId, PrincipalId, Problem, ResultEnvelope, SchemaCreateEdit, SchemaId, SchemaVersion,
     StatusData, SubmitChangeSetCommand, SubmitChangeSetError, SubmittedChangeSet, Timestamp,
     ValidateChangeSetError, ValidatedChangeSet, WorkspaceId, WorkspaceInitializationError,
     WorkspaceStatus, WorkspaceStatusError, add_changeset_edits, approve_changeset,
-    commit_changeset, create_changeset, create_edition, initialize_workspace, inspect_changeset,
-    submit_changeset, validate_changeset, workspace_status,
+    commit_changeset, create_changeset, create_edition, delegated_workspace_status,
+    initialize_workspace, inspect_changeset, submit_changeset, validate_changeset,
+    workspace_status,
+};
+use proof_attestation::{
+    AttestationError, MAX_ENVELOPE_BYTES, parse_ed25519_key_id, verify_release_envelope,
 };
 use proof_canonical::{canonicalize, digest, object_revision_digest, parse_strict};
 use proof_local::LocalWorkspace;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use authority_cli::{CapabilityAction, ContextAction, DelegationAction, PrincipalAction};
+use release_cli::{EnvironmentAction, ObjectAction, ProjectionAction, ReleaseAction};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -49,9 +60,9 @@ struct Cli {
     #[arg(long, global = true)]
     principal: Option<String>,
 
-    /// Present an explicit Delegation by identifier or path.
-    #[arg(long, global = true, value_name = "ID|PATH")]
-    delegation: Option<PathBuf>,
+    /// Present an explicit Delegation identifier.
+    #[arg(long, global = true, value_name = "ID")]
+    delegation: Option<String>,
 
     /// Select the result projection.
     #[arg(long, global = true, value_enum, default_value_t)]
@@ -100,6 +111,58 @@ enum Command {
     Edition {
         #[command(subcommand)]
         action: EditionAction,
+    },
+    /// Manage local human and Agent identities.
+    Principal {
+        #[command(subcommand)]
+        action: PrincipalAction,
+    },
+    /// Manage bounded, expiring Agent authority.
+    Delegation {
+        #[command(subcommand)]
+        action: DelegationAction,
+    },
+    /// Build and verify bounded agent `ContextPacks`.
+    Context {
+        #[command(subcommand)]
+        action: ContextAction,
+    },
+    /// Discover stable application capabilities.
+    Capability {
+        #[command(subcommand)]
+        action: CapabilityAction,
+    },
+    /// Manage versioned local release targets.
+    Environment {
+        #[command(subcommand)]
+        action: EnvironmentAction,
+    },
+    /// Promote, inspect, roll back, and verify immutable Releases.
+    Release {
+        #[command(subcommand)]
+        action: ReleaseAction,
+    },
+    /// Query immutable released content.
+    Object {
+        #[command(subcommand)]
+        action: ObjectAction,
+    },
+    /// Inspect and rebuild derived state.
+    Projection {
+        #[command(subcommand)]
+        action: ProjectionAction,
+    },
+    /// Verify one canonical signed Proof envelope against caller-supplied trust.
+    Verify {
+        /// Canonical DSSE envelope file.
+        #[arg(long)]
+        file: PathBuf,
+        /// Explicit trusted key identity (`ed25519:` followed by 64 lowercase hex characters).
+        #[arg(long)]
+        trusted_key_id: String,
+        /// Expected domain-separated digest of the complete canonical envelope.
+        #[arg(long)]
+        expected_envelope_digest: String,
     },
 }
 
@@ -208,7 +271,66 @@ impl Command {
             Self::Edition {
                 action: EditionAction::Create { .. },
             } => "edition.create",
+            Self::Principal {
+                action: PrincipalAction::CreateAgent { .. },
+            } => "principal.create_agent",
+            Self::Delegation {
+                action: DelegationAction::Grant { .. },
+            } => "delegation.grant",
+            Self::Delegation {
+                action: DelegationAction::Get { .. },
+            } => "delegation.get",
+            Self::Delegation {
+                action: DelegationAction::Revoke { .. },
+            } => "delegation.revoke",
+            Self::Delegation {
+                action: DelegationAction::Verify { .. },
+            } => "delegation.verify",
+            Self::Context {
+                action: ContextAction::Build { .. },
+            } => "context.build",
+            Self::Context {
+                action: ContextAction::Get { .. },
+            } => "context.get",
+            Self::Context {
+                action: ContextAction::Verify { .. },
+            } => "context.verify",
+            Self::Capability {
+                action: CapabilityAction::List,
+            } => "capability.list",
+            Self::Environment {
+                action: EnvironmentAction::Create { .. },
+            } => "environment.create",
+            Self::Environment {
+                action: EnvironmentAction::Get { .. },
+            } => "environment.get",
+            Self::Release {
+                action: ReleaseAction::Create { .. },
+            } => "release.create",
+            Self::Release {
+                action: ReleaseAction::Get { .. },
+            } => "release.get",
+            Self::Release {
+                action: ReleaseAction::Rollback { .. },
+            } => "release.rollback",
+            Self::Release {
+                action: ReleaseAction::Verify { .. },
+            } => "release.verify",
+            Self::Object {
+                action: ObjectAction::Query { .. },
+            } => "object.query_released",
+            Self::Projection {
+                action: ProjectionAction::Rebuild { .. },
+            } => "projection.rebuild",
+            Self::Verify { .. } => "proof.verify",
         }
+    }
+
+    const fn accepts_explicit_authority(&self) -> bool {
+        matches!(
+            self,
+            Self::Status | Self::Context { .. } | Self::Object { .. }
+        )
     }
 }
 
@@ -238,6 +360,18 @@ struct ExecutionContext {
     correlation_id: CorrelationId,
 }
 
+#[derive(Debug)]
+struct AuthoritySelection {
+    principal: Option<String>,
+    delegation: Option<String>,
+}
+
+impl AuthoritySelection {
+    const fn is_explicit(&self) -> bool {
+        self.principal.is_some() || self.delegation.is_some()
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     let output = cli.output;
@@ -251,6 +385,8 @@ fn main() {
 fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
     let Cli {
         workspace,
+        principal,
+        delegation,
         correlation_id,
         output,
         command,
@@ -279,18 +415,30 @@ fn run(cli: Cli) -> Result<ExitCode, Box<Problem>> {
         correlation_id,
     };
 
-    run_command(command, output, context, workspace)
+    let authority = AuthoritySelection {
+        principal,
+        delegation,
+    };
+    run_command(command, output, context, workspace, &authority)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the top-level exhaustive dispatch makes unsupported authority impossible to ignore"
+)]
 fn run_command(
     command: Command,
     output: OutputFormat,
     context: ExecutionContext,
     workspace: Option<String>,
+    authority: &AuthoritySelection,
 ) -> Result<ExitCode, Box<Problem>> {
+    if authority.is_explicit() && !command.accepts_explicit_authority() {
+        return Err(explicit_authority_problem(command.operation(), context));
+    }
     let exit_code = match command {
         Command::Init => initialize_local_workspace(output, context, workspace)?,
-        Command::Status => inspect_local_workspace(output, context, workspace)?,
+        Command::Status => inspect_local_workspace(output, context, workspace, authority)?,
         Command::Changeset {
             action:
                 ChangeSetAction::Create {
@@ -362,8 +510,209 @@ fn run_command(
         Command::Edition {
             action: EditionAction::Create { idempotency_key },
         } => create_local_edition(output, context, workspace, idempotency_key)?,
+        Command::Principal { action } => {
+            authority_cli::run_principal(action, output, context, workspace)?
+        }
+        Command::Delegation { action } => {
+            authority_cli::run_delegation(action, output, context, workspace)?
+        }
+        Command::Context { action } => {
+            authority_cli::run_context(action, output, context, workspace, authority)?
+        }
+        Command::Capability { action } => authority_cli::run_capability(action, output, context),
+        Command::Environment { action } => {
+            release_cli::run_environment(action, output, context, workspace)?
+        }
+        Command::Release { action } => {
+            release_cli::run_release(action, output, context, workspace)?
+        }
+        Command::Object { action } => {
+            release_cli::run_object(action, output, context, workspace, authority)?
+        }
+        Command::Projection { action } => {
+            release_cli::run_projection(action, output, context, workspace)?
+        }
+        Command::Verify {
+            file,
+            trusted_key_id,
+            expected_envelope_digest,
+        } => verify_offline_envelope(
+            output,
+            context,
+            &file,
+            &trusted_key_id,
+            &expected_envelope_digest,
+        )?,
     };
     Ok(exit_code)
+}
+
+fn verify_offline_envelope(
+    output: OutputFormat,
+    context: ExecutionContext,
+    file: &std::path::Path,
+    trusted_key_id: &str,
+    expected_envelope_digest: &str,
+) -> Result<ExitCode, Box<Problem>> {
+    let bytes = read_envelope_file(file).map_err(|detail| {
+        offline_verify_problem(
+            "urn:proof:problem:input-schema-mismatch",
+            "The Proof envelope could not be read",
+            "proof.input.schema_mismatch",
+            detail,
+            context,
+        )
+    })?;
+    let expected_digest = expected_envelope_digest
+        .parse::<ContentDigest>()
+        .map_err(|error| {
+            offline_verify_problem(
+                "urn:proof:problem:input-schema-mismatch",
+                "The expected envelope digest is invalid",
+                "proof.input.schema_mismatch",
+                error.to_string(),
+                context,
+            )
+        })?;
+    parse_ed25519_key_id(trusted_key_id).map_err(|error| {
+        offline_verify_problem(
+            "urn:proof:problem:input-schema-mismatch",
+            "The caller-supplied trusted key identifier is invalid",
+            "proof.input.schema_mismatch",
+            error.to_string(),
+            context,
+        )
+    })?;
+    let verified = verify_release_envelope(&bytes, expected_digest, trusted_key_id)
+        .map_err(|error| map_attestation_problem(&error, context))?;
+    let subjects = verified
+        .parsed
+        .statement
+        .subject
+        .iter()
+        .map(|subject| {
+            serde_json::json!({
+                "name": subject.name,
+                "digest": subject.digest,
+            })
+        })
+        .collect::<Vec<_>>();
+    let data = serde_json::json!({
+        "envelope_digest": verified.parsed.envelope_digest.to_string(),
+        "key_id": verified.key_id,
+        "payload_type": verified.parsed.envelope.payload_type,
+        "statement_type": verified.parsed.statement.statement_type,
+        "predicate_type": verified.parsed.statement.predicate_type,
+        "subjects": subjects,
+        "canonical_envelope": true,
+        "digest_valid": true,
+        "signature_valid": true,
+        "workspace_evidence_verified": false,
+        "workspace_policy_verified": false,
+    });
+    let result = ResultEnvelope::success(
+        "proof.verify",
+        context.operation_id,
+        context.correlation_id,
+        data,
+    );
+    match output {
+        OutputFormat::Json => write_json(&result),
+        OutputFormat::Text => {
+            println!("offline envelope verified: true");
+            println!("envelope digest: {}", verified.parsed.envelope_digest);
+            println!("trusted key id: {}", verified.key_id);
+            println!("subjects: {}", verified.parsed.statement.subject.len());
+            println!("workspace evidence verified: false");
+            println!("workspace policy verified: false");
+        }
+    }
+    Ok(ExitCode::Success)
+}
+
+fn read_envelope_file(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let file = fs::File::open(path).map_err(|error| {
+        format!(
+            "could not open Proof envelope `{}`: {error}",
+            path.display()
+        )
+    })?;
+    let max = u64::try_from(MAX_ENVELOPE_BYTES).expect("envelope bound fits u64");
+    let mut bytes = Vec::new();
+    file.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("could not read Proof envelope: {error}"))?;
+    if bytes.len() > MAX_ENVELOPE_BYTES {
+        return Err(format!(
+            "Proof envelope must not exceed {MAX_ENVELOPE_BYTES} bytes"
+        ));
+    }
+    Ok(bytes)
+}
+
+fn map_attestation_problem(error: &AttestationError, context: ExecutionContext) -> Box<Problem> {
+    let (problem_type, title, code) = match error {
+        AttestationError::EnvelopeDigestMismatch => (
+            "urn:proof:problem:digest-mismatch",
+            "The Proof envelope digest does not match the expected digest",
+            "proof.digest.mismatch",
+        ),
+        AttestationError::KeyIdMismatch
+        | AttestationError::InvalidPublicKey
+        | AttestationError::InvalidPublicKeyLength
+        | AttestationError::InvalidSignatureLength
+        | AttestationError::SignatureInvalid => (
+            "urn:proof:problem:signature-invalid",
+            "The Proof envelope signature could not be verified against caller-supplied trust",
+            "proof.signature.invalid",
+        ),
+        AttestationError::EnvelopeTooLarge | AttestationError::PayloadTooLarge => (
+            "urn:proof:problem:input-too-large",
+            "The Proof envelope exceeds a bounded profile limit",
+            "proof.input.too_large",
+        ),
+        _ => (
+            "urn:proof:problem:artifact-invalid",
+            "The Proof envelope violates the supported artifact profile",
+            "proof.artifact.invalid",
+        ),
+    };
+    offline_verify_problem(problem_type, title, code, error.to_string(), context)
+}
+
+fn offline_verify_problem(
+    problem_type: &str,
+    title: &str,
+    code: &str,
+    detail: String,
+    context: ExecutionContext,
+) -> Box<Problem> {
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "proof.verify",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn explicit_authority_problem(operation: &str, context: ExecutionContext) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:authority-denied",
+        "Explicit Principal or Delegation selection is not supported for this operation",
+        "proof.auth.denied",
+        operation,
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(
+        "No operation was performed; remove --principal and --delegation or use a delegated read operation"
+            .to_owned(),
+    );
+    Box::new(problem)
 }
 
 fn render_status(output: OutputFormat, context: ExecutionContext, data: StatusData) -> ExitCode {
@@ -410,6 +759,7 @@ fn inspect_local_workspace(
     output: OutputFormat,
     context: ExecutionContext,
     selected_workspace: Option<String>,
+    authority: &AuthoritySelection,
 ) -> Result<ExitCode, Box<Problem>> {
     let explicitly_selected = selected_workspace.is_some();
     let root = match selected_workspace {
@@ -417,12 +767,130 @@ fn inspect_local_workspace(
         None => env::current_dir().map_err(|_| status_root_problem(context))?,
     };
     let repository = LocalWorkspace::new(root).map_err(|_| status_root_problem(context))?;
+    if authority.is_explicit() {
+        let principal = authority.principal.as_deref().ok_or_else(|| {
+            status_authority_input_problem(
+                context,
+                "--principal and --delegation must be supplied together".to_owned(),
+            )
+        })?;
+        let delegation = authority.delegation.as_deref().ok_or_else(|| {
+            status_authority_input_problem(
+                context,
+                "--principal and --delegation must be supplied together".to_owned(),
+            )
+        })?;
+        let operating_principal_id = principal.parse::<PrincipalId>().map_err(|error| {
+            status_authority_input_problem(context, format!("invalid principal: {error}"))
+        })?;
+        let delegation_id = delegation
+            .parse::<proof_application::DelegationId>()
+            .map_err(|error| {
+                status_authority_input_problem(context, format!("invalid delegation: {error}"))
+            })?;
+        let evaluated_at = current_timestamp()
+            .map_err(|detail| status_authority_input_problem(context, detail))?;
+        let status = delegated_workspace_status(
+            &repository,
+            DelegatedWorkspaceStatusCommand {
+                operating_principal_id,
+                delegation_id,
+                evaluated_at,
+            },
+        )
+        .map_err(|error| delegated_status_problem(&error, context))?;
+        let data = serde_json::json!({
+            "workspace_id": status.workspace_id.to_string(),
+            "principal_id": status.principal_id.to_string(),
+            "delegation_id": status.delegation_id.to_string(),
+            "storage_schema_version": status.storage_schema_version,
+            "authoritative_sequence": status.authoritative_sequence,
+            "state_digest": status.state_digest.to_string(),
+            "authorization_decision_digest": status.authorization_decision_digest.to_string(),
+        });
+        let result =
+            ResultEnvelope::success("status", context.operation_id, context.correlation_id, data);
+        match output {
+            OutputFormat::Json => write_json(&result),
+            OutputFormat::Text => {
+                println!("Workspace {}", status.workspace_id);
+                println!("principal: {}", status.principal_id);
+                println!("delegation: {}", status.delegation_id);
+                println!("storage schema: {}", status.storage_schema_version);
+                println!("authoritative sequence: {}", status.authoritative_sequence);
+                println!("state digest: {}", status.state_digest);
+                println!(
+                    "authorization decision: {}",
+                    status.authorization_decision_digest
+                );
+            }
+        }
+        return Ok(ExitCode::Success);
+    }
     let status =
         workspace_status(&repository).map_err(|error| workspace_status_problem(&error, context))?;
     let workspace_selected =
         explicitly_selected || matches!(status, WorkspaceStatus::Initialized(_));
     let data = StatusData::from_workspace(workspace_selected, status);
     Ok(render_status(output, context, data))
+}
+
+fn status_authority_input_problem(context: ExecutionContext, detail: String) -> Box<Problem> {
+    let mut problem = Problem::new(
+        "urn:proof:problem:input-schema-mismatch",
+        "The delegated status authority selection is invalid",
+        "proof.input.schema_mismatch",
+        "status",
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(detail);
+    Box::new(problem)
+}
+
+fn delegated_status_problem(
+    error: &DelegatedWorkspaceStatusError,
+    context: ExecutionContext,
+) -> Box<Problem> {
+    let (problem_type, title, code, retryable) = match error {
+        DelegatedWorkspaceStatusError::Unauthenticated => (
+            "urn:proof:problem:authentication-required",
+            "The current operating-system identity is not authenticated for this Workspace",
+            "proof.auth.unauthenticated",
+            false,
+        ),
+        DelegatedWorkspaceStatusError::Denied => (
+            "urn:proof:problem:authority-denied",
+            "Workspace status is outside delegated authority",
+            "proof.auth.denied",
+            false,
+        ),
+        DelegatedWorkspaceStatusError::Integrity(_) => (
+            "urn:proof:problem:digest-mismatch",
+            "The selected Workspace could not be verified",
+            "proof.digest.mismatch",
+            false,
+        ),
+        DelegatedWorkspaceStatusError::Storage(_) => (
+            "urn:proof:problem:dependency-unavailable",
+            "Local Workspace storage could not be inspected",
+            "proof.dependency.unavailable",
+            true,
+        ),
+    };
+    let mut problem = Problem::new(
+        problem_type,
+        title,
+        code,
+        "status",
+        context.operation_id,
+        context.correlation_id,
+    );
+    if matches!(error, DelegatedWorkspaceStatusError::Integrity(_)) {
+        problem.detail = Some(error.to_string());
+    }
+    problem.retryable = retryable;
+    Box::new(problem)
 }
 
 fn status_root_problem(context: ExecutionContext) -> Box<Problem> {

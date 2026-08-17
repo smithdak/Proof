@@ -1,7 +1,7 @@
 # Agent authority and ContextPacks
 
 **Status:** Ratified direction  
-**Baseline:** August 3, 2026
+**Baseline:** August 16, 2026
 
 ## Principle
 
@@ -149,16 +149,15 @@ Agent memory is not authoritative CMS state. Information enters Proof only throu
 
 MCP is an adapter over application operations, not the internal architecture.
 
-As of August 3, 2026:
+As of August 16, 2026:
 
-- The first production adapter targets stable MCP `2025-11-25`.
-- The `2026-07-28` revision remains an RC until the upstream project marks it final.
-- Version negotiation is mandatory.
-- MCP sessions or transport state cannot become authority or domain state.
+- The preferred adapter contract is final MCP `2026-07-28`: each request carries the protocol version and client capabilities in `_meta` and is handled without an initialization gate.
+- `server/discover` is implemented for clients that want versions and capabilities up front; it and deterministic tool-list results include explicit public cache hints.
+- Initialization-based MCP `2025-11-25` remains a legacy compatibility path in the same stdio server.
+- Every modern result includes `resultType: "complete"`; unsupported modern versions fail with `-32022` and exact requested/supported version data.
+- MCP sessions or transport state cannot become authority or domain state. Authority-bearing tools require Principal and Delegation identifiers in every call.
 - Every MCP tool has the same input Schema, idempotency behavior, and error semantics as its underlying operation.
 - Destructive or consequential tools are annotated and policy-gated.
-
-When the 2026 revision is final, support is added behind conformance tests without changing core semantics.
 
 ## Evidence
 

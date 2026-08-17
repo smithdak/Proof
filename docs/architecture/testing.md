@@ -62,15 +62,24 @@ End-to-end scenarios run the actual CLI through the local proof loop. Server tes
 
 Every persistent Schema or event-version migration includes fixtures from the previous supported version, forward migration, verification, and documented rollback behavior.
 
-## Required developer checks
+## Current enforced quality gate
 
-The implementation CI baseline will include:
+The Ubuntu 24.04 workflow currently enforces:
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-targets --all-features
+cargo test --locked --doc --workspace --all-features
+node scripts/check-doc-links.mjs
+node scripts/check-work-items.mjs
+```
+
+This is a quality gate, not release eligibility. The planned release and
+tooling baseline remains:
+
+```bash
 cargo nextest run --workspace --all-features
-cargo test --doc --workspace
 cargo llvm-cov nextest --workspace --all-features
 cargo deny check
 cargo audit
@@ -81,7 +90,8 @@ Additional scheduled jobs run fuzz targets, mutation testing, minimum-supported-
 
 ## Coverage policy
 
-Line coverage is diagnostic, not a quality target by itself. The release gate requires:
+Line coverage is diagnostic, not a quality target by itself. Release
+eligibility requires:
 
 - Every constitutional invariant mapped to executable tests.
 - Every public error type covered by a fixture.

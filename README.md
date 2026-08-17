@@ -8,9 +8,14 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 ## Project status
 
-**Milestone 1 — local proof loop in progress.**
+**Milestone 1 — local proof loop complete. Milestone 2 — read-authority slice begun.**
 
-Milestone 0 is complete. The implemented local path now covers authenticated Workspace initialization, idempotent ChangeSet drafts, ordered Schema- and Object-create Edits, deterministic validation, exact-evidence submission and approval, atomic mixed commits, reproducible Object-bearing Known State, and immutable content-addressed Editions. Linux CI enforces the pinned Rust quality gate. Environment, Release, signed Proof, released-content query, and projection rebuild remain; there is no public release yet.
+The implemented local path covers authenticated Workspace initialization, idempotent ChangeSets, ordered Schema- and Object-create Edits, deterministic validation, exact-evidence submission and approval, atomic commits, reproducible Known State, immutable Editions, versioned Environments, signed Release Proofs, exact released-content queries, persisted Release verification, offline envelope verification against explicit caller trust, and dry-run or transactional projection rebuild. The first authority slice adds Agent Principals, bounded Delegations, ContextPacks, capability discovery, and a dual-era read-authority MCP stdio adapter. Its delegated reads still accept caller-supplied Agent Principal and Delegation identifiers; only the local Human path is adapter-authenticated. Delegated content mutations, authenticated Agent bindings, the collaboration server, and a public release remain.
+
+Linux CI is the current quality gate. It does not establish release eligibility,
+signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
+Local Windows compilation or test execution is not live Windows runtime
+qualification or a published Windows support claim.
 
 | Area | Status |
 | --- | --- |
@@ -18,8 +23,8 @@ Milestone 0 is complete. The implemented local path now covers authenticated Wor
 | Domain vocabulary | Ratified |
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
-| CLI contract | Initial stable design |
-| Rust implementation | Local proof loop in progress |
+| CLI contract | Local proof loop implemented |
+| Rust implementation | Milestone 1 complete; Milestone 2 begun |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 
@@ -104,25 +109,30 @@ The complete constitution is in [Core invariants](docs/architecture/constitution
 
 See the complete [domain model](docs/architecture/domain-model.md).
 
-## Intended CLI
+## Implemented CLI
 
 The executable is `proof`. Human-readable output is a projection of the same structured result returned to agents.
 
 ```bash
 proof init
-proof schema create --file article.schema.json
-proof context build --task localize-homepage --output context.json
 proof changeset create --intent "Localize the homepage for fr-CA"
-proof changeset add --file edits.ndjson
-proof changeset diff
-proof changeset validate
-proof changeset submit
-proof edition create --from <changeset-id>
-proof release create --edition <edition-id> --environment preview
-proof verify <proof-id>
+proof changeset add <changeset-id> --file edits.ndjson
+proof changeset diff <changeset-id>
+proof changeset validate <changeset-id>
+proof changeset submit <changeset-id>
+proof changeset approve <changeset-id> --approval release
+proof changeset commit <changeset-id> --idempotency-key <uuid-v7>
+proof edition create
+proof environment create preview --required-approval release
+proof release create --edition <edition-id> --environment preview --idempotency-key <uuid-v7>
+proof object query --environment preview --object-id <object-id>
+proof release verify <release-id>
+proof projection rebuild --dry-run
+proof projection rebuild
+proof verify --file release.dsse.json --trusted-key-id ed25519:<64-hex> --expected-envelope-digest blake3:<64-hex>
 ```
 
-These examples define the intended interface. The implemented subset and its exact input contracts are identified in the [CLI reference](docs/reference/cli.md); Environment, Release, Proof, and several read surfaces remain planned.
+`release verify` evaluates the complete persisted local Release evidence. The standalone `verify` command checks canonical envelope bytes, the expected digest, and an Ed25519 signature against caller-supplied trust; it does not claim to verify Workspace policy or persisted evidence. Use `proof --help` for the exact implemented grammar. The broader compatibility target remains in the [CLI reference](docs/reference/cli.md).
 
 ## Architecture direction
 
@@ -149,7 +159,7 @@ The initial implementation baseline uses:
 - BLAKE3 with domain separation for internal content addressing.
 - DSSE and in-toto Statement v1 concepts for signed Proof envelopes.
 - SQLite for the first local transactional store; PostgreSQL is the server target.
-- Stable MCP 2025-11-25 for the first adapter, with protocol negotiation and a path to the 2026 revision after it becomes final.
+- MCP 2026-07-28 as the stateless default, with per-request version and capability metadata, plus initialization-based MCP 2025-11-25 compatibility for legacy clients.
 
 See the [technology baseline](docs/reference/technology-baseline.md) and [standards profile](docs/reference/standards.md).
 
@@ -181,9 +191,14 @@ Start with the [documentation map](docs/README.md).
 - [Standards profile](docs/reference/standards.md)
 - [Architecture decision records](docs/decisions/README.md)
 
-## MVP
+### Execute current work
 
-The first release is one complete local vertical slice:
+- [Rolling-wave work map](docs/work/map.md)
+- [Work-control protocol](docs/work/README.md)
+
+## North-star first release
+
+The planned first release is one complete local vertical slice:
 
 1. Initialize a Workspace.
 2. Define and version a Schema.
@@ -200,7 +215,7 @@ The first release is one complete local vertical slice:
 
 ## Contributing and security
 
-Proof is currently establishing its implementation foundation. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Report vulnerabilities according to [SECURITY.md](SECURITY.md); do not open public security issues.
+Proof has completed its local proof-loop implementation and is building the bounded agent-authority layer. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Report vulnerabilities according to [SECURITY.md](SECURITY.md); do not open public security issues.
 
 ## License
 

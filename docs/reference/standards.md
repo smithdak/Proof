@@ -1,7 +1,7 @@
 # Standards profile
 
 **Status:** Ratified baseline  
-**As of:** August 3, 2026
+**As of:** August 16, 2026
 
 Proof uses established standards where they provide stable semantics or interoperability. Referencing a standard does not imply implementing every optional feature.
 
@@ -21,21 +21,25 @@ Proof uses established standards where they provide stable semantics or interope
 | Signature envelope | [DSSE v1](https://github.com/secure-systems-lab/dsse) | Authenticate typed Proof payload bytes. |
 | Attestation statement | [in-toto Attestation Framework v1.2.0, Statement v1](https://github.com/in-toto/attestation/tree/v1.2.0) | Bind Proof predicates to immutable subjects. |
 | Build provenance | [SLSA v1.2](https://slsa.dev/spec/v1.2/) | Release build and source provenance. |
-| Agent protocol | [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) | Initial stable MCP adapter contract. |
+| Agent protocol | [MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28) and [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) | Stateless current contract with initialization-based legacy compatibility. |
 | Telemetry | [OpenTelemetry specifications](https://opentelemetry.io/docs/specs/) | Trace, metric, and log export. |
 | Workload identity | [SPIFFE specifications](https://spiffe.io/docs/latest/spiffe-specs/) | Optional enterprise service and agent workload identity. |
 
 ## MCP version position
 
-As of the baseline date, `2025-11-25` is the latest final MCP specification. `2026-07-28` is published as a release candidate and is not the production baseline.
+The MCP project released `2026-07-28` as the current final specification on July 28, 2026. It replaces the initialization handshake with a stateless core: every modern request carries its protocol version and client capabilities in `_meta`. The specification explicitly defines `2025-11-25` and earlier as legacy initialization-based versions and permits a dual-era server.
 
 Proof will:
 
-- Implement protocol negotiation.
+- Prefer stateless `2026-07-28` and retain `2025-11-25` initialization compatibility.
+- Implement `server/discover`; modern clients may call it before any other operation but are not required to do so.
+- Reject unsupported modern versions with JSON-RPC code `-32022` and exact `requested` and `supported` data.
+- Include `resultType: "complete"` on every modern result and public `ttlMs` / `cacheScope` hints on discovery and deterministic list responses.
 - Keep MCP transport state outside domain authority.
 - Maintain conformance fixtures per supported protocol version.
-- Add the 2026 revision only after the final specification and a compatible stable SDK are available.
 - Preserve application-operation semantics across protocol versions.
+
+This position supersedes [ADR-0008](../decisions/0008-mcp-adapter-version.md) through [ADR-0010](../decisions/0010-dual-era-mcp.md).
 
 ## Proof artifact profile
 
