@@ -26,13 +26,16 @@ only after the Milestone 2 exit scenario passes.
 ## Baseline — August 17, 2026
 
 - Checkout: `D:\github\Proof`; branch `main`; one worktree.
-- HEAD: `3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d`.
-- The local `origin/main` tracking ref is `9f69e80`; the branch is one commit
-  ahead. This is not a live remote verification.
+- Starting HEAD: `3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d`.
+- Qualified baseline implementation commit:
+  `1fef16e8d0f9d355957abc6f973b3551a2c922cb`.
+- The local `origin/main` tracking ref is `9f69e80`; after the completion-record
+  commit, local `main` is three commits ahead. This is not a live remote
+  verification.
 - The Release, attestation, Environment, Principal, Delegation, ContextPack,
-  projection-rebuild, CLI, and MCP slice is qualified in the item-work commit
-  containing P-0001's review record. The follow-up control-plane commit binds
-  its exact SHA without self-reference.
+  projection-rebuild, CLI, and MCP slice is qualified in the baseline
+  implementation commit above. The follow-up control-plane commit binds that
+  exact SHA without self-reference.
 - Ubuntu 24.04 qualification passed on August 17, 2026: strict Clippy, 197
   workspace tests, doc tests, 103 internal links, six work-item checks, and
   normalized whitespace. Windows is compile-only and remains runtime
@@ -57,28 +60,34 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `review` | none | Bind the qualified baseline commit in one follow-up control-plane record. |
+| [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `ready` | P-0001 | Decide the minimum content semantics that make the north-star scenario true. |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `ready` | P-0001 | Fix the local credential, subject-binding, Delegation, and anti-replay contract. |
 
 ## Next
 
-These items are durable but not claimable until their blockers close. Each must
-be re-read and reshaped before promotion to `ready`.
+These implementation items remain blocked until their decision dependencies
+close. Each must be re-read and reshaped before promotion to `ready`.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `blocked` | P-0001 | Decide the minimum content semantics that make the north-star scenario true. |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `blocked` | P-0001 | Fix the local credential, subject-binding, Delegation, and anti-replay contract. |
 | [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `blocked` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0002, P-0004 | Complete one bounded write path through human approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
 
+## Completed
+
+| Work item | Status | Blocked by | Outcome |
+| --- | --- | --- | --- |
+| [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |
+
 ## Decisions so far
 
-No work-map decision has closed yet. Existing ratified constraints are linked
-above; this section gains one-line results as decision items close.
+P-0001 closed baseline qualification; no architecture or product decision item
+has closed yet. Existing ratified constraints are linked above; this section
+gains one-line results as decision items close.
 
 ## Fog — not yet specifiable as implementation
 

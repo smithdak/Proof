@@ -1,7 +1,7 @@
 ---
 id: P-0001
 title: Stabilize and qualify the current Release and read-authority baseline
-status: review
+status: done
 wave: now
 kind: qualification
 blocked_by: []
@@ -90,7 +90,7 @@ boundaries and regression attribution ambiguous.
 - [x] The intended baseline is committed and has no remaining uncommitted
       baseline changes; any pre-existing unrelated user work remains preserved
       and explicitly inventoried; no push occurred.
-- [ ] This item is `done`, the commit SHA is recorded, and P-0002/P-0003 are
+- [x] This item is `done`, the commit SHA is recorded, and P-0002/P-0003 are
       reshaped and promoted if their scopes remain valid.
 
 ## Required verification
@@ -140,8 +140,11 @@ Claimed by `codex:/root:p-0001` at `2026-08-17T13:48:31.664Z` from
 `3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d`.
 
 Implementation, independent falsification, and qualification are complete.
-This item is in `review` only long enough for the follow-up control-plane
-commit to bind the item-work commit SHA and promote its successors.
+The qualified implementation is commit
+`1fef16e8d0f9d355957abc6f973b3551a2c922cb`, whose parent is the recorded base
+SHA. The follow-up control-plane commit contains this completion record and is
+therefore not self-referenced. P-0001 completed at
+`2026-08-17T19:56:29.971Z`.
 
 ## Residual risks and next-wave update
 

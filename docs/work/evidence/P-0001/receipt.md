@@ -8,10 +8,10 @@ local baseline. Independent falsification found no unresolved high-severity
 integrity, authorization, migration, or evidence-acceptance defect in the
 qualified scope.
 
-The item-work commit is the commit containing this review record. Its SHA is
-`pending-completion-record` until the narrow follow-up control-plane commit
-records it without self-reference. Nothing was pushed, tagged, released, or
-published.
+The item-work commit is
+`1fef16e8d0f9d355957abc6f973b3551a2c922cb`. The narrow follow-up
+control-plane commit records it without self-reference. Nothing was pushed,
+tagged, released, or published.
 
 ## Revision and checkout
 

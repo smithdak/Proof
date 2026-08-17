@@ -1,8 +1,8 @@
 ---
 id: P-0003
 title: Ratify authenticated actor and Delegation semantics
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: decision
 blocked_by: [P-0001]
 claimed_by: null
@@ -101,7 +101,8 @@ the map. Cite prototypes or vectors used to falsify the chosen boundary.
 
 ## Completion record
 
-Blocked by P-0001.
+Ready after P-0001 qualified the Release and read-authority baseline at
+`1fef16e8d0f9d355957abc6f973b3551a2c922cb`.
 
 ## Residual risks and next-wave update
 

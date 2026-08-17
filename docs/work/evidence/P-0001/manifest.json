@@ -2,7 +2,7 @@
   "schema_version": 1,
   "item_id": "P-0001",
   "base_sha": "3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d",
-  "item_work_commit": "pending-completion-record",
+  "item_work_commit": "1fef16e8d0f9d355957abc6f973b3551a2c922cb",
   "branch": "main",
   "local_origin_main": "9f69e80cc631385b4f1942b76c584924d756aea9",
   "live_remote_verified": false,
