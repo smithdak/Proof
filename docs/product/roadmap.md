@@ -49,6 +49,49 @@ The roadmap is organized around complete capability loops rather than feature co
 - Stable MCP adapter with protocol negotiation.
 - Agent-security abuse cases and conformance tests.
 
+**Proposed P-0003 profile:** Milestone 2 uses distinct local per-Agent Ed25519
+proof-of-possession credentials, adapter-derived authenticated actor context,
+single-use signed command presentations, one direct Human-to-Agent
+`DelegationV2`, and a separately rooted append-only authority log. CLI and both
+MCP eras treat supplied Principal and Delegation identifiers as cross-checks or
+selectors, never authority. P-0006 then defines and qualifies the portable
+`AuthorityEvidenceBundleV1`, including an independently pinned authority-head
+checkpoint when rollback or latest-history completeness must be detected. The
+local SQLite-plus-file-signer profile does not prevent restoration of a valid
+older authority prefix or fork. This profile is pending project-owner acceptance
+and is not an implementation-status claim. Its normative definition is the
+[authenticated actor contract](../architecture/authenticated-actor.md).
+
+**Proposed P-0003 qualification boundary:** a process with the bootstrap Unix
+UID or private Workspace access remains inside Human/admin trust and can omit
+Agent authentication. Milestone 2 exit evidence must run the Agent under a
+distinct UID, container, or sandbox that denies repository, raw CLI, and private
+Workspace access and exposes only the Human-owned broker/adapter channel.
+Same-UID proof of possession proves attribution and integrity, not containment,
+and cannot satisfy the exit condition. If mutually hostile same-UID isolation
+becomes required, pivot to a protected broker or workload identity.
+
+The minimum local topology separates a Workspace-blind Agent-side signer from a
+Human-owned broker/verifier that alone opens the private Workspace and authority
+keys. `proof-mcp` stdio is one broker surface; CLI parity uses
+`proof auth execute --invocation -` with one bounded framed stdin/already-open-FD
+invocation. No Agent-controlled path or argv can make the broker open a file,
+and the ambient CLI remains Human-only. This adds no network/collaboration
+server.
+
+P-0004 implements the generic exact-set evaluator and reserves all 12 normative
+operation/action tokens, but exposes only current status/query/context
+operations. P-0002 and P-0005 own the exact content/Edit/Edition/Release resource
+closure and write enablement. If those operations need scope dimensions absent
+from `DelegationV2`, P-0003 must reopen and version the contract before
+acceptance.
+
+Authenticated status/query reads use no idempotency key: every fresh
+presentation is a distinct attempt that appends one consumption plus decision
+and returns a newly authorized current read. Their metadata is
+`evidence_write`, while governed content/projections remain unchanged under the
+proposed C4 security-evidence carve-out. ContextPack build remains idempotent.
+
 **Exit condition:** An agent can complete the north-star localization scenario without unrestricted repository access or privileged commands.
 
 ## Milestone 3 — Collaboration server
@@ -78,6 +121,11 @@ The roadmap is organized around complete capability loops rather than feature co
 - Performance and scale qualification.
 - Threat-model closure and external security review.
 - Signed release artifacts, SBOMs, provenance, and reproducible-build targets.
+
+Milestone 4 evidence export covers enterprise retention, custody, discovery,
+legal-hold, and managed distribution. It does not defer the narrower portable
+authority closure required by the **Proposed P-0003 profile** for Milestone 2
+independent verification.
 
 ## MVP definition
 

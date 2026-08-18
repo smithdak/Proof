@@ -16,9 +16,10 @@ This documentation separates durable product and architectural decisions from ch
 2. [Architecture overview](architecture/overview.md)
 3. [Domain model](architecture/domain-model.md)
 4. [Agent authority](architecture/agent-authority.md)
-5. [Proof model](architecture/proof-model.md)
-6. [Threat model](architecture/threat-model.md)
-7. [Testing strategy](architecture/testing.md)
+5. [Proposed authenticated actor contract](architecture/authenticated-actor.md)
+6. [Proof model](architecture/proof-model.md)
+7. [Threat model](architecture/threat-model.md)
+8. [Testing strategy](architecture/testing.md)
 
 ### Implement a compatible interface
 

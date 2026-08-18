@@ -29,28 +29,66 @@ evidence without trusting the producing Workspace or Agent.
 Re-shape the exact exit fixture and offline-verification input contract after
 P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
 
+## Proposed P-0003 profile reshape
+
+The following P-0003-dependent clauses are pending project-owner acceptance.
+They reshape future qualification only. This item remains blocked by P-0005.
+The controlling proposal is the
+[authenticated actor contract](../../architecture/authenticated-actor.md).
+P-0002 must settle write-resource closure before P-0003 owner review; this
+candidate profile therefore remains upstream-blocked and is not accepted.
+
 ## Authorized scope
 
-- Finalize the versioned Release predicate and a versioned
-  offline-verification input contract selected after P-0003/P-0005. It may be
-  a manifest plus supplied artifacts, a bundle, or another ratified
-  representation. Add independently produced golden vectors.
+- Finalize the versioned Release predicate and future
+  `AuthorityEvidenceBundleV1` selected after P-0003/P-0005. The exact container
+  remains a P-0006 decision, but it must carry or resolve a complete portable
+  authority closure under explicit caller trust. Add independently produced
+  golden vectors.
 - Export the transitive evidence closure required by P-0002/P-0003: the Release
   and required predecessor or rollback-target Releases; exact Environment
   configuration and policy bundle; Edition subjects and the ChangeSet/Edit
   evidence needed to recompute them; canonical validation results, submission,
-  and approval records; authorization inputs and result; Principal-binding
-  commitments; Delegation chain and revocations; ContextPack manifest; and
+  and approval records; public `requesting_subject_commitment` formed with the
+  canonical 32-byte blind;
+  `PrincipalBindingV1`; consumed `AuthenticatedCommandV1`; raw-UID-free
+  `AuthenticatedActorContextEvidenceV1`; direct
+  Human-to-Agent `DelegationV2` and applicable revocation `AuthorityRecordV1`
+  entries; `AuthorizationDecisionV2`; ContextPack manifest; and
   signing-key validity/revocation evidence plus explicit verifier trust policy.
   Where disclosure is withheld, include commitments and return an explicit
-  incomplete verdict.
+  incomplete verdict. Private requesting subject-plus-blind disclosure is
+  audit-policy controlled. Include an independently retained expected
+  authority-head checkpoint whenever the verifier must detect prefix truncation,
+  forks, or rollback rather than only validate a supplied prefix internally.
+  For root compromise, stop trust at the last independently pinned
+  pre-compromise checkpoint. A dual-signed attacker successor/fork is not
+  ordinary-rotation recovery; any new trust epoch/re-anchor is future explicit
+  caller trust.
 - Verify the selected representation in a clean directory without the
   Workspace database or any private key and without reusing the producer's
   reconstruction or serialization path.
 - Complete structured repair, budget, stale-context, prompt-injection, tool
   confusion, scope-probing, revocation, retry, restart, and tamper cases.
+- Under the **Proposed P-0003 profile**, add wrong-key, wrong-binding,
+  wrong-issuer/recipient, command substitution, expired presentation, consumed
+  `presentation_id`, authority-log rollback, unavailable authority root, and
+  parent/subdelegation/chain rejection cases.
+  Include a compromised-predecessor case that signs an attacker successor/fork
+  and proves verification cannot extend trust past the independent
+  pre-compromise checkpoint.
 - Run the selected north-star scenario through application contracts, CLI,
   stateless MCP, and legacy MCP without ambient authority.
+- Under the **Proposed P-0003 profile**, run the Agent workload under a distinct
+  UID, container, or sandbox that denies repository, raw CLI, bootstrap-UID, and
+  private Workspace access and exposes only the Human-owned broker/adapter
+  channel. Same-UID proof of possession is attribution/integrity evidence only
+  and cannot qualify bounded authority.
+  Launch the Workspace-blind Agent-side signer separately from the Human-owned
+  broker/verifier. Prove only the broker can open the Workspace and authority
+  keys. Exercise both `proof-mcp` stdio and
+  `proof auth execute --invocation -`; the latter receives one bounded framed
+  stdin/already-open-FD invocation and never an Agent-selected path or argv.
 - Update README, roadmap, work map, threat model, testing strategy, and
   changelog only when every exit criterion is evidenced.
 
@@ -60,6 +98,9 @@ P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
   enterprise deployment claim.
 - No requirement to store prompts or hidden model reasoning.
 - No “fully valid” verdict when required evidence is withheld.
+- No claim that the local file-backed profile isolates mutually hostile same-UID
+  processes. If that becomes required, pivot to a protected broker or workload
+  identity rather than treating per-Agent keys as containment.
 
 ## Acceptance criteria
 
@@ -67,7 +108,8 @@ P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
       change, structured repair, separate Human approval, delegated consequence,
       Release, and independent verification.
 - [ ] Clean-directory verification succeeds with explicit caller-supplied
-      public trust roots and trust policy, but without the producing Workspace
+      Release and separate authority public trust roots and trust policy, but
+      without the producing Workspace
       database, network resolution, private key, or trust in self-described
       envelope keys. It reports cryptographic, canonical, authority, policy,
       approval, subject, and evidence completeness separately.
@@ -77,6 +119,19 @@ P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
       causal position and timestamp. Expiration or revocation effective
       afterward is not retroactive; revocation, disablement, or invalid chain
       state effective before the action makes the authority verdict invalid.
+- [ ] Under the **Proposed P-0003 profile**, verification proves the subject
+      commitment using the canonical 32-byte-blind hiding-commitment vectors,
+      exact immutable `binding_id` plus its issuing authority sequence and
+      record digest, single consumption of the signed
+      command presentation, direct Human-to-Agent Delegation endpoints, and
+      `AuthorizationDecisionV2` at the recorded authority-log position. Any
+      chain or subdelegation input is rejected as unsupported. Actor-context
+      evidence uses only the public commitment; any private opening is disclosed
+      only under audit policy.
+- [ ] Portable closure carries or resolves the exact
+      `AuthenticatedActorContextEvidenceV1` canonical preimage persisted by
+      P-0004 and proves it contains no raw UID. It treats `authenticated_at` as
+      authentication completion time, not as authorization `evaluated_at`.
 - [ ] A complete authority/trust verdict requires every Principal binding,
       Delegation issuer, policy, and revocation record either to be covered by
       authenticated signed evidence or validated through explicit
@@ -85,8 +140,28 @@ P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
 - [ ] Tampering or withholding each required supplied component fails
       deterministically or yields an explicit incomplete verdict; it never
       overclaims validity.
+- [ ] `AuthorityEvidenceBundleV1` verification is implemented independently of
+      the producer's authority-log reconstruction and serialization path. A
+      valid Release signature without the required authority closure cannot
+      yield a complete authority verdict.
+- [ ] A verifier without an independently pinned expected authority head reports
+      only internal validity of the supplied signed prefix. Rollback,
+      truncation, fork, latest-history, or completeness claims require that
+      checkpoint and fail closed when it is absent or mismatched.
 - [ ] Capability discovery, errors, idempotency, and side-effect semantics match
       across application, CLI, and both MCP eras.
+- [ ] C4 idempotent-result disclosure occurs only after fresh C5 authentication
+      and current C6 authorization; revocation, Principal/binding disablement,
+      or policy denial after the original effect blocks its result on retry.
+- [ ] Under the **Proposed P-0003 profile**, authenticated Agent status/query
+      capabilities are `evidence_write` and omit MCP `readOnlyHint: true`, while
+      conformance independently proves that governed content remains unchanged.
+- [ ] The north-star evidence records a distinct-UID/container/sandbox Agent
+      denied repository, raw CLI, and private Workspace access and constrained
+      to the Human-owned broker/adapter channel. A same-UID run cannot satisfy
+      this criterion. It proves the signer cannot open the Workspace, authority
+      keys, or ambient Human CLI and cannot induce either broker surface to open
+      an Agent-selected path.
 - [ ] A traceability matrix enumerates C1-C24 with executable accepted/rejected
       coverage or a justified `not applicable` result, and covers every public
       error added or materially affected by Milestone 2.

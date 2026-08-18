@@ -41,6 +41,63 @@ Proof will:
 
 This position supersedes [ADR-0008](../decisions/0008-mcp-adapter-version.md) through [ADR-0010](../decisions/0010-dual-era-mcp.md).
 
+## Proposed P-0003 profile — local Agent command authentication
+
+Pending project-owner acceptance, local Agent proof of possession composes the
+existing standards rather than introducing a bearer-token format. The exact
+profile is the [authenticated actor contract](../architecture/authenticated-actor.md):
+
+- `AuthenticatedCommandV1` is a bounded DSSE envelope whose typed payload is
+  RFC 8785 canonical JSON.
+- DSSE `keyid` is an unsigned lookup hint only. After signature verification it
+  MUST equal the expected key resolved from the validly issued immutable
+  historical binding, enrollment
+  candidate, or Workspace authority state. A root-transition envelope contains
+  exactly two distinct verified signatures in predecessor-then-successor order;
+  duplicate, permuted, or substituted key IDs fail. Exact cases live under
+  [`conformance/v1/authority/`](../../conformance/v1/authority/README.md).
+- Canonical command and enrollment payloads are each limited to 4,096 bytes and
+  their complete DSSE envelopes to 16,384 bytes. A canonical
+  `AuthorityRecordV1` payload is limited to 65,536 bytes; a complete authority
+  or root-transition DSSE envelope is limited to 98,304 bytes. The
+  `AuthenticatedInvocation` broker frame is limited to 1,048,576 bytes in
+  addition to the selected operation's input cap.
+- The local Agent signature profile is Ed25519. The corresponding public key is
+  referenced by `PrincipalBindingV1`; the private key remains behind a protected
+  credential handle.
+- `presentation_id` uses UUIDv7 and is the single-use replay identity. External
+  issued-at and expiry values use RFC 3339 UTC; causal authority-log sequence,
+  not wall-clock order, resolves revocation races.
+- `DelegationV2`, `AuthorizationDecisionV2`, and `AuthorityRecordV1` use
+  versioned JSON Schemas, JCS canonical bytes, and algorithm-qualified,
+  domain-separated digests.
+- The complete normative
+  [`conformance/v1/authority/` digest registry](../../conformance/v1/authority/README.md)
+  defines every context. In particular, policy bundles use
+  `proof:policy-bundle:v1`, while authority and root-transition DSSE envelopes
+  use `proof:authority-record-envelope:v1`. Implementations do not infer
+  contexts by reverse-engineering vectors.
+- `requesting_subject_commitment` is a hiding commitment formed with a 32-byte
+  blind, not a raw UID checksum. Canonical actor-context evidence commits only
+  that public value; raw `os/unix` subject-plus-blind disclosure is controlled
+  by audit policy.
+- The authority hash chain detects mutation and reordering relative to a trusted
+  later authority head. A same-store signed prefix or fork remains internally
+  valid unless the verifier pins an independently retained expected authority
+  head or a later checkpoint that commits it.
+- If the predecessor authority private key is lost before a dual-signed root
+  transition, v1 continuity is unrecoverable. Preserving existing history is
+  required; a new epoch or re-anchor requires a future ADR and Schema plus
+  explicit caller trust.
+- The future P-0006 `AuthorityEvidenceBundleV1` authenticates its authority
+  closure under an explicit authority trust root separate from the
+  Release-signing root. Its exact container and golden vectors remain a P-0006
+  contract and are not implemented by P-0003 or P-0004.
+
+OAuth/OIDC, SPIFFE, JOSE access tokens, platform attestation, and KMS/HSM-backed
+credentials remain future identity-adapter choices. They do not alter the
+application actor-context contract or make transport/session metadata authority.
+
 ## Proof artifact profile
 
 The initial Release Proof combines:

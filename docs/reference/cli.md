@@ -29,8 +29,8 @@ Proposed global options:
 ```text
 --workspace <PATH|ID>     Select a Workspace
 --profile <NAME>          Select configuration and credentials
---principal <ID>          Select an operating Principal when policy permits
---delegation <ID>         Present an explicit Delegation
+--principal <ID>          Proposed P-0003 profile: cross-check expected Principal
+--delegation <ID>         Proposed P-0003 profile: select; never authenticates
 --output <FORMAT>         table | text | json | ndjson | yaml
 --color <WHEN>            auto | always | never
 --quiet                   Suppress non-result output
@@ -92,6 +92,106 @@ A ContextPack is a bounded, immutable package assembled from exact released Obje
 The standalone offline verifier checks canonical DSSE/in-toto bytes, a caller-supplied expected envelope digest, and the Ed25519 signature against a caller-supplied trusted key ID. It does not verify Workspace policy or persisted Release evidence. `release verify` is the operation that verifies the persisted local Release, Proof subjects, evidence, and configured trust.
 
 The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP `2025-11-25` for capability discovery, delegated Workspace status, delegated released-Object query, and ContextPack build. Modern requests are independent and carry protocol version plus client capabilities in per-request `_meta`; they do not require `initialize`. The server implements `server/discover`, returns `resultType: "complete"` on modern results, and publishes public cache hints for discovery and the deterministic tool registry. Legacy clients retain the `initialize` / `notifications/initialized` path. Every authority-bearing tool call supplies its Principal and Delegation explicitly; MCP session state is not authority. This is a read/evidence slice, not a delegated mutation or collaboration server.
+
+### Proposed P-0003 profile — authenticated Agent invocation
+
+This profile is pending project-owner acceptance and is not implemented by the
+current delegated read slice. The normative proposal is the
+[authenticated actor contract](../architecture/authenticated-actor.md).
+
+- `--profile` selects a protected local Agent credential handle. The profile
+  name and handle are configuration selectors, not authority.
+- `--principal` is an optional expected operating-Principal cross-check. The
+  identity adapter derives the operating Principal from a validly issued
+  immutable historical `PrincipalBindingV1`; a mismatch fails authentication,
+  while current binding state is evaluated during authorization.
+- `--delegation` selects one `DelegationV2`. The application derives the
+  requesting Human from its issuer and requires the authenticated Agent to be
+  its recipient.
+- The profile reserves the exact application action tokens
+  `changeset:create`, `changeset:add`, `changeset:get`, `changeset:diff`,
+  `changeset:validate`, `changeset:submit`, `changeset:commit`,
+  `edition:create`, and `release:create` for downstream P-0002/P-0005 work.
+  P-0004 implements the generic exact-set evaluator but exposes only the current
+  status, released-query, and ContextPack operations. The exact 12
+  operation-version-to-action entries are normative in the
+  [authenticated actor contract](../architecture/authenticated-actor.md) and
+  [`conformance/v1/authority/`](../../conformance/v1/authority/README.md); adapters reject
+  unknown pairs and never infer punctuation aliases. If downstream write
+  resources need scope dimensions absent from `DelegationV2`, P-0003 must
+  reopen and version the contract before those operations are exposed.
+- The CLI signs a fresh `AuthenticatedCommandV1` DSSE presentation through the
+  credential provider. The payload binds the Workspace, adapter audience,
+  operation and capability versions, normalized request digest,
+  `presentation_id`, Delegation, idempotency key where applicable, and time
+  bounds.
+- Modern and legacy MCP calls carry the same per-call signed presentation. MCP
+  carries it in `params._meta["dev.proof/authentication"]`; initialization,
+  stdio process lifetime, protocol metadata, and earlier calls provide no
+  identity or ambient authority.
+- Principal and Delegation identifiers in CLI or MCP input are cross-checks and
+  selectors. Possessing either identifier, a ContextPack, or an idempotency key
+  proves nothing about the caller.
+- A presentation is consumed once in the separately rooted authority log. A
+  logical retry creates a fresh presentation with the same idempotency key and
+  equivalent normalized request.
+- Persisted and ordinary exported actor evidence exposes the public
+  `requesting_subject_commitment`, a hiding commitment formed with a 32-byte
+  blind, and never treats it as a raw UID checksum. The actor-context digest
+  never includes the raw requesting `os/unix` subject or blind. An audit command
+  may disclose the private subject-plus-blind opening only when audit policy
+  authorizes it; canonical semantics live in the
+  [authenticated actor contract](../architecture/authenticated-actor.md).
+- Authenticated Agent `status` and query operations do not mutate governed
+  content, but they consume the presentation and append
+  `AuthorizationDecisionV2` evidence. Their capability side-effect class is
+  `evidence_write`; MCP MUST NOT publish `readOnlyHint: true`. Human ambient
+  reads that append no authority evidence may remain read-only.
+- Authenticated `status` and released-query calls keep `idempotency_key: null`.
+  Each fresh presentation is a distinct attempt, appends exactly one consumption
+  plus decision, and returns a newly authorized current read. This bounded
+  per-attempt security evidence is not a duplicate governed effect under the
+  proposed C4 carve-out: governed content and projections remain unchanged.
+  ContextPack build remains idempotent under its existing operation contract.
+
+The authenticated local Human path remains adapter-derived from ADR-0009 and
+does not impersonate an Agent merely because both processes share one Unix user.
+
+That shared-UID case is not containment under the **Proposed P-0003 profile**.
+A process with the bootstrap UID or private Workspace access is inside the
+Human/administrator trust boundary and can invoke the direct-Human CLI path
+without an Agent presentation. Bounded Agent authority therefore assumes a
+distinct UID, container, or sandbox with no repository, raw CLI, or private
+Workspace access; it reaches Proof only through the Human-owned broker or
+adapter channel. Same-UID proof of possession provides attribution and command
+integrity only.
+
+The minimum contained topology splits an Agent-side signer with no Workspace
+access from a Human-owned local broker/verifier that alone opens the private
+Workspace and authority keys. The signer emits exact normalized input plus its
+`AuthenticatedCommandV1` DSSE. Existing `proof-mcp` stdio is one broker surface.
+CLI parity uses the fixed Human-owned `proof auth execute --invocation -`
+surface, which reads one bounded framed invocation from stdin or an already-open
+file descriptor. The frame is at most 1,048,576 bytes and remains subject to the
+operation-specific input cap. No Agent-controlled argv, path, signed field, or
+MCP value may cause the privileged broker to open a file. Any path-taking mode
+is Human-only and outside the Agent transport. The ambient direct CLI is also
+Human-only. This adds no network or collaboration server.
+
+Only the enabled ADR-0009 bootstrap Human derived inside that broker may issue
+an enrollment challenge; enable or terminally disable a Principal; issue,
+revoke, or rotate a binding; issue or revoke a Delegation; or activate a root
+transition. Every administration actor field and `DelegationV2` issuer must
+equal the derived bootstrap Principal. No Agent or Delegation administers
+authority.
+
+Public authentication errors are proof-gated. Malformed structure may return
+`proof.auth.malformed`; a well-formed unknown binding/key and an invalid
+signature before proof both return public `proof.auth.denied`. Detailed
+`binding_not_found` or `signature_invalid` reasons are restricted to trusted
+audit/offline output. After a valid signature under a known historical key,
+audience, actor, time, inactive-binding, replay, and authorization detail may be
+public.
 
 Linux CI is the current quality gate. It does not establish release
 eligibility, signed artifacts, an SBOM, provenance, reproducibility, or public
@@ -267,6 +367,14 @@ Rules:
 - `warnings` never contain a condition that should have failed the command.
 - `meta` contains non-authoritative execution metadata.
 
+**Proposed P-0003 profile:** authority-bearing results add distinct requesting
+and operating Principal identifiers, exact `binding_id` plus its issuing
+authority sequence and record digest, semantic `CommandInputV1` digest,
+authenticated-command envelope digest, `DelegationV2` digest,
+`AuthorizationDecisionV2` digest, and `AuthorityRecordV1` position. Model and
+runtime metadata remain non-authoritative. Existing result Schemas retain their
+current meaning until versioned successors are implemented.
+
 ## Error envelope
 
 Failed commands return the shared Problem shape documented in [Error model](errors.md). In JSON mode, expected failures never require parsing stderr.
@@ -302,11 +410,23 @@ The key is scoped to Workspace, Principal, and operation. Proof stores a digest 
 - Same key and different input: return `proof.idempotency.key_reused`.
 - Unknown outcome after transport failure: retry with the same key.
 
+**Proposed P-0003 profile:** idempotency is evaluated only after a fresh
+`AuthenticatedCommandV1` has been verified, consumed, bound to the operating
+Principal, and authorized under current authority. C5 authentication and C6
+authorization precede C4 disclosure of a stored result. Retrying an unknown
+outcome uses the same idempotency key and normalized request but a new
+`presentation_id`. Replaying a consumed presentation fails; revocation,
+Principal or binding disablement, or policy denial also blocks the stored result.
+
 ## Explanation
 
 `--explain` returns a bounded decision explanation including:
 
 - Evaluated Principal and Delegation chain.
+- **Proposed P-0003 profile:** distinct requesting Human, authenticated
+  operating Agent, exact binding identifier and issuing authority
+  sequence/record digest, direct `DelegationV2`, and
+  authority-log position.
 - Requested action and resources.
 - Relevant policy identifiers and versions.
 - Allow, deny, or indeterminate result.

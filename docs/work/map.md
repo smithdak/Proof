@@ -61,7 +61,7 @@ only after the Milestone 2 exit scenario passes.
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `ready` | P-0001 | Decide the minimum content semantics that make the north-star scenario true. |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `ready` | P-0001 | Fix the local credential, subject-binding, Delegation, and anti-replay contract. |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `claimed` | P-0001 | Fix the local credential, subject-binding, Delegation, and anti-replay contract. |
 
 ## Next
 
@@ -89,14 +89,37 @@ P-0001 closed baseline qualification; no architecture or product decision item
 has closed yet. Existing ratified constraints are linked above; this section
 gains one-line results as decision items close.
 
+### Proposed P-0003 profile — pending owner decision
+
+P-0003 currently proposes local per-Agent Ed25519 proof of possession,
+adapter-derived `AuthenticatedActorContextV1`, single-use
+`AuthenticatedCommandV1` DSSE presentations, direct Human-to-Agent
+`DelegationV2`, `AuthorizationDecisionV2`, a separately rooted authority log of
+`AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
+both MCP eras would treat Principal and Delegation identifiers as cross-checks
+or selectors rather than authority. This is not a closed decision or an
+implementation-status claim; P-0003 remains `claimed`, and P-0004/P-0006 remain
+blocked.
+
+The candidate is not ready for owner review: P-0002 must first settle the exact
+content, Edit, Edition, and Release resource closure. Until then P-0003 is
+upstream-blocked in substance, P-0004 exposes no write path, and no item moves
+to `review` or `ready`. The lifecycle-field transition is reserved for the
+narrow control commit after this substantive proposal commit.
+
+The controlling proposal is the
+[authenticated actor contract](../architecture/authenticated-actor.md); the
+project owner has not accepted it.
+
 ## Fog — not yet specifiable as implementation
 
 - The collaboration-server decomposition: HTTP surface, PostgreSQL adapter,
   outbox, OIDC, SDKs, and human console. It sharpens only after P-0006.
 - Environment configuration update, disablement, and signing-key lifecycle.
-- The offline-verification representation selected after P-0003/P-0005:
-  embedded evidence, supplied artifacts, separate signatures, a manifest,
-  bundling, or another ratified form.
+- The **Proposed P-0003 profile** names a future
+  `AuthorityEvidenceBundleV1`; P-0006 still owns its exact container, supplied
+  artifact layout, independent serialization path, disclosure behavior, and
+  golden vectors after P-0005.
 - Windows identity, protected key storage, crash semantics, and live runtime
   qualification.
 - Cross-worktree claim locking, GitHub mirroring, and lifecycle automation

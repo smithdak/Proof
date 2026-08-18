@@ -63,9 +63,11 @@ content or authenticated-authority semantics remain provisional.
 - [ ] Wrong recipient, action, resource, locale, Environment, budget, expired or
       revoked Delegation, stale ContextPack/base state, replay mismatch, and
       approval bypass all fail structurally and atomically.
-- [ ] Revocation, Principal/binding disablement, parent-chain invalidation, or
-      applicable policy/configuration change between submission and consequence
-      is detected by re-authorization.
+- [ ] Under the proposed P-0003 profile, revocation, Principal/binding
+      disablement, direct-Delegation invalidation, or applicable
+      policy/configuration change between submission and consequence is detected
+      by re-authorization; parent or subdelegation input is rejected as
+      unsupported.
 - [ ] A controlled concurrency test proves that whichever of revocation and
       consequence commits first determines the result; no check-then-act window
       permits a post-revocation commit.
