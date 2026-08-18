@@ -1,6 +1,6 @@
 # ADR-0012: Represent localization as subordinate Object renditions
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Constitutional:** No
 
@@ -30,7 +30,7 @@ content correctness and authorization failures difficult to distinguish.
 ## Decision
 
 Adopt the [delegated localized-content contract](../architecture/delegated-content.md)
-as the proposed Milestone 2 content profile.
+as the Milestone 2 content profile.
 
 - A committed `ObjectRevisionV1` is the locale-neutral source for one task.
   Localization does not mutate or reinterpret it.
@@ -82,7 +82,7 @@ as the proposed Milestone 2 content profile.
 - Create P-0007 as a human-operated localized-content foundation prerequisite.
   P-0005 binds authenticated Agent authority only after P-0007 proves the
   content and release path. P-0003 is reopened after this decision to reconcile
-  its closed operation registry with the proposed v2 operation/resource
+  its closed operation registry with the accepted v2 operation/resource
   closure before P-0004 proceeds.
 
 ## Consequences

@@ -92,13 +92,13 @@ and returns a newly authorized current read. Their metadata is
 `evidence_write`, while governed content/projections remain unchanged under the
 proposed C4 security-evidence carve-out. ContextPack build remains idempotent.
 
-### Proposed P-0002 content sequence
+### Ratified P-0002 content sequence
 
-This candidate is pending project-owner acceptance and is not implemented. It
-selects a named content-foundation prerequisite rather than placing unproven
+This sequence is project-owner accepted but not implemented. It selects a
+named content-foundation prerequisite rather than placing unproven
 content semantics inside delegated mutation.
 
-- P-0007 would implement the Human-path localized content foundation before
+- P-0007 implements the Human-path localized content foundation before
   P-0005 enables Agent writes. It covers append-only `ObjectLocaleRevisionV1`
   renditions, repair by Edit supersession, exact-locale queries, versioned
   ChangeSet/Edition/Release artifacts, migration, and causal release checks.
@@ -122,7 +122,7 @@ content semantics inside delegated mutation.
   and proves that its full delta is exactly the one committed ChangeSet. An
   ambient current Edition or unrelated committed delta cannot be released under
   the operation's authority.
-- Candidate application contracts reserve `/v2` successors for
+- Ratified application contracts reserve `/v2` successors for
   `context.build`, `object.query_released`, all content-capable `changeset.*`
   operations, `edition.create`, and `release.create`. P-0003 must reconcile its
   operation registry with these reservations before owner review; reservation

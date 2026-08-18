@@ -1,6 +1,6 @@
 # Proof model
 
-**Status:** Ratified architecture; P-0002 content and P-0003 authority closure remain proposed
+**Status:** Ratified architecture; P-0002 content ratified, P-0003 authority closure proposed
 **Baseline:** August 3, 2026
 
 > **Proposed P-0003 profile:** The authority additions below are pending
@@ -8,8 +8,8 @@
 > claim that portable authority verification is implemented.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 >
-> **Proposed P-0002 profile:** The localized-content and exact-delta additions
-> below are pending project-owner acceptance. They require versioned Release and
+> **Ratified P-0002 profile:** The localized-content and exact-delta additions
+> below are project-owner accepted. They require versioned Release and
 > predicate artifacts and do not change existing Release Proof bytes. The
 > normative proposal is the
 > [delegated localized-content contract](delegated-content.md).
@@ -192,7 +192,7 @@ makes v1 continuity unrecoverable. Existing history remains verifiable, but no
 current-profile export may claim recovered continuity. A new authority epoch or
 re-anchor requires a future ADR and Schema plus explicit caller trust.
 
-## Proposed P-0002 profile — localized-content causality
+## Ratified P-0002 profile — localized-content causality
 
 The next localized-content Release predicate version commits enough evidence
 to distinguish an authorized target set from the exact state actually released.

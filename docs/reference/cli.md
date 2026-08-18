@@ -198,15 +198,15 @@ eligibility, signed artifacts, an SBOM, provenance, reproducibility, or public
 distribution. Windows builds and local test runs do not constitute live
 Windows runtime qualification or published Windows support.
 
-### Proposed P-0002 profile — exact-locale content mutation
+### Ratified P-0002 profile — exact-locale content mutation
 
-This candidate is pending project-owner acceptance and is not implemented. The
-current `proof.dev/edit/v1` create-only contract and its terminal validation
+This profile is project-owner accepted but not implemented. The current
+`proof.dev/edit/v1` create-only contract and its terminal validation
 rejection behavior remain authoritative until a versioned successor is built
 and migrated.
 
 The command grammar does not add direct Object mutation. Localized writes still
-enter through `changeset add`. Candidate application contracts reserve `/v2`
+enter through `changeset add`. Ratified application contracts reserve `/v2`
 successors for `context.build`, `object.query_released`, all content-capable
 `changeset.*` operations, `edition.create`, and `release.create`. The delegated
 profile uses `changeset.create/v2`, `changeset.add/v2`, `changeset.get/v2`,
@@ -214,7 +214,7 @@ profile uses `changeset.create/v2`, `changeset.add/v2`, `changeset.get/v2`,
 `changeset.commit/v2`, `edition.create/v2`, and `release.create/v2`; approval
 remains a separate Human operation. These are reservations, not advertised
 capabilities. P-0003 must reconcile its operation-version registry before this
-profile can be accepted or exposed.
+profile can be exposed.
 
 The one new content Edit is a complete localized-rendition put:
 
@@ -249,7 +249,7 @@ conflict; Proof never rebases the request silently.
 
 `content` is the full resolved localized JSON Object, not JSON Patch. It must
 validate against the exact immutable Schema and may differ from the source only
-at that Schema's proposed sorted `x-proof-localizable` RFC 6901 pointers. The
+at that Schema's ratified sorted `x-proof-localizable` RFC 6901 pointers. The
 Milestone 2 pointer profile excludes the root, containers, arrays, and
 overlapping ancestor/descendant pointers. A missing, empty, or malformed
 annotation grants no localizable field and makes the Edit invalid. The Edit
@@ -365,14 +365,14 @@ provenance. Any Schema, base Object, relationship, lifecycle, unrelated Object,
 or unrelated locale delta fails. This prevents unrelated state from riding an
 otherwise authorized release.
 
-The candidate artifact closure adds `ObjectLocaleRevisionV1`,
+The ratified artifact closure adds `ObjectLocaleRevisionV1`,
 `ChangeSetV2`/`EditBatchV2`/`ValidationResultsV2`, a locale-aware
 `KnownStateV2`, `EditionV2`, `ContextPackV2`, `ReleaseV2`, and
 `ReleaseProofPredicateV2`. Existing v1 artifacts, canonical bytes, digests,
 operations, and exact behavior remain reproducible. Migration creates no
 synthetic renditions; the first v2 content commit records the explicit one-way
 state-profile transition. Implementing and qualifying that foundation is the
-proposed P-0007 prerequisite, not P-0002 decision work.
+P-0007 prerequisite, not P-0002 decision work.
 
 Every base selector carries its exact Release, Edition, and Known State API
 version. The first v2 commit is permitted only when one current `ReleaseV1`,
@@ -517,11 +517,11 @@ Projection rebuild accepts `--dry-run` to reproduce and compare all derived stat
 ### Patches
 
 The implemented v1 profile has no Object update or patch operation. The
-**Proposed P-0002 profile** deliberately selects a full resolved
+**Ratified P-0002 profile** deliberately selects a full resolved
 `object.locale.put` rendition Edit rather than JSON Patch, Merge Patch, or
-generic Object replacement. That candidate does not authorize patch semantics
-for base Objects or other content and does not change v1 until accepted and
-implemented through P-0007.
+generic Object replacement. That profile does not authorize patch semantics
+for base Objects or other content and does not change v1 until implemented
+through P-0007.
 
 ### Timestamps and durations
 

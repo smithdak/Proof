@@ -11,6 +11,8 @@ All notable project changes are documented here. The format follows [Keep a Chan
   validator.
 - Added a repository-local rolling-wave work map with explicit claims,
   dependencies, review gates, completion evidence, and machine-checked state.
+- Ratified the exact-locale rendition contract: append-only repair, immutable
+  Human-issued resource intent, and causally closed Edition/Release semantics.
 - Added ordered `object.create` Edits with strict canonical input, Schema validation, atomic mixed ChangeSet commits, and immutable Object revisions.
 - Added Object-bearing Known State and Edition commitments while preserving Schema-only canonical digests.
 - Added versioned Environments, immutable promotion and rollback history, and portable Ed25519 DSSE/in-toto Release Proofs.

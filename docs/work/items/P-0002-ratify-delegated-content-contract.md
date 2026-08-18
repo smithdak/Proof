@@ -1,7 +1,7 @@
 ---
 id: P-0002
 title: Ratify the Milestone 2 delegated content contract
-status: review
+status: done
 wave: now
 kind: decision
 blocked_by: [P-0001]
@@ -9,8 +9,8 @@ claimed_by: codex:/root:p-0002
 claimed_at: 2026-08-18T01:07:37.311Z
 base_sha: d6532ffcd9ea00dc18c31005695a40692b1f8cc2
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-18T12:44:20.977Z
 ---
 
 # Ratify the Milestone 2 delegated content contract
@@ -167,7 +167,7 @@ relationships, and authorization closure.
       compatibility impacts are explicit.
 - [x] The north-star scenario and Milestone 2 exit condition no longer overclaim
       implemented or planned semantics.
-- [ ] The project owner explicitly accepts the decision before this item moves
+- [x] The project owner explicitly accepts the decision before this item moves
       from `review` to `done` or any implementation successor becomes `ready`.
 - [x] P-0005 and P-0006 are reshaped; any newly sharp prerequisite becomes a
       linked item, while remaining uncertainty stays in map fog.
@@ -196,9 +196,13 @@ The substantive candidate is committed at
 `694b723f2ef5e7c6b8a74d0bb5c6af6497fe0cc3`. Independent falsification found
 no remaining owner-review blocker after the validation-history, locale,
 v1-to-v2 bridge, resource-intent state, and P-0003/P-0007 dependency defects
-were closed. The item entered `review` at `2026-08-18T02:38:58.5989701Z`; ADR-0012
-remains Proposed, owner acceptance remains unset, and every successor remains
-blocked. See the [candidate decision receipt](../evidence/P-0002/receipt.md).
+were closed. The item entered `review` at `2026-08-18T02:38:58.5989701Z`.
+
+Project owner `smithdak` accepted the bounded decision at
+`2026-08-18T12:44:20.977Z`. ADR-0012 and the delegated localized-content
+contract are ratified. P-0003 and P-0007 are promoted to `ready`; this
+acceptance does not claim either successor or implement localized behavior.
+See the [candidate decision receipt](../evidence/P-0002/receipt.md).
 
 ## Residual risks and next-wave update
 

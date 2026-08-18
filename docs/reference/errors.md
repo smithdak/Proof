@@ -184,12 +184,11 @@ idempotent.
 - `proof.schema.type_mismatch`
 - `proof.relationship.invalid_target`
 
-#### Proposed P-0002 localized-content taxonomy
+#### Ratified P-0002 localized-content taxonomy
 
-The following codes are reserved by the P-0002 candidate. They are pending
-project-owner acceptance, are not implemented, and do not alter current v1
-Problems. If the candidate is accepted, their semantics are stable within the
-v2 operation contracts.
+The following codes are reserved by the accepted P-0002 contract. They are not
+implemented and do not alter current v1 Problems. Their semantics are stable
+within the v2 operation contracts.
 
 Operation-level Problems:
 

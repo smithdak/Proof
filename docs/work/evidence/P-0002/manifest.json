@@ -4,6 +4,7 @@
   "base_sha": "d6532ffcd9ea00dc18c31005695a40692b1f8cc2",
   "claim_commit": "a0ea6168bac68be363ab01dad855aeebe44182bc",
   "item_work_commit": "694b723f2ef5e7c6b8a74d0bb5c6af6497fe0cc3",
+  "acceptance_base_sha": "6abf680a316423cdb7910877a2660d59943db969",
   "branch": "main",
   "local_origin_main": "d6532ffcd9ea00dc18c31005695a40692b1f8cc2",
   "live_remote_verified": false,
@@ -29,19 +30,19 @@
       "surface": "windows",
       "command": "node scripts/check-work-items.mjs",
       "exit_code": 0,
-      "result": "seven work items passed metadata, lifecycle, dependency, map-parity, transition, and evidence checks"
+      "result": "seven work items passed metadata, lifecycle, dependency, map-parity, transition, and evidence checks after owner acceptance"
     },
     {
       "surface": "windows",
       "command": "node scripts/check-doc-links.mjs",
       "exit_code": 0,
-      "result": "156 internal documentation links resolved"
+      "result": "157 internal documentation links resolved after owner acceptance"
     },
     {
       "surface": "windows",
       "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
       "exit_code": 0,
-      "result": "47 Markdown files; 0 issues"
+      "result": "48 Markdown files; 0 issues after owner acceptance"
     },
     {
       "surface": "windows",
@@ -57,12 +58,12 @@
     }
   ],
   "artifact_digests": [
-    {"path": "docs/architecture/delegated-content.md", "algorithm": "sha256", "digest": "684cdc2357f236b9ffb52328e5409986965e55cf5644eed46f0888aae96fabb2"},
-    {"path": "docs/decisions/0012-localized-object-renditions.md", "algorithm": "sha256", "digest": "4adcdf4747dac28496672b8a1ba3f30b500b6926af7eaafe12f536964d6d7183"},
-    {"path": "docs/work/items/P-0007-implement-localized-content-foundation.md", "algorithm": "sha256", "digest": "9353e9613b787dd4ecd23602e307d73ca13c87c90f427f48e594c7784231b10c"},
-    {"path": "docs/reference/standards.md", "algorithm": "sha256", "digest": "48854efb06ba67551b2b3f2f4e0a49ddb6cf97893948d13f2785add4d6caac0a"},
-    {"path": "docs/reference/cli.md", "algorithm": "sha256", "digest": "fcc59474bc3994681bcfc1a182379d8db5aa6f8a5f5a8abb40ca2447258c850d"},
-    {"path": "docs/architecture/proof-model.md", "algorithm": "sha256", "digest": "d1944ecc55b1cdccfab0f40a367063dd6baaa5c82dae776848ef15d58eb79902"}
+    {"path": "docs/architecture/delegated-content.md", "algorithm": "sha256", "digest": "ce1ab8a510571a735ffbf2d37d7c650907b947485977f49cf810f7dc92eb3532"},
+    {"path": "docs/decisions/0012-localized-object-renditions.md", "algorithm": "sha256", "digest": "6e4b140b145f3278dc2f8ae613a87424eeb82279a100559987b4bacb6f676815"},
+    {"path": "docs/work/items/P-0007-implement-localized-content-foundation.md", "algorithm": "sha256", "digest": "7344be85589407ba23d8bef2972e927c507271433c1f488742672ff6f75f1e89"},
+    {"path": "docs/reference/standards.md", "algorithm": "sha256", "digest": "0c6c16a2db211243239245e21ec751b79c48fe67f1627c6832bffd0516305789"},
+    {"path": "docs/reference/cli.md", "algorithm": "sha256", "digest": "c8eee9959541ac34b63b5d3043928a12d49752150f9e2119b172ecae5868298c"},
+    {"path": "docs/architecture/proof-model.md", "algorithm": "sha256", "digest": "51a7dd2919bd1453230ae8e5a42ab8414c457e0bc18d90e502c6326fdb8f9fee"}
   ],
   "evidence_paths": [
     "docs/work/evidence/P-0002/receipt.md",
@@ -70,9 +71,12 @@
   ],
   "decision_state": {
     "candidate_qualified": true,
-    "owner_accepted": false,
-    "status_after_control_commit": "review",
-    "review_gate": "project-owner"
+    "owner_accepted": true,
+    "accepted_by": "smithdak",
+    "accepted_at": "2026-08-18T12:44:20.977Z",
+    "status_after_control_commit": "done",
+    "review_gate": "project-owner",
+    "successors_promoted": ["P-0003", "P-0007"]
   },
   "boundaries": {
     "code_changed": false,
@@ -81,7 +85,7 @@
     "released": false,
     "published": false,
     "provider_traffic": false,
-    "project_owner_accepted": false,
-    "adr_ratified": false
+    "project_owner_accepted": true,
+    "adr_ratified": true
   }
 }

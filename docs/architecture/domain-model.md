@@ -8,10 +8,10 @@
 > their current meaning until a versioned migration is implemented.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 >
-> **Proposed P-0002 profile:** Localized existing-Object mutation is modeled as
+> **Ratified P-0002 profile:** Localized existing-Object mutation is modeled as
 > a subordinate append-only rendition, not a second Object or a mutable locale
-> map inside `ObjectRevisionV1`. The proposal is pending project-owner
-> acceptance; its normative contract is
+> map inside `ObjectRevisionV1`. The profile is project-owner accepted; its
+> normative contract is
 > [delegated localized content](delegated-content.md).
 
 ## Aggregate map
@@ -89,7 +89,7 @@ An Object has:
 
 An Object has no public `update` operation. New revisions are proposed as Edits inside a ChangeSet.
 
-**Proposed P-0002 profile:** A committed `ObjectRevisionV1` is locale-neutral
+**Ratified P-0002 profile:** A committed `ObjectRevisionV1` is locale-neutral
 source content for localization. `ObjectLocaleRevisionV1` is a separate
 immutable revision stream keyed by exact `(object_id, locale)` and commits the
 source Object revision and Schema from which it was produced. A localized
@@ -112,7 +112,7 @@ Edits name their target, expected revision, operation, and value. Patch semantic
 
 Deletion is represented by a tombstone fact. Historical Editions and Proof subjects remain verifiable.
 
-**Proposed P-0002 profile:** Milestone 2 Agent mutation narrows the generic
+**Ratified P-0002 profile:** Milestone 2 Agent mutation narrows the generic
 direction above to `EditV2` kind `object.locale.put`. It supplies complete
 target content and may differ from its locale-neutral source only at sorted
 Schema-declared `x-proof-localizable` RFC 6901 string leaves. Generic Object
@@ -156,7 +156,7 @@ Draft → Validating → Ready → Submitted → Approved → Committed
 
 Only `Committed` changes authoritative content state. Approval does not guarantee commit: authority, policy, base state, and validation are rechecked at commit time.
 
-**Proposed P-0002 profile:** `ChangeSetV2` preserves invalid validation results
+**Ratified P-0002 profile:** `ChangeSetV2` preserves invalid validation results
 but returns to `Draft` so a repair may append a linear superseding Edit for the
 same exact Object and locale. Each repair names the invalid validation-result
 digest it addresses; validation results form a contiguous predecessor-digest
@@ -182,7 +182,7 @@ It contains or references:
 
 An Edition may represent the entire Workspace or a declared partition, provided the partition contract is explicit and verifiable. The MVP uses a Workspace-wide Edition for conceptual simplicity.
 
-**Proposed P-0002 profile:** A delegated `EditionV2` is Workspace-wide and must
+**Ratified P-0002 profile:** A delegated `EditionV2` is Workspace-wide and must
 equal the exact resulting state of one authorized `ChangeSetV2`. Its creation
 fails if another authoritative commit occurs after that ChangeSet result; it
 cannot snapshot ambient later state and attribute it to the earlier command.
@@ -206,7 +206,7 @@ A Release is an immutable record that makes one Edition current for one Environm
 
 Promotion and rollback create Releases. They never mutate an existing Release. An Environment's current pointer is a projection of the latest accepted Release fact.
 
-**Proposed P-0002 profile:** `ReleaseV2` requires the Environment current
+**Ratified P-0002 profile:** `ReleaseV2` requires the Environment current
 Release to remain the ContextPack's exact baseline and verifies that the target
 Edition delta contains only the localized rendition revisions produced by the
 one bound ChangeSet. Any unrelated Schema, source Object, relationship,
@@ -295,7 +295,7 @@ See [Agent authority](agent-authority.md).
 
 A ContextPack is a content-addressed task context artifact. It contains the minimum state and rules needed to propose work, plus an explicit capability boundary. It is evidence, not authority: possessing one does not grant permission to commit.
 
-### Proposed P-0002 localized-content profile
+### Ratified P-0002 localized-content profile
 
 Before delegated execution, an authenticated Human issues immutable
 `ContentResourceIntentV1` with one exact Environment baseline Release, Edition,
@@ -324,7 +324,7 @@ Generated ChangeSet, Edit, Edition, Release, and Proof identifiers are outcome
 selectors and evidence, not authority. P-0007 implements this content
 foundation for a Human path before P-0005 binds it to authenticated Agent
 authority. P-0003 must reconcile its closed write-operation registry with the
-v2 operation and resource closure after P-0002 owner acceptance.
+v2 operation and resource closure following P-0002 owner acceptance.
 
 ## Proposed P-0003 profile — portable authority closure
 

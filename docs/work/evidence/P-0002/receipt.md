@@ -1,16 +1,19 @@
-# P-0002 candidate decision receipt
+# P-0002 decision and acceptance receipt
 
 ## Outcome
 
 P-0002 produced a complete, falsified candidate for the Milestone 2 delegated
-content contract. It is not an accepted decision and does not describe an
-implemented capability. The substantive item-work commit is
+content contract. Project owner `smithdak` accepted that bounded decision at
+`2026-08-18T12:44:20.977Z`. The decision and ADR-0012 are ratified; the
+localized-content behavior remains unimplemented. The substantive item-work commit is
 `694b723f2ef5e7c6b8a74d0bb5c6af6497fe0cc3`; the preceding claim commit is
 `a0ea6168bac68be363ab01dad855aeebe44182bc`. This follow-up control commit
-binds that immutable work, releases the active claim to project-owner review,
-and leaves P-0003, P-0004, P-0005, P-0006, and P-0007 blocked.
+binds that immutable work and released the active claim to project-owner
+review. Acceptance closes P-0002 and promotes P-0003 and P-0007 to `ready`;
+P-0004, P-0005, and P-0006 remain blocked by their direct dependencies.
 
-Nothing was pushed, tagged, released, published, accepted, or implemented.
+Nothing was pushed, tagged, released, published, or implemented by the
+acceptance transition.
 
 ## Revision and inventory
 
@@ -22,10 +25,13 @@ Nothing was pushed, tagged, released, published, accepted, or implemented.
 | Starting HEAD / claim base | `d6532ffcd9ea00dc18c31005695a40692b1f8cc2` |
 | Claim commit | `a0ea6168bac68be363ab01dad855aeebe44182bc` |
 | Item-work commit | `694b723f2ef5e7c6b8a74d0bb5c6af6497fe0cc3` |
+| Acceptance base | `6abf680a316423cdb7910877a2660d59943db969` |
 | Local `origin/main` tracking ref | `d6532ffcd9ea00dc18c31005695a40692b1f8cc2` |
 | Live remote verification | Not performed |
 | Claim | `codex:/root:p-0002` at `2026-08-18T01:07:37.311Z` |
 | Candidate qualified | `2026-08-18T02:38:58.5989701Z` |
+| Accepted by | `smithdak` |
+| Accepted at | `2026-08-18T12:44:20.977Z` |
 
 The item-work commit changed 18 documentation and work-control paths. It added
 one architecture contract, one proposed ADR, and one blocked implementation
@@ -69,8 +75,10 @@ All final gates passed on the Windows checkout:
 - staged and unstaged diff checks: passed, with only checkout line-ending
   advisories.
 
-Because this item changes only proposal and control documentation, no runtime
-test result is claimed.
+The acceptance transition additionally passed seven-item work-control
+validation, 157 internal documentation links, Markdown lint over 48 files, and
+normalized diff checks. Because this item changes only decision and control
+documentation, no new runtime-test result is claimed by the transition.
 
 ## Falsification and residuals
 
@@ -102,9 +110,9 @@ Accepted candidate residuals:
 - general variants, fallback, deletion, base-Object mutation, dynamic subtree
   authority, and higher-cardinality performance remain deferred.
 
-Confidence is high that the candidate is decision-complete for project-owner
-review. The remaining uncertainty is implementation risk owned by P-0007, not
-an unresolved content or authority decision.
+Project-owner acceptance resolves the decision gate. The remaining uncertainty
+is implementation risk owned by P-0007 and authority-contract reconciliation
+owned by P-0003, not an unresolved P-0002 content decision.
 
 ## Evidence paths
 

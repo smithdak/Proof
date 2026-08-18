@@ -1,8 +1,8 @@
 ---
 id: P-0007
 title: Implement the localized content foundation
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: implementation
 blocked_by: [P-0002]
 claimed_by: null
@@ -110,7 +110,9 @@ databases, or generated translation text that cannot be checked in safely.
 
 ## Completion record
 
-Blocked by P-0002 owner acceptance.
+Ready after project owner `smithdak` accepted P-0002 at
+`2026-08-18T12:44:20.977Z`. The accepted contract and ADR-0012 are the
+implementation authority; no claim is active yet.
 
 ## Residual risks and next-wave update
 

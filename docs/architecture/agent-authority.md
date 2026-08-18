@@ -1,6 +1,6 @@
 # Agent authority and ContextPacks
 
-**Status:** Ratified direction; P-0002 and P-0003 additions remain proposed
+**Status:** Ratified direction; P-0002 additions ratified, P-0003 proposed
 **Baseline:** August 16, 2026
 
 > **Proposed P-0003 profile:** Every section carrying this label is pending
@@ -10,8 +10,8 @@
 > The complete proposal is the [authenticated actor contract](authenticated-actor.md);
 > this document summarizes its consequences for Agent authority.
 >
-> **Proposed P-0002 profile:** The localized-content resource closure below is
-> pending project-owner acceptance. Its normative definition is the
+> **Ratified P-0002 profile:** The localized-content resource closure below is
+> project-owner accepted. Its normative definition is the
 > [delegated localized-content contract](delegated-content.md). It introduces no
 > implemented Agent write capability.
 
@@ -220,9 +220,9 @@ malformed-input Problem. No partial prefix is evaluated. Supporting chained
 Delegation later requires a new versioned profile and migration/conformance
 decision.
 
-### Proposed P-0002 localized-content closure
+### Ratified P-0002 localized-content closure
 
-The existing `DelegationV2` dimensions are sufficient for the proposed
+The existing `DelegationV2` dimensions are sufficient for the ratified
 Milestone 2 localized-content path. One immutable `ContentResourceIntentV1`
 binds an exact Environment and sorted unique `(object_id, schema_id, locale)`
 targets. Every target Environment, Object, Schema, and locale MUST be a member
@@ -267,7 +267,7 @@ Environment baseline is unchanged and that the state delta is exactly the one
 bound ChangeSet, not merely a subset of the broad Delegation product.
 
 P-0003's proposed closed registry currently names v1 write operations and
-reserves their content closure. It must be reopened after P-0002 acceptance to
+reserves their content closure. It is reopened after P-0002 acceptance to
 reconcile the v2 operation/version pairs and exact resource projections before
 P-0004 proceeds. P-0007 proves the same content path under an authenticated
 Human before P-0005 enables it for an Agent.

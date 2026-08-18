@@ -59,21 +59,20 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `review` | P-0001 | Qualified exact-locale candidate awaits project-owner acceptance. |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `ready` | P-0001, P-0002 | Reconcile the qualified authentication candidate with the ratified localized-content closure. |
+| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `ready` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 ## Next
 
-These implementation items remain blocked until their decision dependencies
-close. Each must be re-read and reshaped before promotion to `ready`.
+These later implementation items remain blocked until their dependencies close.
+Each must be re-read and reshaped before promotion to `ready`.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `blocked` | P-0001, P-0002 | Qualified candidate awaits the delegated content/write-resource closure before owner review. |
 | [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `blocked` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
-| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `blocked` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 | [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
 
@@ -82,26 +81,26 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
 | [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |
+| [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `done` | P-0001 | Ratified exact-locale renditions, append-only repair, immutable resource intent, and causally closed Edition/Release semantics. |
 
 ## Decisions so far
 
-P-0001 closed baseline qualification; no architecture or product decision item
-has closed yet. Existing ratified constraints are linked above; this section
-gains one-line results as decision items close.
+P-0001 closed baseline qualification. P-0002 is the first closed product and
+architecture decision item; later decision results accumulate here.
 
-### Proposed P-0002 profile — awaiting owner review
+### Ratified P-0002 profile
 
-P-0002 proposes `ObjectLocaleRevisionV1` as a separate append-only rendition of
+P-0002 defines `ObjectLocaleRevisionV1` as a separate append-only rendition of
 an existing locale-neutral Object, one `proof.dev/edit/v2`
 `object.locale.put` Edit kind, append-only supersession repair, immutable exact
 resource intent, and Edition/Release causality tied to the unchanged preview
 baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
-`DelegationV2` resource dimension is required. P-0007 would implement and
+`DelegationV2` resource dimension is required. P-0007 implements and
 qualify that foundation through the Human path before P-0005 adds Agent
-authority. This is a candidate, not implemented or accepted behavior.
+authority. This is accepted semantics, not yet implemented behavior.
 
-### Proposed P-0003 profile — blocked on P-0002
+### Proposed P-0003 profile — ready for reconciliation
 
 P-0003 currently proposes local per-Agent Ed25519 proof of possession,
 adapter-derived `AuthenticatedActorContextV1`, single-use
@@ -110,13 +109,14 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras would treat Principal and Delegation identifiers as cross-checks
 or selectors rather than authority. This is not a closed decision or an
-implementation-status claim; P-0003 is `blocked`, and P-0004/P-0006 remain
+implementation-status claim; P-0003 is `ready`, and P-0004/P-0006 remain
 blocked.
 
-The candidate is not ready for owner review: P-0002 must first settle the exact
-content, Edit, Edition, and Release resource closure. Until then P-0003 is
-upstream-blocked, P-0004 exposes no write path, and no item moves to `review`
-or `ready`. The qualified candidate is bound by the
+The candidate is not yet ready for owner review. P-0002 has settled the exact
+content, Edit, Edition, and Release resource closure; P-0003 must now tighten
+its locale Schema, reconcile its operation registry and resource projections,
+and regenerate affected conformance vectors. P-0004 exposes no write path
+until that work is accepted. The qualified prior candidate is bound by the
 [P-0003 receipt](evidence/P-0003/receipt.md).
 
 The controlling proposal is the

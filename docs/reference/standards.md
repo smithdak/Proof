@@ -15,7 +15,7 @@ Proof uses established standards where they provide stable semantics or interope
 | Operational identifiers | [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562) | UUIDv7 for time-ordered operational IDs. |
 | Timestamps | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) | External UTC timestamps. |
 | Data locations | [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901) | JSON Pointer in findings and diagnostics. |
-| Locale identifier lineage | [RFC 5646 / BCP 47](https://www.rfc-editor.org/rfc/rfc5646) | Informative syntax lineage for Proof's proposed restricted locale casing/profile; not a claim of full BCP 47 acceptance, registry canonicalization, or matching. |
+| Locale identifier lineage | [RFC 5646 / BCP 47](https://www.rfc-editor.org/rfc/rfc5646) | Informative syntax lineage for Proof's restricted locale casing/profile; not a claim of full BCP 47 acceptance, registry canonicalization, or matching. |
 | HTTP API description | [OpenAPI Specification 3.2.0](https://spec.openapis.org/oas/v3.2.0.html) | Machine-readable HTTP operations, schemas, security requirements, and examples. |
 | HTTP errors | [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) | Problem Details representation. |
 | OAuth security | [RFC 9700 / BCP 240](https://www.rfc-editor.org/rfc/rfc9700) | Security baseline for OAuth-based enterprise adapters. |
@@ -26,10 +26,10 @@ Proof uses established standards where they provide stable semantics or interope
 | Telemetry | [OpenTelemetry specifications](https://opentelemetry.io/docs/specs/) | Trace, metric, and log export. |
 | Workload identity | [SPIFFE specifications](https://spiffe.io/docs/latest/spiffe-specs/) | Optional enterprise service and agent workload identity. |
 
-## Proposed P-0002 restricted locale profile
+## Ratified P-0002 restricted locale profile
 
-Pending project-owner acceptance and not implemented, P-0002 reuses the exact
-locale syntax already reserved by `DelegationV2`:
+Accepted but not implemented, P-0002 selects this exact restricted locale
+syntax:
 
 ```regex
 ^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$
@@ -41,7 +41,7 @@ alpha or three-digit region, and zero or more lowercase syntactically
 restricted variants. It excludes extensions, private-use sequences,
 grandfathered forms, registry alias resolution, suppress-script normalization,
 and likely-subtag inference. A syntactically valid BCP 47 tag outside this
-subset is therefore not a valid Proof locale in this candidate.
+subset is therefore not a valid Proof locale in this profile.
 
 Stored locale bytes are matched exactly and case-sensitively and sorted by
 unsigned UTF-8 byte order where canonical sets require ordering. Proof neither

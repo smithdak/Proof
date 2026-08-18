@@ -1,8 +1,8 @@
 ---
 id: P-0003
 title: Ratify authenticated actor and Delegation semantics
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: decision
 blocked_by: [P-0001, P-0002]
 claimed_by: null
@@ -162,10 +162,9 @@ checkpoint is `cf4e57d0ace70e80377d16b57e43b6099129e0d0`; the integrated item-wo
 commit is `b124b2491dfd787df1a562786f122fb6e62a1497`.
 
 The candidate, machine contracts, vectors, downstream shaping, and independent
-falsification are complete. The claim is released to `blocked`, not advanced to
-`review`: P-0002 must first decide the delegated content and write-resource
-closure. If that decision needs a resource dimension absent from
-`DelegationV2`, P-0003 and its Schemas must reopen or version before owner
+falsification are complete. P-0002 subsequently ratified the delegated content
+and write-resource closure. P-0003 is now `ready` to reconcile its operation
+registry and locale Schema with that accepted contract before entering owner
 review. ADR-0011 remains Proposed, C4 remains unchanged, and P-0004 remains
 blocked. See the [qualification receipt](../evidence/P-0003/receipt.md).
 

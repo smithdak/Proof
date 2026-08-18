@@ -20,9 +20,9 @@ The CMS boundary contains the capabilities required to define, govern, publish, 
 - Query and content-delivery contracts.
 - Complete history and reproducible state.
 
-**Proposed P-0002 Milestone 2 slice:** pending project-owner acceptance and not
-implemented, Milestone 2 would support one deliberately narrower localization
-profile. An existing locale-neutral Object revision is the source; each target
+**Ratified P-0002 Milestone 2 slice:** accepted but not yet implemented,
+Milestone 2 supports one deliberately narrower localization profile. An
+existing locale-neutral Object revision is the source; each target
 is an append-only localized rendition keyed by an exact `(object_id, locale)`
 pair. The operation permits create or exact-revision replacement of that
 rendition and no mutation of the source Object, Schema, relationships, or
@@ -59,11 +59,11 @@ broader locale, variant, and fallback scope above remains later product scope.
 - Idempotent consequential commands.
 - CLI, API, SDK, and MCP adapters over the same application contracts.
 
-The **Proposed P-0002** sequence adds P-0007 as a named content-foundation
-prerequisite. P-0007 would first implement the localized-rendition, repair,
+The **Ratified P-0002** sequence adds P-0007 as a named content-foundation
+prerequisite. P-0007 first implements the localized-rendition, repair,
 query, Edition, Release, and migration contracts on the authenticated Human
-path. Delegated write enablement would then compose those proven content
-semantics with the authorization kernel; it would not invent a separate Agent
+path. Delegated write enablement then composes those proven content semantics
+with the authorization kernel; it does not invent a separate Agent
 content model.
 
 ### Enterprise operation

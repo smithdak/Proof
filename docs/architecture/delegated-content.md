@@ -1,6 +1,6 @@
 # Delegated localized-content contract
 
-**Status:** Proposed by P-0002; not ratified
+**Status:** Ratified by P-0002 and ADR-0012
 
 **Version:** 0.1
 
@@ -9,15 +9,15 @@
 **Review gate:** Project owner
 
 This contract defines the smallest complete content-mutation profile required
-for the Milestone 2 north-star scenario. It is a proposal until
-[ADR-0012](../decisions/0012-localized-object-renditions.md) is accepted. It
-does not describe implemented behavior. The current implementation supports
+for the Milestone 2 north-star scenario. Project-owner acceptance of P-0002
+ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It does
+not describe implemented behavior. The current implementation supports
 only `schema.create` and `object.create`, uses v1 ChangeSet and release
 artifacts, and treats failed validation as terminal rejection.
 
 P-0007 implements and proves the human-operated content foundation defined
 here. P-0005 may bind authenticated Agent authority to it only after that
-foundation exists. P-0003 must be reopened after P-0002 acceptance because its
+foundation exists. P-0003 is reopened after P-0002 acceptance because its
 closed operation registry currently names v1 write operations without this
 content and release resource closure.
 
@@ -50,7 +50,7 @@ and Schema scope while the Delegation locale dimension constrains only the
 rendition being written. The write cannot alter the source through
 `object.locale.put`.
 
-The proposed guarantee is:
+The ratified bounded guarantee is:
 
 > For an exact pre-existing Environment baseline and finite target set, Proof
 > can show that one authorized ChangeSet added only the permitted localized
@@ -64,7 +64,7 @@ hierarchy, path prefix, inferred related Object, or future Object.
 
 ## Invariants
 
-The following requirements are normative if ADR-0012 is accepted.
+The following requirements are normative.
 
 - **L1 — Stable logical identity.** Localization MUST NOT mint a second Object.
   `ObjectLocaleRevisionV1` is subordinate to the existing Object and is keyed
@@ -782,7 +782,7 @@ grant. Exact pre-resolved identifiers are the correct Milestone 2 boundary.
 
 ## Current-source basis
 
-This proposal was derived from the repository state claimed by P-0002. At that
+This contract was derived from the repository state claimed by P-0002. At that
 state, only `schema.create` and `object.create` Edits exist; Object revisions,
 Object sets, Known State, ChangeSets, ContextPacks, Editions, Releases, Release
 Proofs, and released-object query contracts are v1; validation failure seals a
@@ -790,5 +790,5 @@ ChangeSet as rejected; Editions are Workspace-wide; and `DelegationV2` already
 contains exact Environment, Object, Schema, and locale dimensions plus the
 reserved ChangeSet/Edition/Release action vocabulary.
 
-Those facts make the proposed version boundary and P-0007 prerequisite
+Those facts make the accepted version boundary and P-0007 prerequisite
 necessary. They are not evidence that the new behavior is implemented.
