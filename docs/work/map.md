@@ -59,7 +59,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `claimed` | P-0001 | Decide the minimum content semantics that make the north-star scenario true. |
+| [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `review` | P-0001 | Qualified exact-locale candidate awaits project-owner acceptance. |
 
 ## Next
 

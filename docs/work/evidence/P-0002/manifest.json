@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "item_id": "P-0002",
+  "base_sha": "d6532ffcd9ea00dc18c31005695a40692b1f8cc2",
+  "claim_commit": "a0ea6168bac68be363ab01dad855aeebe44182bc",
+  "item_work_commit": "694b723f2ef5e7c6b8a74d0bb5c6af6497fe0cc3",
+  "branch": "main",
+  "local_origin_main": "d6532ffcd9ea00dc18c31005695a40692b1f8cc2",
+  "live_remote_verified": false,
+  "qualified_at": "2026-08-18T02:38:58.5989701Z",
+  "inventory": {
+    "changed_paths": 18,
+    "documentation_and_control_files": 18,
+    "rust_source_files": 0,
+    "architecture_contracts_added": 1,
+    "proposed_adrs_added": 1,
+    "work_items_added": 1,
+    "unrelated_paths": []
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "node": "v26.1.0",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "1.97.1 (c980f4866 2026-06-30)",
+    "git": "2.43.0.windows.1"
+  },
+  "commands": [
+    {
+      "surface": "windows",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "seven work items passed metadata, lifecycle, dependency, map-parity, transition, and evidence checks"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "156 internal documentation links resolved"
+    },
+    {
+      "surface": "windows",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
+      "exit_code": 0,
+      "result": "47 Markdown files; 0 issues"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo fmt --all --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "git -c safe.directory=D:/github/Proof diff --cached --check",
+      "exit_code": 0,
+      "result": "passed with checkout line-ending advisories only"
+    }
+  ],
+  "artifact_digests": [
+    {"path": "docs/architecture/delegated-content.md", "algorithm": "sha256", "digest": "684cdc2357f236b9ffb52328e5409986965e55cf5644eed46f0888aae96fabb2"},
+    {"path": "docs/decisions/0012-localized-object-renditions.md", "algorithm": "sha256", "digest": "4adcdf4747dac28496672b8a1ba3f30b500b6926af7eaafe12f536964d6d7183"},
+    {"path": "docs/work/items/P-0007-implement-localized-content-foundation.md", "algorithm": "sha256", "digest": "9353e9613b787dd4ecd23602e307d73ca13c87c90f427f48e594c7784231b10c"},
+    {"path": "docs/reference/standards.md", "algorithm": "sha256", "digest": "48854efb06ba67551b2b3f2f4e0a49ddb6cf97893948d13f2785add4d6caac0a"},
+    {"path": "docs/reference/cli.md", "algorithm": "sha256", "digest": "fcc59474bc3994681bcfc1a182379d8db5aa6f8a5f5a8abb40ca2447258c850d"},
+    {"path": "docs/architecture/proof-model.md", "algorithm": "sha256", "digest": "d1944ecc55b1cdccfab0f40a367063dd6baaa5c82dae776848ef15d58eb79902"}
+  ],
+  "evidence_paths": [
+    "docs/work/evidence/P-0002/receipt.md",
+    "docs/work/evidence/P-0002/manifest.json"
+  ],
+  "decision_state": {
+    "candidate_qualified": true,
+    "owner_accepted": false,
+    "status_after_control_commit": "review",
+    "review_gate": "project-owner"
+  },
+  "boundaries": {
+    "code_changed": false,
+    "pushed": false,
+    "tagged": false,
+    "released": false,
+    "published": false,
+    "provider_traffic": false,
+    "project_owner_accepted": false,
+    "adr_ratified": false
+  }
+}

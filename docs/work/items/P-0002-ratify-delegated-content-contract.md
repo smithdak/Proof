@@ -1,7 +1,7 @@
 ---
 id: P-0002
 title: Ratify the Milestone 2 delegated content contract
-status: claimed
+status: review
 wave: now
 kind: decision
 blocked_by: [P-0001]
@@ -191,6 +191,14 @@ linked architecture, ADR, product/reference reconciliation, successor shape,
 evidence receipt, and independent falsification are committed. It then stops
 at `review`; nothing in this item constitutes project-owner acceptance or an
 implemented content capability.
+
+The substantive candidate is committed at
+`694b723f2ef5e7c6b8a74d0bb5c6af6497fe0cc3`. Independent falsification found
+no remaining owner-review blocker after the validation-history, locale,
+v1-to-v2 bridge, resource-intent state, and P-0003/P-0007 dependency defects
+were closed. The item entered `review` at `2026-08-18T02:38:58.5989701Z`; ADR-0012
+remains Proposed, owner acceptance remains unset, and every successor remains
+blocked. See the [candidate decision receipt](../evidence/P-0002/receipt.md).
 
 ## Residual risks and next-wave update
 
