@@ -89,3 +89,31 @@ Proof is not differentiated by including a text-generation button. Its different
 An enterprise delegates an agent authority to localize a product launch into two locales, but only for a specified campaign, content subtree, and preview Environment. Proof assembles the relevant schemas, source Objects, terminology, policies, and current state into a ContextPack. The agent proposes all changes in one ChangeSet. Proof rejects one prohibited legal-claim translation with a structured finding. The agent repairs the Edit without exceeding its scope. A human approves the resulting diff. Proof atomically commits the ChangeSet, creates an Edition, releases it to preview, and emits a signed Proof. Another operator independently verifies the Edition, authority chain, validations, approval, and released state.
 
 That complete loop—not content generation alone—is the product.
+
+### Proposed P-0002 interpretation
+
+This candidate interpretation is pending project-owner acceptance and is not
+implemented. It does not change the ratified north-star outcome.
+
+For Milestone 2, the campaign and content-subtree descriptions are task intent,
+not dynamic authorization resources. Before work begins, the Human resolves
+them to a finite, sorted set of exact Objects, Schemas, target locales, and one
+preview Environment and issues an immutable resource-intent control artifact.
+The Agent
+cannot create, narrow, or widen it. The ContextPack, ChangeSet, Delegation, and
+authorization evidence all bind that closed set. Proof does not infer a
+campaign entity, hierarchy, path prefix, or descendant grant from prose.
+
+Each existing locale-neutral Object revision is the immutable source for this
+operation. A localized result is a separate append-only rendition identified by
+the exact `(object_id, locale)` pair. Localization cannot mutate the source
+Object, relationships, lifecycle, or Schema; does not select a general variant;
+and performs no locale fallback. Repair appends a superseding Edit inside the
+same ChangeSet rather than rewriting the failed attempt.
+
+The preview Release is valid only when its baseline Environment Release is
+unchanged and its Edition is the exact causal result of that one approved
+ChangeSet. Unrelated committed state cannot ride along with the delegated
+release. The proposed mechanism and versioned artifacts are defined by P-0002;
+P-0007 would implement and qualify the content foundation before delegated
+mutation is enabled.

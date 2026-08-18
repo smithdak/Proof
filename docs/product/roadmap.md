@@ -92,6 +92,47 @@ and returns a newly authorized current read. Their metadata is
 `evidence_write`, while governed content/projections remain unchanged under the
 proposed C4 security-evidence carve-out. ContextPack build remains idempotent.
 
+### Proposed P-0002 content sequence
+
+This candidate is pending project-owner acceptance and is not implemented. It
+selects a named content-foundation prerequisite rather than placing unproven
+content semantics inside delegated mutation.
+
+- P-0007 would implement the Human-path localized content foundation before
+  P-0005 enables Agent writes. It covers append-only `ObjectLocaleRevisionV1`
+  renditions, repair by Edit supersession, exact-locale queries, versioned
+  ChangeSet/Edition/Release artifacts, migration, and causal release checks.
+- The existing `ObjectRevisionV1` remains the locale-neutral source.
+  `object.locale.put` can create an absent rendition or replace an exact
+  revision and digest for one `(object_id, locale)` target. It cannot mutate the
+  source Object, Schema, relationships, or lifecycle and cannot invoke fallback
+  or general variant selection.
+- A ChangeSet carries immutable resource intent for one Environment, one
+  ContextPack and digest, one base Known State, one expected baseline Release,
+  and a sorted finite set of exact Object/Schema/locale targets. The north-star
+  campaign and content subtree are resolved by an authenticated Human into a
+  separately persisted intent that the Agent cannot replace or narrow; neither
+  is a grant dimension or a runtime hierarchy query.
+- Invalid validation remains repairable in the versioned ChangeSet contract.
+  A repair appends a same-target superseding Edit, while validation, approval,
+  commit, and Proof evidence bind the complete attempt history and final active
+  leaves.
+- Edition creation binds the exact sequence produced by the authorized commit.
+  Release creation requires the expected Environment Release to remain current
+  and proves that its full delta is exactly the one committed ChangeSet. An
+  ambient current Edition or unrelated committed delta cannot be released under
+  the operation's authority.
+- Candidate application contracts reserve `/v2` successors for
+  `context.build`, `object.query_released`, all content-capable `changeset.*`
+  operations, `edition.create`, and `release.create`. P-0003 must reconcile its
+  operation registry with these reservations before owner review; reservation
+  is not capability advertisement.
+
+If accepted, P-0005 depends on both P-0007 and P-0004 and supplies authenticated
+Agent authority, adapter parity, and end-to-end delegated evidence. P-0006 then
+qualifies the complete north-star loop and portable verification. Until those
+items pass, the Milestone 2 exit condition remains unmet.
+
 **Exit condition:** An agent can complete the north-star localization scenario without unrestricted repository access or privileged commands.
 
 ## Milestone 3 — Collaboration server

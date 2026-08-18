@@ -15,6 +15,7 @@ Proof uses established standards where they provide stable semantics or interope
 | Operational identifiers | [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562) | UUIDv7 for time-ordered operational IDs. |
 | Timestamps | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) | External UTC timestamps. |
 | Data locations | [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901) | JSON Pointer in findings and diagnostics. |
+| Locale identifier lineage | [RFC 5646 / BCP 47](https://www.rfc-editor.org/rfc/rfc5646) | Informative syntax lineage for Proof's proposed restricted locale casing/profile; not a claim of full BCP 47 acceptance, registry canonicalization, or matching. |
 | HTTP API description | [OpenAPI Specification 3.2.0](https://spec.openapis.org/oas/v3.2.0.html) | Machine-readable HTTP operations, schemas, security requirements, and examples. |
 | HTTP errors | [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) | Problem Details representation. |
 | OAuth security | [RFC 9700 / BCP 240](https://www.rfc-editor.org/rfc/rfc9700) | Security baseline for OAuth-based enterprise adapters. |
@@ -24,6 +25,37 @@ Proof uses established standards where they provide stable semantics or interope
 | Agent protocol | [MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28) and [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) | Stateless current contract with initialization-based legacy compatibility. |
 | Telemetry | [OpenTelemetry specifications](https://opentelemetry.io/docs/specs/) | Trace, metric, and log export. |
 | Workload identity | [SPIFFE specifications](https://spiffe.io/docs/latest/spiffe-specs/) | Optional enterprise service and agent workload identity. |
+
+## Proposed P-0002 restricted locale profile
+
+Pending project-owner acceptance and not implemented, P-0002 reuses the exact
+locale syntax already reserved by `DelegationV2`:
+
+```regex
+^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$
+```
+
+This is a Proof canonical identifier profile, not a complete BCP 47 parser.
+It permits a lowercase language, optional title-case script, optional uppercase
+alpha or three-digit region, and zero or more lowercase syntactically
+restricted variants. It excludes extensions, private-use sequences,
+grandfathered forms, registry alias resolution, suppress-script normalization,
+and likely-subtag inference. A syntactically valid BCP 47 tag outside this
+subset is therefore not a valid Proof locale in this candidate.
+
+Stored locale bytes are matched exactly and case-sensitively and sorted by
+unsigned UTF-8 byte order where canonical sets require ordering. Proof neither
+rewrites nor rejects registry aliases: a syntactically valid alias is a literal
+identifier distinct from its modern registry replacement. Proof performs no
+language, script, region, or parent-locale fallback. Expanding this profile or
+adding registry-aware equivalence or fallback changes content and authorization
+semantics and requires a versioned contract.
+
+The still-Proposed P-0003 `DelegationV2` Schema currently permits mixed-case
+variant characters. P-0003 must tighten that unaccepted pattern and regenerate
+its conformance vectors before owner review. Until then, this P-0002 grammar is
+the narrower content-operation input rule; a broader grant string authorizes no
+localized-content operation.
 
 ## MCP version position
 

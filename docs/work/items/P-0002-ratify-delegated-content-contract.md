@@ -46,6 +46,90 @@ A create-only loop may be raised only as a product re-charter requiring explicit
 project-owner authorization; it cannot satisfy this item autonomously by
 weakening the already-ratified Milestone 2 exit condition.
 
+## Proposed resolution
+
+Accept route 1 as the content contract and route 2 as the delivery sequence:
+ratify the minimum existing-Object localization semantics now, implement them
+through the Human path in P-0007, and only then bind Agent authority in P-0005.
+The complete candidate is the
+[delegated content contract](../../architecture/delegated-content.md), recorded
+by proposed
+[ADR-0012](../../decisions/0012-localized-object-renditions.md).
+
+The minimum supported user outcome is exact-locale localization of an existing
+Object. Existing `ObjectRevisionV1` content remains the immutable,
+locale-neutral source. `proof.dev/edit/v2` adds one mutation kind,
+`object.locale.put`, which creates or revises a separate append-only
+`ObjectLocaleRevisionV1` identified by the stable Object ID and one restricted
+canonical locale. The Edit carries the complete proposed localized content and
+exact source/target preconditions. It cannot mutate the source Object, Schema,
+relationships, lifecycle, or another locale.
+
+Schema metadata declares a sorted, non-overlapping set of localizable JSON
+Pointer leaves. Localized content must remain equal to the source at every
+other location and must validate against the same exact Schema. A missing
+target precondition creates revision 1; an exact prior target revision and
+digest creates revision N+1. Full replacement was selected instead of JSON
+Patch so canonical bytes, conflict behavior, and effective validation do not
+depend on patch ordering or path-alias rules.
+
+Repair is append-only. A new Edit may supersede only the current effective head
+for the same ChangeSet, Object, and locale. Forks, cycles, cross-target edges,
+and superseding an already superseded attempt fail. Every attempt remains
+evidence and counts toward the edit budget; effective heads alone drive diff,
+validation, and commit. Under ChangeSet v2, a deterministic validation failure
+persists its findings and leaves the proposal editable. A successful
+validation seals the complete lineage and effective digest for submission and
+approval. Existing v1 terminal-rejection semantics do not change.
+
+One direct `DelegationV2` is sufficient. Campaign and content-subtree selection
+must resolve through an authenticated Human-issued immutable resource-intent
+control artifact before Agent execution. It is effect-bound operational
+evidence, not an authoritative content fact, and does not advance Known State
+or the content sequence. The grant contains one Environment and exact
+Object, derived Schema, and target-locale sets;
+ChangeSet, Edit, Edition, and Release IDs are generated selectors and evidence,
+not authority dimensions. The base Object is readable by exact Object/Schema
+scope but is not a locale rendition and no delegated v2 Edit can mutate it.
+Consequently, including target locales does not create source-write authority.
+The grant's dimension product is only an upper bound; every operation must use
+the complete stored intent tuple set, which the Agent cannot create, narrow, or
+widen. That record also prevents arbitrary non-rectangular Object/locale
+combinations from being selected by the Agent.
+If a later product decision makes the source itself a locale-scoped rendition,
+requires field/path or dynamic-subtree authority, or requires another variant
+axis, this decision fails closed and P-0003 must version `DelegationV2` before
+owner acceptance.
+
+The consequence path is causally closed. The ChangeSet binds the Human-issued
+resource-intent digest and the ContextPack built from it, including the baseline
+Environment Release and Edition, base Known State, and exact
+Object/Schema/target-locale tuples. Edition creation must select the exact
+authorized commit result, not ambient current state. Release creation must
+atomically recheck the unchanged baseline Environment pointer and prove that
+the baseline-to-candidate delta is exactly that committed localized closure.
+An unrelated or intervening same-resource commit cannot hitchhike. Milestone 2
+requires a pre-existing baseline preview Release.
+
+The new behavior uses versioned ChangeSet, validation, ContextPack, Known
+State, Edition, Release, Proof-predicate, and released-query contracts. Every
+base reference includes its exact API version. The first v2 commit is a
+predecessor-bound transition from one clean v1 baseline; later v1 mutations
+fail rather than discard rendition state, while historical v1 verification
+remains supported. All existing v1 authoritative and portable bytes remain
+reproducible; migrations fabricate no locale facts. Exact-locale delivery has
+no fallback. Generic
+variants, fallback, deletion, base-Object replacement, relationship/lifecycle
+mutation, migration Edits, campaign entities, and subtree traversal remain
+deferred.
+
+The strongest alternative is a generic JSON Patch operation with field/path
+authority. It is rejected because Proof has no stable Field identity, JSON
+Pointer authority is Schema-version fragile, and patch ordering adds semantic
+ambiguity without improving the selected whole-rendition outcome. Modeling one
+Object per locale is also rejected because it duplicates logical identity,
+relationships, and authorization closure.
+
 ## Authorized scope
 
 - Inspect product, domain, canonicalization, validation, ChangeSet, Known State,
@@ -73,19 +157,19 @@ weakening the already-ratified Milestone 2 exit condition.
 
 ## Acceptance criteria
 
-- [ ] The decision names the minimum supported user outcome and rejected
+- [x] The decision names the minimum supported user outcome and rejected
       alternative, with mechanism-level rationale.
-- [ ] Every required Edit kind and state transition has a canonical input,
+- [x] Every required Edit kind and state transition has a canonical input,
       conflict rule, validation rule, and authoritative projection consequence.
-- [ ] Delegation scope dimensions are sufficient to constrain the selected
+- [x] Delegation scope dimensions are sufficient to constrain the selected
       content behavior without relying on path prefixes or prose alone.
-- [ ] Schema, migration, Known State, Edition, Release, query, and proof-format
+- [x] Schema, migration, Known State, Edition, Release, query, and proof-format
       compatibility impacts are explicit.
-- [ ] The north-star scenario and Milestone 2 exit condition no longer overclaim
+- [x] The north-star scenario and Milestone 2 exit condition no longer overclaim
       implemented or planned semantics.
 - [ ] The project owner explicitly accepts the decision before this item moves
       from `review` to `done` or any implementation successor becomes `ready`.
-- [ ] P-0005 and P-0006 are reshaped; any newly sharp prerequisite becomes a
+- [x] P-0005 and P-0006 are reshaped; any newly sharp prerequisite becomes a
       linked item, while remaining uncertainty stays in map fog.
 
 ## Evidence contract
@@ -101,7 +185,27 @@ production implementation for this item.
 Ready after P-0001 qualified the Release and read-authority baseline at
 `1fef16e8d0f9d355957abc6f973b3551a2c922cb`.
 
+Claimed by `codex:/root:p-0002` at `2026-08-18T01:07:37.311Z` from
+`d6532ffcd9ea00dc18c31005695a40692b1f8cc2`. The proposal is complete when the
+linked architecture, ADR, product/reference reconciliation, successor shape,
+evidence receipt, and independent falsification are committed. It then stops
+at `review`; nothing in this item constitutes project-owner acceptance or an
+implemented content capability.
+
 ## Residual risks and next-wave update
 
-Record content concerns intentionally deferred beyond the selected Milestone 2
-scenario, especially relationship graphs, fallback, migration, and scale.
+P-0007 implements the Human-path content foundation before P-0005 adds Agent
+authority. P-0003 must reconcile its reserved v1 operation registry with the
+selected v2 operations and prove the exact action/resource closure against
+P-0002's normative identifiers and fields before owner review; it does not
+depend on P-0007's not-yet-produced Schema digests. P-0005 later binds the
+registered P-0007 Schemas to that authority registry. If the P-0003
+reconciliation exposes an authority dimension absent from `DelegationV2`,
+P-0003 must version rather than mutate v2 meaning.
+
+Relationship localization, fallback and negotiation, deletion, generic
+variants, base-Object updates, dynamic campaign/subtree selection, migration
+Edits, and higher-cardinality scale are intentionally deferred. The local
+profile is volatile at the operation/artifact-version boundary until P-0007
+golden fixtures exist; its semantic invariants and v1 non-reinterpretation are
+not optional implementation details.

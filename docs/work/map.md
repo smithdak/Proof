@@ -73,7 +73,8 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | --- | --- | --- | --- |
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `blocked` | P-0001, P-0002 | Qualified candidate awaits the delegated content/write-resource closure before owner review. |
 | [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `blocked` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
-| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0002, P-0004 | Complete one bounded write path through human approval, consequence, and Proof. |
+| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `blocked` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
+| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
 
 ## Completed
@@ -87,6 +88,18 @@ derived. Any mismatch blocks claiming until both are repaired together.
 P-0001 closed baseline qualification; no architecture or product decision item
 has closed yet. Existing ratified constraints are linked above; this section
 gains one-line results as decision items close.
+
+### Proposed P-0002 profile — awaiting owner review
+
+P-0002 proposes `ObjectLocaleRevisionV1` as a separate append-only rendition of
+an existing locale-neutral Object, one `proof.dev/edit/v2`
+`object.locale.put` Edit kind, append-only supersession repair, immutable exact
+resource intent, and Edition/Release causality tied to the unchanged preview
+baseline and exactly one authorized committed ChangeSet. Campaign/subtree
+selection resolves to exact Object IDs before grant issuance; no new
+`DelegationV2` resource dimension is required. P-0007 would implement and
+qualify that foundation through the Human path before P-0005 adds Agent
+authority. This is a candidate, not implemented or accepted behavior.
 
 ### Proposed P-0003 profile — blocked on P-0002
 
@@ -124,6 +137,9 @@ project owner has not accepted it.
 - Cross-worktree claim locking, GitHub mirroring, and lifecycle automation
   beyond P-0001's minimal metadata/dependency validator. Add them only when
   concurrent execution demonstrates the need.
+- Locale fallback/negotiation, rendition deletion, base-Object replacement,
+  relationship localization, generic variants, dynamic campaign/subtree
+  selection, migration Edits, and field/path authorization.
 
 ## Out of scope for this destination
 

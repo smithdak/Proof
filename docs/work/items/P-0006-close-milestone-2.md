@@ -56,6 +56,13 @@ candidate profile therefore remains upstream-blocked and is not accepted.
   Human-to-Agent `DelegationV2` and applicable revocation `AuthorityRecordV1`
   entries; `AuthorizationDecisionV2`; ContextPack manifest; and
   signing-key validity/revocation evidence plus explicit verifier trust policy.
+  The P-0002 closure includes the exact baseline Environment Release and
+  Edition, immutable localized resource intent, source Object and Schema,
+  every `ObjectLocaleRevisionV1` predecessor/result, complete superseded Edit
+  lineage, the contiguous digest-linked validation-attempt chain and every
+  repair-to-finding edge, effective proposal digest, deterministic policy
+  bundle and findings, exact committed ChangeSet, resulting state, Edition v2
+  delta, and Release v2 pointer transition.
   Where disclosure is withheld, include commitments and return an explicit
   incomplete verdict. Private requesting subject-plus-blind disclosure is
   audit-policy controlled. Include an independently retained expected
@@ -107,6 +114,10 @@ candidate profile therefore remains upstream-blocked and is not accepted.
 - [ ] The exact Milestone 2 scenario includes bounded context, a prohibited
       change, structured repair, separate Human approval, delegated consequence,
       Release, and independent verification.
+- [ ] The verifier independently proves that the released Edition differs from
+      the unchanged baseline Release by exactly the authorized committed
+      localized-rendition closure, with no ambient or same-resource hitchhiking
+      commit and no fabricated locale fallback.
 - [ ] Clean-directory verification succeeds with explicit caller-supplied
       Release and separate authority public trust roots and trust policy, but
       without the producing Workspace

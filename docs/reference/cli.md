@@ -198,7 +198,196 @@ eligibility, signed artifacts, an SBOM, provenance, reproducibility, or public
 distribution. Windows builds and local test runs do not constitute live
 Windows runtime qualification or published Windows support.
 
-## Mutation flow
+### Proposed P-0002 profile — exact-locale content mutation
+
+This candidate is pending project-owner acceptance and is not implemented. The
+current `proof.dev/edit/v1` create-only contract and its terminal validation
+rejection behavior remain authoritative until a versioned successor is built
+and migrated.
+
+The command grammar does not add direct Object mutation. Localized writes still
+enter through `changeset add`. Candidate application contracts reserve `/v2`
+successors for `context.build`, `object.query_released`, all content-capable
+`changeset.*` operations, `edition.create`, and `release.create`. The delegated
+profile uses `changeset.create/v2`, `changeset.add/v2`, `changeset.get/v2`,
+`changeset.diff/v2`, `changeset.validate/v2`, `changeset.submit/v2`,
+`changeset.commit/v2`, `edition.create/v2`, and `release.create/v2`; approval
+remains a separate Human operation. These are reservations, not advertised
+capabilities. P-0003 must reconcile its operation-version registry before this
+profile can be accepted or exposed.
+
+The one new content Edit is a complete localized-rendition put:
+
+```json
+{
+  "api_version": "proof.dev/edit/v2",
+  "kind": "object.locale.put",
+  "object_id": "019c0000-0000-7000-8000-000000000001",
+  "locale": "fr-CA",
+  "expected_source": {
+    "revision": 1,
+    "digest": "blake3:...",
+    "schema_id": "article",
+    "schema_version": 2
+  },
+  "expected_target": null,
+  "content": {
+    "title": "Lancement"
+  },
+  "supersedes_edit_id": null
+}
+```
+
+`ObjectRevisionV1` remains the locale-neutral source and is never changed by
+this Edit. The authoritative target is an append-only
+`ObjectLocaleRevisionV1` keyed by the exact `(object_id, locale)` pair. A null
+`expected_target` requires absence and creates rendition revision 1. A
+non-null value supplies the exact current rendition revision and digest and
+creates revision `n + 1`. Any source revision or digest, target existence,
+target revision or digest, Schema identity, or ChangeSet base mismatch is a
+conflict; Proof never rebases the request silently.
+
+`content` is the full resolved localized JSON Object, not JSON Patch. It must
+validate against the exact immutable Schema and may differ from the source only
+at that Schema's proposed sorted `x-proof-localizable` RFC 6901 pointers. The
+Milestone 2 pointer profile excludes the root, containers, arrays, and
+overlapping ancestor/descendant pointers. A missing, empty, or malformed
+annotation grants no localizable field and makes the Edit invalid. The Edit
+cannot change source content,
+Schema, relationships, lifecycle, identity, or non-localizable fields. Generic
+Object replacement, patch, relationship, tombstone, fallback, and variant
+selection remain out of scope.
+
+Locales use the restricted canonical profile in the
+[standards reference](standards.md). Locale matching is exact and
+case-sensitive after input validation; registry aliases are neither normalized
+nor rejected and remain distinct literal identifiers. An
+exact-locale query with no rendition returns a structured not-found Problem,
+not source or parent-locale fallback.
+
+Before delegated execution, the authenticated Human path issues immutable
+resource intent. The Agent cannot create, replace, narrow, or widen this
+content-addressed control artifact:
+
+```json
+{
+  "api_version": "proof.dev/content-resource-intent/v1",
+  "intent_id": "019c0000-0000-7000-8000-000000000010",
+  "workspace_id": "019c0000-0000-7000-8000-000000000000",
+  "issued_by_principal_id": "019c0000-0000-7000-8000-000000000011",
+  "issued_at": "2026-08-17T20:00:00Z",
+  "environment_id": "preview",
+  "base": {
+    "release": {
+      "api_version": "proof.dev/release/v1",
+      "release_id": "019c0000-0000-7000-8000-000000000030",
+      "digest": "blake3:..."
+    },
+    "edition": {
+      "api_version": "proof.dev/edition/v1",
+      "edition_id": "019c0000-0000-7000-8000-000000000040",
+      "digest": "blake3:..."
+    },
+    "known_state": {
+      "api_version": "proof.dev/known-state/v1",
+      "digest": "blake3:...",
+      "authoritative_sequence": 83
+    }
+  },
+  "targets": [
+    {
+      "object_id": "019c0000-0000-7000-8000-000000000001",
+      "schema_id": "article",
+      "locale": "fr-CA"
+    }
+  ]
+}
+```
+
+Targets are sorted and unique. The campaign and content subtree in the product
+scenario must already have been resolved to this finite exact set; they are
+intent metadata, not resource selectors or grant dimensions. Every operation
+checks the full Environment/Object/Schema/locale closure against the immutable
+intent and, for delegated execution, `DelegationV2`. A generated ChangeSet,
+Edition, or Release identifier is evidence and a later selector, not an
+authority scope axis.
+
+`context.build/v2` accepts only the persisted intent identifier and digest as
+its resource selector and commits the complete intent bytes into the resulting
+pack. `changeset.create/v2` then binds both immutable records:
+
+```json
+{
+  "resource_intent_id": "019c0000-0000-7000-8000-000000000010",
+  "resource_intent_digest": "blake3:...",
+  "context_pack_id": "019c0000-0000-7000-8000-000000000020",
+  "context_pack_digest": "blake3:..."
+}
+```
+
+The resource intent does not contain the ContextPack reference. The
+ContextPack contains the resource intent, and the ChangeSet names both, so the
+digest graph is acyclic. Every Agent operation derives the complete target set
+from those stored bytes; it does not accept replacement resource arrays.
+Issuing the resource intent does not advance authoritative content sequence or
+Known State, enter an Edition delta, or move an Environment pointer.
+
+`context.build/v2` binds the exact source revisions, each target rendition or
+its committed absence, immutable Schemas and localizable pointers, validator
+and policy versions, base Known State, and expected Environment
+Release/Edition. It grants no authority; neither possessing the ContextPack nor
+matching policy/validator evidence authorizes an operation.
+`object.query_released/v2` requires an exact locale and returns the source and
+rendition revisions and digests plus resolved localized content. It performs no
+traversal or fallback.
+
+Unlike the implemented v1 rejection transition, invalid v2 validation keeps
+the ChangeSet repairable. A repair appends a new same-target Edit whose
+`supersedes_edit_id` names the current active Edit and whose
+`repair_of_validation_result_digest` names the latest invalid result with a
+blocking finding for that target. The ordinal history forms one linear chain
+per target; validation results form one contiguous predecessor-digest chain.
+Cross-target links, forks, cycles, missing links, skipped result predecessors,
+and superseding an inactive Edit fail. Every attempt counts toward budgets.
+Diff and validation evaluate only active leaves, while ChangeSet, validation-
+result, approval, commit, and Proof digests bind the complete append-only Edit
+and validation history. Successful validation seals the exact proposal and
+validation-chain head; no Edit may append afterward.
+
+The content-capable state profile requires a pre-existing baseline Release for
+the target Environment. `edition.create/v2` binds the exact authoritative
+sequence and state produced by the authorized ChangeSet commit and fails if an
+intervening commit makes ambient current state different. `release.create/v2`
+atomically requires the expected Environment Release to remain current, the
+target Edition to be that exact commit result, and the complete baseline-to-
+target delta to equal the committed localized-rendition target set and
+provenance. Any Schema, base Object, relationship, lifecycle, unrelated Object,
+or unrelated locale delta fails. This prevents unrelated state from riding an
+otherwise authorized release.
+
+The candidate artifact closure adds `ObjectLocaleRevisionV1`,
+`ChangeSetV2`/`EditBatchV2`/`ValidationResultsV2`, a locale-aware
+`KnownStateV2`, `EditionV2`, `ContextPackV2`, `ReleaseV2`, and
+`ReleaseProofPredicateV2`. Existing v1 artifacts, canonical bytes, digests,
+operations, and exact behavior remain reproducible. Migration creates no
+synthetic renditions; the first v2 content commit records the explicit one-way
+state-profile transition. Implementing and qualifying that foundation is the
+proposed P-0007 prerequisite, not P-0002 decision work.
+
+Every base selector carries its exact Release, Edition, and Known State API
+version. The first v2 commit is permitted only when one current `ReleaseV1`,
+its `EditionV1`, and Workspace `KnownStateV1` reproduce the same clean
+baseline. It creates predecessor-bound `KnownStateV2`. After that activation,
+v1 mutation, commit, Edition, and Release commands fail unsupported-version
+instead of silently omitting locale state; historical v1 inspection and
+verification remain available. A Human rollback appends `ReleaseV2` targeting
+an exact v1 or v2 Edition but does not reverse Workspace authoring state.
+`object.query_released/v1` requires a current v1 Release and Edition;
+`object.query_released/v2` may verify a v1 Edition but returns exact-rendition
+not-found, never source fallback. The complete closed matrix is normative in
+the [delegated content contract](../architecture/delegated-content.md).
+
+## Implemented v1 mutation flow
 
 ```bash
 proof changeset create \
@@ -327,7 +516,12 @@ Projection rebuild accepts `--dry-run` to reproduce and compare all derived stat
 
 ### Patches
 
-The MVP will select one content patch format through ADR. Until then, examples use complete Object replacement or typed Edit records rather than implying mixed patch semantics.
+The implemented v1 profile has no Object update or patch operation. The
+**Proposed P-0002 profile** deliberately selects a full resolved
+`object.locale.put` rendition Edit rather than JSON Patch, Merge Patch, or
+generic Object replacement. That candidate does not authorize patch semantics
+for base Objects or other content and does not change v1 until accepted and
+implemented through P-0007.
 
 ### Timestamps and durations
 

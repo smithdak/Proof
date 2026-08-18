@@ -4,7 +4,7 @@ title: Deliver delegated mutation through a verified Release
 status: blocked
 wave: next
 kind: implementation
-blocked_by: [P-0002, P-0004]
+blocked_by: [P-0004, P-0007]
 claimed_by: null
 claimed_at: null
 base_sha: null
@@ -26,15 +26,18 @@ commit, Edition, Environment Release, and persisted verification.
 
 ## Promotion condition
 
-Re-shape this item after P-0002 and P-0004 close. It is not claimable while
-content or authenticated-authority semantics remain provisional.
+Re-shape this item after P-0004 and P-0007 close. It is not claimable while
+authenticated authority remains provisional or the Human-path localized
+content contracts are unimplemented.
 
 ## Authorized scope
 
 - Add the ratified delegated actions, resources, budgets, and ContextPack
   requirements for ChangeSet proposal/edit/validation/submission, commit,
   Edition creation, and Release promotion.
-- Add the content Edit kinds and persistence/migrations selected by P-0002.
+- Integrate the P-0007 application and storage contracts; do not reimplement or
+  fork localized-content, repair, Edition, Release, or migration semantics in
+  an Agent adapter.
 - Keep approval a distinct Principal action; an Agent cannot implicitly approve
   its own proposal.
 - Re-evaluate current authority and the applicable state/policy inputs
@@ -48,6 +51,10 @@ content or authenticated-authority semantics remain provisional.
 - Expose the same operation contracts through CLI and both MCP eras. If the
   ratified application capability contract remains the Schema source,
   generate tool Schemas from it rather than duplicating transport contracts.
+- Treat P-0007's registered content Schema identifiers/digests and
+  P-0003/P-0004's authority registry as immutable inputs. P-0005 wires them
+  together and cannot add an adapter-local operation, resource projection, or
+  content normalization rule.
 
 ## Explicit non-goals
 
@@ -60,6 +67,13 @@ content or authenticated-authority semantics remain provisional.
 - [ ] One real local scenario completes ContextPack → proposed content change →
       validation/repair → submission → Human approval → delegated commit →
       Edition → delegated Release → verification.
+- [ ] The Agent may add only `object.locale.put` v2 Edits for the immutable
+      exact target set. Base Objects, Schemas, relationships, lifecycle,
+      fallback, and unrelated locale renditions remain structurally
+      unavailable through this profile.
+- [ ] The requesting Human issues the exact resource intent and equals the
+      direct Delegation issuer; the Agent can select the persisted intent and
+      bound ContextPack but cannot create or replace either resource closure.
 - [ ] Wrong recipient, action, resource, locale, Environment, budget, expired or
       revoked Delegation, stale ContextPack/base state, replay mismatch, and
       approval bypass all fail structurally and atomically.
@@ -91,7 +105,7 @@ private key material.
 
 ## Completion record
 
-Blocked by P-0002 and P-0004.
+Blocked by P-0004 and P-0007.
 
 ## Residual risks and next-wave update
 

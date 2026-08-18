@@ -1,6 +1,6 @@
 # Proof documentation
 
-This documentation separates durable product and architectural decisions from changeable implementation details. Milestone 1's local proof loop is implemented; Milestone 2 has begun with bounded read authority, ContextPacks, capability discovery, and a dual-era MCP stdio adapter for current stateless and legacy initialized clients. Delegated reads still accept caller-supplied Agent Principal and Delegation identifiers; only the local Human path is adapter-authenticated. Authenticated Agent bindings, delegated mutations, and the collaboration server are not implemented.
+This documentation separates durable product and architectural decisions from changeable implementation details. Milestone 1's local proof loop is implemented; Milestone 2 has begun with bounded read authority, ContextPacks, capability discovery, and a dual-era MCP stdio adapter for current stateless and legacy initialized clients. Delegated reads still accept caller-supplied Agent Principal and Delegation identifiers; only the local Human path is adapter-authenticated. Authenticated Agent bindings, delegated mutations, and the collaboration server are not implemented. P-0002's exact-locale rendition contract and P-0007 content-foundation sequence are Proposed, pending project-owner acceptance, and make no implementation claim.
 
 ## Reading paths
 
@@ -16,10 +16,11 @@ This documentation separates durable product and architectural decisions from ch
 2. [Architecture overview](architecture/overview.md)
 3. [Domain model](architecture/domain-model.md)
 4. [Agent authority](architecture/agent-authority.md)
-5. [Proposed authenticated actor contract](architecture/authenticated-actor.md)
-6. [Proof model](architecture/proof-model.md)
-7. [Threat model](architecture/threat-model.md)
-8. [Testing strategy](architecture/testing.md)
+5. [Proposed delegated content contract](architecture/delegated-content.md)
+6. [Proposed authenticated actor contract](architecture/authenticated-actor.md)
+7. [Proof model](architecture/proof-model.md)
+8. [Threat model](architecture/threat-model.md)
+9. [Testing strategy](architecture/testing.md)
 
 ### Implement a compatible interface
 

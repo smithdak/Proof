@@ -1,6 +1,6 @@
 # Agent authority and ContextPacks
 
-**Status:** Ratified direction; P-0003 additions remain proposed
+**Status:** Ratified direction; P-0002 and P-0003 additions remain proposed
 **Baseline:** August 16, 2026
 
 > **Proposed P-0003 profile:** Every section carrying this label is pending
@@ -9,6 +9,11 @@
 >
 > The complete proposal is the [authenticated actor contract](authenticated-actor.md);
 > this document summarizes its consequences for Agent authority.
+>
+> **Proposed P-0002 profile:** The localized-content resource closure below is
+> pending project-owner acceptance. Its normative definition is the
+> [delegated localized-content contract](delegated-content.md). It introduces no
+> implemented Agent write capability.
 
 ## Principle
 
@@ -214,6 +219,58 @@ cyclic/malformed path fails closed with structured
 malformed-input Problem. No partial prefix is evaluated. Supporting chained
 Delegation later requires a new versioned profile and migration/conformance
 decision.
+
+### Proposed P-0002 localized-content closure
+
+The existing `DelegationV2` dimensions are sufficient for the proposed
+Milestone 2 localized-content path. One immutable `ContentResourceIntentV1`
+binds an exact Environment and sorted unique `(object_id, schema_id, locale)`
+targets. Every target Environment, Object, Schema, and locale MUST be a member
+of the corresponding exact-set scope. Empty required scope remains deny, never
+wildcard.
+
+The independently authenticated requesting Human issues that intent as an
+immutable content-addressed control artifact before delegated execution and
+MUST equal the direct
+Delegation issuer. An Agent may select its identifier and digest but cannot
+create, replace, narrow, or widen it. `context.build/v2` derives the pack from
+that record, and `changeset.create/v2` binds both record and pack digests. Its
+issuance does not advance the authoritative content sequence, change Known
+State, enter an Edition delta, or move an Environment pointer.
+
+Those dimension arrays describe a permission product. The Human-issued target
+tuples narrow the product to this task and cannot be changed by the Agent. A campaign,
+content subtree, path prefix, relationship, query, or future Object is not a
+resource axis; a trusted Human-side selector resolves editorial intent to exact
+identifiers before ContextPack construction and authorization.
+
+The existing `ObjectRevisionV1` is locale-neutral source content. Its read is
+covered by the exact Object and Schema dimensions. `object.locale.put` writes
+only a subordinate rendition and additionally requires the target locale. It
+does not infer or require a source-locale grant, and it cannot mutate the source
+Object. If a later requirement makes the source itself locale-specific or
+requires distinct source-read and target-write authority, `DelegationV2` is
+insufficient and MUST be versioned or replaced by two explicit grants.
+
+No content-specific action is added. The proposal retains the reserved
+`context:build`, `changeset:*`, `edition:create`, `release:create`, and
+`object:query_released` tokens while versioning the affected application
+operations to `proof.dev/operation/<name>/v2`. Every operation evaluates the
+complete immutable intent and effective Edit closure. A caller missing one
+target dimension is denied rather than receiving a filtered ContextPack,
+ChangeSet, diff, validation result, Edition, or Release.
+
+Generated ChangeSet, Edit, Edition, Release, and Proof identifiers are selected
+or recorded after an authorized creation; they are evidence, not new grant
+dimensions. Edition and Release authorization additionally proves that the
+Environment baseline is unchanged and that the state delta is exactly the one
+bound ChangeSet, not merely a subset of the broad Delegation product.
+
+P-0003's proposed closed registry currently names v1 write operations and
+reserves their content closure. It must be reopened after P-0002 acceptance to
+reconcile the v2 operation/version pairs and exact resource projections before
+P-0004 proceeds. P-0007 proves the same content path under an authenticated
+Human before P-0005 enables it for an Agent.
 
 ## Delegation
 

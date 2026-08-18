@@ -184,6 +184,56 @@ idempotent.
 - `proof.schema.type_mismatch`
 - `proof.relationship.invalid_target`
 
+#### Proposed P-0002 localized-content taxonomy
+
+The following codes are reserved by the P-0002 candidate. They are pending
+project-owner acceptance, are not implemented, and do not alter current v1
+Problems. If the candidate is accepted, their semantics are stable within the
+v2 operation contracts.
+
+Operation-level Problems:
+
+- `proof.locale.invalid`: the supplied locale is not in Proof's restricted
+  canonical locale profile; no alias normalization is attempted.
+- `proof.content.source_conflict`: the locale-neutral source revision, digest,
+  Schema, or declared base no longer matches the request.
+- `proof.content.rendition_conflict`: expected rendition absence, revision, or
+  digest does not match the exact `(object_id, locale)` target.
+- `proof.content.rendition_not_found`: an exact-locale query has no committed
+  rendition; Proof did not perform source or parent-locale fallback.
+- `proof.changeset.supersession_invalid`: an Edit supersession is cross-target,
+  missing, forked, cyclic, or does not name the current active Edit.
+- `proof.content.intent_mismatch`: an operation's Environment, ContextPack,
+  base, baseline Release, or exact Object/Schema/locale target closure differs
+  from the immutable ChangeSet resource intent.
+- `proof.release.baseline_conflict`: the target Environment no longer selects
+  the expected baseline Release.
+- `proof.release.causal_conflict`: the proposed Edition is not the exact state
+  and authoritative sequence produced by the authorized ChangeSet commit.
+- `proof.release.delta_mismatch`: the complete baseline-to-target Edition delta
+  is not exactly the committed localized-rendition target set and provenance.
+
+Localized validation uses the normal `proof.validation.failed` Problem and
+deterministically ordered findings. P-0002 reserves:
+
+- `proof.localization.annotation_invalid`: the Schema's proposed
+  `x-proof-localizable` pointer list is malformed, overlapping, or outside the
+  restricted pointer profile.
+- `proof.localization.path_not_localizable`: source and localized content
+  differ at a JSON Pointer not declared localizable by the exact Schema.
+- `proof.validation.prohibited_legal_claim`: the pinned v1 legal-claim policy
+  contains the exact locale, JSON Pointer, and JSON-string value in its sorted
+  `disallowed_values` entries. It performs no fuzzy, regex, model, case, Unicode,
+  or locale normalization.
+
+Each localized finding includes `edit_id`, `object_id`, exact `locale`, and
+validator identifier/version and policy digest; field findings also include an
+RFC 6901 `pointer`. Schema-validation findings continue to use the existing
+detailed Schema codes. A typed repair may propose a replacement localized value
+or a superseding same-target Edit, but never a scope expansion, fallback,
+source mutation, or policy bypass. Possessing policy or ContextPack evidence
+does not grant authority.
+
 ### State and concurrency
 
 - `proof.resource.not_found`

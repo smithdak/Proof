@@ -1,12 +1,18 @@
 # Proof model
 
-**Status:** Ratified architecture; P-0003 authority closure remains proposed
+**Status:** Ratified architecture; P-0002 content and P-0003 authority closure remain proposed
 **Baseline:** August 3, 2026
 
 > **Proposed P-0003 profile:** The authority additions below are pending
 > project-owner acceptance. They do not change existing Release Proof bytes or
 > claim that portable authority verification is implemented.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+>
+> **Proposed P-0002 profile:** The localized-content and exact-delta additions
+> below are pending project-owner acceptance. They require versioned Release and
+> predicate artifacts and do not change existing Release Proof bytes. The
+> normative proposal is the
+> [delegated localized-content contract](delegated-content.md).
 
 ## Purpose
 
@@ -185,6 +191,61 @@ Loss of the predecessor authority private key before a dual-signed transition
 makes v1 continuity unrecoverable. Existing history remains verifiable, but no
 current-profile export may claim recovered continuity. A new authority epoch or
 re-anchor requires a future ADR and Schema plus explicit caller trust.
+
+## Proposed P-0002 profile — localized-content causality
+
+The next localized-content Release predicate version commits enough evidence
+to distinguish an authorized target set from the exact state actually released.
+It carries or references:
+
+- the `ContentResourceIntentV1` digest, exact ContextPack digest, and complete
+  sorted `(object_id, schema_id, locale)` target set;
+- the unchanged baseline Environment Release, Edition, Known State, and
+  authoritative sequence;
+- the complete `ChangeSetV2` `proposal_digest`, including superseded invalid
+  attempts and repair-to-result edges, its effective-leaf digest, the complete
+  predecessor-digest-linked `ValidationResultsV2` attempt chain, and resulting
+  noncircular `sealed_changeset_digest`;
+- each resulting `ObjectLocaleRevisionV1` digest and its exact source
+  `ObjectRevisionV1` and Schema digests;
+- the one-ChangeSet `EditionV2` digest and an exact base-to-target delta
+  commitment; and
+- the `ReleaseV2` transition that compares and advances the expected
+  Environment pointer atomically.
+
+`EditionV2` creation is valid only for the exact state produced by that one
+ChangeSet and before any later authoritative commit. `ReleaseV2` is valid only
+when the Environment still points to the named baseline and the Edition delta
+contains no source Object, Schema, relationship, lifecycle, unrelated Object,
+unrelated locale, or unrelated ChangeSet mutation. Merely proving that every
+changed resource belongs to the broad Delegation dimension product is
+insufficient; the delta MUST equal the exact authorized ChangeSet result.
+
+The base Release, Edition, and Known State references carry exact artifact API
+versions. The first v2 predicate proves the explicit v1-to-v2 state bridge and
+an in-memory empty-rendition comparison without changing v1 bytes. Later
+predicates prove v2 predecessors. A rollback predicate may target an exact
+historical `EditionV1`, but it does not claim that Workspace authoring state
+reverted.
+
+The content predicate does not claim that translated text is factually,
+legally, culturally, or editorially correct. It identifies the exact validator
+and policy results that made the ChangeSet acceptable. A legal-quality claim is
+supported only by a named validator or approval whose artifact digest is in the
+closure.
+
+The portable authority closure proposed by P-0003 remains separate. P-0005
+binds its `AuthorizationDecisionV2` to the content operation and exact resource
+intent. P-0006 then verifies both closures under explicit caller-supplied trust
+roots and reports content integrity, validation, authority, Release signature,
+and evidence completeness as separate verdict dimensions.
+
+Existing `ReleaseV1`, its predicate, `EditionV1`, `ChangeSetV1`,
+`ObjectRevisionV1`, and their digest contexts are never reserialized or
+reinterpreted. A new Release records the exact Edition artifact version, so an
+explicit rollback may select a historical `EditionV1` while preserving the
+historical `ReleaseV1`. Migration MUST NOT synthesize localized renditions or
+infer source locales from legacy Objects.
 
 ## Canonical artifacts
 
