@@ -60,7 +60,7 @@ only after the Milestone 2 exit scenario passes.
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `ready` | P-0001, P-0002 | Reconcile the qualified authentication candidate with the ratified localized-content closure. |
-| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `ready` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
+| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `claimed` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 ## Next
 

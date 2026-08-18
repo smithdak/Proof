@@ -1,13 +1,13 @@
 ---
 id: P-0007
 title: Implement the localized content foundation
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0002]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0007
+claimed_at: 2026-08-18T12:52:10.931Z
+base_sha: a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -111,8 +111,10 @@ databases, or generated translation text that cannot be checked in safely.
 ## Completion record
 
 Ready after project owner `smithdak` accepted P-0002 at
-`2026-08-18T12:44:20.977Z`. The accepted contract and ADR-0012 are the
-implementation authority; no claim is active yet.
+`2026-08-18T12:44:20.977Z`. Claimed by `codex:/root:p-0007` at
+`2026-08-18T12:52:10.931Z` from
+`a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566`. The accepted contract and
+ADR-0012 are the implementation authority.
 
 ## Residual risks and next-wave update
 
