@@ -1,7 +1,12 @@
 # Proof model
 
-**Status:** Ratified architecture; predicate Schema pending implementation  
+**Status:** Ratified architecture; P-0003 authority closure remains proposed
 **Baseline:** August 3, 2026
+
+> **Proposed P-0003 profile:** The authority additions below are pending
+> project-owner acceptance. They do not change existing Release Proof bytes or
+> claim that portable authority verification is implemented.
+> The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 
 ## Purpose
 
@@ -99,7 +104,96 @@ The final controlled HTTPS URI is ratified before the first public compatibility
 
 This example is illustrative. The released Schema and golden vectors become the contract.
 
+## Proposed P-0003 profile — authority commitments
+
+The next versioned Release predicate will distinguish the requesting Human from
+the authenticated operating Agent and commit the authority evidence needed to
+verify that distinction. Its authority portion carries or references:
+
+```json
+{
+  "requesting_principal_id": "019a...",
+  "operating_principal_id": "019b...",
+  "requesting_subject_commitment": "blake3:...",
+  "actor_context_digest": "blake3:...",
+  "principal_binding": {
+    "binding_id": "019c...",
+    "authority_sequence": 12,
+    "record_digest": "blake3:...",
+    "supersedes_binding_id": null,
+    "credential_key_id": "ed25519:..."
+  },
+  "delegation": {
+    "delegation_id": "019d...",
+    "delegation_version": "proof.dev/delegation/v2",
+    "delegation_digest": "blake3:...",
+    "revocation_position": 41
+  },
+  "command_digest": "blake3:...",
+  "authenticated_command_envelope_digest": "blake3:...",
+  "authorization_decision": {
+    "version": "proof.dev/authorization-decision/v2",
+    "digest": "blake3:..."
+  },
+  "authority_log": {
+    "position": 42,
+    "root_digest": "blake3:...",
+    "authority_key_id": "ed25519:..."
+  }
+}
+```
+
+This shape is illustrative until P-0003 is accepted and its Schemas and golden
+vectors are reviewed. `DelegationV2` supports exactly one Human issuer and one
+Agent recipient; it does not encode a chain. `AuthorizationDecisionV2` is a new
+contract. Existing `AuthorizationDecisionV1` remains legacy and is not assigned
+new semantics.
+
+`requesting_subject_commitment` is a hiding commitment formed with a 32-byte
+blind, not a checksum of a raw UID. The actor-context digest uses only that
+public commitment and never the raw `os/unix` subject or blind. Audit policy
+controls disclosure of the private subject-plus-blind opening. Exact canonical
+semantics and vectors live in the
+[authenticated actor contract](authenticated-actor.md) and
+[`conformance/v1/authority/`](../../conformance/v1/authority/README.md).
+
+P-0004 records canonical `PrincipalBindingV1`, `AuthenticatedCommandV1`,
+`AuthenticatedActorContextEvidenceV1`, `DelegationV2`,
+`AuthorizationDecisionV2`, and `AuthorityRecordV1` artifacts in
+the separately rooted authority log. It does not claim to produce a portable
+bundle.
+
+Here `command_digest` is the semantic `CommandInputV1` digest. It is not an
+additional signed-payload digest; the authenticated-command envelope digest
+already commits the exact signed payload.
+
+P-0006 defines the future `AuthorityEvidenceBundleV1`. That bundle must include
+the transitive authority records needed to verify the recorded action at its
+causal position, be authenticated by an authority root distinct from the
+Release-signing root, and be consumable with explicit caller-supplied trust
+policy. Producer-exported identifiers, digests, or self-described keys establish
+consistency only, not trust.
+The bundle carries or resolves the strict raw-UID-free
+`AuthenticatedActorContextEvidenceV1` digest preimage used by P-0004.
+The authority hash chain detects mutation, deletion, or reordering only relative
+to a trusted later head. A supplied signed prefix cannot establish that no valid
+older prefix or fork was restored from the same mutable store. Any P-0006 claim
+of rollback resistance or complete latest history therefore requires an
+independently retained expected authority head or a later checkpoint committing
+it.
+Loss of the predecessor authority private key before a dual-signed transition
+makes v1 continuity unrecoverable. Existing history remains verifiable, but no
+current-profile export may claim recovered continuity. A new authority epoch or
+re-anchor requires a future ADR and Schema plus explicit caller trust.
+
 ## Canonical artifacts
+
+All domain-separation contexts are normative in the
+[`conformance/v1/authority/` digest registry](../../conformance/v1/authority/README.md),
+including `proof:policy-bundle:v1` for the canonical policy bundle and
+`proof:authority-record-envelope:v1` for authority/root-transition DSSE
+envelopes. Implementations consume that registry and its vectors; they do not
+reverse-engineer contexts from example digests.
 
 Proof distinguishes three byte representations:
 
@@ -162,6 +256,17 @@ A verifier:
 9. Checks revocation and time-sensitive policy using recorded evidence.
 10. Returns a structured verification report.
 
+**Proposed P-0003 profile:** Full authority verification additionally validates
+the future `AuthorityEvidenceBundleV1`, its authority-root authentication, the
+subject commitment and active binding at the recorded position, the single-use
+`AuthenticatedCommandV1`, direct `DelegationV2` issue and revocation records,
+and `AuthorizationDecisionV2`. Cryptographic validity, Release-subject
+validity, authority validity, policy validity, and evidence completeness are
+separate verdict dimensions.
+Without an independently pinned expected authority head, the verifier may
+report internal validity of the supplied authority prefix but not latest-history
+completeness or rollback resistance.
+
 Verification does not fetch arbitrary URLs automatically. External resolution requires an allowlisted resolver and explicit network policy.
 
 ## Redaction and disclosure
@@ -178,3 +283,11 @@ When evidence is restricted:
 ## Portability
 
 Proof artifacts are independent of a running CMS instance. A standalone `proof verify` implementation must be able to validate an envelope and supplied subjects offline, provided the trust roots and required evidence are available.
+
+Under the **Proposed P-0003 profile**, raw provider subjects, private keys, and
+credential handles are never portable evidence. The public
+`requesting_subject_commitment` is portable; its private raw-subject and
+32-byte-blind opening is disclosed only under audit policy. If policy withholds
+a required opening or component, offline verification returns an explicit
+incomplete authority verdict rather than treating a matching digest as proof of
+authorization.

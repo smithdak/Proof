@@ -1,0 +1,165 @@
+{
+  "api_version": "proof.dev/conformance/authority-rejected-cases/v1",
+  "status": "proposed",
+  "baseline_fixtures": [
+    "workspace-authority-root-transition.payload.valid.json",
+    "workspace-authority-root-transition.envelope.valid.json",
+    "binding-enrollment-challenge.envelope.valid.json",
+    "principal-binding.authority-envelope.valid.json"
+  ],
+  "cases": [
+    {
+      "id": "root-transition-missing-signature",
+      "layer": "authority",
+      "condition": "root_transition_missing_signature",
+      "target_fixture": "workspace-authority-root-transition.envelope.valid.json",
+      "mutation": {
+        "kind": "json_remove",
+        "path": "/signatures/1",
+        "value": null
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "root-transition-duplicate-keyid",
+      "layer": "authority",
+      "condition": "root_transition_duplicate_keyid",
+      "target_fixture": "workspace-authority-root-transition.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/1/keyid",
+        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "root-transition-permuted-keyids",
+      "layer": "authority",
+      "condition": "root_transition_permuted_keyids",
+      "target_fixture": "workspace-authority-root-transition.envelope.valid.json",
+      "mutation": {
+        "kind": "array_reverse",
+        "path": "/signatures",
+        "value": true
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "root-transition-substituted-keyid",
+      "layer": "authority",
+      "condition": "root_transition_substituted_keyid",
+      "target_fixture": "workspace-authority-root-transition.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/1/keyid",
+        "value": "ed25519:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "authority-envelope-keyid-substitution",
+      "layer": "authority",
+      "condition": "authority_keyid_substitution",
+      "target_fixture": "principal-binding.authority-envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/0/keyid",
+        "value": "ed25519:f33dd3605ce5cafe2d5a024c23e9b7bb8356cff7e200fbf57356ebecb919ff3a"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "enrollment-envelope-keyid-substitution",
+      "layer": "authentication",
+      "condition": "enrollment_keyid_substitution",
+      "target_fixture": "binding-enrollment-challenge.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/0/keyid",
+        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+      },
+      "public_code": "proof.auth.denied",
+      "audit_reason": "proof.auth.signature_invalid",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "agent-cannot-issue-direct-delegation",
+      "layer": "authority",
+      "condition": "agent_issuer_unsupported",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/issuer_principal_id",
+        "value": "019c0000-0000-7000-8000-000000000003"
+      },
+      "public_code": "proof.delegation.chain_unsupported",
+      "audit_reason": "proof.delegation.chain_unsupported",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "agent-cannot-administer-authority",
+      "layer": "authority",
+      "condition": "authority_admin_actor_mismatch",
+      "target_fixture": "principal-binding.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/issued_by_principal_id",
+        "value": "019c0000-0000-7000-8000-000000000003"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "delegation-actions-must-be-sorted",
+      "layer": "authority",
+      "condition": "unsorted_actions",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "array_reverse",
+        "path": "/actions",
+        "value": true
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "delegation-resource-arrays-must-be-sorted",
+      "layer": "authority",
+      "condition": "unsorted_resource_array",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/scope/object_ids",
+        "value": [
+          "019c0000-0000-7000-8000-000000000021",
+          "019c0000-0000-7000-8000-000000000020"
+        ]
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    }
+  ]
+}

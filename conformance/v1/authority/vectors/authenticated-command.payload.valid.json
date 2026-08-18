@@ -1,0 +1,18 @@
+{
+  "api_version": "proof.dev/authenticated-command/v1",
+  "audience": "proof://workspace/019c0000-0000-7000-8000-000000000001",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "operation": {
+    "name": "workspace.status",
+    "version": "proof.dev/operation/workspace.status/v1"
+  },
+  "binding_id": "019c0000-0000-7000-8000-000000000004",
+  "requesting_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "operating_principal_id": "019c0000-0000-7000-8000-000000000003",
+  "delegation_id": "019c0000-0000-7000-8000-000000000005",
+  "command_digest": "blake3:2e4e61fb9168b51240723b86c5ad7a8b6c777e5562345a835176ed515d52980a",
+  "idempotency_key": null,
+  "presentation_id": "019c0000-0000-7000-8000-000000000006",
+  "issued_at": "2026-08-17T20:02:00Z",
+  "expires_at": "2026-08-17T20:07:00Z"
+}

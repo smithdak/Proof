@@ -1,0 +1,24 @@
+{
+  "api_version": "proof.dev/authenticated-actor-context-evidence/v1",
+  "audience": "proof://workspace/019c0000-0000-7000-8000-000000000001",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "authentication_profile": "proof.local/authentication/human-agent/v1",
+  "requesting_subject_commitment": "blake3:3d9fef74e8149e34ef4c5a1b97fe4429b9d0ff61b7b801e449b313494e4b3c42",
+  "operating_subject": {
+    "api_version": "proof.dev/authenticated-subject/v1",
+    "provider": "proof/local-ed25519",
+    "subject": "ed25519:707e8ff6e4bd4429a52a5687fd5ddad1023863aeb6ccdd61342295669ad567fc"
+  },
+  "binding_id": "019c0000-0000-7000-8000-000000000004",
+  "requesting_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "operating_principal_id": "019c0000-0000-7000-8000-000000000003",
+  "delegation_id": "019c0000-0000-7000-8000-000000000005",
+  "operation": {
+    "name": "workspace.status",
+    "version": "proof.dev/operation/workspace.status/v1"
+  },
+  "command_digest": "blake3:2e4e61fb9168b51240723b86c5ad7a8b6c777e5562345a835176ed515d52980a",
+  "command_envelope_digest": "blake3:22b87afb7ab79a116fbbc58a52452e47d9c8c332d491bd4ae9567f243cfd81d2",
+  "presentation_id": "019c0000-0000-7000-8000-000000000006",
+  "authenticated_at": "2026-08-17T20:02:01Z"
+}

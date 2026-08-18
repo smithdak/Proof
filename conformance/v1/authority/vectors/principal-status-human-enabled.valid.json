@@ -1,0 +1,11 @@
+{
+  "api_version": "proof.dev/principal-status/v1",
+  "authority_sequence": 1,
+  "previous_authority_record_digest": null,
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "principal_id": "019c0000-0000-7000-8000-000000000002",
+  "principal_type": "human",
+  "enabled": true,
+  "recorded_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "recorded_at": "2026-08-17T19:57:00Z"
+}

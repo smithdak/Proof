@@ -1,0 +1,15 @@
+{
+  "api_version": "proof.dev/conformance/context-build-retry/v1",
+  "status": "proposed",
+  "command_digest": "blake3:f6e0adb12564072f7f5eba4a103ddfd1339cb98b9ab068f900ac1ce3d37acc9a",
+  "idempotency_key": "019c0000-0000-7000-8000-000000000010",
+  "presentation_ids": [
+    "019c0000-0000-7000-8000-000000000011",
+    "019c0000-0000-7000-8000-000000000012"
+  ],
+  "command_envelope_digests": [
+    "blake3:cc78da0080b42dd41ae2a16766ec54ed1e62ba88d1df0481a141bcf3cb62d58e",
+    "blake3:22a4588264a2ad69deda83f79fa730c1c90903f712d36c258d7f493f87279ac2"
+  ],
+  "expected_same_command_result": true
+}

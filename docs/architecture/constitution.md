@@ -23,6 +23,17 @@ A ChangeSet MUST identify its declared intent and expected base state. An operat
 
 Every consequential application operation MUST accept or derive an idempotency key. Repeating a completed request with the same key and equivalent input MUST return the original result without duplicating effects. Reusing a key with different input MUST fail.
 
+> **Proposed P-0003 constitutional replacement — not ratified:**
+> [ADR-0011](../decisions/0011-local-agent-command-authentication.md) proposes
+> making current authentication and authorization a precondition to result
+> replay, with the stable requester, operator, direct Delegation, Workspace,
+> operation/version, and normalized input forming semantic equivalence while a
+> fresh presentation or rotated same-Principal binding does not. Per-attempt
+> authentication evidence is not a duplicate governed effect. A revoked actor
+> would be denied the prior result without duplicating or changing the completed
+> effect. The existing C4 above remains normative until explicit project-owner
+> acceptance.
+
 ## Authority invariants
 
 ### C5. Every action has a Principal

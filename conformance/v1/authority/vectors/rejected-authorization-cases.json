@@ -1,0 +1,271 @@
+{
+  "api_version": "proof.dev/conformance/authority-rejected-cases/v1",
+  "status": "proposed",
+  "baseline_fixtures": [
+    "authorization-decision-v2.valid.json",
+    "delegation-v2.valid.json",
+    "principal-binding.valid.json",
+    "context-build.command-input.valid.json",
+    "authenticated-command.envelope.valid.json"
+  ],
+  "cases": [
+    {
+      "id": "binding-revoked",
+      "layer": "authorization",
+      "condition": "binding_revoked",
+      "target_fixture": "principal-binding-revocation.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_authority_sequence",
+        "value": 8
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.binding_inactive",
+      "audit_reason": "proof.auth.binding_inactive",
+      "expected_decision_append": true
+    },
+    {
+      "id": "delegation-revoked",
+      "layer": "authorization",
+      "condition": "delegation_revoked",
+      "target_fixture": "delegation-revocation.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_authority_sequence",
+        "value": 7
+      },
+      "expected_authorized": false,
+      "public_code": "proof.authorization.delegation_revoked",
+      "audit_reason": "proof.authorization.delegation_revoked",
+      "expected_decision_append": true
+    },
+    {
+      "id": "principal-disabled",
+      "layer": "authorization",
+      "condition": "disablement",
+      "target_fixture": "principal-status-agent-disabled.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_authority_sequence",
+        "value": 6
+      },
+      "expected_authorized": false,
+      "public_code": "proof.authorization.principal_disabled",
+      "audit_reason": "proof.authorization.principal_disabled",
+      "expected_decision_append": true
+    },
+    {
+      "id": "principal-reenable-is-invalid",
+      "layer": "authorization",
+      "condition": "principal_reenable",
+      "target_fixture": "principal-status-agent-disabled.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/enabled",
+        "value": true
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_decision_append": false
+    },
+    {
+      "id": "parent-delegation-unsupported",
+      "layer": "schema",
+      "condition": "direct_parent_present",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "json_add",
+        "path": "/parent_delegation_id",
+        "value": "019c0000-0000-7000-8000-00000000000a"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.delegation.chain_unsupported",
+      "audit_reason": "proof.delegation.chain_unsupported",
+      "expected_decision_append": false
+    },
+    {
+      "id": "subdelegation-unsupported",
+      "layer": "schema",
+      "condition": "subdelegation_enabled",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/constraints/allow_subdelegation",
+        "value": true
+      },
+      "expected_authorized": false,
+      "public_code": "proof.delegation.chain_unsupported",
+      "audit_reason": "proof.delegation.chain_unsupported",
+      "expected_decision_append": false
+    },
+    {
+      "id": "action-outside-scope",
+      "layer": "authorization",
+      "condition": "scope_exceeded",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/requested_action",
+        "value": "changeset:create"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.authorization.scope_exceeded",
+      "audit_reason": "proof.authorization.scope_exceeded",
+      "expected_decision_append": true
+    },
+    {
+      "id": "uppercase-environment-id",
+      "layer": "schema",
+      "condition": "environment_id_invalid",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/scope/environment_ids/0",
+        "value": "Preview"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "cross-principal-active-key-reuse",
+      "layer": "authority",
+      "condition": "binding_key_reuse",
+      "target_fixture": "principal-binding.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/active_subject_index/ed25519:707e8ff6e4bd4429a52a5687fd5ddad1023863aeb6ccdd61342295669ad567fc",
+        "value": "019c0000-0000-7000-8000-00000000000a"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "binding-subject-public-key-mismatch",
+      "layer": "authority",
+      "condition": "binding_cross_field_mismatch",
+      "target_fixture": "principal-binding.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/authenticated_subject/subject",
+        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.authority.integrity",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "empty-required-object-scope",
+      "layer": "authorization",
+      "condition": "empty_required_scope",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/requested_action_and_resources",
+        "value": {
+          "action": "object:query_released",
+          "object_ids": []
+        }
+      },
+      "public_code": "proof.authorization.scope_exceeded",
+      "audit_reason": "proof.authorization.scope_exceeded",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "delegation-hidden-or-missing",
+      "layer": "authorization",
+      "condition": "delegation_unavailable",
+      "target_fixture": "authorization-decision-v2.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/delegation/resolution",
+        "value": "not_found_or_hidden"
+      },
+      "public_code": "proof.authorization.denied",
+      "audit_reason": "proof.authorization.delegation_unavailable",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "binding-before-not-before",
+      "layer": "authorization",
+      "condition": "binding_not_yet_valid",
+      "target_fixture": "principal-binding.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_at",
+        "value": "2026-08-17T19:59:59.999999999Z"
+      },
+      "public_code": "proof.auth.binding_inactive",
+      "audit_reason": "proof.auth.binding_inactive",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "binding-at-exclusive-expiry",
+      "layer": "authorization",
+      "condition": "binding_expired",
+      "target_fixture": "principal-binding.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_at",
+        "value": "2026-11-15T20:00:00Z"
+      },
+      "public_code": "proof.auth.binding_inactive",
+      "audit_reason": "proof.auth.binding_inactive",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "delegation-before-not-before",
+      "layer": "authorization",
+      "condition": "delegation_not_yet_valid",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_at",
+        "value": "2026-08-17T20:00:59.999999999Z"
+      },
+      "public_code": "proof.authorization.delegation_not_yet_valid",
+      "audit_reason": "proof.authorization.delegation_not_yet_valid",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "delegation-at-exclusive-expiry",
+      "layer": "authorization",
+      "condition": "delegation_expired",
+      "target_fixture": "delegation-v2.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_at",
+        "value": "2026-08-18T20:01:00Z"
+      },
+      "public_code": "proof.authorization.delegation_expired",
+      "audit_reason": "proof.authorization.delegation_expired",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "context-build-idempotency-input-changed",
+      "layer": "idempotency",
+      "condition": "idempotency_key_reused",
+      "target_fixture": "context-build.command-input.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/normalized_input/intent",
+        "value": "Changed input under the same key."
+      },
+      "public_code": "proof.idempotency.key_reused",
+      "audit_reason": "proof.idempotency.key_reused",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    }
+  ]
+}

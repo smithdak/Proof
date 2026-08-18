@@ -1,0 +1,26 @@
+{
+  "api_version": "proof.dev/command-input/v1",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "operation": {
+    "name": "context.build",
+    "version": "proof.dev/operation/context.build/v1"
+  },
+  "requesting_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "operating_principal_id": "019c0000-0000-7000-8000-000000000003",
+  "delegation_id": "019c0000-0000-7000-8000-000000000005",
+  "idempotency_key": "019c0000-0000-7000-8000-000000000010",
+  "normalized_input": {
+    "operating_principal_id": "019c0000-0000-7000-8000-000000000003",
+    "delegation_id": "019c0000-0000-7000-8000-000000000005",
+    "task_id": "p0003-retry-vector",
+    "intent": "Build bounded context for retry conformance.",
+    "environment_id": "production",
+    "object_ids": [
+      "019c0000-0000-7000-8000-000000000020"
+    ],
+    "max_objects": 1,
+    "max_bytes": 4096,
+    "idempotency_key": "019c0000-0000-7000-8000-000000000010",
+    "expires_at": "2026-08-17T21:00:00Z"
+  }
+}

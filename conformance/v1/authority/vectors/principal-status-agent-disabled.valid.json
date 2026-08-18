@@ -1,0 +1,11 @@
+{
+  "api_version": "proof.dev/principal-status/v1",
+  "authority_sequence": 6,
+  "previous_authority_record_digest": "blake3:f0843ce1916ff81104f2008fb9b2e35900272fe02c38eebba58611aa4620a77b",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "principal_id": "019c0000-0000-7000-8000-000000000003",
+  "principal_type": "agent",
+  "enabled": false,
+  "recorded_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "recorded_at": "2026-08-17T20:10:00Z"
+}

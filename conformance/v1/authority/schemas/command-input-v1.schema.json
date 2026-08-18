@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/command-input/v1",
+  "title": "CommandInputV1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": { "const": "proof.dev/command-input/v1" },
+    "workspace_id": { "$ref": "#/$defs/uuidv7" },
+    "operation": { "$ref": "https://proof.dev/schema/authority/operation/v1" },
+    "requesting_principal_id": { "$ref": "#/$defs/uuidv7" },
+    "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+    "delegation_id": { "$ref": "#/$defs/uuidv7" },
+    "idempotency_key": {
+      "oneOf": [
+        { "$ref": "#/$defs/uuidv7" },
+        { "type": "null" }
+      ]
+    },
+    "normalized_input": { "type": "object" }
+  },
+  "required": [
+    "api_version",
+    "workspace_id",
+    "operation",
+    "requesting_principal_id",
+    "operating_principal_id",
+    "delegation_id",
+    "idempotency_key",
+    "normalized_input"
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    }
+  }
+}

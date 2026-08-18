@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/workspace-authority-root-transition/v1",
+  "title": "WorkspaceAuthorityRootTransitionV1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/workspace-authority-root-transition/v1"
+    },
+    "authority_sequence": {
+      "$ref": "#/$defs/sequence"
+    },
+    "previous_authority_record_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "workspace_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "transition_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "predecessor_authority_key_id": {
+      "$ref": "#/$defs/ed25519_key_id"
+    },
+    "successor_authority_key_id": {
+      "$ref": "#/$defs/ed25519_key_id"
+    },
+    "successor_public_key": {
+      "$ref": "#/$defs/ed25519_public_key"
+    },
+    "algorithm": {
+      "const": "ed25519"
+    },
+    "activated_by_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "activated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "api_version",
+    "authority_sequence",
+    "previous_authority_record_digest",
+    "workspace_id",
+    "transition_id",
+    "predecessor_authority_key_id",
+    "successor_authority_key_id",
+    "successor_public_key",
+    "algorithm",
+    "activated_by_principal_id",
+    "activated_at"
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "ed25519_key_id": {
+      "type": "string",
+      "pattern": "^ed25519:[0-9a-f]{64}$"
+    },
+    "ed25519_public_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

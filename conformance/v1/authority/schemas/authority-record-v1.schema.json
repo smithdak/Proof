@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/authority-record/v1",
+  "title": "AuthorityRecordV1",
+  "$comment": "Cross-record v1 rule: every administrative actor field and Delegation issuer must equal the enabled ADR-0009 bootstrap Human independently derived by the Human-owned broker; Agents and Delegations cannot administer authority. AuthorizationDecisionV2 is kernel-produced. Principal disablement is terminal. The verified envelope signer must be the causally active Workspace authority root.",
+  "oneOf": [
+    {
+      "$ref": "https://proof.dev/schema/authority/principal-status/v1"
+    },
+    {
+      "$ref": "https://proof.dev/schema/authority/principal-binding/v1"
+    },
+    {
+      "$ref": "https://proof.dev/schema/authority/principal-binding-revocation/v1"
+    },
+    {
+      "$ref": "https://proof.dev/schema/authority/delegation/v2"
+    },
+    {
+      "$ref": "https://proof.dev/schema/authority/delegation-revocation/v1"
+    },
+    {
+      "$ref": "https://proof.dev/schema/authority/authorization-decision/v2"
+    },
+    {
+      "$ref": "https://proof.dev/schema/authority/workspace-authority-root-transition/v1"
+    }
+  ]
+}

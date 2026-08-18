@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/workspace-authority-root-transition-envelope/v1",
+  "title": "WorkspaceAuthorityRootV1 transition DSSE envelope",
+  "x-proof-max-payload-canonical-bytes": 65536,
+  "x-proof-max-canonical-bytes": 98304,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "payloadType": {
+      "const": "application/vnd.proof.workspace-authority-root-transition.v1+json"
+    },
+    "payload": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
+      "maxLength": 87384
+    },
+    "signatures": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "keyid": {
+            "type": "string",
+            "pattern": "^ed25519:[0-9a-f]{64}$"
+          },
+          "sig": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{85}[AQgw]==$"
+          }
+        },
+        "required": [
+          "keyid",
+          "sig"
+        ]
+      }
+    }
+  },
+  "required": [
+    "payloadType",
+    "payload",
+    "signatures"
+  ]
+}

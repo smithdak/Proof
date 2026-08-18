@@ -41,7 +41,8 @@ Dependencies point inward. The domain core has no dependency on CLI parsing, HTT
 
 1. An interface converts input into a versioned application command.
 2. The application layer authenticates the Principal and resolves Delegation.
-3. Idempotency is checked before performing work.
+3. After required authentication and current authorization, idempotency is
+   checked before performing work or disclosing a stored result.
 4. The relevant aggregate state is loaded against an explicit base identifier.
 5. The domain evaluates invariants.
 6. Authorization, policy, schema, and custom validators produce structured decisions.
@@ -50,6 +51,38 @@ Dependencies point inward. The domain core has no dependency on CLI parsing, HTT
 9. The application returns a stable structured result and correlation chain.
 
 No message is published before its authoritative transaction commits. External effects are delivered from the transactional outbox and are idempotent.
+
+### Proposed P-0003 profile — authenticated delegated path
+
+Pending project-owner acceptance, an Agent operation uses this ordering:
+The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+
+1. The adapter bounds and parses untrusted CLI or MCP input and authenticates
+   the requesting Human through ADR-0009's Unix binding.
+2. It verifies a fresh Ed25519 `AuthenticatedCommandV1` DSSE presentation for
+   the operating Agent,
+   including canonical payload bytes, audience, Workspace, operation version,
+   request digest, `presentation_id`, and time bounds.
+3. It resolves the validly issued immutable historical Human and Agent bindings
+   and derives `AuthenticatedActorContextV1`; request identities are
+   cross-checked only after derivation. Current binding/Principal state remains
+   an authorization check in step 5.
+4. The application treats request Principal identifiers as expected-value
+   cross-checks and resolves the one direct Human-to-Agent Delegation.
+5. It evaluates recipient, action, resource, budget, time, binding, revocation,
+   and policy, producing canonical `AuthorizationDecisionV2` evidence.
+6. One local transaction enforces unique `presentation_id`, appends signed
+   `AuthorityRecordV1` consumption and decision records, resolves idempotency,
+   and commits the governed consequence without a revocation check-then-act
+   gap. A valid denial may consume the presentation and record a bounded
+   decision but cannot move governed state or projections.
+7. A retry uses a fresh presentation with the same idempotency key and
+   equivalent normalized input. Fresh C5 authentication and current C6
+   authorization must succeed before C4 may return a prior result; revocation,
+   disablement, or policy denial blocks disclosure.
+
+This proposed ordering does not claim the current CLI or MCP implementation has
+authenticated Agent bindings.
 
 ## Read path
 
@@ -71,6 +104,24 @@ The authoritative history is an append-only sequence of domain facts grouped by 
 - Correlation and causation identifiers.
 
 The local implementation may store these records in relational tables rather than an event-store product. “Event-sourced” describes the authority model, not a vendor dependency.
+
+**Proposed P-0003 profile:** authority-bearing records additionally commit the
+requesting and operating Principals, exact `binding_id` plus its issuing
+authority sequence/record digest, and public
+`requesting_subject_commitment`,
+semantic `CommandInputV1` digest, authenticated-command envelope digest, direct
+Delegation digest,
+authorization-decision digest, and authority-log position. The separate
+authority log is append-only,
+causally ordered, independently rooted, and exportable as a portable authority
+closure; it is not a derived content projection.
+The requesting commitment is a hiding commitment formed with a 32-byte blind,
+not a raw UID checksum; the actor-context digest contains the public commitment
+and never the raw `os/unix` subject or blind. Audit policy controls disclosure
+of the private opening. The authority hash chain detects mutation and reordering
+only relative to a trusted later head. A local SQLite store plus file-backed
+signer does not detect restoration of a valid older prefix or fork; that claim
+requires an independently pinned authority-head checkpoint.
 
 ## Transaction boundaries
 
@@ -97,6 +148,16 @@ Proof uses optimistic concurrency:
 - Filesystem-backed artifact store.
 - Local key provider suitable for development.
 - In-process projections and delivery server.
+
+**Proposed P-0003 profile:** the bootstrap Unix UID and private Workspace are
+inside the Human/administrator trust boundary. Any process with that access can
+use the direct-Human path without Agent authentication. Per-Agent Ed25519 proof
+of possession is a containment control only when the Agent workload is outside
+that UID/filesystem boundary and calls Proof through a Human-owned broker or
+adapter; same-UID execution supplies attribution and integrity only. Milestone 2
+must demonstrate a distinct UID, container, or sandbox denying repository, raw
+CLI, and private Workspace access. Mutually hostile same-UID isolation requires
+a protected broker or workload-identity profile, not this local file-backed one.
 
 ### Server
 

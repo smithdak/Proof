@@ -1,0 +1,215 @@
+{
+  "api_version": "proof.dev/conformance/authority-rejected-cases/v1",
+  "status": "proposed",
+  "baseline_fixtures": [
+    "authenticated-command.payload.valid.json",
+    "authenticated-command.envelope.valid.json",
+    "authenticated-actor-context.valid.json",
+    "principal-binding.valid.json",
+    "principal-binding-revocation.valid.json"
+  ],
+  "cases": [
+    {
+      "id": "signature-tamper",
+      "layer": "authentication",
+      "condition": "signature_tamper",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/0/sig",
+        "value": "VRnZjH3lJRyjeQpMNhETioNmAOmS7fQuiYnsdKWhis58vqbkIOTlvUzYElzKa/0lLtL1bLPbwjJTAbEjNsWvAA=="
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.denied",
+      "audit_reason": "proof.auth.signature_invalid",
+      "expected_decision_append": false
+    },
+    {
+      "id": "command-digest-mismatch",
+      "layer": "authentication",
+      "condition": "command_mismatch",
+      "target_fixture": "semantic-command.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/recomputed_command_digest",
+        "value": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_decision_append": false
+    },
+    {
+      "id": "audience-mismatch",
+      "layer": "authorization",
+      "condition": "audience_mismatch",
+      "target_fixture": "authenticated-command.payload.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/expected_audience",
+        "value": "proof://workspace/019c0000-0000-7000-8000-00000000000a"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.audience_mismatch",
+      "audit_reason": "proof.auth.audience_mismatch",
+      "expected_decision_append": false
+    },
+    {
+      "id": "actor-binding-mismatch",
+      "layer": "authorization",
+      "condition": "actor_mismatch",
+      "target_fixture": "principal-binding.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/resolved_operating_principal_id",
+        "value": "019c0000-0000-7000-8000-00000000000a"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.actor_mismatch",
+      "audit_reason": "proof.auth.actor_mismatch",
+      "expected_decision_append": false
+    },
+    {
+      "id": "expired-command",
+      "layer": "authentication",
+      "condition": "expired",
+      "target_fixture": "authenticated-command.payload.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_at",
+        "value": "2026-08-17T20:07:00Z"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.expired",
+      "audit_reason": "proof.auth.expired",
+      "expected_decision_append": false
+    },
+    {
+      "id": "future-issued-at-over-skew",
+      "layer": "authentication",
+      "condition": "future_issued_at",
+      "target_fixture": "authenticated-command.payload.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_at",
+        "value": "2026-08-17T20:01:29Z"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.not_yet_valid",
+      "audit_reason": "proof.auth.not_yet_valid",
+      "expected_decision_append": false
+    },
+    {
+      "id": "presentation-replay",
+      "layer": "authentication",
+      "condition": "replayed_presentation",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "repeat_presentation",
+        "path": "/presentation_id",
+        "value": 2
+      },
+      "expected_authorized": false,
+      "expected_second_authority_append": false,
+      "public_code": "proof.auth.replay",
+      "audit_reason": "proof.auth.replay",
+      "expected_decision_append": false
+    },
+    {
+      "id": "metadata-is-not-identity",
+      "layer": "authentication",
+      "condition": "metadata_only_identity",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "metadata_only",
+        "path": "/transport_metadata/operating_principal_id",
+        "value": "019c0000-0000-7000-8000-000000000003"
+      },
+      "expected_authorized": false,
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_decision_append": false
+    },
+    {
+      "id": "random-keyid-neutral",
+      "layer": "authentication",
+      "condition": "random_keyid",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/0/keyid",
+        "value": "ed25519:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "public_code": "proof.auth.denied",
+      "audit_reason": "proof.auth.binding_not_found",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "revoked-key-invalid-signature-neutral",
+      "layer": "authentication",
+      "condition": "revoked_key_invalid_signature",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/preproof_state",
+        "value": {
+          "binding_revoked": true,
+          "signature_valid": false
+        }
+      },
+      "public_code": "proof.auth.denied",
+      "audit_reason": "proof.auth.signature_invalid",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "command-keyid-substitution",
+      "layer": "authentication",
+      "condition": "command_keyid_substitution",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/0/keyid",
+        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+      },
+      "public_code": "proof.auth.denied",
+      "audit_reason": "proof.auth.signature_invalid",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "noncanonical-signature-pad-bits",
+      "layer": "schema",
+      "condition": "noncanonical_base64_pad_bits",
+      "target_fixture": "authenticated-command.envelope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/signatures/0/sig",
+        "value": "231sqclcNjcaf3l1gDPiYKIeOf+blqhOUXs2sNsEBnRrNJ3l5y+uK28Hfm/56L+vrDV77Rp5MtMXsLno3e/NDh=="
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "operating-subject-must-be-agent-credential",
+      "layer": "schema",
+      "condition": "operating_subject_provider_mismatch",
+      "target_fixture": "authenticated-actor-context.digest-input.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/operating_subject",
+        "value": {
+          "provider": "os/unix",
+          "subject": "uid:1001"
+        }
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    }
+  ]
+}

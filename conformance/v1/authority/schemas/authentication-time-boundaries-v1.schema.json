@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/authority/authentication-time-boundaries/v1",
+  "title": "Authentication time-boundary vector v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/conformance/authentication-time-boundaries/v1"
+    },
+    "issued_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "expires_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "max_future_skew_seconds": {
+      "const": 30
+    },
+    "accepted_evaluated_at": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/timestamp"
+      }
+    },
+    "rejected": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "evaluated_at": {
+            "$ref": "#/$defs/timestamp"
+          },
+          "expected_code": {
+            "enum": [
+              "proof.auth.expired",
+              "proof.auth.not_yet_valid"
+            ]
+          }
+        },
+        "required": [
+          "evaluated_at",
+          "expected_code"
+        ]
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "issued_at",
+    "expires_at",
+    "max_future_skew_seconds",
+    "accepted_evaluated_at",
+    "rejected"
+  ],
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

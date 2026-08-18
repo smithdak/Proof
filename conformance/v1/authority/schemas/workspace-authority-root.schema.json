@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/workspace-authority-root/v1",
+  "title": "WorkspaceAuthorityRootV1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/workspace-authority-root/v1"
+    },
+    "workspace_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "authority_key_id": {
+      "$ref": "#/$defs/ed25519_key_id"
+    },
+    "public_key": {
+      "$ref": "#/$defs/ed25519_public_key"
+    },
+    "algorithm": {
+      "const": "ed25519"
+    },
+    "created_by_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "predecessor_authority_key_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ed25519_key_id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "root_transition_envelope_digest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "api_version",
+    "workspace_id",
+    "authority_key_id",
+    "public_key",
+    "algorithm",
+    "created_by_principal_id",
+    "created_at",
+    "predecessor_authority_key_id",
+    "root_transition_envelope_digest"
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "ed25519_key_id": {
+      "type": "string",
+      "pattern": "^ed25519:[0-9a-f]{64}$"
+    },
+    "ed25519_public_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

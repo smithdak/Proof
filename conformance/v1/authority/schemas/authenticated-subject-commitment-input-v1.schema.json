@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/authenticated-subject-commitment-input/v1",
+  "title": "Authenticated subject commitment input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/authenticated-subject-commitment/v1"
+    },
+    "workspace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "authenticated_subject": {
+      "allOf": [
+        {
+          "$ref": "https://proof.dev/schema/authority/authenticated-subject/v1"
+        },
+        {
+          "properties": {
+            "provider": {
+              "const": "os/unix"
+            }
+          }
+        }
+      ]
+    },
+    "blind": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    }
+  },
+  "required": [
+    "api_version",
+    "workspace_id",
+    "authenticated_subject",
+    "blind"
+  ]
+}

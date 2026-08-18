@@ -1,0 +1,25 @@
+{
+  "api_version": "proof.dev/principal-binding/v1",
+  "authority_sequence": 3,
+  "previous_authority_record_digest": "blake3:7d716637e7d7fda06b5c50965e7e3087dcbb16b50365b818c8b8a55f4bf39dd4",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "binding_id": "019c0000-0000-7000-8000-000000000004",
+  "principal_id": "019c0000-0000-7000-8000-000000000003",
+  "principal_type": "agent",
+  "authenticated_subject": {
+    "api_version": "proof.dev/authenticated-subject/v1",
+    "provider": "proof/local-ed25519",
+    "subject": "ed25519:707e8ff6e4bd4429a52a5687fd5ddad1023863aeb6ccdd61342295669ad567fc"
+  },
+  "algorithm": "ed25519",
+  "public_key": "cH6P9uS9RCmlKlaH/V3a0QI4Y662zN1hNCKVZprVZ/w=",
+  "key_usage": "authenticated-command",
+  "audience": "proof://workspace/019c0000-0000-7000-8000-000000000001",
+  "enrollment_challenge_digest": "blake3:67be6641b6f8838fb41158946c80ecb685445252d05b63dd88b04d280f3545e1",
+  "enrollment_envelope_digest": "blake3:9e14e11582aa0f9b94b1060832b6a09b52b81192fb215df5d0a590dfe0304653",
+  "issued_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "issued_at": "2026-08-17T20:00:00Z",
+  "not_before": "2026-08-17T20:00:00Z",
+  "expires_at": "2026-11-15T20:00:00Z",
+  "supersedes_binding_id": null
+}

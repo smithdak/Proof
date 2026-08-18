@@ -1,0 +1,11 @@
+{
+  "api_version": "proof.dev/principal-binding-revocation/v1",
+  "authority_sequence": 8,
+  "previous_authority_record_digest": "blake3:2e7a23c141c9ec370f42e98074fa8bcff035d9b8f0fb5aba12e1d9ed0cc5d14b",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "revocation_id": "019c0000-0000-7000-8000-000000000009",
+  "binding_id": "019c0000-0000-7000-8000-000000000004",
+  "revoked_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "revoked_at": "2026-08-17T20:12:00Z",
+  "reason": "administrative"
+}

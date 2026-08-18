@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/authority/rejected-cases/v1",
+  "title": "Authority rejected-case manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/conformance/authority-rejected-cases/v1"
+    },
+    "status": {
+      "const": "proposed"
+    },
+    "baseline_fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._/-]*\\.json$",
+        "maxLength": 256
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "layer": {
+            "enum": [
+              "authentication",
+              "authorization",
+              "authority",
+              "idempotency",
+              "schema"
+            ]
+          },
+          "condition": {
+            "enum": [
+              "actor_mismatch",
+              "agent_issuer_unsupported",
+              "authority_admin_actor_mismatch",
+              "audience_mismatch",
+              "authority_keyid_substitution",
+              "binding_cross_field_mismatch",
+              "binding_expired",
+              "binding_key_reuse",
+              "binding_not_yet_valid",
+              "binding_revoked",
+              "command_keyid_substitution",
+              "command_mismatch",
+              "delegation_expired",
+              "delegation_not_yet_valid",
+              "delegation_revoked",
+              "delegation_unavailable",
+              "direct_parent_present",
+              "disablement",
+              "empty_required_scope",
+              "enrollment_keyid_substitution",
+              "environment_id_invalid",
+              "expired",
+              "future_issued_at",
+              "idempotency_key_reused",
+              "metadata_only_identity",
+              "noncanonical_base64_pad_bits",
+              "operating_subject_provider_mismatch",
+              "principal_reenable",
+              "random_keyid",
+              "replayed_presentation",
+              "revoked_key_invalid_signature",
+              "root_transition_duplicate_keyid",
+              "root_transition_missing_signature",
+              "root_transition_permuted_keyids",
+              "root_transition_substituted_keyid",
+              "scope_exceeded",
+              "signature_tamper",
+              "subdelegation_enabled",
+              "unsorted_actions",
+              "unsorted_resource_array"
+            ]
+          },
+          "target_fixture": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._/-]*\\.json$",
+            "maxLength": 256
+          },
+          "mutation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "array_reverse",
+                  "json_add",
+                  "json_remove",
+                  "json_replace",
+                  "metadata_only",
+                  "repeat_presentation",
+                  "state_override"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/",
+                "maxLength": 256
+              },
+              "value": true
+            },
+            "required": [
+              "kind",
+              "path",
+              "value"
+            ]
+          },
+          "expected_authorized": {
+            "const": false
+          },
+          "expected_second_authority_append": {
+            "const": false
+          },
+          "public_code": {
+            "enum": [
+              "proof.auth.actor_mismatch",
+              "proof.auth.audience_mismatch",
+              "proof.auth.binding_inactive",
+              "proof.auth.binding_not_found",
+              "proof.auth.denied",
+              "proof.auth.expired",
+              "proof.auth.malformed",
+              "proof.auth.not_yet_valid",
+              "proof.auth.replay",
+              "proof.auth.signature_invalid",
+              "proof.authority.integrity",
+              "proof.authorization.budget_exceeded",
+              "proof.authorization.delegation_expired",
+              "proof.authorization.delegation_not_yet_valid",
+              "proof.authorization.delegation_revoked",
+              "proof.authorization.delegation_unavailable",
+              "proof.authorization.denied",
+              "proof.authorization.policy_denied",
+              "proof.authorization.principal_disabled",
+              "proof.authorization.scope_exceeded",
+              "proof.delegation.chain_unsupported",
+              "proof.idempotency.key_reused"
+            ]
+          },
+          "audit_reason": {
+            "enum": [
+              "proof.auth.actor_mismatch",
+              "proof.auth.audience_mismatch",
+              "proof.auth.binding_inactive",
+              "proof.auth.binding_not_found",
+              "proof.auth.denied",
+              "proof.auth.expired",
+              "proof.auth.malformed",
+              "proof.auth.not_yet_valid",
+              "proof.auth.replay",
+              "proof.auth.signature_invalid",
+              "proof.authority.integrity",
+              "proof.authorization.budget_exceeded",
+              "proof.authorization.delegation_expired",
+              "proof.authorization.delegation_not_yet_valid",
+              "proof.authorization.delegation_revoked",
+              "proof.authorization.delegation_unavailable",
+              "proof.authorization.denied",
+              "proof.authorization.policy_denied",
+              "proof.authorization.principal_disabled",
+              "proof.authorization.scope_exceeded",
+              "proof.delegation.chain_unsupported",
+              "proof.idempotency.key_reused"
+            ]
+          },
+          "expected_decision_append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "layer",
+          "condition",
+          "target_fixture",
+          "mutation",
+          "public_code",
+          "audit_reason",
+          "expected_authorized",
+          "expected_decision_append"
+        ]
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "status",
+    "baseline_fixtures",
+    "cases"
+  ]
+}

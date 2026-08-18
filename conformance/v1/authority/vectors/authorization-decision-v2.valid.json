@@ -1,0 +1,62 @@
+{
+  "api_version": "proof.dev/authorization-decision/v2",
+  "authority_sequence": 5,
+  "previous_authority_record_digest": "blake3:d7d90a82d1f63843ac63477732b64d79f75926ea5e72b11232407b083023f121",
+  "audience": "proof://workspace/019c0000-0000-7000-8000-000000000001",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "evaluated_authority_head": {
+    "sequence": 4,
+    "record_digest": "blake3:d7d90a82d1f63843ac63477732b64d79f75926ea5e72b11232407b083023f121"
+  },
+  "authority_key_id": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b",
+  "operation": {
+    "name": "workspace.status",
+    "version": "proof.dev/operation/workspace.status/v1"
+  },
+  "requested_action": "workspace:status",
+  "requested_resources": {
+    "workspace_ids": [
+      "019c0000-0000-7000-8000-000000000001"
+    ],
+    "environment_ids": [],
+    "object_ids": [],
+    "schema_ids": [],
+    "locales": [],
+    "changeset_ids": [],
+    "edition_ids": [],
+    "release_ids": []
+  },
+  "effective_constraints": {
+    "max_objects": 100,
+    "max_context_bytes": 1048576,
+    "max_edits_per_changeset": 100
+  },
+  "command_digest": "blake3:2e4e61fb9168b51240723b86c5ad7a8b6c777e5562345a835176ed515d52980a",
+  "command_envelope_digest": "blake3:22b87afb7ab79a116fbbc58a52452e47d9c8c332d491bd4ae9567f243cfd81d2",
+  "presentation_id": "019c0000-0000-7000-8000-000000000006",
+  "presentation_consumed": true,
+  "requesting_subject_commitment": "blake3:3d9fef74e8149e34ef4c5a1b97fe4429b9d0ff61b7b801e449b313494e4b3c42",
+  "actor_context_digest": "blake3:0a1c8ce893e9fdad0cf87b9f8963bac80fde5eb1af803f6f5d66587b1ef1709e",
+  "requesting_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "operating_principal_id": "019c0000-0000-7000-8000-000000000003",
+  "principal_state": {
+    "requesting_principal_enabled": true,
+    "operating_principal_enabled": true
+  },
+  "binding": {
+    "binding_id": "019c0000-0000-7000-8000-000000000004",
+    "record_digest": "blake3:21b5c6a02c3dd59eb1e139f4a5411a231efae10da7f51b00e28aa7c7c8403646",
+    "revocation_record_digest": null
+  },
+  "delegation": {
+    "delegation_id": "019c0000-0000-7000-8000-000000000005",
+    "record_digest": "blake3:d7d90a82d1f63843ac63477732b64d79f75926ea5e72b11232407b083023f121",
+    "revocation_record_digest": null,
+    "resolution": "resolved"
+  },
+  "policy_profile": "proof.local/authority/direct/v1",
+  "policy_bundle_digest": "blake3:986c0f8d64c2e3e47db73fe3cfcf492e9b65169cec91e7b59187413013322c12",
+  "evaluated_at": "2026-08-17T20:02:01Z",
+  "decision": "allow",
+  "reason_code": null
+}

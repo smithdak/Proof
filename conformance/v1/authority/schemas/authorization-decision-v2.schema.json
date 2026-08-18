@@ -1,0 +1,796 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/authorization-decision/v2",
+  "title": "AuthorizationDecisionV2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/authorization-decision/v2"
+    },
+    "authority_sequence": {
+      "$ref": "#/$defs/sequence"
+    },
+    "previous_authority_record_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "audience": {
+      "$ref": "#/$defs/audience"
+    },
+    "workspace_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "evaluated_authority_head": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "$ref": "#/$defs/sequence"
+        },
+        "record_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "sequence",
+        "record_digest"
+      ]
+    },
+    "authority_key_id": {
+      "$ref": "#/$defs/ed25519_key_id"
+    },
+    "operation": {
+      "$ref": "https://proof.dev/schema/authority/operation/v1"
+    },
+    "requested_action": {
+      "enum": [
+        "changeset:add",
+        "changeset:commit",
+        "changeset:create",
+        "changeset:diff",
+        "changeset:get",
+        "changeset:submit",
+        "changeset:validate",
+        "context:build",
+        "edition:create",
+        "object:query_released",
+        "release:create",
+        "workspace:status"
+      ]
+    },
+    "requested_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workspace_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuidv7"
+          }
+        },
+        "environment_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+          }
+        },
+        "object_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuidv7"
+          }
+        },
+        "schema_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+          }
+        },
+        "locales": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3}))*$",
+            "maxLength": 64
+          }
+        },
+        "changeset_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuidv7"
+          }
+        },
+        "edition_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuidv7"
+          }
+        },
+        "release_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuidv7"
+          }
+        }
+      },
+      "required": [
+        "workspace_ids",
+        "environment_ids",
+        "object_ids",
+        "schema_ids",
+        "locales",
+        "changeset_ids",
+        "edition_ids",
+        "release_ids"
+      ]
+    },
+    "effective_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_objects": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "max_context_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        },
+        "max_edits_per_changeset": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "max_objects",
+        "max_context_bytes",
+        "max_edits_per_changeset"
+      ]
+    },
+    "command_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "command_envelope_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "presentation_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "presentation_consumed": {
+      "const": true
+    },
+    "requesting_subject_commitment": {
+      "$ref": "#/$defs/digest"
+    },
+    "actor_context_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "requesting_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "operating_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "principal_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requesting_principal_enabled": {
+          "type": "boolean"
+        },
+        "operating_principal_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requesting_principal_enabled",
+        "operating_principal_enabled"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "$ref": "#/$defs/uuidv7"
+        },
+        "record_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "revocation_record_digest": {
+          "$ref": "#/$defs/nullable_digest"
+        }
+      },
+      "required": [
+        "binding_id",
+        "record_digest",
+        "revocation_record_digest"
+      ]
+    },
+    "delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "delegation_id": {
+          "$ref": "#/$defs/uuidv7"
+        },
+        "record_digest": {
+          "$ref": "#/$defs/nullable_digest"
+        },
+        "revocation_record_digest": {
+          "$ref": "#/$defs/nullable_digest"
+        },
+        "resolution": {
+          "enum": [
+            "resolved",
+            "not_found_or_hidden"
+          ]
+        }
+      },
+      "required": [
+        "delegation_id",
+        "resolution",
+        "record_digest",
+        "revocation_record_digest"
+      ]
+    },
+    "policy_profile": {
+      "const": "proof.local/authority/direct/v1"
+    },
+    "policy_bundle_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "evaluated_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "reason_code": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/denial_code"
+        }
+      ]
+    }
+  },
+  "required": [
+    "api_version",
+    "authority_sequence",
+    "previous_authority_record_digest",
+    "audience",
+    "workspace_id",
+    "evaluated_authority_head",
+    "authority_key_id",
+    "operation",
+    "requested_action",
+    "requested_resources",
+    "effective_constraints",
+    "command_digest",
+    "command_envelope_digest",
+    "presentation_id",
+    "presentation_consumed",
+    "requesting_subject_commitment",
+    "actor_context_digest",
+    "requesting_principal_id",
+    "operating_principal_id",
+    "principal_state",
+    "binding",
+    "delegation",
+    "policy_profile",
+    "policy_bundle_digest",
+    "evaluated_at",
+    "decision",
+    "reason_code"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "allow"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reason_code": {
+            "type": "null"
+          },
+          "principal_state": {
+            "properties": {
+              "requesting_principal_enabled": {
+                "const": true
+              },
+              "operating_principal_enabled": {
+                "const": true
+              }
+            }
+          },
+          "binding": {
+            "properties": {
+              "revocation_record_digest": {
+                "type": "null"
+              }
+            }
+          },
+          "delegation": {
+            "properties": {
+              "revocation_record_digest": {
+                "type": "null"
+              },
+              "resolution": {
+                "const": "resolved"
+              },
+              "record_digest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "reason_code": {
+            "$ref": "#/$defs/denial_code"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "delegation": {
+            "properties": {
+              "resolution": {
+                "const": "not_found_or_hidden"
+              }
+            },
+            "required": [
+              "resolution"
+            ]
+          }
+        },
+        "required": [
+          "delegation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "const": "deny"
+          },
+          "reason_code": {
+            "const": "proof.authorization.delegation_unavailable"
+          },
+          "delegation": {
+            "properties": {
+              "record_digest": {
+                "type": "null"
+              },
+              "revocation_record_digest": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reason_code": {
+            "const": "proof.authorization.delegation_unavailable"
+          }
+        },
+        "required": [
+          "reason_code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "delegation": {
+            "properties": {
+              "resolution": {
+                "const": "not_found_or_hidden"
+              },
+              "record_digest": {
+                "type": "null"
+              },
+              "revocation_record_digest": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "workspace.status"
+                },
+                "version": {
+                  "const": "proof.dev/operation/workspace.status/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "workspace:status"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "object.query_released"
+                },
+                "version": {
+                  "const": "proof.dev/operation/object.query_released/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "object:query_released"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "context.build"
+                },
+                "version": {
+                  "const": "proof.dev/operation/context.build/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "context:build"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.create"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.create/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:create"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.add"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.add/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:add"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.get"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.get/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:get"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.diff"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.diff/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:diff"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.validate"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.validate/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:validate"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.submit"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.submit/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:submit"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "changeset.commit"
+                },
+                "version": {
+                  "const": "proof.dev/operation/changeset.commit/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "changeset:commit"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "edition.create"
+                },
+                "version": {
+                  "const": "proof.dev/operation/edition.create/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "edition:create"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
+                  "const": "release.create"
+                },
+                "version": {
+                  "const": "proof.dev/operation/release.create/v1"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "release:create"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "nullable_digest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "audience": {
+      "type": "string",
+      "pattern": "^proof://workspace/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "ed25519_key_id": {
+      "type": "string",
+      "pattern": "^ed25519:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "denial_code": {
+      "enum": [
+        "proof.auth.binding_inactive",
+        "proof.authorization.budget_exceeded",
+        "proof.authorization.delegation_expired",
+        "proof.authorization.delegation_not_yet_valid",
+        "proof.authorization.delegation_revoked",
+        "proof.authorization.delegation_unavailable",
+        "proof.authorization.policy_denied",
+        "proof.authorization.principal_disabled",
+        "proof.authorization.scope_exceeded",
+        "proof.delegation.chain_unsupported"
+      ]
+    }
+  }
+}

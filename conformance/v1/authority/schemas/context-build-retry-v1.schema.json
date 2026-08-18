@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/authority/context-build-retry/v1",
+  "title": "Context build fresh-presentation retry vector v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/conformance/context-build-retry/v1"
+    },
+    "status": {
+      "const": "proposed"
+    },
+    "command_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "idempotency_key": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "presentation_ids": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/uuidv7"
+      }
+    },
+    "command_envelope_digests": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/digest"
+      }
+    },
+    "expected_same_command_result": {
+      "const": true
+    }
+  },
+  "required": [
+    "api_version",
+    "status",
+    "command_digest",
+    "idempotency_key",
+    "presentation_ids",
+    "command_envelope_digests",
+    "expected_same_command_result"
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    }
+  }
+}

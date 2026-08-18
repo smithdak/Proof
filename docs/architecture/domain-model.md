@@ -3,6 +3,11 @@
 **Status:** Ratified baseline  
 **Baseline:** August 3, 2026
 
+> **Proposed P-0003 profile:** The authenticated-actor and authority-evidence
+> additions below are pending project-owner acceptance. Existing records retain
+> their current meaning until a versioned migration is implemented.
+> The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+
 ## Aggregate map
 
 ```text
@@ -19,6 +24,16 @@ Workspace
 ```
 
 This is a conceptual ownership map, not a single in-memory aggregate. Transaction boundaries remain narrow except where the ChangeSet intentionally coordinates multiple Objects.
+
+**Proposed P-0003 profile:** The Workspace also references a separately rooted,
+append-only authority log containing Principal bindings, Agent credential
+public-key references, Delegation issue/revocation facts, consumed command
+presentations, and authorization decisions. It does not place credential
+secrets or raw provider subjects in the content aggregate.
+Its signed hash chain detects mutation and reordering relative to a trusted
+later authority head; a valid older prefix or fork restored with the same local
+store and file-backed signer remains an explicit residual unless a verifier
+pins an independently retained authority-head checkpoint.
 
 ## Workspace
 
@@ -102,6 +117,15 @@ Required fields:
 - optional ContextPack reference
 - required policy and validation profile
 
+**Proposed P-0003 profile:** A new version of every authority-bearing command
+and fact records distinct `requesting_principal_id` and
+`operating_principal_id`, `binding_id` plus its issuing authority
+sequence and record digest, direct
+`delegation_id`, semantic `CommandInputV1` digest and authenticated-command
+envelope digest,
+`authorization_decision_digest`, and authority-log position. The legacy
+`principal_id` field is not silently reinterpreted.
+
 Lifecycle:
 
 ```text
@@ -165,15 +189,89 @@ A Principal is an authenticated identity of type:
 
 Principal type informs policy but does not change available state transitions.
 
+## Proposed P-0003 profile — authenticated actor types
+
+An `AuthenticatedSubjectV1` is a provider-qualified result from a trusted
+identity adapter. It is not a Principal and is never accepted from an
+application request.
+
+A `PrincipalBindingV1` is an immutable, Workspace-authority-signed mapping from
+a provider-qualified subject and public credential to exactly one Principal.
+Rotation creates another binding. Disablement or revocation is a later
+authority fact with a causal position; it is not an in-place edit. Portable
+evidence uses `requesting_subject_commitment`, a hiding commitment formed with
+a 32-byte blind, when the raw provider subject is restricted. It is not a raw
+UID checksum. Audit policy controls disclosure of the private subject-plus-blind
+opening; exact canonical semantics live in the
+[authenticated actor contract](authenticated-actor.md) and
+[`conformance/v1/authority/`](../../conformance/v1/authority/README.md).
+Principal disablement is terminal in this profile; recovery creates a new
+Principal, binding, and direct Delegation rather than re-enabling old authority.
+
+An `AuthenticatedActorContextV1` is an in-process application value derived by
+the adapter. It identifies both authenticated subjects, the Agent binding,
+requesting and operating Principals, authentication method,
+semantic `CommandInputV1` digest, authenticated-command envelope digest,
+`presentation_id`, and
+authentication time. It has no public request Schema.
+Persisted `actor_context_digest` input uses the public
+`requesting_subject_commitment`, never the raw requesting `os/unix` subject or
+its blind.
+
+An `AuthenticatedCommandV1` is a bounded, single-use DSSE presentation over one
+normalized operation. Its `presentation_id` is the replay identity. Its
+consumption is an `AuthorityRecordV1` fact. A new presentation
+may reuse an idempotency key only for the same normalized operation input.
+Fresh C5 authentication and current C6 authorization precede C4 disclosure of
+any prior idempotent result; current revocation, disablement, or policy denial
+blocks disclosure without undoing the completed effect.
+
+An `AuthorizationDecisionV2` records allow or deny, authenticated actor-context
+commitment, exact command and envelope digests, direct Delegation and revocation
+position, requested action/resources/budgets, policy inputs, authority head,
+and decision time. It never contains a private credential or bearer secret.
+Existing `AuthorizationDecisionV1` retains its legacy read-authority meaning
+and is not silently reinterpreted.
+
 ## Delegation
 
 A Delegation grants bounded authority from an issuer to a recipient Principal. It is immutable after issue; revocation creates a revocation fact. Evaluation follows the full chain, and no link may grant more than its parent.
+
+### Proposed P-0003 direct profile
+
+Milestone 2 narrows evaluation to one immutable Human-to-Agent `DelegationV2`.
+The independently authenticated Human must equal the issuer; the authenticated
+Agent binding must resolve the recipient as the operating Principal. Revocation state is derived
+from append-only authority facts as of the authorization decision's causal
+position. A parent reference, subdelegation permission, non-Human issuer,
+multi-link or cyclic path, or absent revocation evidence fails closed. If
+accepted, this profile supersedes complete-chain evaluation for Milestone 2;
+chaining requires a later versioned profile.
 
 See [Agent authority](agent-authority.md).
 
 ## ContextPack
 
 A ContextPack is a content-addressed task context artifact. It contains the minimum state and rules needed to propose work, plus an explicit capability boundary. It is evidence, not authority: possessing one does not grant permission to commit.
+
+## Proposed P-0003 profile — portable authority closure
+
+P-0006 will define `AuthorityEvidenceBundleV1`; it is not an implemented bundle
+contract in P-0003 or P-0004. The future bundle is rooted in the
+separate authority trust domain and carries the exact `binding_id`, binding-issue
+authority sequence and record digest, subject commitment, direct `DelegationV2`
+and applicable revocation records, consumed
+`AuthenticatedCommandV1`, `AuthorizationDecisionV2`, `AuthorityRecordV1`
+positions, and required policy identifiers. A Release Proof will refer to the
+bundle or its selected authority-closure commitment under the P-0006 contract.
+When a verifier must detect prefix truncation or rollback rather than only
+validate the supplied prefix internally, the bundle also needs an independently
+retained expected authority head or a later checkpoint that commits it.
+
+An independent verifier receives the bundle, referenced canonical artifacts,
+and explicit caller-supplied authority trust roots. Withheld protected values
+remain commitments and make the authority-evidence verdict incomplete unless
+the selected trust policy can validate them without disclosure.
 
 ## Known State
 

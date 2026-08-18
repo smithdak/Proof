@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/authority/ed25519-dsse-vector/v1",
+  "title": "Ed25519 DSSE byte vector v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/conformance/ed25519-dsse-vector/v1"
+    },
+    "status": {
+      "const": "proposed"
+    },
+    "payload_file": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*\\.json$"
+    },
+    "envelope_file": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*\\.json$"
+    },
+    "payload_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "payload_utf8_base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "pae_utf8_base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "envelope_digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "envelope_digest_context": {
+      "enum": [
+        "proof:authenticated-command-envelope:v1",
+        "proof:binding-enrollment-envelope:v1",
+        "proof:authority-record-envelope:v1"
+      ]
+    },
+    "signers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "pattern": "^ed25519:[0-9a-f]{64}$"
+          },
+          "public_key_hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "public_key_base64": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "signature_hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{128}$"
+          },
+          "signature_base64": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{85}[AQgw]==$"
+          }
+        },
+        "required": [
+          "key_id",
+          "public_key_hex",
+          "public_key_base64",
+          "signature_hex",
+          "signature_base64"
+        ]
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "status",
+    "payload_file",
+    "envelope_file",
+    "payload_type",
+    "payload_utf8_base64",
+    "pae_utf8_base64",
+    "envelope_digest",
+    "envelope_digest_context",
+    "signers"
+  ]
+}

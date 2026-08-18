@@ -1,0 +1,13 @@
+{
+  "api_version": "proof.dev/command-input/v1",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "operation": {
+    "name": "workspace.status",
+    "version": "proof.dev/operation/workspace.status/v1"
+  },
+  "delegation_id": "019c0000-0000-7000-8000-000000000005",
+  "idempotency_key": null,
+  "normalized_input": {},
+  "requesting_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "operating_principal_id": "019c0000-0000-7000-8000-000000000003"
+}

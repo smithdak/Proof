@@ -1,0 +1,10 @@
+{
+  "api_version": "proof.dev/authenticated-subject-commitment/v1",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "authenticated_subject": {
+    "api_version": "proof.dev/authenticated-subject/v1",
+    "provider": "os/unix",
+    "subject": "uid:1000"
+  },
+  "blind": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+}

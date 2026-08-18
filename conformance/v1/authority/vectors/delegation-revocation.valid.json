@@ -1,0 +1,11 @@
+{
+  "api_version": "proof.dev/delegation-revocation/v1",
+  "authority_sequence": 7,
+  "previous_authority_record_digest": "blake3:447f701ef6401e5ef5ca658fc40cf86c0bc02f35d5dd399ccc6be5293c9cec06",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "revocation_id": "019c0000-0000-7000-8000-000000000008",
+  "delegation_id": "019c0000-0000-7000-8000-000000000005",
+  "revoked_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "revoked_at": "2026-08-17T20:11:00Z",
+  "reason": "issuer_request"
+}

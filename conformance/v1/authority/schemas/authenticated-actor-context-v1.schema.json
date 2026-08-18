@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/authenticated-actor-context/v1",
+  "title": "AuthenticatedActorContextV1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/authenticated-actor-context/v1"
+    },
+    "audience": {
+      "$ref": "#/$defs/audience"
+    },
+    "workspace_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "authentication_profile": {
+      "const": "proof.local/authentication/human-agent/v1"
+    },
+    "requesting_subject": {
+      "allOf": [
+        {
+          "$ref": "https://proof.dev/schema/authority/authenticated-subject/v1"
+        },
+        {
+          "properties": {
+            "provider": {
+              "const": "os/unix"
+            }
+          }
+        }
+      ]
+    },
+    "requesting_subject_commitment": {
+      "$ref": "#/$defs/digest"
+    },
+    "operating_subject": {
+      "allOf": [
+        {
+          "$ref": "https://proof.dev/schema/authority/authenticated-subject/v1"
+        },
+        {
+          "properties": {
+            "provider": {
+              "const": "proof/local-ed25519"
+            }
+          }
+        }
+      ]
+    },
+    "binding_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "requesting_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "operating_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "delegation_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "operation": {
+      "$ref": "https://proof.dev/schema/authority/operation/v1"
+    },
+    "command_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "command_envelope_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "presentation_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "authenticated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "api_version",
+    "audience",
+    "workspace_id",
+    "authentication_profile",
+    "requesting_subject",
+    "requesting_subject_commitment",
+    "operating_subject",
+    "binding_id",
+    "requesting_principal_id",
+    "operating_principal_id",
+    "delegation_id",
+    "operation",
+    "command_digest",
+    "command_envelope_digest",
+    "presentation_id",
+    "authenticated_at"
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "audience": {
+      "type": "string",
+      "pattern": "^proof://workspace/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

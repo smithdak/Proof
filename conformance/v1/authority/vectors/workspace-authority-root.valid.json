@@ -1,0 +1,11 @@
+{
+  "api_version": "proof.dev/workspace-authority-root/v1",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "authority_key_id": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b",
+  "public_key": "/vtIykOX6/ee6rMt5i6RW93S+70L3UEFxbFKxic3vVs=",
+  "algorithm": "ed25519",
+  "created_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "created_at": "2026-08-17T19:55:00Z",
+  "predecessor_authority_key_id": null,
+  "root_transition_envelope_digest": null
+}

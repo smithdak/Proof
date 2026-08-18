@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/authenticated-command/v1",
+  "title": "AuthenticatedCommandV1",
+  "x-proof-max-canonical-bytes": 4096,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/authenticated-command/v1"
+    },
+    "audience": {
+      "$ref": "#/$defs/audience"
+    },
+    "workspace_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "operation": {
+      "$ref": "https://proof.dev/schema/authority/operation/v1"
+    },
+    "binding_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "requesting_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "operating_principal_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "delegation_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "command_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "idempotency_key": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuidv7"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "presentation_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "issued_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "expires_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "api_version",
+    "audience",
+    "workspace_id",
+    "operation",
+    "binding_id",
+    "requesting_principal_id",
+    "operating_principal_id",
+    "delegation_id",
+    "command_digest",
+    "idempotency_key",
+    "presentation_id",
+    "issued_at",
+    "expires_at"
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "audience": {
+      "type": "string",
+      "pattern": "^proof://workspace/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

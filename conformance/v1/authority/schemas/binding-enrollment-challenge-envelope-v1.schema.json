@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/binding-enrollment-challenge-envelope/v1",
+  "title": "BindingEnrollmentChallengeV1 DSSE envelope",
+  "x-proof-max-canonical-bytes": 16384,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "payloadType": {
+      "const": "application/vnd.proof.binding-enrollment-challenge.v1+json"
+    },
+    "payload": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
+      "maxLength": 5464
+    },
+    "signatures": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "keyid": {
+            "type": "string",
+            "pattern": "^ed25519:[0-9a-f]{64}$"
+          },
+          "sig": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{85}[AQgw]==$"
+          }
+        },
+        "required": [
+          "keyid",
+          "sig"
+        ]
+      }
+    }
+  },
+  "required": [
+    "payloadType",
+    "payload",
+    "signatures"
+  ]
+}

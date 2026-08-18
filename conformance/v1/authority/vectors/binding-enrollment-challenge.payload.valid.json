@@ -1,0 +1,12 @@
+{
+  "api_version": "proof.dev/binding-enrollment-challenge/v1",
+  "challenge_id": "019c0000-0000-7000-8000-000000000007",
+  "audience": "proof://workspace/019c0000-0000-7000-8000-000000000001",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "binding_id": "019c0000-0000-7000-8000-000000000004",
+  "principal_id": "019c0000-0000-7000-8000-000000000003",
+  "candidate_key_id": "ed25519:707e8ff6e4bd4429a52a5687fd5ddad1023863aeb6ccdd61342295669ad567fc",
+  "issued_by_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "issued_at": "2026-08-17T19:59:00Z",
+  "expires_at": "2026-08-17T20:04:00Z"
+}
