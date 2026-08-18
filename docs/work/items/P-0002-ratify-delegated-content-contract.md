@@ -1,13 +1,13 @@
 ---
 id: P-0002
 title: Ratify the Milestone 2 delegated content contract
-status: ready
+status: claimed
 wave: now
 kind: decision
 blocked_by: [P-0001]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0002
+claimed_at: 2026-08-18T01:07:37.311Z
+base_sha: d6532ffcd9ea00dc18c31005695a40692b1f8cc2
 review_gate: project-owner
 accepted_by: null
 accepted_at: null
