@@ -1,0 +1,887 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json",
+  "title": "Proof localized-content artifacts",
+  "oneOf": [
+    { "$ref": "#/$defs/contentResourceIntentV1" },
+    { "$ref": "#/$defs/localizedContentPolicyV1" },
+    { "$ref": "#/$defs/contextPackV2" },
+    { "$ref": "#/$defs/editV2" },
+    { "$ref": "#/$defs/editBatchV2" },
+    { "$ref": "#/$defs/changeSetV2" },
+    { "$ref": "#/$defs/validationResultsV2" },
+    { "$ref": "#/$defs/objectLocaleRevisionV1" },
+    { "$ref": "#/$defs/objectSetV2" },
+    { "$ref": "#/$defs/knownStateV2" },
+    { "$ref": "#/$defs/editionV2" },
+    { "$ref": "#/$defs/editionDeltaV2" },
+    { "$ref": "#/$defs/releaseV2" },
+    { "$ref": "#/$defs/releaseProofPredicateV2" }
+  ],
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "locale": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$"
+    },
+    "logicalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "jsonPointer": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:/(?:[^~/]|~0|~1)*)+$"
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "safeSequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "stateReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "authoritative_sequence", "digest"],
+      "properties": {
+        "api_version": {
+          "enum": ["proof.dev/known-state/v1", "proof.dev/known-state/v2"]
+        },
+        "authoritative_sequence": { "$ref": "#/$defs/safeSequence" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "editionReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "digest", "edition_id"],
+      "properties": {
+        "api_version": {
+          "enum": ["proof.dev/edition/v1", "proof.dev/edition/v2"]
+        },
+        "digest": { "$ref": "#/$defs/digest" },
+        "edition_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "releaseReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "digest", "release_id"],
+      "properties": {
+        "api_version": {
+          "enum": ["proof.dev/release/v1", "proof.dev/release/v2"]
+        },
+        "digest": { "$ref": "#/$defs/digest" },
+        "release_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edition", "known_state", "release"],
+      "properties": {
+        "edition": { "$ref": "#/$defs/editionReference" },
+        "known_state": { "$ref": "#/$defs/stateReference" },
+        "release": { "$ref": "#/$defs/releaseReference" }
+      }
+    },
+    "targetTuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locale", "object_id", "schema_id"],
+      "properties": {
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "schema_id": { "$ref": "#/$defs/logicalId" }
+      }
+    },
+    "schemaReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_digest", "schema_id", "schema_version"],
+      "properties": {
+        "document_digest": { "$ref": "#/$defs/digest" },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "objectReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lifecycle_state",
+        "object_digest",
+        "object_id",
+        "revision",
+        "schema_id",
+        "schema_version"
+      ],
+      "properties": {
+        "lifecycle_state": { "enum": ["active", "archived"] },
+        "object_digest": { "$ref": "#/$defs/digest" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "revision": { "$ref": "#/$defs/positiveInteger" },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "localeReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "locale",
+        "object_id",
+        "rendition_digest",
+        "revision",
+        "schema_id",
+        "schema_version",
+        "source_object_digest"
+      ],
+      "properties": {
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "rendition_digest": { "$ref": "#/$defs/digest" },
+        "revision": { "$ref": "#/$defs/positiveInteger" },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" },
+        "source_object_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "expectedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "revision", "schema_id", "schema_version"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/digest" },
+        "revision": { "const": 1 },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "expectedTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "revision"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/digest" },
+        "revision": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "contentResourceIntentV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "base",
+        "environment_id",
+        "intent_id",
+        "issued_at",
+        "issued_by_principal_id",
+        "targets",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/content-resource-intent/v1" },
+        "base": { "$ref": "#/$defs/baseline" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "intent_id": { "$ref": "#/$defs/uuidV7" },
+        "issued_at": { "$ref": "#/$defs/timestamp" },
+        "issued_by_principal_id": { "$ref": "#/$defs/uuidV7" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/targetTuple" }
+        },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "policyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disallowed_values", "locale", "pointer"],
+      "properties": {
+        "disallowed_values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "locale": { "$ref": "#/$defs/locale" },
+        "pointer": { "$ref": "#/$defs/jsonPointer" }
+      }
+    },
+    "localizedContentPolicyV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "rules"],
+      "properties": {
+        "api_version": { "const": "proof.dev/localized-content-policy/v1" },
+        "rules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/policyRule" }
+        }
+      }
+    },
+    "contextLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_bytes", "max_edits", "max_objects", "max_validation_attempts"],
+      "properties": {
+        "max_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "max_edits": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_objects": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_validation_attempts": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "schemaClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document",
+        "document_digest",
+        "localizable_pointers",
+        "schema_id",
+        "schema_version"
+      ],
+      "properties": {
+        "document": { "type": "object" },
+        "document_digest": { "$ref": "#/$defs/digest" },
+        "localizable_pointers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/jsonPointer" }
+        },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "sourceClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "content", "digest", "revision"],
+      "properties": {
+        "api_version": { "const": "proof.dev/object-revision/v1" },
+        "content": { "type": "object" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "revision": { "const": 1 }
+      }
+    },
+    "absentTargetClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["absent", "api_version", "authoritative_sequence"],
+      "properties": {
+        "absent": { "const": true },
+        "api_version": { "const": "proof.dev/object-locale-absence/v1" },
+        "authoritative_sequence": { "$ref": "#/$defs/safeSequence" }
+      }
+    },
+    "presentTargetClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["absent", "api_version", "digest", "manifest", "revision"],
+      "properties": {
+        "absent": { "const": false },
+        "api_version": { "const": "proof.dev/object-locale-revision/v1" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "manifest": { "$ref": "#/$defs/objectLocaleRevisionV1" },
+        "revision": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "contextResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locale", "object_id", "schema", "source", "target"],
+      "properties": {
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "schema": { "$ref": "#/$defs/schemaClosure" },
+        "source": { "$ref": "#/$defs/sourceClosure" },
+        "target": {
+          "oneOf": [
+            { "$ref": "#/$defs/absentTargetClosure" },
+            { "$ref": "#/$defs/presentTargetClosure" }
+          ]
+        }
+      }
+    },
+    "contextPackV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_operations",
+        "api_version",
+        "context_pack_id",
+        "created_at",
+        "explicit_exclusions",
+        "expires_at",
+        "limits",
+        "policy",
+        "policy_digest",
+        "principal_id",
+        "resource_intent",
+        "resource_intent_digest",
+        "resources",
+        "target_ordering",
+        "validator",
+        "workspace_id"
+      ],
+      "properties": {
+        "allowed_operations": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "proof.dev/operation/changeset.create/v2" },
+            { "const": "proof.dev/operation/changeset.add/v2" },
+            { "const": "proof.dev/operation/changeset.get/v2" },
+            { "const": "proof.dev/operation/changeset.diff/v2" },
+            { "const": "proof.dev/operation/changeset.validate/v2" },
+            { "const": "proof.dev/operation/changeset.submit/v2" },
+            { "const": "proof.dev/operation/changeset.commit/v2" },
+            { "const": "proof.dev/operation/edition.create/v2" },
+            { "const": "proof.dev/operation/release.create/v2" },
+            { "const": "proof.dev/operation/object.query_released/v2" }
+          ],
+          "items": false,
+          "minItems": 10,
+          "maxItems": 10
+        },
+        "api_version": { "const": "proof.dev/context-pack/v2" },
+        "context_pack_id": { "$ref": "#/$defs/uuidV7" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "explicit_exclusions": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "agent-authority" },
+            { "const": "campaign-expansion" },
+            { "const": "deletion" },
+            { "const": "fallback" },
+            { "const": "generic-object-replacement" },
+            { "const": "relationship-mutation" },
+            { "const": "schema-mutation" }
+          ],
+          "items": false,
+          "minItems": 7,
+          "maxItems": 7
+        },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "limits": { "$ref": "#/$defs/contextLimits" },
+        "policy": { "$ref": "#/$defs/localizedContentPolicyV1" },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "principal_id": { "$ref": "#/$defs/uuidV7" },
+        "resource_intent": { "$ref": "#/$defs/contentResourceIntentV1" },
+        "resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/contextResource" }
+        },
+        "target_ordering": { "const": "object_id,schema_id,locale:utf8-ascending" },
+        "validator": { "const": "proof/localized-content/1" },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "editV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "content",
+        "edit_id",
+        "expected_source",
+        "expected_target",
+        "kind",
+        "locale",
+        "object_id",
+        "repair_of_validation_result_digest",
+        "supersedes_edit_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/edit/v2" },
+        "content": { "type": "object" },
+        "edit_id": { "$ref": "#/$defs/uuidV7" },
+        "expected_source": { "$ref": "#/$defs/expectedSource" },
+        "expected_target": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/expectedTarget" }
+          ]
+        },
+        "kind": { "const": "object.locale.put" },
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "repair_of_validation_result_digest": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/digest" }
+          ]
+        },
+        "supersedes_edit_id": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/uuidV7" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "supersedes_edit_id": { "type": "null" } } },
+          "then": { "properties": { "repair_of_validation_result_digest": { "type": "null" } } },
+          "else": { "properties": { "repair_of_validation_result_digest": { "$ref": "#/$defs/digest" } } }
+        }
+      ]
+    },
+    "editBatchV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "edits"],
+      "properties": {
+        "api_version": { "const": "proof.dev/edit-batch/v2" },
+        "edits": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/editV2" }
+        }
+      }
+    },
+    "effectiveLeaf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edit_digest", "edit_id", "locale", "object_id"],
+      "properties": {
+        "edit_digest": { "$ref": "#/$defs/digest" },
+        "edit_id": { "$ref": "#/$defs/uuidV7" },
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "changeSetV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "base_state",
+        "changeset_id",
+        "context_pack_digest",
+        "context_pack_id",
+        "created_at",
+        "edits",
+        "effective_leaf_digest",
+        "effective_leaves",
+        "intent",
+        "principal_id",
+        "resource_intent_digest",
+        "resource_intent_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/changeset/v2" },
+        "base_state": { "$ref": "#/$defs/stateReference" },
+        "changeset_id": { "$ref": "#/$defs/uuidV7" },
+        "context_pack_digest": { "$ref": "#/$defs/digest" },
+        "context_pack_id": { "$ref": "#/$defs/uuidV7" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "edits": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/editV2" }
+        },
+        "effective_leaf_digest": { "$ref": "#/$defs/digest" },
+        "effective_leaves": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/effectiveLeaf" }
+        },
+        "intent": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "principal_id": { "$ref": "#/$defs/uuidV7" },
+        "resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "resource_intent_id": { "$ref": "#/$defs/uuidV7" },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "edit_id",
+        "locale",
+        "object_id",
+        "pointer",
+        "policy_digest",
+        "severity",
+        "validator"
+      ],
+      "properties": {
+        "code": { "const": "proof.validation.prohibited_legal_claim" },
+        "edit_id": { "$ref": "#/$defs/uuidV7" },
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "pointer": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/jsonPointer" }
+          ]
+        },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "validator": { "const": "proof/localized-content/1" }
+      }
+    },
+    "validationResultsV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "attempt",
+        "changeset_id",
+        "context_pack_digest",
+        "effective_leaf_digest",
+        "findings",
+        "policy_digest",
+        "previous_validation_result_digest",
+        "proposal_digest",
+        "schema_digests",
+        "valid",
+        "validator"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/validation-results/v2" },
+        "attempt": { "$ref": "#/$defs/positiveInteger" },
+        "changeset_id": { "$ref": "#/$defs/uuidV7" },
+        "context_pack_digest": { "$ref": "#/$defs/digest" },
+        "effective_leaf_digest": { "$ref": "#/$defs/digest" },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "previous_validation_result_digest": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/digest" }
+          ]
+        },
+        "proposal_digest": { "$ref": "#/$defs/digest" },
+        "schema_digests": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/schemaReference" }
+        },
+        "valid": { "type": "boolean" },
+        "validator": { "const": "proof/localized-content/1" }
+      }
+    },
+    "objectLocaleRevisionV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authoritative_sequence",
+        "changeset_id",
+        "content",
+        "edit_id",
+        "locale",
+        "object_id",
+        "previous_revision_digest",
+        "revision",
+        "schema_id",
+        "schema_version",
+        "source_object_digest",
+        "source_object_revision",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/object-locale-revision/v1" },
+        "authoritative_sequence": { "$ref": "#/$defs/positiveInteger" },
+        "changeset_id": { "$ref": "#/$defs/uuidV7" },
+        "content": { "type": "object" },
+        "edit_id": { "$ref": "#/$defs/uuidV7" },
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "previous_revision_digest": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/digest" }
+          ]
+        },
+        "revision": { "$ref": "#/$defs/positiveInteger" },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" },
+        "source_object_digest": { "$ref": "#/$defs/digest" },
+        "source_object_revision": { "const": 1 },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "revision": { "const": 1 } } },
+          "then": { "properties": { "previous_revision_digest": { "type": "null" } } },
+          "else": { "properties": { "previous_revision_digest": { "$ref": "#/$defs/digest" } } }
+        }
+      ]
+    },
+    "objectSetV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "objects", "renditions"],
+      "properties": {
+        "api_version": { "const": "proof.dev/object-set/v2" },
+        "objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/objectReference" }
+        },
+        "renditions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/localeReference" }
+        }
+      }
+    },
+    "knownStateV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authoritative_sequence",
+        "objects",
+        "previous_state",
+        "renditions",
+        "schemas",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/known-state/v2" },
+        "authoritative_sequence": { "$ref": "#/$defs/positiveInteger" },
+        "objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/objectReference" }
+        },
+        "previous_state": { "$ref": "#/$defs/stateReference" },
+        "renditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/localeReference" }
+        },
+        "schemas": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schemaReference" }
+        },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "editionChangeSetEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changeset_id",
+        "context_pack_digest",
+        "effective_leaf_digest",
+        "proposal_digest",
+        "resource_intent_digest",
+        "sealed_changeset_digest",
+        "validation_results_digest"
+      ],
+      "properties": {
+        "changeset_id": { "$ref": "#/$defs/uuidV7" },
+        "context_pack_digest": { "$ref": "#/$defs/digest" },
+        "effective_leaf_digest": { "$ref": "#/$defs/digest" },
+        "proposal_digest": { "$ref": "#/$defs/digest" },
+        "resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "sealed_changeset_digest": { "$ref": "#/$defs/digest" },
+        "validation_results_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "editionV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authoritative_sequence",
+        "base_edition",
+        "changeset",
+        "created_at",
+        "edition_id",
+        "object_set_digest",
+        "objects",
+        "principal_id",
+        "renditions",
+        "schema_set_digest",
+        "schemas",
+        "state",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/edition/v2" },
+        "authoritative_sequence": { "$ref": "#/$defs/positiveInteger" },
+        "base_edition": { "$ref": "#/$defs/editionReference" },
+        "changeset": { "$ref": "#/$defs/editionChangeSetEvidence" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "edition_id": { "$ref": "#/$defs/uuidV7" },
+        "object_set_digest": { "$ref": "#/$defs/digest" },
+        "objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/objectReference" }
+        },
+        "principal_id": { "$ref": "#/$defs/uuidV7" },
+        "renditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/localeReference" }
+        },
+        "schema_set_digest": { "$ref": "#/$defs/digest" },
+        "schemas": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schemaReference" }
+        },
+        "state": { "$ref": "#/$defs/stateReference" },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "editionEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edition", "state"],
+      "properties": {
+        "edition": { "$ref": "#/$defs/editionReference" },
+        "state": { "$ref": "#/$defs/stateReference" }
+      }
+    },
+    "editionDeltaV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "base", "objects", "renditions", "schemas", "target"],
+      "properties": {
+        "api_version": { "const": "proof.dev/edition-delta/v2" },
+        "base": { "$ref": "#/$defs/editionEndpoint" },
+        "objects": { "type": "array" },
+        "renditions": { "type": "array" },
+        "schemas": { "type": "array" },
+        "target": { "$ref": "#/$defs/editionEndpoint" }
+      }
+    },
+    "releaseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authorization_decision_digest",
+        "base_release",
+        "changeset_id",
+        "edition",
+        "environment_config_digest",
+        "environment_config_version",
+        "environment_id",
+        "exact_delta_digest",
+        "key_id",
+        "kind",
+        "principal_id",
+        "proof_id",
+        "release_id",
+        "release_sequence",
+        "released_at",
+        "resource_intent_id",
+        "rollback_target_release_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/release/v2" },
+        "authorization_decision_digest": { "$ref": "#/$defs/digest" },
+        "base_release": { "$ref": "#/$defs/releaseReference" },
+        "changeset_id": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuidV7" }]
+        },
+        "edition": { "$ref": "#/$defs/editionReference" },
+        "environment_config_digest": { "$ref": "#/$defs/digest" },
+        "environment_config_version": { "$ref": "#/$defs/positiveInteger" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "exact_delta_digest": { "$ref": "#/$defs/digest" },
+        "key_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": { "enum": ["promotion", "rollback"] },
+        "principal_id": { "$ref": "#/$defs/uuidV7" },
+        "proof_id": { "$ref": "#/$defs/uuidV7" },
+        "release_id": { "$ref": "#/$defs/uuidV7" },
+        "release_sequence": { "$ref": "#/$defs/positiveInteger" },
+        "released_at": { "$ref": "#/$defs/timestamp" },
+        "resource_intent_id": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuidV7" }]
+        },
+        "rollback_target_release_id": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuidV7" }]
+        },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "promotion" } } },
+          "then": {
+            "properties": {
+              "changeset_id": { "$ref": "#/$defs/uuidV7" },
+              "resource_intent_id": { "$ref": "#/$defs/uuidV7" },
+              "rollback_target_release_id": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "changeset_id": { "type": "null" },
+              "resource_intent_id": { "type": "null" },
+              "rollback_target_release_id": { "$ref": "#/$defs/uuidV7" }
+            }
+          }
+        }
+      ]
+    },
+    "releaseProofPredicateV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authority",
+        "content_evidence",
+        "exact_delta",
+        "exact_delta_digest",
+        "implementation",
+        "release",
+        "state",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/release-proof-predicate/v2" },
+        "authority": { "type": "object" },
+        "content_evidence": { "type": "object" },
+        "exact_delta": { "$ref": "#/$defs/editionDeltaV2" },
+        "exact_delta_digest": { "$ref": "#/$defs/digest" },
+        "implementation": { "type": "object" },
+        "release": { "type": "object" },
+        "state": { "$ref": "#/$defs/stateReference" },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    }
+  }
+}

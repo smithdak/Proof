@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod authority_cli;
+mod localized_cli;
 mod release_cli;
 
 use std::{
@@ -38,6 +39,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use authority_cli::{CapabilityAction, ContextAction, DelegationAction, PrincipalAction};
+use localized_cli::LocalizedAction;
 use release_cli::{EnvironmentAction, ObjectAction, ProjectionAction, ReleaseAction};
 
 #[derive(Debug, Parser)]
@@ -151,6 +153,11 @@ enum Command {
     Projection {
         #[command(subcommand)]
         action: ProjectionAction,
+    },
+    /// Operate the Human-only exact-locale content foundation.
+    Localized {
+        #[command(subcommand)]
+        action: LocalizedAction,
     },
     /// Verify one canonical signed Proof envelope against caller-supplied trust.
     Verify {
@@ -322,6 +329,7 @@ impl Command {
             Self::Projection {
                 action: ProjectionAction::Rebuild { .. },
             } => "projection.rebuild",
+            Self::Localized { action } => action.operation(),
             Self::Verify { .. } => "proof.verify",
         }
     }
@@ -531,6 +539,9 @@ fn run_command(
         }
         Command::Projection { action } => {
             release_cli::run_projection(action, output, context, workspace)?
+        }
+        Command::Localized { action } => {
+            localized_cli::run_localized(action, output, context, workspace)?
         }
         Command::Verify {
             file,
@@ -1148,6 +1159,12 @@ fn changeset_problem(error: &CreateChangeSetError, context: ExecutionContext) ->
             "proof.auth.unauthenticated",
             false,
         ),
+        CreateChangeSetError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 ChangeSet operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
+            false,
+        ),
         CreateChangeSetError::BaseStateConflict => (
             "urn:proof:problem:state-conflict",
             "The requested base state is not current",
@@ -1306,6 +1323,12 @@ fn edit_problem(error: &AddChangeSetEditsError, context: ExecutionContext) -> Bo
             "urn:proof:problem:authentication-required",
             "The current operating-system identity is not authenticated for this Workspace",
             "proof.auth.unauthenticated",
+            false,
+        ),
+        AddChangeSetEditsError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 Edit operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
             false,
         ),
         AddChangeSetEditsError::NotFound => (
@@ -1518,6 +1541,12 @@ fn validation_problem(error: &ValidateChangeSetError, context: ExecutionContext)
             "proof.auth.unauthenticated",
             false,
         ),
+        ValidateChangeSetError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 validation operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
+            false,
+        ),
         ValidateChangeSetError::NotFound => (
             "urn:proof:problem:resource-not-found",
             "The requested ChangeSet was not found",
@@ -1666,6 +1695,12 @@ fn submission_problem(error: &SubmitChangeSetError, context: ExecutionContext) -
             "proof.auth.unauthenticated",
             false,
         ),
+        SubmitChangeSetError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 submission operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
+            false,
+        ),
         SubmitChangeSetError::NotFound => (
             "urn:proof:problem:resource-not-found",
             "The requested ChangeSet was not found",
@@ -1799,6 +1834,12 @@ fn approval_problem(error: &ApproveChangeSetError, context: ExecutionContext) ->
             "urn:proof:problem:authentication-required",
             "The current operating-system identity is not authenticated for this Workspace",
             "proof.auth.unauthenticated",
+            false,
+        ),
+        ApproveChangeSetError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 approval operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
             false,
         ),
         ApproveChangeSetError::NotFound => (
@@ -1944,6 +1985,12 @@ fn commit_problem(error: &CommitChangeSetError, context: ExecutionContext) -> Bo
             "urn:proof:problem:authentication-required",
             "The current operating-system identity is not authenticated for this Workspace",
             "proof.auth.unauthenticated",
+            false,
+        ),
+        CommitChangeSetError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 commit operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
             false,
         ),
         CommitChangeSetError::NotFound => (
@@ -2101,6 +2148,12 @@ fn edition_problem(error: &CreateEditionError, context: ExecutionContext) -> Box
             "urn:proof:problem:authentication-required",
             "The current operating-system identity is not authenticated for this Workspace",
             "proof.auth.unauthenticated",
+            false,
+        ),
+        CreateEditionError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 Edition operation is unsupported after KnownStateV2 activation",
+            "proof.input.unsupported_version",
             false,
         ),
         CreateEditionError::EmptyState => (

@@ -1,0 +1,71 @@
+{
+  "api_version": "proof.dev/localized-content-operation-schema-registry/v1",
+  "contracts": [
+    {
+      "action": "context:build",
+      "input_schema": "#/$defs/contextBuildInput",
+      "operation_id": "proof.dev/operation/context.build/v2",
+      "output_schema": "#/$defs/contextBuildOutput"
+    },
+    {
+      "action": "changeset:create",
+      "input_schema": "#/$defs/changeSetCreateInput",
+      "operation_id": "proof.dev/operation/changeset.create/v2",
+      "output_schema": "#/$defs/changeSetCreateOutput"
+    },
+    {
+      "action": "changeset:add",
+      "input_schema": "#/$defs/changeSetAddInput",
+      "operation_id": "proof.dev/operation/changeset.add/v2",
+      "output_schema": "#/$defs/changeSetAddOutput"
+    },
+    {
+      "action": "changeset:get",
+      "input_schema": "#/$defs/changeSetGetInput",
+      "operation_id": "proof.dev/operation/changeset.get/v2",
+      "output_schema": "#/$defs/changeSetGetOutput"
+    },
+    {
+      "action": "changeset:diff",
+      "input_schema": "#/$defs/changeSetDiffInput",
+      "operation_id": "proof.dev/operation/changeset.diff/v2",
+      "output_schema": "#/$defs/changeSetDiffOutput"
+    },
+    {
+      "action": "changeset:validate",
+      "input_schema": "#/$defs/changeSetValidateInput",
+      "operation_id": "proof.dev/operation/changeset.validate/v2",
+      "output_schema": "#/$defs/changeSetValidateOutput"
+    },
+    {
+      "action": "changeset:submit",
+      "input_schema": "#/$defs/changeSetSubmitInput",
+      "operation_id": "proof.dev/operation/changeset.submit/v2",
+      "output_schema": "#/$defs/changeSetSubmitOutput"
+    },
+    {
+      "action": "changeset:commit",
+      "input_schema": "#/$defs/changeSetCommitInput",
+      "operation_id": "proof.dev/operation/changeset.commit/v2",
+      "output_schema": "#/$defs/changeSetCommitOutput"
+    },
+    {
+      "action": "edition:create",
+      "input_schema": "#/$defs/editionCreateInput",
+      "operation_id": "proof.dev/operation/edition.create/v2",
+      "output_schema": "#/$defs/editionCreateOutput"
+    },
+    {
+      "action": "release:create",
+      "input_schema": "#/$defs/releaseCreateInput",
+      "operation_id": "proof.dev/operation/release.create/v2",
+      "output_schema": "#/$defs/releaseCreateOutput"
+    },
+    {
+      "action": "object:query_released",
+      "input_schema": "#/$defs/objectQueryReleasedInput",
+      "operation_id": "proof.dev/operation/object.query_released/v2",
+      "output_schema": "#/$defs/objectQueryReleasedOutput"
+    }
+  ]
+}

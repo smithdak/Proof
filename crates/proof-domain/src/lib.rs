@@ -93,11 +93,118 @@ operational_id!(
 operational_id!(EditId, "The identity of one ordered `ChangeSet` Edit.");
 operational_id!(ObjectId, "The identity of one governed content Object.");
 operational_id!(
+    ContentResourceIntentId,
+    "The identity of one immutable localized-content resource intent."
+);
+operational_id!(
     EditionId,
     "The identity of one immutable Workspace Edition."
 );
 operational_id!(ReleaseId, "The identity of one immutable Release fact.");
 operational_id!(ProofId, "The identity of one portable Proof artifact.");
+
+/// Maximum UTF-8 byte length of a restricted exact locale identifier.
+pub const MAX_LOCALE_ID_BYTES: usize = 64;
+
+/// A case-sensitive locale identifier in Proof's restricted canonical profile.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LocaleId(String);
+
+impl LocaleId {
+    /// Validates Proof's deliberately restricted locale profile.
+    ///
+    /// The accepted grammar is a lowercase language subtag, optional title-case
+    /// script, optional uppercase alpha or numeric region, and zero or more
+    /// lowercase alphanumeric variants. Registry aliases are retained literally.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocaleIdError`] when the value is empty, too long, malformed,
+    /// or uses noncanonical casing.
+    pub fn new(value: impl Into<String>) -> Result<Self, LocaleIdError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > MAX_LOCALE_ID_BYTES {
+            return Err(LocaleIdError::InvalidLength);
+        }
+        let subtags = value.split('-').collect::<Vec<_>>();
+        let Some(language) = subtags.first() else {
+            return Err(LocaleIdError::InvalidSyntax);
+        };
+        if !(2..=8).contains(&language.len())
+            || !language.bytes().all(|byte| byte.is_ascii_lowercase())
+        {
+            return Err(LocaleIdError::InvalidSyntax);
+        }
+
+        let mut index = 1;
+        if subtags.get(index).is_some_and(|script| {
+            script.len() == 4
+                && script
+                    .bytes()
+                    .next()
+                    .is_some_and(|byte| byte.is_ascii_uppercase())
+                && script.bytes().skip(1).all(|byte| byte.is_ascii_lowercase())
+        }) {
+            index += 1;
+        }
+        if subtags.get(index).is_some_and(|region| {
+            (region.len() == 2 && region.bytes().all(|byte| byte.is_ascii_uppercase()))
+                || (region.len() == 3 && region.bytes().all(|byte| byte.is_ascii_digit()))
+        }) {
+            index += 1;
+        }
+        if subtags[index..].iter().any(|variant| {
+            !((variant.len() >= 5
+                && variant.len() <= 8
+                && variant
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()))
+                || (variant.len() == 4
+                    && variant
+                        .bytes()
+                        .next()
+                        .is_some_and(|byte| byte.is_ascii_digit())
+                    && variant
+                        .bytes()
+                        .skip(1)
+                        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())))
+        }) {
+            return Err(LocaleIdError::InvalidSyntax);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the exact stored locale bytes.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for LocaleId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for LocaleId {
+    type Err = LocaleIdError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
+/// A locale identifier violated Proof's restricted exact profile.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum LocaleIdError {
+    /// The locale was empty or exceeded the byte limit.
+    #[error("locale must contain 1 to {MAX_LOCALE_ID_BYTES} UTF-8 bytes")]
+    InvalidLength,
+    /// The locale syntax or casing was outside the restricted profile.
+    #[error("locale does not match Proof's restricted canonical profile")]
+    InvalidSyntax,
+}
 
 /// Maximum UTF-8 byte length of a logical Schema identifier.
 pub const MAX_SCHEMA_ID_BYTES: usize = 128;
@@ -294,6 +401,43 @@ impl fmt::Display for ObjectRevision {
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 #[error("Object revision must be greater than zero")]
 pub struct ObjectRevisionError;
+
+/// A positive immutable localized-rendition revision number.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LocaleRevision(std::num::NonZeroU32);
+
+impl LocaleRevision {
+    /// The first accepted revision of an exact locale rendition.
+    pub const INITIAL: Self = Self(std::num::NonZeroU32::MIN);
+
+    /// Constructs a positive rendition revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocaleRevisionError`] for revision zero.
+    pub fn new(value: u32) -> Result<Self, LocaleRevisionError> {
+        std::num::NonZeroU32::new(value)
+            .map(Self)
+            .ok_or(LocaleRevisionError)
+    }
+
+    /// Returns the numeric revision.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl fmt::Display for LocaleRevision {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// A localized-rendition revision must be positive.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[error("locale rendition revision must be greater than zero")]
+pub struct LocaleRevisionError;
 
 /// The accepted lifecycle state of a governed content Object.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -545,6 +689,28 @@ pub enum ArtifactKind {
     AuthorizationDecisionV1,
     /// One exact versioned policy bundle.
     PolicyBundleV1,
+    /// One immutable Human-issued localized-content resource intent.
+    ContentResourceIntentV1,
+    /// One exact localized-content source closure.
+    ContextPackV2,
+    /// One ordered batch of localized-content Edits.
+    EditBatchV2,
+    /// One immutable localized-content Edit.
+    EditV2,
+    /// One repairable localized-content `ChangeSet` proposal or seal.
+    ChangeSetV2,
+    /// One immutable localized-content validation attempt.
+    ValidationResultsV2,
+    /// One immutable exact-locale Object rendition revision.
+    ObjectLocaleRevisionV1,
+    /// One immutable set of source Objects and exact locale renditions.
+    ObjectSetV2,
+    /// One predecessor-bound rendition-aware Workspace state.
+    KnownStateV2,
+    /// One immutable rendition-aware Workspace Edition.
+    EditionV2,
+    /// One immutable localized-content Release fact.
+    ReleaseV2,
 }
 
 impl ArtifactKind {
@@ -570,6 +736,17 @@ impl ArtifactKind {
             Self::PrincipalRegistrationV1 => "proof:principal-registration:v1",
             Self::AuthorizationDecisionV1 => "proof:authorization-decision:v1",
             Self::PolicyBundleV1 => "proof:policy-bundle:v1",
+            Self::ContentResourceIntentV1 => "proof:content-resource-intent:v1",
+            Self::ContextPackV2 => "proof:context-pack:v2",
+            Self::EditBatchV2 => "proof:edit-batch:v2",
+            Self::EditV2 => "proof:edit:v2",
+            Self::ChangeSetV2 => "proof:changeset:v2",
+            Self::ValidationResultsV2 => "proof:validation-results:v2",
+            Self::ObjectLocaleRevisionV1 => "proof:object-locale-revision:v1",
+            Self::ObjectSetV2 => "proof:object-set:v2",
+            Self::KnownStateV2 => "proof:known-state:v2",
+            Self::EditionV2 => "proof:edition:v2",
+            Self::ReleaseV2 => "proof:release:v2",
         }
     }
 }
@@ -680,10 +857,10 @@ pub enum DigestParseError {
 mod tests {
     use super::{
         ArtifactKind, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
-        CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, ObjectId,
-        ObjectLifecycleState, ObjectRevision, ObjectRevisionError, OperationId, PrincipalId,
-        PrincipalType, SchemaId, SchemaIdError, SchemaVersion, SchemaVersionError, Timestamp,
-        TimestampError,
+        CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, LocaleId,
+        LocaleRevision, LocaleRevisionError, ObjectId, ObjectLifecycleState, ObjectRevision,
+        ObjectRevisionError, OperationId, PrincipalId, PrincipalType, SchemaId, SchemaIdError,
+        SchemaVersion, SchemaVersionError, Timestamp, TimestampError,
     };
     use uuid::Uuid;
 
@@ -785,6 +962,48 @@ mod tests {
             ArtifactKind::ObjectSetV1.derive_key_context(),
             "proof:object-set:v1"
         );
+    }
+
+    #[test]
+    fn locale_profile_is_exactly_cased_and_restricted() {
+        for valid in [
+            "en",
+            "es-ES",
+            "zh-Hant",
+            "zh-Hant-TW",
+            "de-1996",
+            "en-US-posix",
+            "sl-rozaj-biske",
+        ] {
+            assert_eq!(LocaleId::new(valid).unwrap().as_str(), valid);
+        }
+        for invalid in ["", "EN", "es-es", "zh-hant-TW", "e", "en-US-x", "en_US"] {
+            assert!(LocaleId::new(invalid).is_err(), "accepted {invalid}");
+        }
+        assert_eq!(LocaleRevision::new(1).unwrap().get(), 1);
+        assert_eq!(LocaleRevision::new(0).unwrap_err(), LocaleRevisionError);
+    }
+
+    #[test]
+    fn localized_artifact_contexts_are_distinct() {
+        let kinds = [
+            ArtifactKind::ContentResourceIntentV1,
+            ArtifactKind::ContextPackV2,
+            ArtifactKind::EditV2,
+            ArtifactKind::EditBatchV2,
+            ArtifactKind::ChangeSetV2,
+            ArtifactKind::ValidationResultsV2,
+            ArtifactKind::ObjectLocaleRevisionV1,
+            ArtifactKind::ObjectSetV2,
+            ArtifactKind::KnownStateV2,
+            ArtifactKind::EditionV2,
+            ArtifactKind::ReleaseV2,
+        ];
+        let contexts = kinds
+            .into_iter()
+            .map(ArtifactKind::derive_key_context)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(contexts.len(), kinds.len());
     }
 
     #[test]

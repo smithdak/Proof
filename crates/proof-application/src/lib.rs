@@ -4,14 +4,18 @@
 
 pub use proof_domain::{
     ArtifactKind, ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus,
-    ContentDigest, ContextPackId, CorrelationId, DelegationId, DigestAlgorithm, EditId, EditionId,
-    EnvironmentId, EnvironmentIdError, IdempotencyKey, IdentifierError, ObjectId,
+    ContentDigest, ContentResourceIntentId, ContextPackId, CorrelationId, DelegationId,
+    DigestAlgorithm, EditId, EditionId, EnvironmentId, EnvironmentIdError, IdempotencyKey,
+    IdentifierError, LocaleId, LocaleIdError, LocaleRevision, LocaleRevisionError, ObjectId,
     ObjectLifecycleState, ObjectRevision, ObjectRevisionError, OperationId, PrincipalId,
     PrincipalType, ProofId, ReleaseId, ReleaseKind, SchemaId, SchemaIdError, SchemaVersion,
     SchemaVersionError, Timestamp, TimestampError, WorkspaceId,
 };
 use serde::Serialize;
 use thiserror::Error;
+
+mod localized;
+pub use localized::*;
 
 /// The stable API version for non-streaming command results.
 pub const RESULT_API_VERSION: &str = "proof.dev/result/v1";
@@ -538,6 +542,9 @@ pub enum CreateChangeSetError {
     /// The operating-system identity is not bound to an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 ChangeSet operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// The requested base digest is no longer the current Known State.
     #[error("the requested base state does not match current Known State")]
     BaseStateConflict,
@@ -667,6 +674,9 @@ pub enum AddChangeSetEditsError {
     /// The operating-system identity is not an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 Edit operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// The target `ChangeSet` does not exist in this Workspace.
     #[error("the requested ChangeSet was not found")]
     NotFound,
@@ -898,6 +908,9 @@ pub enum ValidateChangeSetError {
     /// The operating-system identity is not an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 validation operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// No visible `ChangeSet` has the requested identity.
     #[error("the requested ChangeSet was not found")]
     NotFound,
@@ -977,6 +990,9 @@ pub enum SubmitChangeSetError {
     /// The operating-system identity is not an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 submission operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// No visible `ChangeSet` has the requested identity.
     #[error("the requested ChangeSet was not found")]
     NotFound,
@@ -1122,6 +1138,9 @@ pub enum ApproveChangeSetError {
     /// The operating-system identity is not an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 approval operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// No visible `ChangeSet` has the requested identity.
     #[error("the requested ChangeSet was not found")]
     NotFound,
@@ -1213,6 +1232,9 @@ pub enum CommitChangeSetError {
     /// The operating-system identity is not an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 commit operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// No visible `ChangeSet` has the requested identity.
     #[error("the requested ChangeSet was not found")]
     NotFound,
@@ -1347,6 +1369,9 @@ pub enum CreateEditionError {
     /// The operating-system identity is not an enabled Principal.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// Authoritative state has activated a newer content contract.
+    #[error("the v1 Edition operation is unsupported after KnownStateV2 activation")]
+    UnsupportedVersion,
     /// No authoritative state has been committed yet.
     #[error("an Edition requires at least one committed authoritative record")]
     EmptyState,
@@ -2441,6 +2466,9 @@ pub enum ReleaseError {
     /// The operating identity is not authenticated.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// The requested operation/artifact combination is outside the version matrix.
+    #[error("the v1 Release operation is unsupported for this artifact version")]
+    UnsupportedVersion,
     /// The requested Environment, Edition, Release, Proof, or key is absent.
     #[error("the requested Release resource was not found")]
     NotFound,
@@ -2590,6 +2618,9 @@ pub enum QueryReleasedObjectsError {
     /// The requesting identity is not authenticated.
     #[error("the current local identity is not authenticated for this Workspace")]
     Unauthenticated,
+    /// The current release uses the localized v2 contract.
+    #[error("the v1 released-Object query is unsupported for this Release version")]
+    UnsupportedVersion,
     /// The Delegation denied the exact query.
     #[error("the released Object query is outside delegated authority")]
     Denied,

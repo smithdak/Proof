@@ -2,6 +2,8 @@
 
 //! Local filesystem and `SQLite` adapters for Proof.
 
+mod localized;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
@@ -37,7 +39,8 @@ use proof_application::{
     DelegatedWorkspaceStatusRepository, Delegation, DelegationConstraints, DelegationError,
     DelegationId, DelegationRepository, DelegationScope, DelegationVerification, Environment,
     EnvironmentError, EnvironmentId, EnvironmentRepository, GetContextPackCommand,
-    GrantDelegationCommand, LOCAL_AUTHORITY_POLICY_PROFILE, MAX_CONTEXT_PACK_BYTES,
+    GrantDelegationCommand, KNOWN_STATE_V1_API_VERSION, KNOWN_STATE_V2_API_VERSION,
+    LOCAL_AUTHORITY_POLICY_PROFILE, LOCALIZED_RELEASE_API_VERSION, MAX_CONTEXT_PACK_BYTES,
     MAX_DELEGATION_ENVIRONMENTS, MAX_DELEGATION_OBJECTS, PrincipalError, PrincipalRepository,
     ProjectionRebuild, ProjectionRepository, PromoteReleaseCommand, ProofId,
     QueryReleasedObjectsCommand, QueryReleasedObjectsError, RebuildProjectionsCommand,
@@ -54,7 +57,9 @@ use proof_canonical::{
     ObjectStateReference, canonicalize, digest, initial_known_state_digest,
     known_state_digest_with_objects, object_revision_digest, object_set_digest, parse_strict,
 };
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
@@ -64,10 +69,26 @@ const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
 const RELEASE_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/release-signing.ed25519";
-const LATEST_DATABASE_SCHEMA_VERSION: u32 = 10;
+const LATEST_DATABASE_SCHEMA_VERSION: u32 = 11;
 const OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const LOCAL_RELEASE_TARGET: &str = "proof.local/released-state/v1";
 const LOCAL_RELEASE_POLICY: &str = "proof.local/release-policy/v1";
+
+macro_rules! require_v1_profile {
+    ($connection:expr, $unsupported:path, $storage:path, $integrity:path) => {
+        match require_v1_authoring_profile($connection) {
+            Ok(()) => {}
+            Err(LocalPortError::UnsupportedVersion) => return Err($unsupported),
+            Err(LocalPortError::Storage(detail)) => return Err($storage(detail)),
+            Err(LocalPortError::Integrity(detail)) => return Err($integrity(detail)),
+            Err(error) => {
+                return Err($integrity(format!(
+                    "unexpected v1 profile guard outcome: {error:?}"
+                )))
+            }
+        }
+    };
+}
 
 fn operation_effect_digest(
     operation_kind: &str,
@@ -866,6 +887,12 @@ impl ChangeSetRepository for LocalWorkspace {
             authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
                 .map_err(changeset_from_status)?;
         ensure_changeset_schema(&transaction, schema_version)?;
+        require_v1_profile!(
+            &transaction,
+            CreateChangeSetError::UnsupportedVersion,
+            CreateChangeSetError::Storage,
+            CreateChangeSetError::Integrity
+        );
         let schema_version: u32 = transaction
             .query_row(
                 "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
@@ -1003,6 +1030,12 @@ impl ChangeSetEditRepository for LocalWorkspace {
                 )
                 .map_err(|error| AddChangeSetEditsError::Storage(error.to_string()))?;
         }
+        require_v1_profile!(
+            &transaction,
+            AddChangeSetEditsError::UnsupportedVersion,
+            AddChangeSetEditsError::Storage,
+            AddChangeSetEditsError::Integrity
+        );
         verify_edit_operation_scope(&transaction, schema_version).map_err(|error| match error {
             LocalPortError::Storage(detail) => AddChangeSetEditsError::Storage(detail),
             LocalPortError::Integrity(detail) => AddChangeSetEditsError::Integrity(detail),
@@ -1184,6 +1217,12 @@ impl ChangeSetValidationRepository for LocalWorkspace {
         let schema_version = workspace_schema_version(&transaction)?;
         ensure_lifecycle_schema(&transaction, schema_version)?;
         let schema_version = workspace_schema_version(&transaction)?;
+        require_v1_profile!(
+            &transaction,
+            ValidateChangeSetError::UnsupportedVersion,
+            ValidateChangeSetError::Storage,
+            ValidateChangeSetError::Integrity
+        );
 
         let row = load_inspected_changeset(
             &transaction,
@@ -1256,6 +1295,10 @@ impl ChangeSetValidationRepository for LocalWorkspace {
 }
 
 impl ChangeSetSubmissionRepository for LocalWorkspace {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "submission verifies and binds exact validation evidence in one transaction"
+    )]
     fn submit_changeset(
         &self,
         command: SubmitChangeSetCommand,
@@ -1308,6 +1351,12 @@ impl ChangeSetSubmissionRepository for LocalWorkspace {
             .map_err(submission_from_validation)?;
         let schema_version =
             workspace_schema_version(&transaction).map_err(submission_from_validation)?;
+        require_v1_profile!(
+            &transaction,
+            SubmitChangeSetError::UnsupportedVersion,
+            SubmitChangeSetError::Storage,
+            SubmitChangeSetError::Integrity
+        );
 
         let row = load_inspected_changeset(
             &transaction,
@@ -1399,6 +1448,12 @@ impl ChangeSetApprovalRepository for LocalWorkspace {
             authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
                 .map_err(approval_from_status)?;
         ensure_approval_schema(&transaction, schema_version)?;
+        require_v1_profile!(
+            &transaction,
+            ApproveChangeSetError::UnsupportedVersion,
+            ApproveChangeSetError::Storage,
+            ApproveChangeSetError::Integrity
+        );
         let schema_version: u32 = transaction
             .query_row(
                 "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
@@ -1498,6 +1553,12 @@ impl ChangeSetCommitRepository for LocalWorkspace {
             authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
                 .map_err(commit_from_status)?;
         ensure_commit_schema(&transaction, schema_version)?;
+        require_v1_profile!(
+            &transaction,
+            CommitChangeSetError::UnsupportedVersion,
+            CommitChangeSetError::Storage,
+            CommitChangeSetError::Integrity
+        );
         verify_commit_operation_scope(&transaction, workspace_id).map_err(|error| match error {
             LocalPortError::Storage(detail) => CommitChangeSetError::Storage(detail),
             LocalPortError::Integrity(detail) => CommitChangeSetError::Integrity(detail),
@@ -1545,6 +1606,12 @@ impl EditionRepository for LocalWorkspace {
             authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
                 .map_err(edition_from_status)?;
         ensure_edition_schema(&transaction, schema_version)?;
+        require_v1_profile!(
+            &transaction,
+            CreateEditionError::UnsupportedVersion,
+            CreateEditionError::Storage,
+            CreateEditionError::Integrity
+        );
         verify_commit_operation_scope(&transaction, workspace_id).map_err(|error| match error {
             LocalPortError::Storage(detail) => CreateEditionError::Storage(detail),
             LocalPortError::Integrity(detail) => CreateEditionError::Integrity(detail),
@@ -1669,7 +1736,7 @@ impl EnvironmentRepository for LocalWorkspace {
                 .parse::<EnvironmentId>()
                 .map_err(|error| EnvironmentError::Integrity(error.to_string()))?;
             let environment =
-                load_environment_version(&transaction, workspace_id, environment_id, 1, false)?;
+                load_environment_version(&transaction, workspace_id, environment_id, 1)?;
             if environment.config_digest != persisted_request {
                 return Err(EnvironmentError::Integrity(
                     "Environment create operation does not bind its immutable configuration"
@@ -1699,7 +1766,6 @@ impl EnvironmentRepository for LocalWorkspace {
                 workspace_id,
                 command.environment_id.clone(),
                 1,
-                false,
             )?
         } else {
             transaction
@@ -1774,7 +1840,7 @@ impl EnvironmentRepository for LocalWorkspace {
             )
             .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
         let environment =
-            load_environment_version(&transaction, workspace_id, command.environment_id, 1, false)?;
+            load_environment_version(&transaction, workspace_id, command.environment_id, 1)?;
         transaction
             .commit()
             .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
@@ -2577,6 +2643,7 @@ impl ReleasedObjectRepository for LocalWorkspace {
         }
         command.object_ids.sort();
         self.with_latest_transaction(|transaction, workspace_id, requesting_principal_id| {
+            require_v1_authoring_profile(transaction)?;
             query_released_objects_transaction(
                 transaction,
                 workspace_id,
@@ -2673,6 +2740,7 @@ impl ReleaseRepository for LocalWorkspace {
     fn promote_release(&self, command: PromoteReleaseCommand) -> Result<Release, ReleaseError> {
         let release = self
             .with_latest_transaction(|transaction, workspace_id, principal_id| {
+                require_v1_authoring_profile(transaction)?;
                 create_release_transaction(
                     transaction,
                     workspace_id,
@@ -2690,6 +2758,7 @@ impl ReleaseRepository for LocalWorkspace {
     fn rollback_release(&self, command: RollbackReleaseCommand) -> Result<Release, ReleaseError> {
         let release = self
             .with_latest_transaction(|transaction, workspace_id, principal_id| {
+                require_v1_authoring_profile(transaction)?;
                 create_release_transaction(
                     transaction,
                     workspace_id,
@@ -2919,6 +2988,7 @@ fn initialize_database(
             [initial_state_digest],
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    localized::migrate_schema_v11(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     transaction
         .commit()
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -3073,6 +3143,7 @@ fn edit_from_status(error: WorkspaceStatusError) -> AddChangeSetEditsError {
 fn edit_from_create(error: CreateChangeSetError) -> AddChangeSetEditsError {
     match error {
         CreateChangeSetError::Unauthenticated => AddChangeSetEditsError::Unauthenticated,
+        CreateChangeSetError::UnsupportedVersion => AddChangeSetEditsError::UnsupportedVersion,
         CreateChangeSetError::Integrity(detail) => AddChangeSetEditsError::Integrity(detail),
         CreateChangeSetError::Storage(detail) => AddChangeSetEditsError::Storage(detail),
         CreateChangeSetError::WorkspaceUninitialized => AddChangeSetEditsError::NotFound,
@@ -3135,6 +3206,7 @@ fn validation_from_status(error: WorkspaceStatusError) -> ValidateChangeSetError
 fn validation_from_create(error: CreateChangeSetError) -> ValidateChangeSetError {
     match error {
         CreateChangeSetError::Unauthenticated => ValidateChangeSetError::Unauthenticated,
+        CreateChangeSetError::UnsupportedVersion => ValidateChangeSetError::UnsupportedVersion,
         CreateChangeSetError::Integrity(detail) => ValidateChangeSetError::Integrity(detail),
         CreateChangeSetError::Storage(detail) => ValidateChangeSetError::Storage(detail),
         CreateChangeSetError::WorkspaceUninitialized => ValidateChangeSetError::NotFound,
@@ -3149,6 +3221,7 @@ fn validation_from_create(error: CreateChangeSetError) -> ValidateChangeSetError
 fn validation_from_edit(error: AddChangeSetEditsError) -> ValidateChangeSetError {
     match error {
         AddChangeSetEditsError::Unauthenticated => ValidateChangeSetError::Unauthenticated,
+        AddChangeSetEditsError::UnsupportedVersion => ValidateChangeSetError::UnsupportedVersion,
         AddChangeSetEditsError::NotFound => ValidateChangeSetError::NotFound,
         AddChangeSetEditsError::Integrity(detail) => ValidateChangeSetError::Integrity(detail),
         AddChangeSetEditsError::Storage(detail) => ValidateChangeSetError::Storage(detail),
@@ -3173,6 +3246,7 @@ fn validation_from_inspection(error: InspectChangeSetError) -> ValidateChangeSet
 fn validation_from_submission(error: SubmitChangeSetError) -> ValidateChangeSetError {
     match error {
         SubmitChangeSetError::Unauthenticated => ValidateChangeSetError::Unauthenticated,
+        SubmitChangeSetError::UnsupportedVersion => ValidateChangeSetError::UnsupportedVersion,
         SubmitChangeSetError::NotFound => ValidateChangeSetError::NotFound,
         SubmitChangeSetError::NotReady => ValidateChangeSetError::NotValidatable,
         SubmitChangeSetError::ValidationEvidenceMissing => ValidateChangeSetError::Integrity(
@@ -3210,6 +3284,7 @@ fn submission_from_status(error: WorkspaceStatusError) -> SubmitChangeSetError {
 fn submission_from_validation(error: ValidateChangeSetError) -> SubmitChangeSetError {
     match error {
         ValidateChangeSetError::Unauthenticated => SubmitChangeSetError::Unauthenticated,
+        ValidateChangeSetError::UnsupportedVersion => SubmitChangeSetError::UnsupportedVersion,
         ValidateChangeSetError::NotFound => SubmitChangeSetError::NotFound,
         ValidateChangeSetError::NotValidatable => SubmitChangeSetError::NotReady,
         ValidateChangeSetError::Integrity(detail) => SubmitChangeSetError::Integrity(detail),
@@ -3262,6 +3337,7 @@ fn approval_from_inspection(error: InspectChangeSetError) -> ApproveChangeSetErr
 fn approval_from_validation(error: ValidateChangeSetError) -> ApproveChangeSetError {
     match error {
         ValidateChangeSetError::Unauthenticated => ApproveChangeSetError::Unauthenticated,
+        ValidateChangeSetError::UnsupportedVersion => ApproveChangeSetError::UnsupportedVersion,
         ValidateChangeSetError::NotFound => ApproveChangeSetError::NotFound,
         ValidateChangeSetError::NotValidatable => ApproveChangeSetError::NotSubmitted,
         ValidateChangeSetError::Integrity(detail) => ApproveChangeSetError::Integrity(detail),
@@ -3272,6 +3348,7 @@ fn approval_from_validation(error: ValidateChangeSetError) -> ApproveChangeSetEr
 fn approval_from_submission(error: SubmitChangeSetError) -> ApproveChangeSetError {
     match error {
         SubmitChangeSetError::Unauthenticated => ApproveChangeSetError::Unauthenticated,
+        SubmitChangeSetError::UnsupportedVersion => ApproveChangeSetError::UnsupportedVersion,
         SubmitChangeSetError::NotFound => ApproveChangeSetError::NotFound,
         SubmitChangeSetError::NotReady => ApproveChangeSetError::NotSubmitted,
         SubmitChangeSetError::ValidationEvidenceMissing => ApproveChangeSetError::EvidenceMissing,
@@ -3316,6 +3393,7 @@ fn commit_from_inspection(error: InspectChangeSetError) -> CommitChangeSetError 
 fn commit_from_validation(error: ValidateChangeSetError) -> CommitChangeSetError {
     match error {
         ValidateChangeSetError::Unauthenticated => CommitChangeSetError::Unauthenticated,
+        ValidateChangeSetError::UnsupportedVersion => CommitChangeSetError::UnsupportedVersion,
         ValidateChangeSetError::NotFound => CommitChangeSetError::NotFound,
         ValidateChangeSetError::NotValidatable => CommitChangeSetError::NotApproved,
         ValidateChangeSetError::Integrity(detail) => CommitChangeSetError::Integrity(detail),
@@ -3326,6 +3404,7 @@ fn commit_from_validation(error: ValidateChangeSetError) -> CommitChangeSetError
 fn commit_from_submission(error: SubmitChangeSetError) -> CommitChangeSetError {
     match error {
         SubmitChangeSetError::Unauthenticated => CommitChangeSetError::Unauthenticated,
+        SubmitChangeSetError::UnsupportedVersion => CommitChangeSetError::UnsupportedVersion,
         SubmitChangeSetError::NotFound => CommitChangeSetError::NotFound,
         SubmitChangeSetError::NotReady | SubmitChangeSetError::ValidationEvidenceMissing => {
             CommitChangeSetError::EvidenceMissing
@@ -3999,6 +4078,10 @@ fn ensure_latest_schema(
             .execute_batch(V10_DATABASE_MIGRATION)
             .map_err(|error| LatestSchemaError::Storage(error.to_string()))?;
         version = 10;
+    }
+    if version == 10 {
+        localized::migrate_schema_v11(transaction).map_err(LatestSchemaError::Storage)?;
+        version = 11;
     }
     if version == LATEST_DATABASE_SCHEMA_VERSION {
         Ok(())
@@ -5029,7 +5112,7 @@ fn verify_environment_operation_scope(
                 "Environment operation target is not canonical".to_owned(),
             ));
         }
-        load_environment_version(connection, workspace_id, environment_id, 1, false)
+        load_environment_version(connection, workspace_id, environment_id, 1)
             .map_err(local_port_from_environment)?;
     }
     Ok(())
@@ -5456,10 +5539,57 @@ fn verify_commit_operation_scope(
     })?;
     let known_state =
         parse_canonical_scope_value::<ContentDigest>(&raw_known_state, "Known State digest")?;
-    if known_sequence != previous_sequence || known_state != previous_state {
-        return Err(LocalPortError::Integrity(
-            "Known State is not covered by the complete commit chain".to_owned(),
-        ));
+    let schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let api_version = if schema_version >= 11 {
+        connection
+            .query_row(
+                "SELECT api_version FROM known_state WHERE singleton = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?
+    } else {
+        KNOWN_STATE_V1_API_VERSION.to_owned()
+    };
+    match api_version.as_str() {
+        KNOWN_STATE_V1_API_VERSION => {
+            if known_sequence != previous_sequence || known_state != previous_state {
+                return Err(LocalPortError::Integrity(
+                    "Known State is not covered by the complete commit chain".to_owned(),
+                ));
+            }
+        }
+        KNOWN_STATE_V2_API_VERSION => {
+            let (predecessor_api, predecessor_sequence, predecessor_digest): (String, i64, String) =
+                connection
+                    .query_row(
+                        "SELECT previous_state_api_version, previous_authoritative_sequence,
+                            previous_state_digest
+                     FROM localized_commits ORDER BY resulting_authoritative_sequence LIMIT 1",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+            let predecessor_sequence = u64::try_from(predecessor_sequence).map_err(|_| {
+                LocalPortError::Integrity("localized predecessor sequence is invalid".to_owned())
+            })?;
+            let predecessor_digest = parse_canonical_scope_value::<ContentDigest>(
+                &predecessor_digest,
+                "localized predecessor state digest",
+            )?;
+            if predecessor_api != KNOWN_STATE_V1_API_VERSION
+                || predecessor_sequence != previous_sequence
+                || predecessor_digest != previous_state
+                || known_sequence <= previous_sequence
+            {
+                return Err(LocalPortError::Integrity(
+                    "localized state does not extend the complete v1 commit chain".to_owned(),
+                ));
+            }
+        }
+        _ => return Err(LocalPortError::UnsupportedVersion),
     }
     Ok(())
 }
@@ -5515,11 +5645,11 @@ fn environment_create_operation_effect_digest(
 }
 
 fn load_environment(
-    connection: &Connection,
+    transaction: &Transaction<'_>,
     workspace_id: WorkspaceId,
     environment_id: EnvironmentId,
 ) -> Result<Environment, EnvironmentError> {
-    let config_version: Option<i64> = connection
+    let config_version: Option<i64> = transaction
         .query_row(
             "SELECT MAX(config_version) FROM environment_versions WHERE environment_id = ?1",
             [environment_id.as_str()],
@@ -5532,26 +5662,87 @@ fn load_environment(
     let config_version = u32::try_from(config_version).map_err(|_| {
         EnvironmentError::Integrity("invalid Environment configuration version".to_owned())
     })?;
-    load_environment_version(
-        connection,
+    let mut environment = load_environment_version(
+        transaction,
         workspace_id,
-        environment_id,
+        environment_id.clone(),
         config_version,
-        true,
-    )
+    )?;
+    let projected: Option<String> = transaction
+        .query_row(
+            "SELECT release_id FROM environment_current_releases WHERE environment_id = ?1",
+            [environment_id.as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
+    let expected_current: Option<String> = transaction
+        .query_row(
+            "SELECT release_id FROM releases WHERE environment_id = ?1
+             ORDER BY release_sequence DESC LIMIT 1",
+            [environment_id.as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
+    if projected != expected_current {
+        return Err(EnvironmentError::Integrity(
+            "Environment current Release projection is not reproducible".to_owned(),
+        ));
+    }
+    let current_release_id = projected
+        .map(|value| value.parse::<ReleaseId>())
+        .transpose()
+        .map_err(|error| EnvironmentError::Integrity(error.to_string()))?;
+    if let Some(release_id) = current_release_id {
+        let api_version: String = transaction
+            .query_row(
+                "SELECT api_version FROM releases WHERE release_id = ?1",
+                [release_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
+        let verified_environment = match api_version.as_str() {
+            proof_application::RELEASE_V1_API_VERSION => {
+                load_release_record(transaction, workspace_id, release_id)
+                    .map(|release| release.environment_id)
+            }
+            LOCALIZED_RELEASE_API_VERSION => {
+                localized::load_localized_release_chain_node(transaction, workspace_id, release_id)
+                    .map(|(_, release_environment, _)| release_environment)
+            }
+            _ => Err(LocalPortError::UnsupportedVersion),
+        }
+        .map_err(|error| match error {
+            LocalPortError::Storage(detail) => EnvironmentError::Storage(detail),
+            LocalPortError::Integrity(detail) => EnvironmentError::Integrity(detail),
+            LocalPortError::NotFound => EnvironmentError::Integrity(
+                "Environment current Release record is missing".to_owned(),
+            ),
+            other => EnvironmentError::Integrity(format!(
+                "Environment current Release failed verification: {other:?}"
+            )),
+        })?;
+        if verified_environment != environment_id {
+            return Err(EnvironmentError::Integrity(
+                "Environment current Release belongs to another Environment".to_owned(),
+            ));
+        }
+    }
+    environment.current_release_id = current_release_id;
+    Ok(environment)
 }
 
 #[expect(
     clippy::too_many_lines,
     clippy::type_complexity,
-    reason = "Environment loading reconstructs both canonical policy evidence and optional pointer integrity"
+    reason = "Environment loading reconstructs canonical policy evidence"
 )]
 fn load_environment_version(
     connection: &Connection,
     workspace_id: WorkspaceId,
     environment_id: EnvironmentId,
     requested_config_version: u32,
-    verify_current_pointer: bool,
 ) -> Result<Environment, EnvironmentError> {
     let persisted: Option<(
         String,
@@ -5667,36 +5858,6 @@ fn load_environment_version(
             "persisted Environment does not match its canonical configuration".to_owned(),
         ));
     }
-    let projected: Option<String> = connection
-        .query_row(
-            "SELECT release_id FROM environment_current_releases WHERE environment_id = ?1",
-            [environment_id.as_str()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
-    let expected_current: Option<String> = connection
-        .query_row(
-            "SELECT release_id FROM releases WHERE environment_id = ?1
-             ORDER BY release_sequence DESC LIMIT 1",
-            [environment_id.as_str()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
-    if verify_current_pointer && projected != expected_current {
-        return Err(EnvironmentError::Integrity(
-            "Environment current Release projection is not reproducible".to_owned(),
-        ));
-    }
-    let current_release_id = if verify_current_pointer {
-        projected
-    } else {
-        None
-    }
-    .map(|value| value.parse::<ReleaseId>())
-    .transpose()
-    .map_err(|error| EnvironmentError::Integrity(error.to_string()))?;
     let environment = Environment {
         environment_id,
         workspace_id,
@@ -5706,7 +5867,7 @@ fn load_environment_version(
         required_approval,
         config_manifest_json: manifest_json,
         config_digest: expected_config_digest,
-        current_release_id,
+        current_release_id: None,
         principal_id: principal_id
             .parse::<PrincipalId>()
             .map_err(|error| EnvironmentError::Integrity(error.to_string()))?,
@@ -5717,18 +5878,6 @@ fn load_environment_version(
             })?,
     };
     verify_environment_create_operations(connection, &environment, expected_policy_digest)?;
-    if verify_current_pointer && let Some(release_id) = environment.current_release_id {
-        load_release_record(connection, workspace_id, release_id).map_err(|error| match error {
-            LocalPortError::Storage(detail) => EnvironmentError::Storage(detail),
-            LocalPortError::Integrity(detail) => EnvironmentError::Integrity(detail),
-            LocalPortError::NotFound => EnvironmentError::Integrity(
-                "Environment current Release record is missing".to_owned(),
-            ),
-            other => EnvironmentError::Integrity(format!(
-                "Environment current Release failed verification: {other:?}"
-            )),
-        })?;
-    }
     Ok(environment)
 }
 
@@ -6058,9 +6207,21 @@ fn principal_from_status(error: WorkspaceStatusError) -> PrincipalError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum LocalPortError {
     Unauthenticated,
+    UnsupportedVersion,
     Denied,
     NotFound,
     Invalid,
+    IntentMismatch,
+    SourceConflict,
+    TargetConflict,
+    DuplicateActiveTarget,
+    InvalidSupersession,
+    InvalidRepairEvidence,
+    NotDraft,
+    NotReady,
+    NotSubmitted,
+    NotApproved,
+    EvidenceMissing,
     LimitExceeded,
     Expired,
     IdempotencyKeyReused,
@@ -6070,6 +6231,29 @@ enum LocalPortError {
     Signing(String),
     Integrity(String),
     Storage(String),
+}
+
+fn require_v1_authoring_profile(connection: &Connection) -> Result<(), LocalPortError> {
+    let schema_version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if schema_version < 11 {
+        return Ok(());
+    }
+    let api_version: String = connection
+        .query_row(
+            "SELECT api_version FROM known_state WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    match api_version.as_str() {
+        KNOWN_STATE_V1_API_VERSION => Ok(()),
+        KNOWN_STATE_V2_API_VERSION => Err(LocalPortError::UnsupportedVersion),
+        _ => Err(LocalPortError::Integrity(
+            "Known State has an unsupported API version".to_owned(),
+        )),
+    }
 }
 
 impl LocalWorkspace {
@@ -7504,6 +7688,7 @@ fn local_port_from_delegation(error: DelegationError) -> LocalPortError {
 fn local_port_from_edition(error: CreateEditionError) -> LocalPortError {
     match error {
         CreateEditionError::Unauthenticated => LocalPortError::Unauthenticated,
+        CreateEditionError::UnsupportedVersion => LocalPortError::UnsupportedVersion,
         CreateEditionError::Storage(detail) => LocalPortError::Storage(detail),
         CreateEditionError::Integrity(detail) => LocalPortError::Integrity(detail),
         CreateEditionError::EmptyState => LocalPortError::NotFound,
@@ -7516,6 +7701,7 @@ fn local_port_from_edition(error: CreateEditionError) -> LocalPortError {
 fn query_from_local_port(error: LocalPortError) -> QueryReleasedObjectsError {
     match error {
         LocalPortError::Unauthenticated => QueryReleasedObjectsError::Unauthenticated,
+        LocalPortError::UnsupportedVersion => QueryReleasedObjectsError::UnsupportedVersion,
         LocalPortError::Denied | LocalPortError::Expired => QueryReleasedObjectsError::Denied,
         LocalPortError::Invalid | LocalPortError::LimitExceeded => {
             QueryReleasedObjectsError::InvalidQuery
@@ -9403,6 +9589,7 @@ fn load_release_record_with_reproduced_editions(
     reproduced: Option<ReproducedEditionData<'_>>,
 ) -> Result<Release, LocalPortError> {
     type ReleaseRow = (
+        String,
         i64,
         String,
         String,
@@ -9422,7 +9609,7 @@ fn load_release_record_with_reproduced_editions(
     type OperationRow = (String, String, String, String, String, String);
     let row: Option<ReleaseRow> = connection
         .query_row(
-            "SELECT release_sequence, workspace_id, environment_id,
+            "SELECT api_version, release_sequence, workspace_id, environment_id,
                     environment_config_version, edition_id, edition_digest, release_kind,
                     rollback_target_release_id, previous_release_id, principal_id,
                     delegation_id, policy_decision_digest, manifest_json, release_digest,
@@ -9446,12 +9633,14 @@ fn load_release_record_with_reproduced_editions(
                     row.get(12)?,
                     row.get(13)?,
                     row.get(14)?,
+                    row.get(15)?,
                 ))
             },
         )
         .optional()
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
     let Some((
+        api_version,
         raw_sequence,
         persisted_workspace,
         raw_environment,
@@ -9471,6 +9660,9 @@ fn load_release_record_with_reproduced_editions(
     else {
         return Err(LocalPortError::NotFound);
     };
+    if api_version != "proof.dev/release/v1" {
+        return Err(LocalPortError::UnsupportedVersion);
+    }
     if persisted_workspace != workspace_id.to_string() || raw_delegation.is_some() {
         return Err(LocalPortError::Integrity(
             "Release Workspace or unsupported delegated authority field is invalid".to_owned(),
@@ -9610,7 +9802,6 @@ fn load_release_record_with_reproduced_editions(
         workspace_id,
         environment_id.clone(),
         config_version,
-        false,
     )
     .map_err(local_port_from_environment)?;
     let edition = if let Some(reproduced) = reproduced {
@@ -10026,6 +10217,7 @@ fn local_port_from_environment(error: EnvironmentError) -> LocalPortError {
 fn release_from_local_port(error: LocalPortError) -> ReleaseError {
     match error {
         LocalPortError::Unauthenticated => ReleaseError::Unauthenticated,
+        LocalPortError::UnsupportedVersion => ReleaseError::UnsupportedVersion,
         LocalPortError::NotFound => ReleaseError::NotFound,
         LocalPortError::PolicyDenied | LocalPortError::Denied | LocalPortError::Expired => {
             ReleaseError::PolicyDenied
@@ -10036,7 +10228,19 @@ fn release_from_local_port(error: LocalPortError) -> ReleaseError {
         LocalPortError::Signing(detail) => ReleaseError::Signing(detail),
         LocalPortError::Integrity(detail) => ReleaseError::Integrity(detail),
         LocalPortError::Storage(detail) => ReleaseError::Storage(detail),
-        LocalPortError::Invalid | LocalPortError::LimitExceeded => {
+        LocalPortError::Invalid
+        | LocalPortError::IntentMismatch
+        | LocalPortError::SourceConflict
+        | LocalPortError::TargetConflict
+        | LocalPortError::DuplicateActiveTarget
+        | LocalPortError::InvalidSupersession
+        | LocalPortError::InvalidRepairEvidence
+        | LocalPortError::NotDraft
+        | LocalPortError::NotReady
+        | LocalPortError::NotSubmitted
+        | LocalPortError::NotApproved
+        | LocalPortError::EvidenceMissing
+        | LocalPortError::LimitExceeded => {
             ReleaseError::Integrity("invalid Release adapter request".to_owned())
         }
     }
@@ -10159,7 +10363,10 @@ fn reproduced_state_at(
 struct ReproducedProjections {
     schemas: Vec<ExpectedSchemaProjection>,
     objects: Vec<ExpectedObjectProjection>,
-    environment_pointers: Vec<ExpectedEnvironmentPointer>,
+    changesets: Vec<ExpectedEditionChangeSet>,
+    localized_renditions: Vec<proof_application::ObjectLocaleRevision>,
+    known_state_api_version: String,
+    known_state_manifest_json: Option<String>,
     authoritative_sequence: u64,
     state_digest: ContentDigest,
 }
@@ -10175,116 +10382,81 @@ fn rebuild_projections_transaction(
 ) -> Result<ProjectionRebuild, LocalPortError> {
     let verified_commit_tip = verify_commit_operation_chain(transaction, workspace_id)?;
     let expected = reproduce_projections_from_facts(transaction, workspace_id)?;
-    if verified_commit_tip != (expected.authoritative_sequence, expected.state_digest) {
-        return Err(LocalPortError::Integrity(
-            "reproduced projections do not match the verified commit chain".to_owned(),
-        ));
+    match expected.known_state_api_version.as_str() {
+        KNOWN_STATE_V1_API_VERSION => {
+            if verified_commit_tip != (expected.authoritative_sequence, expected.state_digest) {
+                return Err(LocalPortError::Integrity(
+                    "reproduced projections do not match the verified commit chain".to_owned(),
+                ));
+            }
+        }
+        KNOWN_STATE_V2_API_VERSION => {
+            if verified_commit_tip.0 >= expected.authoritative_sequence {
+                return Err(LocalPortError::Integrity(
+                    "localized state does not advance beyond its verified v1 predecessor"
+                        .to_owned(),
+                ));
+            }
+        }
+        _ => return Err(LocalPortError::UnsupportedVersion),
     }
     let schemas_match =
         projection_rows_match(persisted_schema_projections(transaction), &expected.schemas)?;
     let objects_match =
         projection_rows_match(persisted_object_projections(transaction), &expected.objects)?;
+    let localized_renditions_match = projection_rows_match(
+        localized::persisted_locale_projections(transaction),
+        &expected.localized_renditions,
+    )?;
     let known_state_match: bool = transaction
         .query_row(
-            "SELECT authoritative_sequence = ?1 AND state_digest = ?2
+            "SELECT authoritative_sequence = ?1 AND state_digest = ?2 AND api_version = ?3
+                    AND manifest_json IS ?4
              FROM known_state WHERE singleton = 1",
-            (
+            params![
                 i64::try_from(expected.authoritative_sequence).map_err(|_| {
                     LocalPortError::Integrity(
                         "authoritative sequence exceeds local storage range".to_owned(),
                     )
                 })?,
                 expected.state_digest.to_string(),
-            ),
+                expected.known_state_api_version.as_str(),
+                expected.known_state_manifest_json.as_deref(),
+            ],
             |row| row.get(0),
         )
         .optional()
         .map_err(|error| LocalPortError::Storage(error.to_string()))?
         .unwrap_or(false);
+    let core_changed =
+        !schemas_match || !objects_match || !localized_renditions_match || !known_state_match;
+    if dry_run && core_changed {
+        transaction
+            .execute_batch("SAVEPOINT proof_projection_rebuild_dry_run")
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    }
+    if core_changed {
+        materialize_core_projections(transaction, &expected)?;
+    }
+    let expected_environment_pointers = reproduce_environment_pointers(
+        transaction,
+        workspace_id,
+        ReproducedEditionData {
+            schemas: &expected.schemas,
+            objects: &expected.objects,
+            changesets: &expected.changesets,
+        },
+    )?;
     let pointers_match = projection_rows_match(
         persisted_environment_pointers(transaction),
-        &expected.environment_pointers,
+        &expected_environment_pointers,
     )?;
-    let changed = !schemas_match || !objects_match || !known_state_match || !pointers_match;
-    if changed && !dry_run {
-        transaction
-            .execute("DELETE FROM object_revisions", [])
-            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-        transaction
-            .execute("DELETE FROM schema_versions", [])
-            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-        for schema in &expected.schemas {
-            transaction
-                .execute(
-                    "INSERT INTO schema_versions (
-                         schema_id, schema_version, document_json, document_digest,
-                         changeset_id, edit_id, authoritative_sequence
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    (
-                        schema.schema_id.as_str(),
-                        schema.schema_version.get(),
-                        schema.document_json.as_str(),
-                        schema.document_digest.to_string(),
-                        schema.changeset_id.to_string(),
-                        schema.edit_id.to_string(),
-                        i64::try_from(schema.authoritative_sequence).map_err(|_| {
-                            LocalPortError::Integrity(
-                                "Schema sequence exceeds local storage range".to_owned(),
-                            )
-                        })?,
-                    ),
-                )
-                .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-        }
-        for object in &expected.objects {
-            transaction
-                .execute(
-                    "INSERT INTO object_revisions (
-                         object_id, revision, schema_id, schema_version, lifecycle_state,
-                         content_json, object_digest, changeset_id, edit_id,
-                         authoritative_sequence
-                     ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?9)",
-                    (
-                        object.object_id.to_string(),
-                        object.revision.get(),
-                        object.schema_id.as_str(),
-                        object.schema_version.get(),
-                        object.content_json.as_str(),
-                        object.object_digest.to_string(),
-                        object.changeset_id.to_string(),
-                        object.edit_id.to_string(),
-                        i64::try_from(object.authoritative_sequence).map_err(|_| {
-                            LocalPortError::Integrity(
-                                "Object sequence exceeds local storage range".to_owned(),
-                            )
-                        })?,
-                    ),
-                )
-                .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-        }
-        let updated = transaction
-            .execute(
-                "UPDATE known_state
-                 SET authoritative_sequence = ?1, state_digest = ?2 WHERE singleton = 1",
-                (
-                    i64::try_from(expected.authoritative_sequence).map_err(|_| {
-                        LocalPortError::Integrity(
-                            "authoritative sequence exceeds local storage range".to_owned(),
-                        )
-                    })?,
-                    expected.state_digest.to_string(),
-                ),
-            )
-            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-        if updated != 1 {
-            return Err(LocalPortError::Integrity(
-                "Known State projection singleton is missing".to_owned(),
-            ));
-        }
+    let changed = core_changed || !pointers_match;
+    if !dry_run && !pointers_match {
         transaction
             .execute("DELETE FROM environment_current_releases", [])
             .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-        for pointer in &expected.environment_pointers {
+        for pointer in &expected_environment_pointers {
             transaction
                 .execute(
                     "INSERT INTO environment_current_releases (
@@ -10302,6 +10474,8 @@ fn rebuild_projections_transaction(
                 )
                 .map_err(|error| LocalPortError::Storage(error.to_string()))?;
         }
+    }
+    if core_changed || (!dry_run && !pointers_match) {
         let foreign_key_violation: Option<(String, i64, String, i64)> = transaction
             .query_row("PRAGMA foreign_key_check", [], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -10314,6 +10488,14 @@ fn rebuild_projections_transaction(
             ));
         }
     }
+    if dry_run && core_changed {
+        transaction
+            .execute_batch(
+                "ROLLBACK TO proof_projection_rebuild_dry_run;
+                 RELEASE proof_projection_rebuild_dry_run;",
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    }
     Ok(ProjectionRebuild {
         dry_run,
         changed,
@@ -10323,9 +10505,98 @@ fn rebuild_projections_transaction(
             .map_err(|_| LocalPortError::Integrity("Schema count exceeds u32".to_owned()))?,
         object_count: u32::try_from(expected.objects.len())
             .map_err(|_| LocalPortError::Integrity("Object count exceeds u32".to_owned()))?,
-        environment_pointer_count: u32::try_from(expected.environment_pointers.len())
+        environment_pointer_count: u32::try_from(expected_environment_pointers.len())
             .map_err(|_| LocalPortError::Integrity("Environment count exceeds u32".to_owned()))?,
     })
+}
+
+fn materialize_core_projections(
+    transaction: &Transaction<'_>,
+    expected: &ReproducedProjections,
+) -> Result<(), LocalPortError> {
+    transaction
+        .execute("DELETE FROM object_locale_revisions", [])
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    transaction
+        .execute("DELETE FROM object_revisions", [])
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    transaction
+        .execute("DELETE FROM schema_versions", [])
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    for schema in &expected.schemas {
+        transaction
+            .execute(
+                "INSERT INTO schema_versions (
+                     schema_id, schema_version, document_json, document_digest,
+                     changeset_id, edit_id, authoritative_sequence
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (
+                    schema.schema_id.as_str(),
+                    schema.schema_version.get(),
+                    schema.document_json.as_str(),
+                    schema.document_digest.to_string(),
+                    schema.changeset_id.to_string(),
+                    schema.edit_id.to_string(),
+                    i64::try_from(schema.authoritative_sequence).map_err(|_| {
+                        LocalPortError::Integrity(
+                            "Schema sequence exceeds local storage range".to_owned(),
+                        )
+                    })?,
+                ),
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    }
+    for object in &expected.objects {
+        transaction
+            .execute(
+                "INSERT INTO object_revisions (
+                     object_id, revision, schema_id, schema_version, lifecycle_state,
+                     content_json, object_digest, changeset_id, edit_id,
+                     authoritative_sequence
+                 ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?9)",
+                (
+                    object.object_id.to_string(),
+                    object.revision.get(),
+                    object.schema_id.as_str(),
+                    object.schema_version.get(),
+                    object.content_json.as_str(),
+                    object.object_digest.to_string(),
+                    object.changeset_id.to_string(),
+                    object.edit_id.to_string(),
+                    i64::try_from(object.authoritative_sequence).map_err(|_| {
+                        LocalPortError::Integrity(
+                            "Object sequence exceeds local storage range".to_owned(),
+                        )
+                    })?,
+                ),
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    }
+    localized::insert_locale_projections(transaction, &expected.localized_renditions)?;
+    let updated = transaction
+        .execute(
+            "UPDATE known_state
+             SET api_version = ?1, authoritative_sequence = ?2,
+                 state_digest = ?3, manifest_json = ?4
+             WHERE singleton = 1",
+            params![
+                expected.known_state_api_version.as_str(),
+                i64::try_from(expected.authoritative_sequence).map_err(|_| {
+                    LocalPortError::Integrity(
+                        "authoritative sequence exceeds local storage range".to_owned(),
+                    )
+                })?,
+                expected.state_digest.to_string(),
+                expected.known_state_manifest_json.as_deref(),
+            ],
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if updated != 1 {
+        return Err(LocalPortError::Integrity(
+            "Known State projection singleton is missing".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn projection_rows_match<T: Eq>(
@@ -10569,28 +10840,60 @@ fn reproduce_commit_facts(
 }
 
 fn reproduce_projections_from_facts(
-    connection: &Connection,
+    connection: &Transaction<'_>,
     workspace_id: WorkspaceId,
 ) -> Result<ReproducedProjections, LocalPortError> {
     let schema_version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
     let facts = reproduce_commit_facts(connection, workspace_id, schema_version)?;
-    let environment_pointers = reproduce_environment_pointers(
-        connection,
-        workspace_id,
-        ReproducedEditionData {
-            schemas: &facts.schemas,
-            objects: &facts.objects,
-            changesets: &facts.changesets,
+    let localized = if schema_version >= 11 {
+        localized::reproduce_localized_projections(
+            connection,
+            workspace_id,
+            facts.authoritative_sequence,
+            facts.state_digest,
+            &facts.schemas,
+            &facts.objects,
+        )?
+    } else {
+        None
+    };
+    let (
+        localized_renditions,
+        known_state_api_version,
+        known_state_manifest_json,
+        authoritative_sequence,
+        state_digest,
+    ) = localized.map_or_else(
+        || {
+            (
+                Vec::new(),
+                KNOWN_STATE_V1_API_VERSION.to_owned(),
+                None,
+                facts.authoritative_sequence,
+                facts.state_digest,
+            )
         },
-    )?;
+        |localized| {
+            (
+                localized.renditions,
+                KNOWN_STATE_V2_API_VERSION.to_owned(),
+                Some(localized.state_manifest_json),
+                localized.authoritative_sequence,
+                localized.state_digest,
+            )
+        },
+    );
     Ok(ReproducedProjections {
         schemas: facts.schemas,
         objects: facts.objects,
-        environment_pointers,
-        authoritative_sequence: facts.authoritative_sequence,
-        state_digest: facts.state_digest,
+        changesets: facts.changesets,
+        localized_renditions,
+        known_state_api_version,
+        known_state_manifest_json,
+        authoritative_sequence,
+        state_digest,
     })
 }
 
@@ -11132,25 +11435,29 @@ fn load_edition_from_reproduced(
 }
 
 fn reproduce_environment_pointers(
-    connection: &Connection,
+    connection: &Transaction<'_>,
     workspace_id: WorkspaceId,
     reproduced: ReproducedEditionData<'_>,
 ) -> Result<Vec<ExpectedEnvironmentPointer>, LocalPortError> {
     let mut statement = connection
         .prepare(
-            "SELECT release_id, release_sequence
+            "SELECT release_id, release_sequence, api_version
              FROM releases ORDER BY release_sequence",
         )
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
     let rows = statement
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
     let mut heads = BTreeMap::<EnvironmentId, ExpectedEnvironmentPointer>::new();
     let mut expected_global_sequence = 0_u64;
     for row in rows {
-        let (raw_release, sequence) =
+        let (raw_release, sequence, api_version) =
             row.map_err(|error| LocalPortError::Storage(error.to_string()))?;
         expected_global_sequence = expected_global_sequence.checked_add(1).ok_or_else(|| {
             LocalPortError::Integrity("global Release sequence overflow".to_owned())
@@ -11168,16 +11475,32 @@ fn reproduce_environment_pointers(
                 "immutable Release identity is not canonical".to_owned(),
             ));
         }
-        let release =
-            load_release_record_from_reproduced(connection, workspace_id, release_id, reproduced)?;
-        if release.release_sequence != expected_global_sequence {
+        let (verified_sequence, environment_id, previous_release_id) = match api_version.as_str() {
+            "proof.dev/release/v1" => {
+                let release = load_release_record_from_reproduced(
+                    connection,
+                    workspace_id,
+                    release_id,
+                    reproduced,
+                )?;
+                (
+                    release.release_sequence,
+                    release.environment_id,
+                    release.previous_release_id,
+                )
+            }
+            LOCALIZED_RELEASE_API_VERSION => {
+                localized::load_localized_release_chain_node(connection, workspace_id, release_id)?
+            }
+            _ => return Err(LocalPortError::UnsupportedVersion),
+        };
+        if verified_sequence != expected_global_sequence {
             return Err(LocalPortError::Integrity(
                 "verified Release sequence differs from immutable history".to_owned(),
             ));
         }
-        let environment_id = release.environment_id;
         let expected_previous = heads.get(&environment_id).map(|pointer| pointer.release_id);
-        if release.previous_release_id != expected_previous {
+        if previous_release_id != expected_previous {
             return Err(LocalPortError::Integrity(
                 "immutable Release history has a broken Environment predecessor chain".to_owned(),
             ));
@@ -11464,7 +11787,7 @@ fn ensure_changeset_schema(
                  PRAGMA user_version = 2;",
             )
             .map_err(|error| CreateChangeSetError::Storage(error.to_string())),
-        2..=10 => Ok(()),
+        2..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(CreateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -11520,7 +11843,7 @@ fn ensure_edit_schema(
                  PRAGMA user_version = 3;",
             )
             .map_err(|error| AddChangeSetEditsError::Storage(error.to_string())),
-        3..=10 => Ok(()),
+        3..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(AddChangeSetEditsError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -11576,7 +11899,7 @@ fn ensure_validation_schema(
                  PRAGMA user_version = 4;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        4..=10 => Ok(()),
+        4..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -11623,7 +11946,7 @@ fn ensure_lifecycle_schema(
                  PRAGMA user_version = 5;",
             )
             .map_err(|error| ValidateChangeSetError::Storage(error.to_string())),
-        5..=10 => Ok(()),
+        5..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(ValidateChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -11664,7 +11987,7 @@ fn ensure_approval_schema(
                  PRAGMA user_version = 6;",
             )
             .map_err(|error| ApproveChangeSetError::Storage(error.to_string())),
-        6..=10 => Ok(()),
+        6..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(ApproveChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -11723,7 +12046,7 @@ fn ensure_commit_schema(
                  PRAGMA user_version = 7;",
             )
             .map_err(|error| CommitChangeSetError::Storage(error.to_string())),
-        7..=10 => Ok(()),
+        7..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(CommitChangeSetError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -11776,7 +12099,7 @@ fn ensure_edition_schema(
                  PRAGMA user_version = 8;",
             )
             .map_err(|error| CreateEditionError::Storage(error.to_string())),
-        8..=10 => Ok(()),
+        8..=LATEST_DATABASE_SCHEMA_VERSION => Ok(()),
         version => Err(CreateEditionError::Integrity(format!(
             "unsupported local schema version {version}"
         ))),
@@ -13583,6 +13906,11 @@ fn load_edition(
     } else {
         "NULL AS object_set_digest"
     };
+    let api_version_column = if schema_version >= 11 {
+        "api_version"
+    } else {
+        "'proof.dev/edition/v1' AS api_version"
+    };
     let persisted: (
         String,
         String,
@@ -13593,12 +13921,13 @@ fn load_edition(
         String,
         String,
         String,
+        String,
     ) = connection
         .query_row(
             &format!(
                 "SELECT workspace_id, principal_id, authoritative_sequence, state_digest,
                         schema_set_digest, {object_set_column}, edition_digest,
-                        manifest_json, created_at
+                        manifest_json, created_at, {api_version_column}
                  FROM editions WHERE edition_id = ?1"
             ),
             [edition_id.to_string()],
@@ -13613,10 +13942,16 @@ fn load_edition(
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
                 ))
             },
         )
         .map_err(|error| CreateEditionError::Storage(error.to_string()))?;
+    if persisted.9 != proof_application::EDITION_V1_API_VERSION {
+        return Err(CreateEditionError::Integrity(
+            "v1 Edition reader cannot interpret a non-v1 Edition".to_owned(),
+        ));
+    }
     let workspace_id = persisted
         .0
         .parse::<WorkspaceId>()
@@ -14926,6 +15261,28 @@ fn reproducible_known_state(
             LocalPortError::Storage(detail) | LocalPortError::Integrity(detail) => detail,
             other => format!("commit-chain verification failed: {other:?}"),
         })?;
+    }
+    if schema_version >= 11 {
+        let api_version: String = connection
+            .query_row(
+                "SELECT api_version FROM known_state WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        match api_version.as_str() {
+            KNOWN_STATE_V1_API_VERSION => {}
+            KNOWN_STATE_V2_API_VERSION => {
+                return localized::reproducible_localized_known_state(connection, workspace_id)
+                    .map_err(|error| match error {
+                        LocalPortError::Storage(detail) | LocalPortError::Integrity(detail) => {
+                            detail
+                        }
+                        other => format!("localized state verification failed: {other:?}"),
+                    });
+            }
+            _ => return Err("Known State has an unsupported API version".to_owned()),
+        }
     }
     let (sequence, persisted_digest): (i64, String) = connection
         .query_row(

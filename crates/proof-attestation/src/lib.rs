@@ -19,6 +19,8 @@ pub const DSSE_PAYLOAD_TYPE: &str = "application/vnd.in-toto+json";
 pub const IN_TOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
 /// Proof Release predicate type required by the Proof v1 profile.
 pub const RELEASE_PREDICATE_TYPE: &str = "urn:proof:attestation:release:v1";
+/// Proof Release predicate type required by the localized-content v2 profile.
+pub const RELEASE_PREDICATE_TYPE_V2: &str = "urn:proof:attestation:release:v2";
 
 /// Maximum complete canonical DSSE envelope length.
 pub const MAX_ENVELOPE_BYTES: usize = 4 * 1_048_576;
@@ -175,6 +177,17 @@ impl InTotoStatement {
             statement_type: IN_TOTO_STATEMENT_TYPE.to_owned(),
             subject,
             predicate_type: RELEASE_PREDICATE_TYPE.to_owned(),
+            predicate,
+        }
+    }
+
+    /// Constructs the localized-content v2 Release Statement profile.
+    #[must_use]
+    pub fn release_v2(subject: Vec<InTotoSubject>, predicate: Value) -> Self {
+        Self {
+            statement_type: IN_TOTO_STATEMENT_TYPE.to_owned(),
+            subject,
+            predicate_type: RELEASE_PREDICATE_TYPE_V2.to_owned(),
             predicate,
         }
     }
@@ -493,7 +506,10 @@ fn validate_statement(statement: &InTotoStatement) -> Result<(), AttestationErro
     if statement.statement_type != IN_TOTO_STATEMENT_TYPE {
         return Err(AttestationError::UnsupportedStatementType);
     }
-    if statement.predicate_type != RELEASE_PREDICATE_TYPE {
+    if !matches!(
+        statement.predicate_type.as_str(),
+        RELEASE_PREDICATE_TYPE | RELEASE_PREDICATE_TYPE_V2
+    ) {
         return Err(AttestationError::UnsupportedPredicateType);
     }
     if statement.subject.is_empty() || statement.subject.len() > MAX_SUBJECTS {
@@ -635,8 +651,8 @@ mod tests {
 
     use super::{
         AttestationError, DSSE_PAYLOAD_TYPE, Ed25519SigningProvider, InTotoStatement,
-        InTotoSubject, dsse_pae, parse_ed25519_key_id, parse_release_envelope,
-        sign_release_statement, verify_release_envelope,
+        InTotoSubject, RELEASE_PREDICATE_TYPE_V2, dsse_pae, parse_ed25519_key_id,
+        parse_release_envelope, sign_release_statement, verify_release_envelope,
     };
 
     fn statement() -> InTotoStatement {
@@ -680,6 +696,36 @@ mod tests {
                 .payload_json,
             signed.payload_json
         );
+    }
+
+    #[test]
+    fn localized_release_v2_round_trips_under_the_distinct_predicate_type() {
+        let localized_statement = InTotoStatement::release_v2(
+            vec![InTotoSubject {
+                name: "proof:release:019c0000-0000-7000-8000-000000000002".to_owned(),
+                digest: BTreeMap::from([("blake3".to_owned(), "cd".repeat(32))]),
+            }],
+            json!({
+                "api_version": "proof.dev/release-proof-predicate/v2",
+                "exact_delta_digest": format!("blake3:{}", "e".repeat(64)),
+                "workspace_id": "019c0000-0000-7000-8000-000000000010"
+            }),
+        );
+        let signer = Ed25519SigningProvider::from_secret_bytes(&[8_u8; 32]);
+        let signed = sign_release_statement(&localized_statement, &signer).unwrap();
+        let verified = verify_release_envelope(
+            signed.envelope_json.as_bytes(),
+            signed.envelope_digest,
+            &signed.key_id,
+        )
+        .unwrap();
+
+        assert_eq!(verified.parsed.statement, localized_statement);
+        assert_eq!(
+            verified.parsed.statement.predicate_type,
+            RELEASE_PREDICATE_TYPE_V2
+        );
+        assert_ne!(statement().predicate_type, RELEASE_PREDICATE_TYPE_V2);
     }
 
     #[test]
@@ -796,7 +842,7 @@ mod tests {
             AttestationError::UnsupportedStatementType
         );
         let mut wrong_predicate = statement();
-        wrong_predicate.predicate_type = "urn:proof:attestation:release:v2".to_owned();
+        wrong_predicate.predicate_type = "urn:proof:attestation:release:v3".to_owned();
         assert_eq!(
             sign_release_statement(&wrong_predicate, &signer).unwrap_err(),
             AttestationError::UnsupportedPredicateType

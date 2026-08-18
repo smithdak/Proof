@@ -638,6 +638,7 @@ fn release_problem(
 ) -> Box<Problem> {
     let (problem_type, title, code, retryable) = match error {
         ReleaseError::Unauthenticated => auth_mapping(),
+        ReleaseError::UnsupportedVersion => unsupported_version_mapping(),
         ReleaseError::NotFound => not_found_mapping("Release"),
         ReleaseError::PolicyDenied => (
             "urn:proof:problem:policy-denied",
@@ -666,6 +667,7 @@ fn query_problem(
 ) -> Box<Problem> {
     let (problem_type, title, code, retryable) = match error {
         QueryReleasedObjectsError::Unauthenticated => auth_mapping(),
+        QueryReleasedObjectsError::UnsupportedVersion => unsupported_version_mapping(),
         QueryReleasedObjectsError::Denied => (
             "urn:proof:problem:authority-denied",
             "The released Object query is outside delegated authority",
@@ -698,6 +700,15 @@ const fn auth_mapping() -> (&'static str, &'static str, &'static str, bool) {
         "urn:proof:problem:authentication-required",
         "The current identity is not authenticated",
         "proof.auth.unauthenticated",
+        false,
+    )
+}
+
+const fn unsupported_version_mapping() -> (&'static str, &'static str, &'static str, bool) {
+    (
+        "urn:proof:problem:unsupported-version",
+        "The v1 operation is unsupported for the current artifact version",
+        "proof.input.unsupported_version",
         false,
     )
 }

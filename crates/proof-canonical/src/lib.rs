@@ -5,8 +5,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use proof_domain::{
-    ArtifactKind, ContentDigest, ObjectId, ObjectLifecycleState, ObjectRevision, SchemaId,
-    SchemaVersion, WorkspaceId,
+    ArtifactKind, ChangeSetId, ContentDigest, EditId, LocaleId, LocaleRevision, ObjectId,
+    ObjectLifecycleState, ObjectRevision, SchemaId, SchemaVersion, WorkspaceId,
 };
 use serde::{
     Deserialize, Deserializer,
@@ -119,6 +119,180 @@ pub struct ObjectStateReference {
     pub object_digest: ContentDigest,
 }
 
+/// One exact locale rendition reference used by v2 state and Edition manifests.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocaleStateReference {
+    /// Stable source Object identity.
+    pub object_id: ObjectId,
+    /// Exact case-sensitive locale.
+    pub locale: LocaleId,
+    /// Immutable rendition revision.
+    pub revision: LocaleRevision,
+    /// Digest of the exact rendition artifact.
+    pub rendition_digest: ContentDigest,
+    /// Digest of the immutable locale-neutral source Object revision.
+    pub source_object_digest: ContentDigest,
+    /// Governing Schema identity.
+    pub schema_id: SchemaId,
+    /// Governing immutable Schema version.
+    pub schema_version: SchemaVersion,
+}
+
+/// Exact predecessor state reference committed by a v2 Known State.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreviousKnownStateReference {
+    /// Exact predecessor artifact API version.
+    pub api_version: String,
+    /// Exact predecessor authoritative sequence.
+    pub authoritative_sequence: u64,
+    /// Exact predecessor digest under its own versioned context.
+    pub digest: ContentDigest,
+}
+
+/// Complete input to one immutable exact-locale rendition artifact.
+#[derive(Clone, Debug)]
+pub struct ObjectLocaleRevisionInput<'a> {
+    /// Owning Workspace.
+    pub workspace_id: WorkspaceId,
+    /// Stable source Object identity.
+    pub object_id: ObjectId,
+    /// Exact case-sensitive locale.
+    pub locale: &'a LocaleId,
+    /// New immutable rendition revision.
+    pub revision: LocaleRevision,
+    /// Immediately preceding rendition digest, absent for revision one.
+    pub previous_revision_digest: Option<ContentDigest>,
+    /// Exact immutable source Object revision.
+    pub source_object_revision: ObjectRevision,
+    /// Exact immutable source Object digest.
+    pub source_object_digest: ContentDigest,
+    /// Governing Schema identity.
+    pub schema_id: &'a SchemaId,
+    /// Governing Schema version.
+    pub schema_version: SchemaVersion,
+    /// Complete localized JSON Object.
+    pub content: &'a Value,
+    /// Committing localized `ChangeSet`.
+    pub changeset_id: ChangeSetId,
+    /// Effective Edit that produced this revision.
+    pub edit_id: EditId,
+    /// Authoritative sequence assigned to this fact.
+    pub authoritative_sequence: u64,
+}
+
+/// Builds the exact canonical `ObjectLocaleRevisionV1` artifact and digest.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] unless content is a JSON object and the
+/// complete artifact satisfies Proof's canonical JSON profile.
+pub fn object_locale_revision(
+    input: &ObjectLocaleRevisionInput<'_>,
+) -> Result<(CanonicalJson, ContentDigest), CanonicalizationError> {
+    if !input.content.is_object() {
+        return Err(CanonicalizationError::InvalidJson(
+            "localized Object content must be a JSON object".to_owned(),
+        ));
+    }
+    let manifest = serde_json::json!({
+        "api_version": "proof.dev/object-locale-revision/v1",
+        "authoritative_sequence": input.authoritative_sequence,
+        "changeset_id": input.changeset_id.to_string(),
+        "content": input.content,
+        "edit_id": input.edit_id.to_string(),
+        "locale": input.locale.as_str(),
+        "object_id": input.object_id.to_string(),
+        "previous_revision_digest": input.previous_revision_digest.map(|value| value.to_string()),
+        "revision": input.revision.get(),
+        "schema_id": input.schema_id.as_str(),
+        "schema_version": input.schema_version.get(),
+        "source_object_digest": input.source_object_digest.to_string(),
+        "source_object_revision": input.source_object_revision.get(),
+        "workspace_id": input.workspace_id.to_string(),
+    });
+    let canonical = canonicalize(&manifest)?;
+    let rendition_digest = digest(ArtifactKind::ObjectLocaleRevisionV1, &canonical);
+    Ok((canonical, rendition_digest))
+}
+
+/// Computes one rendition-aware Object-set manifest digest.
+///
+/// Source Objects and locale renditions must already be supplied in their
+/// canonical ascending orders.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be canonicalized.
+pub fn object_set_v2_digest(
+    objects: &[ObjectStateReference],
+    renditions: &[LocaleStateReference],
+) -> Result<ContentDigest, CanonicalizationError> {
+    let manifest = serde_json::json!({
+        "api_version": "proof.dev/object-set/v2",
+        "objects": objects.iter().map(object_reference_value).collect::<Vec<_>>(),
+        "renditions": renditions.iter().map(locale_reference_value).collect::<Vec<_>>(),
+    });
+    canonicalize(&manifest).map(|canonical| digest(ArtifactKind::ObjectSetV2, &canonical))
+}
+
+/// Builds one predecessor-bound rendition-aware Known State artifact.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be canonicalized.
+pub fn known_state_v2_manifest(
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+    schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
+    objects: &[ObjectStateReference],
+    renditions: &[LocaleStateReference],
+    previous_state: &PreviousKnownStateReference,
+) -> Result<CanonicalJson, CanonicalizationError> {
+    canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/known-state/v2",
+        "authoritative_sequence": authoritative_sequence,
+        "objects": objects.iter().map(object_reference_value).collect::<Vec<_>>(),
+        "previous_state": {
+            "api_version": previous_state.api_version,
+            "authoritative_sequence": previous_state.authoritative_sequence,
+            "digest": previous_state.digest.to_string(),
+        },
+        "renditions": renditions.iter().map(locale_reference_value).collect::<Vec<_>>(),
+        "schemas": schemas.iter().map(|(schema_id, schema_version, document_digest)| {
+            serde_json::json!({
+                "document_digest": document_digest.to_string(),
+                "schema_id": schema_id.as_str(),
+                "schema_version": schema_version.get(),
+            })
+        }).collect::<Vec<_>>(),
+        "workspace_id": workspace_id.to_string(),
+    }))
+}
+
+/// Builds and digests one predecessor-bound rendition-aware Known State.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be canonicalized.
+pub fn known_state_v2_digest(
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+    schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
+    objects: &[ObjectStateReference],
+    renditions: &[LocaleStateReference],
+    previous_state: &PreviousKnownStateReference,
+) -> Result<ContentDigest, CanonicalizationError> {
+    known_state_v2_manifest(
+        workspace_id,
+        authoritative_sequence,
+        schemas,
+        objects,
+        renditions,
+        previous_state,
+    )
+    .map(|canonical| digest(ArtifactKind::KnownStateV2, &canonical))
+}
+
 /// Computes the digest of the first immutable revision of an Object.
 ///
 /// The initial Object profile normalizes revision to `1`, lifecycle state to
@@ -219,6 +393,25 @@ pub fn known_state_digest_with_objects(
     schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
     objects: &[ObjectStateReference],
 ) -> Result<ContentDigest, CanonicalizationError> {
+    known_state_manifest_with_objects(workspace_id, authoritative_sequence, schemas, objects)
+        .map(|canonical| digest(ArtifactKind::KnownStateV1, &canonical))
+}
+
+/// Reproduces the exact canonical v1 Known State manifest bytes.
+///
+/// Empty Schema and Object members remain omitted so historical bytes do not
+/// change when the v2 implementation is present.
+///
+/// # Errors
+///
+/// Returns [`CanonicalizationError`] if the manifest cannot be represented by
+/// the canonical JSON profile.
+pub fn known_state_manifest_with_objects(
+    workspace_id: WorkspaceId,
+    authoritative_sequence: u64,
+    schemas: &[(SchemaId, SchemaVersion, ContentDigest)],
+    objects: &[ObjectStateReference],
+) -> Result<CanonicalJson, CanonicalizationError> {
     let manifest = serde_json::json!({
         "api_version": "proof.dev/known-state/v1",
         "authoritative_sequence": authoritative_sequence,
@@ -243,8 +436,7 @@ pub fn known_state_digest_with_objects(
         manifest["objects"] =
             serde_json::Value::Array(objects.iter().map(object_reference_value).collect());
     }
-    let canonical = canonicalize(&manifest)?;
-    Ok(digest(ArtifactKind::KnownStateV1, &canonical))
+    canonicalize(&manifest)
 }
 
 fn object_reference_value(object: &ObjectStateReference) -> Value {
@@ -255,6 +447,18 @@ fn object_reference_value(object: &ObjectStateReference) -> Value {
         "revision": object.revision.get(),
         "schema_id": object.schema_id.as_str(),
         "schema_version": object.schema_version.get(),
+    })
+}
+
+fn locale_reference_value(rendition: &LocaleStateReference) -> Value {
+    serde_json::json!({
+        "locale": rendition.locale.as_str(),
+        "object_id": rendition.object_id.to_string(),
+        "rendition_digest": rendition.rendition_digest.to_string(),
+        "revision": rendition.revision.get(),
+        "schema_id": rendition.schema_id.as_str(),
+        "schema_version": rendition.schema_version.get(),
+        "source_object_digest": rendition.source_object_digest.to_string(),
     })
 }
 
@@ -382,16 +586,18 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
 #[cfg(test)]
 mod tests {
     use proof_domain::{
-        ArtifactKind, ContentDigest, ObjectId, ObjectLifecycleState, ObjectRevision, OperationId,
-        SchemaId, SchemaVersion, WorkspaceId,
+        ArtifactKind, ChangeSetId, ContentDigest, EditId, LocaleId, LocaleRevision, ObjectId,
+        ObjectLifecycleState, ObjectRevision, OperationId, SchemaId, SchemaVersion, WorkspaceId,
     };
     use serde::Deserialize;
     use serde_json::{Value, json};
 
     use super::{
-        CanonicalizationError, MAX_SAFE_INTEGER, ObjectStateReference, canonicalize, digest,
+        CanonicalizationError, LocaleStateReference, MAX_SAFE_INTEGER, ObjectLocaleRevisionInput,
+        ObjectStateReference, PreviousKnownStateReference, canonicalize, digest,
         initial_known_state_digest, known_state_digest, known_state_digest_with_objects,
-        object_revision_digest, object_set_digest, parse_and_canonicalize, parse_strict,
+        known_state_v2_manifest, object_locale_revision, object_revision_digest, object_set_digest,
+        object_set_v2_digest, parse_and_canonicalize, parse_strict,
     };
 
     #[test]
@@ -648,6 +854,180 @@ mod tests {
             ),
             "Object content roots must be JSON objects"
         );
+    }
+
+    #[test]
+    fn localized_artifact_golden_digests_are_stable() {
+        let corpus: LocalizedDigestCorpus = serde_json::from_slice(include_bytes!(
+            "../../../conformance/v2/localized-content/vectors/artifact-digests.valid.json"
+        ))
+        .unwrap();
+        assert_eq!(corpus.api_version, "proof.dev/localized-content-golden-v1");
+        let mut mismatches = Vec::new();
+        for case in corpus.cases {
+            let kind = localized_artifact_kind(&case.artifact_kind);
+            let canonical = canonicalize(&case.artifact).unwrap();
+            let actual = digest(kind, &canonical).to_string();
+            if actual != case.expected_digest {
+                mismatches.push(format!("{}={actual}", case.artifact_kind));
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "localized golden digest mismatch:\n{}",
+            mismatches.join("\n")
+        );
+    }
+
+    #[test]
+    fn localized_public_builders_match_the_portable_vectors() {
+        let corpus: LocalizedDigestCorpus = serde_json::from_slice(include_bytes!(
+            "../../../conformance/v2/localized-content/vectors/artifact-digests.valid.json"
+        ))
+        .unwrap();
+        let artifact = |kind: &str| {
+            corpus
+                .cases
+                .iter()
+                .find(|case| case.artifact_kind == kind)
+                .unwrap()
+        };
+        let workspace_id = "019c0000-0000-7000-8000-000000000010"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let object_id = "019c0000-0000-7000-8000-000000000080"
+            .parse::<ObjectId>()
+            .unwrap();
+        let changeset_id = "019c0000-0000-7000-8000-000000000204"
+            .parse::<ChangeSetId>()
+            .unwrap();
+        let edit_id = "019c0000-0000-7000-8000-000000000219"
+            .parse::<EditId>()
+            .unwrap();
+        let locale = LocaleId::new("fr-FR").unwrap();
+        let schema_id = SchemaId::new("campaign").unwrap();
+        let schema_version = SchemaVersion::new(1).unwrap();
+        let source_digest =
+            "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+                .parse::<ContentDigest>()
+                .unwrap();
+        let rendition_digest =
+            "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                .parse::<ContentDigest>()
+                .unwrap();
+        let content = json!({
+            "legal": "Des conditions standard s’appliquent",
+            "slug": "summer-campaign",
+            "title": "Campagne d’été",
+        });
+        let (rendition, computed_rendition_digest) =
+            object_locale_revision(&ObjectLocaleRevisionInput {
+                workspace_id,
+                object_id,
+                locale: &locale,
+                revision: LocaleRevision::new(1).unwrap(),
+                previous_revision_digest: None,
+                source_object_revision: ObjectRevision::INITIAL,
+                source_object_digest: source_digest,
+                schema_id: &schema_id,
+                schema_version,
+                content: &content,
+                changeset_id,
+                edit_id,
+                authoritative_sequence: 3,
+            })
+            .unwrap();
+        let rendition_case = artifact("ObjectLocaleRevisionV1");
+        assert_eq!(rendition, canonicalize(&rendition_case.artifact).unwrap());
+        assert_eq!(
+            computed_rendition_digest.to_string(),
+            rendition_case.expected_digest
+        );
+
+        let object_reference = ObjectStateReference {
+            object_id,
+            revision: ObjectRevision::INITIAL,
+            schema_id: schema_id.clone(),
+            schema_version,
+            lifecycle_state: ObjectLifecycleState::Active,
+            object_digest: source_digest,
+        };
+        let locale_reference = LocaleStateReference {
+            object_id,
+            locale,
+            revision: LocaleRevision::new(1).unwrap(),
+            rendition_digest,
+            source_object_digest: source_digest,
+            schema_id: schema_id.clone(),
+            schema_version,
+        };
+        let object_set_case = artifact("ObjectSetV2");
+        assert_eq!(
+            object_set_v2_digest(
+                std::slice::from_ref(&object_reference),
+                std::slice::from_ref(&locale_reference),
+            )
+            .unwrap()
+            .to_string(),
+            object_set_case.expected_digest
+        );
+        let previous_state = PreviousKnownStateReference {
+            api_version: "proof.dev/known-state/v1".to_owned(),
+            authoritative_sequence: 2,
+            digest: "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+                .parse()
+                .unwrap(),
+        };
+        let schema_digest =
+            "blake3:6666666666666666666666666666666666666666666666666666666666666666"
+                .parse()
+                .unwrap();
+        let state = known_state_v2_manifest(
+            workspace_id,
+            3,
+            &[(schema_id, schema_version, schema_digest)],
+            &[object_reference],
+            &[locale_reference],
+            &previous_state,
+        )
+        .unwrap();
+        let state_case = artifact("KnownStateV2");
+        assert_eq!(state, canonicalize(&state_case.artifact).unwrap());
+        assert_eq!(
+            digest(ArtifactKind::KnownStateV2, &state).to_string(),
+            state_case.expected_digest
+        );
+    }
+
+    fn localized_artifact_kind(name: &str) -> ArtifactKind {
+        match name {
+            "ContentResourceIntentV1" => ArtifactKind::ContentResourceIntentV1,
+            "PolicyBundleV1" => ArtifactKind::PolicyBundleV1,
+            "ContextPackV2" => ArtifactKind::ContextPackV2,
+            "EditV2" => ArtifactKind::EditV2,
+            "EditBatchV2" => ArtifactKind::EditBatchV2,
+            "ChangeSetV2" => ArtifactKind::ChangeSetV2,
+            "ValidationResultsV2" => ArtifactKind::ValidationResultsV2,
+            "ObjectLocaleRevisionV1" => ArtifactKind::ObjectLocaleRevisionV1,
+            "ObjectSetV2" => ArtifactKind::ObjectSetV2,
+            "KnownStateV2" => ArtifactKind::KnownStateV2,
+            "EditionV2" => ArtifactKind::EditionV2,
+            "ReleaseV2" => ArtifactKind::ReleaseV2,
+            _ => panic!("unknown localized golden artifact kind {name}"),
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct LocalizedDigestCorpus {
+        api_version: String,
+        cases: Vec<LocalizedDigestCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct LocalizedDigestCase {
+        artifact_kind: String,
+        artifact: Value,
+        expected_digest: String,
     }
 
     #[derive(Deserialize)]

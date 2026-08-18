@@ -1,0 +1,510 @@
+{
+  "api_version": "proof.dev/localized-content-golden-v1",
+  "cases": [
+    {
+      "artifact_kind": "ContentResourceIntentV1",
+      "artifact": {
+        "api_version": "proof.dev/content-resource-intent/v1",
+        "base": {
+          "edition": {
+            "api_version": "proof.dev/edition/v1",
+            "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+            "edition_id": "019c0000-0000-7000-8000-000000000060"
+          },
+          "known_state": {
+            "api_version": "proof.dev/known-state/v1",
+            "authoritative_sequence": 2,
+            "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "release": {
+            "api_version": "proof.dev/release/v1",
+            "digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+            "release_id": "019c0000-0000-7000-8000-0000000000c0"
+          }
+        },
+        "environment_id": "preview",
+        "intent_id": "019c0000-0000-7000-8000-000000000200",
+        "issued_at": "2026-08-17T16:06:00Z",
+        "issued_by_principal_id": "019c0000-0000-7000-8000-000000000020",
+        "targets": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "schema_id": "campaign"
+          }
+        ],
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:77af41be20404fcc7b90b0b230197f6a3a8ae1610dd8299fc776d58fb5593a6c"
+    },
+    {
+      "artifact_kind": "PolicyBundleV1",
+      "artifact": {
+        "api_version": "proof.dev/localized-content-policy/v1",
+        "rules": [
+          {
+            "disallowed_values": ["Garantie absolue"],
+            "locale": "fr-FR",
+            "pointer": "/legal"
+          }
+        ]
+      },
+      "expected_digest": "blake3:048bbbdd221157876a9a512b4826eac8ee9d89c120ba2e1297f79edc3e21b812"
+    },
+    {
+      "artifact_kind": "ContextPackV2",
+      "artifact": {
+        "allowed_operations": [
+          "proof.dev/operation/changeset.create/v2",
+          "proof.dev/operation/changeset.add/v2",
+          "proof.dev/operation/changeset.get/v2",
+          "proof.dev/operation/changeset.diff/v2",
+          "proof.dev/operation/changeset.validate/v2",
+          "proof.dev/operation/changeset.submit/v2",
+          "proof.dev/operation/changeset.commit/v2",
+          "proof.dev/operation/edition.create/v2",
+          "proof.dev/operation/release.create/v2",
+          "proof.dev/operation/object.query_released/v2"
+        ],
+        "api_version": "proof.dev/context-pack/v2",
+        "context_pack_id": "019c0000-0000-7000-8000-000000000202",
+        "created_at": "2026-08-17T16:07:00Z",
+        "explicit_exclusions": [
+          "agent-authority",
+          "campaign-expansion",
+          "deletion",
+          "fallback",
+          "generic-object-replacement",
+          "relationship-mutation",
+          "schema-mutation"
+        ],
+        "expires_at": "2026-08-18T16:07:00Z",
+        "limits": {
+          "max_bytes": 1048576,
+          "max_edits": 10,
+          "max_objects": 1,
+          "max_validation_attempts": 5
+        },
+        "policy": {
+          "api_version": "proof.dev/localized-content-policy/v1",
+          "rules": [
+            {
+              "disallowed_values": ["Garantie absolue"],
+              "locale": "fr-FR",
+              "pointer": "/legal"
+            }
+          ]
+        },
+        "policy_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+        "principal_id": "019c0000-0000-7000-8000-000000000020",
+        "resource_intent": {
+          "api_version": "proof.dev/content-resource-intent/v1",
+          "base": {
+            "edition": {
+              "api_version": "proof.dev/edition/v1",
+              "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+              "edition_id": "019c0000-0000-7000-8000-000000000060"
+            },
+            "known_state": {
+              "api_version": "proof.dev/known-state/v1",
+              "authoritative_sequence": 2,
+              "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "release": {
+              "api_version": "proof.dev/release/v1",
+              "digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+              "release_id": "019c0000-0000-7000-8000-0000000000c0"
+            }
+          },
+          "environment_id": "preview",
+          "intent_id": "019c0000-0000-7000-8000-000000000200",
+          "issued_at": "2026-08-17T16:06:00Z",
+          "issued_by_principal_id": "019c0000-0000-7000-8000-000000000020",
+          "targets": [
+            {
+              "locale": "fr-FR",
+              "object_id": "019c0000-0000-7000-8000-000000000080",
+              "schema_id": "campaign"
+            }
+          ],
+          "workspace_id": "019c0000-0000-7000-8000-000000000010"
+        },
+        "resource_intent_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+        "resources": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "schema": {
+              "document": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "legal": { "type": "string" },
+                  "slug": { "type": "string" },
+                  "title": { "type": "string" }
+                },
+                "required": ["legal", "slug", "title"],
+                "type": "object",
+                "x-proof-localizable": ["/legal", "/title"]
+              },
+              "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+              "localizable_pointers": ["/legal", "/title"],
+              "schema_id": "campaign",
+              "schema_version": 1
+            },
+            "source": {
+              "api_version": "proof.dev/object-revision/v1",
+              "content": {
+                "legal": "Standard terms apply",
+                "slug": "summer-campaign",
+                "title": "Summer campaign"
+              },
+              "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+              "revision": 1
+            },
+            "target": {
+              "absent": true,
+              "api_version": "proof.dev/object-locale-absence/v1",
+              "authoritative_sequence": 2
+            }
+          }
+        ],
+        "target_ordering": "object_id,schema_id,locale:utf8-ascending",
+        "validator": "proof/localized-content/1",
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:b1e223666200760fe60eb28128ba79a5989132e9d47c0209961feb6cf1dbad17"
+    },
+    {
+      "artifact_kind": "EditV2",
+      "artifact": {
+        "api_version": "proof.dev/edit/v2",
+        "content": {
+          "legal": "Garantie absolue",
+          "slug": "summer-campaign",
+          "title": "Campagne d’été"
+        },
+        "edit_id": "019c0000-0000-7000-8000-000000000214",
+        "expected_source": {
+          "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+          "revision": 1,
+          "schema_id": "campaign",
+          "schema_version": 1
+        },
+        "expected_target": null,
+        "kind": "object.locale.put",
+        "locale": "fr-FR",
+        "object_id": "019c0000-0000-7000-8000-000000000080",
+        "repair_of_validation_result_digest": null,
+        "supersedes_edit_id": null
+      },
+      "expected_digest": "blake3:9704874cf53605356343835655bcd68f35ea502d05931c8f9fb943eb50b26c9a"
+    },
+    {
+      "artifact_kind": "EditBatchV2",
+      "artifact": {
+        "api_version": "proof.dev/edit-batch/v2",
+        "edits": [
+          {
+            "api_version": "proof.dev/edit/v2",
+            "content": {
+              "legal": "Garantie absolue",
+              "slug": "summer-campaign",
+              "title": "Campagne d’été"
+            },
+            "edit_id": "019c0000-0000-7000-8000-000000000214",
+            "expected_source": {
+              "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+              "revision": 1,
+              "schema_id": "campaign",
+              "schema_version": 1
+            },
+            "expected_target": null,
+            "kind": "object.locale.put",
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "repair_of_validation_result_digest": null,
+            "supersedes_edit_id": null
+          }
+        ]
+      },
+      "expected_digest": "blake3:23b627fc1d93121f393f6902626e71f0269bf5c6692928cf442d42be554b1203"
+    },
+    {
+      "artifact_kind": "ChangeSetV2",
+      "artifact": {
+        "api_version": "proof.dev/changeset/v2",
+        "base_state": {
+          "api_version": "proof.dev/known-state/v1",
+          "authoritative_sequence": 2,
+          "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "changeset_id": "019c0000-0000-7000-8000-000000000204",
+        "context_pack_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+        "context_pack_id": "019c0000-0000-7000-8000-000000000202",
+        "created_at": "2026-08-17T16:08:00Z",
+        "edits": [
+          {
+            "api_version": "proof.dev/edit/v2",
+            "content": {
+              "legal": "Garantie absolue",
+              "slug": "summer-campaign",
+              "title": "Campagne d’été"
+            },
+            "edit_id": "019c0000-0000-7000-8000-000000000214",
+            "expected_source": {
+              "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+              "revision": 1,
+              "schema_id": "campaign",
+              "schema_version": 1
+            },
+            "expected_target": null,
+            "kind": "object.locale.put",
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "repair_of_validation_result_digest": null,
+            "supersedes_edit_id": null
+          }
+        ],
+        "effective_leaf_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+        "effective_leaves": [
+          {
+            "edit_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "edit_id": "019c0000-0000-7000-8000-000000000214",
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080"
+          }
+        ],
+        "intent": "Translate one exact campaign rendition",
+        "principal_id": "019c0000-0000-7000-8000-000000000020",
+        "resource_intent_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+        "resource_intent_id": "019c0000-0000-7000-8000-000000000200",
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:1a0e8a2c33f382c0bec575052f2ee56826d36daa72929261e0d2bb3f781deb91"
+    },
+    {
+      "artifact_kind": "ValidationResultsV2",
+      "artifact": {
+        "api_version": "proof.dev/validation-results/v2",
+        "attempt": 1,
+        "changeset_id": "019c0000-0000-7000-8000-000000000204",
+        "context_pack_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+        "effective_leaf_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+        "findings": [
+          {
+            "code": "proof.validation.prohibited_legal_claim",
+            "edit_id": "019c0000-0000-7000-8000-000000000214",
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "pointer": "/legal",
+            "policy_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+            "severity": "error",
+            "validator": "proof/localized-content/1"
+          }
+        ],
+        "policy_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+        "previous_validation_result_digest": null,
+        "proposal_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "schema_digests": [
+          {
+            "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+            "schema_id": "campaign",
+            "schema_version": 1
+          }
+        ],
+        "valid": false,
+        "validator": "proof/localized-content/1"
+      },
+      "expected_digest": "blake3:1ce591d36859c933fd65708875ec37553a94c3232dc9df7fb01363c44faa0378"
+    },
+    {
+      "artifact_kind": "ObjectLocaleRevisionV1",
+      "artifact": {
+        "api_version": "proof.dev/object-locale-revision/v1",
+        "authoritative_sequence": 3,
+        "changeset_id": "019c0000-0000-7000-8000-000000000204",
+        "content": {
+          "legal": "Des conditions standard s’appliquent",
+          "slug": "summer-campaign",
+          "title": "Campagne d’été"
+        },
+        "edit_id": "019c0000-0000-7000-8000-000000000219",
+        "locale": "fr-FR",
+        "object_id": "019c0000-0000-7000-8000-000000000080",
+        "previous_revision_digest": null,
+        "revision": 1,
+        "schema_id": "campaign",
+        "schema_version": 1,
+        "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+        "source_object_revision": 1,
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:292bab632a1a7215ff0ca5e4423dbe39b00032af3e3edfd9dc8b7a8cd2eee449"
+    },
+    {
+      "artifact_kind": "ObjectSetV2",
+      "artifact": {
+        "api_version": "proof.dev/object-set/v2",
+        "objects": [
+          {
+            "lifecycle_state": "active",
+            "object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1
+          }
+        ],
+        "renditions": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "rendition_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1,
+            "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ]
+      },
+      "expected_digest": "blake3:7af57fbd475ec2c401055e1d9d182c46d76ecc5aa091d423199ce4af70f92cd9"
+    },
+    {
+      "artifact_kind": "KnownStateV2",
+      "artifact": {
+        "api_version": "proof.dev/known-state/v2",
+        "authoritative_sequence": 3,
+        "objects": [
+          {
+            "lifecycle_state": "active",
+            "object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1
+          }
+        ],
+        "previous_state": {
+          "api_version": "proof.dev/known-state/v1",
+          "authoritative_sequence": 2,
+          "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "renditions": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "rendition_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1,
+            "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "schemas": [
+          {
+            "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+            "schema_id": "campaign",
+            "schema_version": 1
+          }
+        ],
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:818fe03b3a279e17f798c3c3fcdaf1a30a96c7a3b3128a17187feec3c6f253ee"
+    },
+    {
+      "artifact_kind": "EditionV2",
+      "artifact": {
+        "api_version": "proof.dev/edition/v2",
+        "authoritative_sequence": 3,
+        "base_edition": {
+          "api_version": "proof.dev/edition/v1",
+          "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+          "edition_id": "019c0000-0000-7000-8000-000000000060"
+        },
+        "changeset": {
+          "changeset_id": "019c0000-0000-7000-8000-000000000204",
+          "context_pack_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+          "effective_leaf_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+          "proposal_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "resource_intent_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+          "sealed_changeset_digest": "blake3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "validation_results_digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "created_at": "2026-08-17T16:12:00Z",
+        "edition_id": "019c0000-0000-7000-8000-000000000260",
+        "object_set_digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "objects": [
+          {
+            "lifecycle_state": "active",
+            "object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1
+          }
+        ],
+        "principal_id": "019c0000-0000-7000-8000-000000000020",
+        "renditions": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "rendition_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1,
+            "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "schema_set_digest": "blake3:abababababababababababababababababababababababababababababababab",
+        "schemas": [
+          {
+            "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+            "schema_id": "campaign",
+            "schema_version": 1
+          }
+        ],
+        "state": {
+          "api_version": "proof.dev/known-state/v2",
+          "authoritative_sequence": 3,
+          "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+        },
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:cdd3346f8697a380554ab4bf37fb6969cf24bd9effd9df6c94c144d527736a47"
+    },
+    {
+      "artifact_kind": "ReleaseV2",
+      "artifact": {
+        "api_version": "proof.dev/release/v2",
+        "authorization_decision_digest": "blake3:1313131313131313131313131313131313131313131313131313131313131313",
+        "base_release": {
+          "api_version": "proof.dev/release/v1",
+          "digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+          "release_id": "019c0000-0000-7000-8000-0000000000c0"
+        },
+        "changeset_id": "019c0000-0000-7000-8000-000000000204",
+        "edition": {
+          "api_version": "proof.dev/edition/v2",
+          "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+          "edition_id": "019c0000-0000-7000-8000-000000000260"
+        },
+        "environment_config_digest": "blake3:1515151515151515151515151515151515151515151515151515151515151515",
+        "environment_config_version": 1,
+        "environment_id": "preview",
+        "exact_delta_digest": "blake3:1616161616161616161616161616161616161616161616161616161616161616",
+        "key_id": "local-ed25519:17171717171717171717171717171717",
+        "kind": "promotion",
+        "principal_id": "019c0000-0000-7000-8000-000000000020",
+        "proof_id": "019c0000-0000-7000-8000-0000000002c4",
+        "release_id": "019c0000-0000-7000-8000-0000000002c0",
+        "release_sequence": 2,
+        "released_at": "2026-08-17T16:13:00Z",
+        "resource_intent_id": "019c0000-0000-7000-8000-000000000200",
+        "rollback_target_release_id": null,
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "expected_digest": "blake3:80dde63545c7185a6243f9d531025f2186d326e44d5a47b4735841b8ae96713c"
+    }
+  ]
+}

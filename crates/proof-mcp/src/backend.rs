@@ -563,6 +563,12 @@ fn query_problem(
             "proof.auth.unauthenticated",
             false,
         ),
+        QueryReleasedObjectsError::UnsupportedVersion => (
+            "urn:proof:problem:unsupported-version",
+            "The v1 query is unsupported for the current Release version",
+            "proof.input.unsupported_version",
+            false,
+        ),
         QueryReleasedObjectsError::Denied => (
             "urn:proof:problem:authority-denied",
             "The released Object query is outside delegated authority",

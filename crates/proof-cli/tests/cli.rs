@@ -30,6 +30,8 @@ const DELEGATION_ID: &str = "019c0000-0000-7000-8000-000000000086";
 const DELEGATION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000087";
 const CONTEXT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000088";
 const UNKNOWN_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000099";
+const LOCALIZED_COMMIT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000100";
+const LOCALIZED_RELEASE_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000101";
 
 #[test]
 fn status_emits_the_stable_json_envelope() {
@@ -1545,6 +1547,355 @@ fn local_release_query_proof_rollback_and_projection_rebuild_form_one_verified_l
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one CLI oracle proves the complete Human repair, v2 publication, exact query, and verification path"
+)]
+fn localized_cli_repairs_and_releases_two_exact_locales() {
+    let directory = TestDirectory::new();
+    assert!(
+        proof_command(directory.path())
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let created = successful_json(
+        &directory,
+        &[
+            "changeset",
+            "create",
+            "--intent",
+            "Create a localizable campaign source",
+        ],
+    );
+    let source_changeset = created["data"]["changeset_id"].as_str().unwrap();
+    let source_edits = directory.path().join("localized-source.ndjson");
+    fs::write(
+        &source_edits,
+        format!(
+            concat!(
+                "{{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",",
+                "\"schema_id\":\"campaign\",\"schema_version\":1,\"document\":{{",
+                "\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",",
+                "\"additionalProperties\":false,\"properties\":{{",
+                "\"legal\":{{\"type\":\"string\"}},\"title\":{{\"type\":\"string\"}}}},",
+                "\"required\":[\"legal\",\"title\"],\"type\":\"object\",",
+                "\"x-proof-localizable\":[\"/legal\",\"/title\"]}}}}\n",
+                "{{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"object.create\",",
+                "\"object_id\":\"{OBJECT_ID}\",\"schema_id\":\"campaign\",",
+                "\"schema_version\":1,\"content\":{{\"legal\":\"Standard terms apply\",",
+                "\"title\":\"Summer campaign\"}}}}\n"
+            ),
+            OBJECT_ID = OBJECT_ID
+        ),
+    )
+    .unwrap();
+    successful_json(
+        &directory,
+        &[
+            "changeset",
+            "add",
+            source_changeset,
+            "--file",
+            source_edits.to_str().unwrap(),
+        ],
+    );
+    for action in ["validate", "submit"] {
+        successful_json(&directory, &["changeset", action, source_changeset]);
+    }
+    successful_json(
+        &directory,
+        &[
+            "changeset",
+            "approve",
+            source_changeset,
+            "--approval",
+            "editorial",
+        ],
+    );
+    successful_json(
+        &directory,
+        &[
+            "changeset",
+            "commit",
+            source_changeset,
+            "--idempotency-key",
+            COMMIT_IDEMPOTENCY_KEY,
+        ],
+    );
+    let base_edition = successful_json(
+        &directory,
+        &[
+            "edition",
+            "create",
+            "--idempotency-key",
+            EDITION_IDEMPOTENCY_KEY,
+        ],
+    );
+    let base_edition_id = base_edition["data"]["edition_id"].as_str().unwrap();
+    successful_json(
+        &directory,
+        &[
+            "environment",
+            "create",
+            "preview",
+            "--required-approval",
+            "editorial",
+            "--idempotency-key",
+            ENVIRONMENT_IDEMPOTENCY_KEY,
+        ],
+    );
+    let base_release = successful_json(
+        &directory,
+        &[
+            "release",
+            "create",
+            "--edition",
+            base_edition_id,
+            "--environment",
+            "preview",
+            "--idempotency-key",
+            RELEASE_IDEMPOTENCY_KEY,
+        ],
+    );
+    let base_release_id = base_release["data"]["release_id"].as_str().unwrap();
+    let source_query = successful_json(
+        &directory,
+        &[
+            "object",
+            "query",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+        ],
+    );
+    let source_digest = source_query["data"]["objects"][0]["object_digest"]
+        .as_str()
+        .unwrap();
+
+    let intent = successful_json(
+        &directory,
+        &[
+            "localized",
+            "intent-issue",
+            "--environment",
+            "preview",
+            "--target",
+            &format!("{OBJECT_ID}:campaign:es-ES"),
+            "--target",
+            &format!("{OBJECT_ID}:campaign:fr-FR"),
+        ],
+    );
+    assert_eq!(
+        intent["data"]["api_version"],
+        "proof.dev/content-resource-intent/v1"
+    );
+    let intent_id = intent["data"]["intent_id"].as_str().unwrap();
+    let intent_digest = intent["data"]["intent_digest"].as_str().unwrap();
+    let context_file = directory.path().join("localized-context.json");
+    fs::write(
+        &context_file,
+        serde_json::to_vec(&serde_json::json!({
+            "policy_rules": [{
+                "locale": "fr-FR",
+                "pointer": "/legal",
+                "disallowed_values": ["Garantie absolue"]
+            }],
+            "limits": {
+                "max_objects": 1,
+                "max_edits": 3,
+                "max_validation_attempts": 3,
+                "max_bytes": 1_048_576
+            },
+            "expires_at": timestamp_after_seconds(600)
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let context = successful_json(
+        &directory,
+        &[
+            "localized",
+            "context-build",
+            "--resource-intent",
+            intent_id,
+            "--resource-intent-digest",
+            intent_digest,
+            "--file",
+            context_file.to_str().unwrap(),
+        ],
+    );
+    let context_id = context["data"]["context_pack_id"].as_str().unwrap();
+    let context_digest = context["data"]["context_pack_digest"].as_str().unwrap();
+    let changeset = successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-create",
+            "--intent",
+            "Translate the campaign into Spanish and French",
+            "--resource-intent",
+            intent_id,
+            "--resource-intent-digest",
+            intent_digest,
+            "--context-pack",
+            context_id,
+            "--context-pack-digest",
+            context_digest,
+        ],
+    );
+    let changeset_id = changeset["data"]["changeset_id"].as_str().unwrap();
+    let edits_file = directory.path().join("localized-edits.ndjson");
+    fs::write(
+        &edits_file,
+        format!(
+            concat!(
+                "{{\"object_id\":\"{OBJECT_ID}\",\"locale\":\"es-ES\",",
+                "\"expected_source\":{{\"revision\":1,\"digest\":\"{source_digest}\",",
+                "\"schema_id\":\"campaign\",\"schema_version\":1}},\"content\":{{",
+                "\"legal\":\"Se aplican términos estándar\",\"title\":\"Campaña de verano\"}}}}\n",
+                "{{\"object_id\":\"{OBJECT_ID}\",\"locale\":\"fr-FR\",",
+                "\"expected_source\":{{\"revision\":1,\"digest\":\"{source_digest}\",",
+                "\"schema_id\":\"campaign\",\"schema_version\":1}},\"content\":{{",
+                "\"legal\":\"Garantie absolue\",\"title\":\"Campagne d’été\"}}}}\n"
+            ),
+            OBJECT_ID = OBJECT_ID,
+            source_digest = source_digest
+        ),
+    )
+    .unwrap();
+    let added = successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-add",
+            changeset_id,
+            "--file",
+            edits_file.to_str().unwrap(),
+        ],
+    );
+    let invalid_edit_id = added["data"]["edit_ids"][1].as_str().unwrap();
+    let invalid = successful_json(
+        &directory,
+        &["localized", "changeset-validate", changeset_id],
+    );
+    assert_eq!(invalid["data"]["valid"], false);
+    assert_eq!(
+        invalid["data"]["findings"][0]["code"],
+        "proof.validation.prohibited_legal_claim"
+    );
+    let invalid_digest = invalid["data"]["validation_results_digest"]
+        .as_str()
+        .unwrap();
+    let repair_file = directory.path().join("localized-repair.ndjson");
+    fs::write(
+        &repair_file,
+        format!(
+            concat!(
+                "{{\"object_id\":\"{OBJECT_ID}\",\"locale\":\"fr-FR\",",
+                "\"expected_source\":{{\"revision\":1,\"digest\":\"{source_digest}\",",
+                "\"schema_id\":\"campaign\",\"schema_version\":1}},\"content\":{{",
+                "\"legal\":\"Des conditions standard s’appliquent\",",
+                "\"title\":\"Campagne d’été\"}},\"supersedes_edit_id\":\"{invalid_edit_id}\",",
+                "\"repair_of_validation_result_digest\":\"{invalid_digest}\"}}\n"
+            ),
+            OBJECT_ID = OBJECT_ID,
+            source_digest = source_digest,
+            invalid_edit_id = invalid_edit_id,
+            invalid_digest = invalid_digest
+        ),
+    )
+    .unwrap();
+    successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-add",
+            changeset_id,
+            "--file",
+            repair_file.to_str().unwrap(),
+        ],
+    );
+    let valid = successful_json(
+        &directory,
+        &["localized", "changeset-validate", changeset_id],
+    );
+    assert_eq!(valid["data"]["valid"], true);
+    successful_json(&directory, &["localized", "changeset-submit", changeset_id]);
+    successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-approve",
+            changeset_id,
+            "--approval",
+            "editorial",
+        ],
+    );
+    let committed = successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-commit",
+            changeset_id,
+            "--idempotency-key",
+            LOCALIZED_COMMIT_IDEMPOTENCY_KEY,
+        ],
+    );
+    let state_digest = committed["data"]["resulting_state"]["digest"]
+        .as_str()
+        .unwrap();
+    let edition = successful_json(
+        &directory,
+        &[
+            "localized",
+            "edition-create",
+            "--changeset",
+            changeset_id,
+            "--resulting-state-digest",
+            state_digest,
+        ],
+    );
+    let edition_id = edition["data"]["edition_id"].as_str().unwrap();
+    let release = successful_json(
+        &directory,
+        &[
+            "localized",
+            "release-promote",
+            "--environment",
+            "preview",
+            "--edition",
+            edition_id,
+            "--expected-base-release",
+            base_release_id,
+            "--idempotency-key",
+            LOCALIZED_RELEASE_IDEMPOTENCY_KEY,
+        ],
+    );
+    let release_id = release["data"]["release_id"].as_str().unwrap();
+    let query = successful_json(
+        &directory,
+        &[
+            "localized",
+            "query",
+            "--environment",
+            "preview",
+            "--target",
+            &format!("{OBJECT_ID}:es-ES"),
+            "--target",
+            &format!("{OBJECT_ID}:fr-FR"),
+        ],
+    );
+    assert_eq!(query["data"]["renditions"].as_array().unwrap().len(), 2);
+    let verified = successful_json(&directory, &["localized", "release-verify", release_id]);
+    assert_eq!(verified["data"]["valid"], true);
+    assert_eq!(rebuild(&directory, true)["data"]["changed"], false);
+}
+
+#[test]
 fn edition_create_rejects_an_empty_workspace() {
     let directory = TestDirectory::new();
     assert!(
@@ -1699,6 +2050,22 @@ fn proof_command(current_directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_proof"));
     command.current_dir(current_directory);
     command
+}
+
+fn successful_json(directory: &TestDirectory, arguments: &[&str]) -> serde_json::Value {
+    let output = proof_command(directory.path())
+        .arg("--output")
+        .arg("json")
+        .args(arguments)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
 }
 
 fn create_changeset_with_schema_edit(directory: &TestDirectory) -> String {
