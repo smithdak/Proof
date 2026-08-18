@@ -29,9 +29,8 @@ only after the Milestone 2 exit scenario passes.
 - Starting HEAD: `3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d`.
 - Qualified baseline implementation commit:
   `1fef16e8d0f9d355957abc6f973b3551a2c922cb`.
-- The local `origin/main` tracking ref is `9f69e80`; after the completion-record
-  commit, local `main` is three commits ahead. This is not a live remote
-  verification.
+- At P-0001 closure, the local `origin/main` tracking ref was `9f69e80` and
+  local `main` was three commits ahead. This was not a live remote verification.
 - The Release, attestation, Environment, Principal, Delegation, ContextPack,
   projection-rebuild, CLI, and MCP slice is qualified in the baseline
   implementation commit above. The follow-up control-plane commit binds that
@@ -61,7 +60,6 @@ only after the Milestone 2 exit scenario passes.
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `ready` | P-0001 | Decide the minimum content semantics that make the north-star scenario true. |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `claimed` | P-0001 | Fix the local credential, subject-binding, Delegation, and anti-replay contract. |
 
 ## Next
 
@@ -73,6 +71,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `blocked` | P-0001, P-0002 | Qualified candidate awaits the delegated content/write-resource closure before owner review. |
 | [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `blocked` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0002, P-0004 | Complete one bounded write path through human approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
@@ -89,7 +88,7 @@ P-0001 closed baseline qualification; no architecture or product decision item
 has closed yet. Existing ratified constraints are linked above; this section
 gains one-line results as decision items close.
 
-### Proposed P-0003 profile — pending owner decision
+### Proposed P-0003 profile — blocked on P-0002
 
 P-0003 currently proposes local per-Agent Ed25519 proof of possession,
 adapter-derived `AuthenticatedActorContextV1`, single-use
@@ -98,14 +97,14 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras would treat Principal and Delegation identifiers as cross-checks
 or selectors rather than authority. This is not a closed decision or an
-implementation-status claim; P-0003 remains `claimed`, and P-0004/P-0006 remain
+implementation-status claim; P-0003 is `blocked`, and P-0004/P-0006 remain
 blocked.
 
 The candidate is not ready for owner review: P-0002 must first settle the exact
 content, Edit, Edition, and Release resource closure. Until then P-0003 is
-upstream-blocked in substance, P-0004 exposes no write path, and no item moves
-to `review` or `ready`. The lifecycle-field transition is reserved for the
-narrow control commit after this substantive proposal commit.
+upstream-blocked, P-0004 exposes no write path, and no item moves to `review`
+or `ready`. The qualified candidate is bound by the
+[P-0003 receipt](evidence/P-0003/receipt.md).
 
 The controlling proposal is the
 [authenticated actor contract](../architecture/authenticated-actor.md); the

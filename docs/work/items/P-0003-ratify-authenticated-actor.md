@@ -1,13 +1,13 @@
 ---
 id: P-0003
 title: Ratify authenticated actor and Delegation semantics
-status: claimed
-wave: now
+status: blocked
+wave: next
 kind: decision
-blocked_by: [P-0001]
-claimed_by: codex:/root:p-0003
-claimed_at: 2026-08-17T20:41:57.212Z
-base_sha: 11eb4dfb57577e52ddd95822a00fed3001b5164a
+blocked_by: [P-0001, P-0002]
+claimed_by: null
+claimed_at: null
+base_sha: null
 review_gate: project-owner
 accepted_by: null
 accepted_at: null
@@ -157,13 +157,17 @@ Ready after P-0001 qualified the Release and read-authority baseline at
 `1fef16e8d0f9d355957abc6f973b3551a2c922cb`.
 
 Claimed by `codex:/root:p-0003` at `2026-08-17T20:41:57.212Z` from
-`11eb4dfb57577e52ddd95822a00fed3001b5164a`.
+`11eb4dfb57577e52ddd95822a00fed3001b5164a`. The architecture and conformance
+checkpoint is `cf4e57d0ace70e80377d16b57e43b6099129e0d0`; the integrated item-work
+commit is `b124b2491dfd787df1a562786f122fb6e62a1497`.
 
-The decision proposal, machine contracts, conformance vectors, downstream item
-shaping, and independent falsification are being completed in the claimed
-state. The item will stop at `review`; the project owner must accept or return
-it for rework before ADR-0011 becomes Accepted, C4 changes, or P-0004 becomes
-`ready`.
+The candidate, machine contracts, vectors, downstream shaping, and independent
+falsification are complete. The claim is released to `blocked`, not advanced to
+`review`: P-0002 must first decide the delegated content and write-resource
+closure. If that decision needs a resource dimension absent from
+`DelegationV2`, P-0003 and its Schemas must reopen or version before owner
+review. ADR-0011 remains Proposed, C4 remains unchanged, and P-0004 remains
+blocked. See the [qualification receipt](../evidence/P-0003/receipt.md).
 
 ## Residual risks and next-wave update
 

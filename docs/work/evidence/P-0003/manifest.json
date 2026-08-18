@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "item_id": "P-0003",
+  "base_sha": "11eb4dfb57577e52ddd95822a00fed3001b5164a",
+  "architecture_commit": "cf4e57d0ace70e80377d16b57e43b6099129e0d0",
+  "item_work_commit": "b124b2491dfd787df1a562786f122fb6e62a1497",
+  "branch": "main",
+  "local_origin_main": "9f69e80cc631385b4f1942b76c584924d756aea9",
+  "live_remote_verified": false,
+  "qualified_at": "2026-08-18T00:25:23.2379066Z",
+  "inventory": {
+    "changed_paths": 84,
+    "conformance_files": 65,
+    "documentation_and_control_files": 19,
+    "rust_source_files": 0,
+    "schemas": 26,
+    "vectors": 38,
+    "unrelated_paths": []
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "python": "3.13.1",
+    "node": "v26.1.0",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "1.97.1 (c980f4866 2026-06-30)",
+    "git": "2.43.0.windows.1"
+  },
+  "commands": [
+    {
+      "surface": "windows",
+      "command": "python Draft202012/jsonschema+referencing validator over conformance/v1/authority",
+      "exit_code": 0,
+      "result": "26 schemas; 46 fixture validations; 18 external references; 0 missing"
+    },
+    {
+      "surface": "windows",
+      "command": "python public-byte dependency-graph validator with temporary BLAKE3 derive-key helper",
+      "exit_code": 0,
+      "result": "8 Ed25519 signatures; 21 derived digests; 9 authority records; all declared size bounds passed"
+    },
+    {
+      "surface": "windows",
+      "command": "PowerShell ConvertFrom-Json over conformance/v1/authority/**/*.json",
+      "exit_code": 0,
+      "result": "64 JSON files parsed"
+    },
+    {
+      "surface": "windows",
+      "command": "python provider-mismatch and rejection-manifest assertions",
+      "exit_code": 0,
+      "result": "Agent operating-subject mismatch rejected; 13 authentication and 10 authority conditions present"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "140 internal documentation links"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "six work items passed lifecycle, dependency, map-parity, transition, and evidence checks"
+    },
+    {
+      "surface": "windows",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
+      "exit_code": 0,
+      "result": "43 Markdown files; 0 issues"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo fmt --all --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "git -c safe.directory=D:/github/Proof diff --check",
+      "exit_code": 0,
+      "result": "passed with checkout line-ending advisories only"
+    },
+    {
+      "surface": "windows",
+      "command": "rg credential-shaped literal scan over docs and conformance",
+      "exit_code": 1,
+      "result": "expected no-match exit; no credential-shaped literals found"
+    }
+  ],
+  "artifact_digests": [
+    {"path": "docs/architecture/authenticated-actor.md", "algorithm": "sha256", "digest": "15846a3e87b3e990f887fe1e1661322963c2c936091bd4b386a0264cd6660abf"},
+    {"path": "docs/decisions/0011-local-agent-command-authentication.md", "algorithm": "sha256", "digest": "5ed29de32a20860a35bedd91a15457ef1323735dbbf2c08ef89243f00dd8a185"},
+    {"path": "conformance/v1/authority/README.md", "algorithm": "sha256", "digest": "88e9e038efaa387cecbc03bb9a98a646f5c8e998544c56a498e82ac7f0c76ab6"},
+    {"path": "conformance/v1/authority/schemas/delegation-v2.schema.json", "algorithm": "sha256", "digest": "4eb5ca33dbf56d382be3e6d9bcffb01f08233ae9332699d3b024918c993c87ff"},
+    {"path": "conformance/v1/authority/schemas/authorization-decision-v2.schema.json", "algorithm": "sha256", "digest": "d0238bd7d537fce6c7083064f9ddd1c55cea239bc89e1b41647705ae1ff3ac62"},
+    {"path": "conformance/v1/authority/schemas/command-input-v1.schema.json", "algorithm": "sha256", "digest": "7030541d54e549e51acc37434288e6f52e073b9f1fd52cca12bfa4c559685c55"},
+    {"path": "conformance/v1/authority/vectors/semantic-command.valid.json", "algorithm": "sha256", "digest": "788158071f66f5fbf9348d4d8b5e9cd0921b8126c38188f7ede794a93698d8ee"},
+    {"path": "conformance/v1/authority/vectors/authorization-decision-v2.valid.json", "algorithm": "sha256", "digest": "d9a661f15584420ea8fe7793e36d1a95a5032196275607e0096b3e4e57b9d785"},
+    {"path": "conformance/v1/authority/vectors/workspace-authority-root-transition.dsse-bytes.valid.json", "algorithm": "sha256", "digest": "29d9735b2c7d7dbc2636ec4301df17fa48b72c91d5abbbc0ff26bc8623119047"}
+  ],
+  "evidence_paths": [
+    "docs/work/evidence/P-0003/receipt.md",
+    "docs/work/evidence/P-0003/manifest.json"
+  ],
+  "decision_state": {
+    "candidate_qualified": true,
+    "owner_accepted": false,
+    "status_after_control_commit": "blocked",
+    "blocking_dependency": "P-0002"
+  },
+  "boundaries": {
+    "code_changed": false,
+    "pushed": false,
+    "tagged": false,
+    "released": false,
+    "published": false,
+    "provider_traffic": false,
+    "project_owner_accepted": false,
+    "constitution_ratified": false
+  }
+}
