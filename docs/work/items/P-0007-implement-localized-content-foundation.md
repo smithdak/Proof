@@ -108,6 +108,13 @@ matrix, source-to-rendition fixtures, denial matrix, replay results, and test
 commands. Do not include prompts, provider credentials, private keys, runtime
 databases, or generated translation text that cannot be checked in safely.
 
+The project-owner stale-claim decision on 2026-08-19 added the mandatory
+[P-0007 independent verification gate](../gates/P-0007-independent-verification.md).
+Engineering produces the candidate receipt and manifest; Proof Assurance must
+independently execute the gate and add `assurance-verdict.md`. Only a
+`supported` exact-candidate verdict can satisfy this review gate. Assurance
+does not authorize release.
+
 ## Completion record
 
 Ready after project owner `smithdak` accepted P-0002 at
