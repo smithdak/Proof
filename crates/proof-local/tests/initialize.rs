@@ -10902,7 +10902,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
             created_at: "2026-08-17T16:02:00Z".parse().unwrap(),
         })
         .unwrap();
-    let replacement_content = canonicalize(&serde_json::json!({
+    let revised_content = canonicalize(&serde_json::json!({
         "legal": "Des conditions standard s’appliquent",
         "title": "Campagne estivale révisée",
     }))
@@ -10923,7 +10923,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
                     revision: first_fr.revision,
                     digest: first_fr.rendition_digest,
                 }),
-                canonical_content: replacement_content.as_str().to_owned(),
+                canonical_content: revised_content.as_str().to_owned(),
                 supersedes_edit_id: None,
                 repair_of_validation_result_digest: None,
             }],
@@ -11017,7 +11017,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
     assert_eq!(replacement_query.renditions[1].rendition_revision.get(), 2);
     assert_eq!(
         replacement_query.renditions[1].canonical_content,
-        replacement_content.as_str()
+        revised_content.as_str()
     );
 
     let rollback_to_v1_command = RollbackLocalizedReleaseCommand {
@@ -11292,80 +11292,7 @@ fn localized_draft_fixture() -> LocalizedDraftFixture {
         "slug": "summer-campaign",
         "title": "Summer campaign",
     });
-    create_changeset(
-        &repository,
-        draft_command(CHANGESET_ID, "Create a partially localizable source", None),
-    )
-    .unwrap();
-    add_changeset_edits(
-        &repository,
-        AddChangeSetEditsCommand {
-            changeset_id: CHANGESET_ID.parse().unwrap(),
-            edits: vec![
-                partially_localizable_schema_edit(EDIT_ID, "campaign"),
-                object_edit(OBJECT_EDIT_ID, OBJECT_ID, "campaign", &source),
-            ],
-            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
-        },
-    )
-    .unwrap();
-    assert!(
-        validate_changeset(&repository, CHANGESET_ID.parse().unwrap())
-            .unwrap()
-            .valid
-    );
-    submit_changeset(
-        &repository,
-        SubmitChangeSetCommand {
-            changeset_id: CHANGESET_ID.parse().unwrap(),
-            submitted_at: "2026-08-17T16:00:00Z".parse().unwrap(),
-        },
-    )
-    .unwrap();
-    approve_changeset(
-        &repository,
-        ApproveChangeSetCommand {
-            changeset_id: CHANGESET_ID.parse().unwrap(),
-            approval: ApprovalName::new("editorial").unwrap(),
-            approved_at: "2026-08-17T16:01:00Z".parse().unwrap(),
-        },
-    )
-    .unwrap();
-    commit_changeset(
-        &repository,
-        CommitChangeSetCommand {
-            changeset_id: CHANGESET_ID.parse().unwrap(),
-            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
-            committed_at: "2026-08-17T16:02:00Z".parse().unwrap(),
-        },
-    )
-    .unwrap();
-    create_edition(
-        &repository,
-        edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-17T16:03:00Z"),
-    )
-    .unwrap();
-    create_environment(
-        &repository,
-        environment_command(
-            ENVIRONMENT_ID,
-            ENVIRONMENT_IDEMPOTENCY_KEY,
-            "editorial",
-            "2026-08-17T16:04:00Z",
-        ),
-    )
-    .unwrap();
-    promote_release(
-        &repository,
-        promotion_command(
-            FIRST_RELEASE_ID,
-            FIRST_PROOF_ID,
-            EDITION_ID,
-            FIRST_RELEASE_IDEMPOTENCY_KEY,
-            "2026-08-17T16:05:00Z",
-        ),
-    )
-    .unwrap();
+    create_localized_source_baseline(&repository, &source);
 
     let object_id = OBJECT_ID.parse::<ObjectId>().unwrap();
     let locale = LocaleId::new("fr-FR").unwrap();
@@ -11377,6 +11304,101 @@ fn localized_draft_fixture() -> LocalizedDraftFixture {
         schema_id: schema_id.clone(),
         schema_version,
     };
+    let changeset_id = create_localized_draft(&repository, object_id, schema_id, &locale);
+
+    LocalizedDraftFixture {
+        _directory: directory,
+        repository,
+        changeset_id,
+        object_id,
+        locale,
+        expected_source,
+    }
+}
+
+fn create_localized_source_baseline(repository: &LocalWorkspace, source: &serde_json::Value) {
+    create_changeset(
+        repository,
+        draft_command(CHANGESET_ID, "Create a partially localizable source", None),
+    )
+    .unwrap();
+    add_changeset_edits(
+        repository,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![
+                partially_localizable_schema_edit(EDIT_ID, "campaign"),
+                object_edit(OBJECT_EDIT_ID, OBJECT_ID, "campaign", source),
+            ],
+            idempotency_key: ADD_IDEMPOTENCY_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    assert!(
+        validate_changeset(repository, CHANGESET_ID.parse().unwrap())
+            .unwrap()
+            .valid
+    );
+    submit_changeset(
+        repository,
+        SubmitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            submitted_at: "2026-08-17T16:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    approve_changeset(
+        repository,
+        ApproveChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            approval: ApprovalName::new("editorial").unwrap(),
+            approved_at: "2026-08-17T16:01:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    commit_changeset(
+        repository,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_IDEMPOTENCY_KEY.parse().unwrap(),
+            committed_at: "2026-08-17T16:02:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    create_edition(
+        repository,
+        edition_command(EDITION_ID, EDITION_IDEMPOTENCY_KEY, "2026-08-17T16:03:00Z"),
+    )
+    .unwrap();
+    create_environment(
+        repository,
+        environment_command(
+            ENVIRONMENT_ID,
+            ENVIRONMENT_IDEMPOTENCY_KEY,
+            "editorial",
+            "2026-08-17T16:04:00Z",
+        ),
+    )
+    .unwrap();
+    promote_release(
+        repository,
+        promotion_command(
+            FIRST_RELEASE_ID,
+            FIRST_PROOF_ID,
+            EDITION_ID,
+            FIRST_RELEASE_IDEMPOTENCY_KEY,
+            "2026-08-17T16:05:00Z",
+        ),
+    )
+    .unwrap();
+}
+
+fn create_localized_draft(
+    repository: &LocalWorkspace,
+    object_id: ObjectId,
+    schema_id: SchemaId,
+    locale: &LocaleId,
+) -> ChangeSetId {
     let intent = repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
             intent_id: "019c0000-0000-7000-8000-000000000200".parse().unwrap(),
@@ -11411,7 +11433,7 @@ fn localized_draft_fixture() -> LocalizedDraftFixture {
             expires_at: "2026-08-18T16:07:00Z".parse().unwrap(),
         })
         .unwrap();
-    let changeset = repository
+    repository
         .create_localized_changeset(CreateLocalizedChangeSetCommand {
             changeset_id: "019c0000-0000-7000-8000-000000000204".parse().unwrap(),
             intent: ChangeSetIntent::new("Translate one exact campaign rendition").unwrap(),
@@ -11422,16 +11444,8 @@ fn localized_draft_fixture() -> LocalizedDraftFixture {
             idempotency_key: "019c0000-0000-7000-8000-000000000205".parse().unwrap(),
             created_at: "2026-08-17T16:08:00Z".parse().unwrap(),
         })
-        .unwrap();
-
-    LocalizedDraftFixture {
-        _directory: directory,
-        repository,
-        changeset_id: changeset.changeset_id,
-        object_id,
-        locale,
-        expected_source,
-    }
+        .unwrap()
+        .changeset_id
 }
 
 fn localized_edit_count(repository: &LocalWorkspace, changeset_id: ChangeSetId) -> i64 {

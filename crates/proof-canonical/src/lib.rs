@@ -880,18 +880,7 @@ mod tests {
     }
 
     #[test]
-    fn localized_public_builders_match_the_portable_vectors() {
-        let corpus: LocalizedDigestCorpus = serde_json::from_slice(include_bytes!(
-            "../../../conformance/v2/localized-content/vectors/artifact-digests.valid.json"
-        ))
-        .unwrap();
-        let artifact = |kind: &str| {
-            corpus
-                .cases
-                .iter()
-                .find(|case| case.artifact_kind == kind)
-                .unwrap()
-        };
+    fn localized_public_rendition_builder_matches_the_portable_vector() {
         let workspace_id = "019c0000-0000-7000-8000-000000000010"
             .parse::<WorkspaceId>()
             .unwrap();
@@ -909,10 +898,6 @@ mod tests {
         let schema_version = SchemaVersion::new(1).unwrap();
         let source_digest =
             "blake3:7777777777777777777777777777777777777777777777777777777777777777"
-                .parse::<ContentDigest>()
-                .unwrap();
-        let rendition_digest =
-            "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
                 .parse::<ContentDigest>()
                 .unwrap();
         let content = json!({
@@ -937,13 +922,33 @@ mod tests {
                 authoritative_sequence: 3,
             })
             .unwrap();
-        let rendition_case = artifact("ObjectLocaleRevisionV1");
+        let rendition_case = localized_artifact("ObjectLocaleRevisionV1");
         assert_eq!(rendition, canonicalize(&rendition_case.artifact).unwrap());
         assert_eq!(
             computed_rendition_digest.to_string(),
             rendition_case.expected_digest
         );
+    }
 
+    #[test]
+    fn localized_public_state_builders_match_the_portable_vectors() {
+        let workspace_id = "019c0000-0000-7000-8000-000000000010"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let object_id = "019c0000-0000-7000-8000-000000000080"
+            .parse::<ObjectId>()
+            .unwrap();
+        let locale = LocaleId::new("fr-FR").unwrap();
+        let schema_id = SchemaId::new("campaign").unwrap();
+        let schema_version = SchemaVersion::new(1).unwrap();
+        let source_digest =
+            "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+                .parse::<ContentDigest>()
+                .unwrap();
+        let rendition_digest =
+            "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                .parse::<ContentDigest>()
+                .unwrap();
         let object_reference = ObjectStateReference {
             object_id,
             revision: ObjectRevision::INITIAL,
@@ -961,7 +966,7 @@ mod tests {
             schema_id: schema_id.clone(),
             schema_version,
         };
-        let object_set_case = artifact("ObjectSetV2");
+        let object_set_case = localized_artifact("ObjectSetV2");
         assert_eq!(
             object_set_v2_digest(
                 std::slice::from_ref(&object_reference),
@@ -991,12 +996,24 @@ mod tests {
             &previous_state,
         )
         .unwrap();
-        let state_case = artifact("KnownStateV2");
+        let state_case = localized_artifact("KnownStateV2");
         assert_eq!(state, canonicalize(&state_case.artifact).unwrap());
         assert_eq!(
             digest(ArtifactKind::KnownStateV2, &state).to_string(),
             state_case.expected_digest
         );
+    }
+
+    fn localized_artifact(kind: &str) -> LocalizedDigestCase {
+        let corpus: LocalizedDigestCorpus = serde_json::from_slice(include_bytes!(
+            "../../../conformance/v2/localized-content/vectors/artifact-digests.valid.json"
+        ))
+        .unwrap();
+        corpus
+            .cases
+            .into_iter()
+            .find(|case| case.artifact_kind == kind)
+            .unwrap()
     }
 
     fn localized_artifact_kind(name: &str) -> ArtifactKind {

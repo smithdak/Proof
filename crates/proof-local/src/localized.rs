@@ -1848,7 +1848,6 @@ pub(super) struct ReproducedLocalizedProjections {
 
 #[expect(
     clippy::too_many_lines,
-    clippy::type_complexity,
     reason = "localized projection reproduction verifies every immutable commit and rebuilds its rendition facts"
 )]
 pub(super) fn reproduce_localized_projections(
@@ -2233,6 +2232,25 @@ fn verify_reproduced_edit_input(
     schemas: &[super::ExpectedSchemaProjection],
     head: Option<&ObjectLocaleRevision>,
 ) -> Result<(), LocalPortError> {
+    let source = reproduced_edit_source(input, intent, objects, head)?;
+    let schema = schemas
+        .iter()
+        .find(|schema| {
+            schema.schema_id == source.schema_id && schema.schema_version == source.schema_version
+        })
+        .ok_or_else(|| {
+            LocalPortError::Integrity("committed localized Edit Schema is missing".to_owned())
+        })?;
+    let (schema_value, parsed_pointers) = reproduced_localizable_pointers(schema)?;
+    verify_reproduced_localized_content(input, source, &schema_value, &parsed_pointers)
+}
+
+fn reproduced_edit_source<'a>(
+    input: &ObjectLocalePutInput,
+    intent: &ContentResourceIntent,
+    objects: &'a [super::ExpectedObjectProjection],
+    head: Option<&ObjectLocaleRevision>,
+) -> Result<&'a super::ExpectedObjectProjection, LocalPortError> {
     let target = proof_application::LocalizedContentTarget {
         object_id: input.object_id,
         schema_id: input.expected_source.schema_id.clone(),
@@ -2269,14 +2287,12 @@ fn verify_reproduced_edit_input(
             ));
         }
     }
-    let schema = schemas
-        .iter()
-        .find(|schema| {
-            schema.schema_id == source.schema_id && schema.schema_version == source.schema_version
-        })
-        .ok_or_else(|| {
-            LocalPortError::Integrity("committed localized Edit Schema is missing".to_owned())
-        })?;
+    Ok(source)
+}
+
+fn reproduced_localizable_pointers(
+    schema: &super::ExpectedSchemaProjection,
+) -> Result<(Value, Vec<Vec<String>>), LocalPortError> {
     let schema_value = parse_strict(schema.document_json.as_bytes())
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     let pointers = schema_value
@@ -2316,6 +2332,15 @@ fn verify_reproduced_edit_input(
             "committed localizable path set is not canonical".to_owned(),
         ));
     }
+    Ok((schema_value, parsed_pointers))
+}
+
+fn verify_reproduced_localized_content(
+    input: &ObjectLocalePutInput,
+    source: &super::ExpectedObjectProjection,
+    schema_value: &Value,
+    parsed_pointers: &[Vec<String>],
+) -> Result<(), LocalPortError> {
     let source_value = parse_strict(source.content_json.as_bytes())
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     let target_value = parse_strict(input.canonical_content.as_bytes())
@@ -2327,7 +2352,7 @@ fn verify_reproduced_edit_input(
             "committed localized content is not a canonical Object".to_owned(),
         ));
     }
-    let validator = jsonschema::draft202012::new(&schema_value)
+    let validator = jsonschema::draft202012::new(schema_value)
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     if validator.iter_errors(&target_value).next().is_some() {
         return Err(LocalPortError::Integrity(
@@ -2335,7 +2360,7 @@ fn verify_reproduced_edit_input(
         ));
     }
     let mut reconstructed = source_value.clone();
-    for segments in &parsed_pointers {
+    for segments in parsed_pointers {
         let replacement = string_at_pointer(&target_value, segments).map_err(|_| {
             LocalPortError::Integrity("committed localized value is not a string".to_owned())
         })?;
@@ -4507,8 +4532,8 @@ fn commit_changeset(
         return Err(LocalPortError::NotApproved);
     }
     let validation = sealed_validation_head(transaction, &changeset)?;
-    let approval = load_localized_approval(transaction, &changeset)?
-        .ok_or_else(|| LocalPortError::EvidenceMissing)?;
+    let approval =
+        load_localized_approval(transaction, &changeset)?.ok_or(LocalPortError::EvidenceMissing)?;
     if command.committed_at < approval.approved_at {
         return Err(LocalPortError::Invalid);
     }
@@ -8015,12 +8040,12 @@ fn context_schema_digests(context: &LocalizedContextPack) -> Result<Vec<Value>, 
                 LocalPortError::Integrity("ContextPack Schema version is invalid".to_owned())
             })?;
         let digest = required_string(schema, "document_digest")?;
-        if let Some(existing) = schemas.insert((schema_id, version), digest.clone()) {
-            if existing != digest {
-                return Err(LocalPortError::Integrity(
-                    "ContextPack repeats one Schema identity with different bytes".to_owned(),
-                ));
-            }
+        if let Some(existing) = schemas.insert((schema_id, version), digest.clone())
+            && existing != digest
+        {
+            return Err(LocalPortError::Integrity(
+                "ContextPack repeats one Schema identity with different bytes".to_owned(),
+            ));
         }
     }
     Ok(schemas

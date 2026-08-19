@@ -1883,7 +1883,7 @@ impl EnvironmentRepository for LocalWorkspace {
         authenticated_principal(&transaction, &bootstrap_principal_id, &local_identity)
             .map_err(environment_from_status)?;
         ensure_latest_schema(&transaction, schema_version).map_err(environment_from_latest)?;
-        let environment = load_environment(&transaction, workspace_id, environment_id)?;
+        let environment = load_environment(&transaction, workspace_id, &environment_id)?;
         transaction
             .commit()
             .map_err(|error| EnvironmentError::Storage(error.to_string()))?;
@@ -2228,16 +2228,16 @@ impl DelegationRepository for LocalWorkspace {
                 .map_err(DelegationError::Integrity)?;
         }
         for environment_id in &environment_ids {
-            load_environment(&transaction, workspace_id, environment_id.clone()).map_err(
-                |error| match error {
+            load_environment(&transaction, workspace_id, environment_id).map_err(|error| {
+                match error {
                     EnvironmentError::NotFound => DelegationError::InvalidGrant,
                     EnvironmentError::Storage(detail) => DelegationError::Storage(detail),
                     EnvironmentError::Integrity(detail) => DelegationError::Integrity(detail),
                     other => DelegationError::Integrity(format!(
                         "delegated Environment failed verification: {other:?}"
                     )),
-                },
-            )?;
+                }
+            })?;
         }
         for object_id in &object_ids {
             let exists = transaction
@@ -5647,7 +5647,7 @@ fn environment_create_operation_effect_digest(
 fn load_environment(
     transaction: &Transaction<'_>,
     workspace_id: WorkspaceId,
-    environment_id: EnvironmentId,
+    environment_id: &EnvironmentId,
 ) -> Result<Environment, EnvironmentError> {
     let config_version: Option<i64> = transaction
         .query_row(
@@ -5723,7 +5723,7 @@ fn load_environment(
                 "Environment current Release failed verification: {other:?}"
             )),
         })?;
-        if verified_environment != environment_id {
+        if verified_environment != *environment_id {
             return Err(EnvironmentError::Integrity(
                 "Environment current Release belongs to another Environment".to_owned(),
             ));
@@ -8655,7 +8655,7 @@ fn create_release_transaction(
     artifact_preflight: impl FnOnce() -> Result<(), LocalPortError>,
     signer_factory: impl FnOnce() -> Result<Ed25519SigningProvider, LocalPortError>,
 ) -> Result<Release, LocalPortError> {
-    let environment = load_environment(transaction, workspace_id, request.environment_id().clone())
+    let environment = load_environment(transaction, workspace_id, request.environment_id())
         .map_err(local_port_from_environment)?;
     let request_digest = release_request_digest(workspace_id, principal_id, &request)?;
     verify_release_operation_scope(transaction, workspace_id)?;
