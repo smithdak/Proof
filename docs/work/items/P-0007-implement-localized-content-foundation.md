@@ -5,10 +5,10 @@ status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0002]
-claimed_by: codex:/root:p-0007
-claimed_at: 2026-08-18T12:52:10.931Z
-base_sha: a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566
-review_gate: none
+claimed_by: buzz:proof-engineering:4fba209ea00d5d985d87873f17915f6ed117ca6e0272a81c100ca3166586f846
+claimed_at: 2026-08-19T17:39:58Z
+base_sha: a95ee484b7038358c0d4e30167862dbed85728c0
+review_gate: proof-assurance
 accepted_by: null
 accepted_at: null
 ---
@@ -115,6 +115,21 @@ Ready after project owner `smithdak` accepted P-0002 at
 `2026-08-18T12:52:10.931Z` from
 `a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566`. The accepted contract and
 ADR-0012 are the implementation authority.
+
+The project owner declared the prior P-0007 capability claim stale and
+authorized transfer of operating ownership to Proof Engineering in Buzz event
+`4fba209ea00d5d985d87873f17915f6ed117ca6e0272a81c100ca3166586f846` at
+`2026-08-19T17:39:58Z`. Proof Engineering claimed revalidation from
+`a95ee484b7038358c0d4e30167862dbed85728c0`; the work item remains `claimed`
+only as execution ownership and does not assert that the localized-content v2
+candidate is current, accepted, verified, released, or customer-proven.
+
+P-0007 can move to `review` only after the required receipt and manifest bind
+the exact qualified candidate and every acceptance criterion above has direct
+evidence. It can move to `done` only after `proof-assurance` records its
+independent result. If revalidation cannot support the current outcome,
+Engineering must revise this item through an authorized replacement or retire
+it as `superseded`; it must not silently narrow the claim.
 
 ## Residual risks and next-wave update
 
