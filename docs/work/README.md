@@ -79,6 +79,16 @@ map parity, status transitions, and required evidence for executed items.
    Update the map and item completion record in one narrow follow-up change.
 6. Shape only the newly visible frontier. Leave later uncertainty in fog.
 
+For a `proof-assurance` review gate, `done` additionally requires a committed
+`assurance-verdict.md` with `verdict: supported`. The verdict's candidate must
+match the manifest's `item_work_commit`; its Engineering evidence commit must
+contain the current receipt and manifest; and the item completion record must
+include `Assurance record commit: <full-sha>` naming the commit that contains
+the current verdict. The validator proves that candidate → Engineering
+evidence → Assurance record → completion ancestry and requires the item's
+acceptance actor and timestamp to match the Assurance verdict. CI therefore
+requires complete Git history for work-control validation.
+
 Claims never expire automatically. Takeover requires a recorded handoff or an
 explicit stale-claim decision. Selecting a work item does not authorize a push,
 tag, public release, credential change, or external-provider mutation unless

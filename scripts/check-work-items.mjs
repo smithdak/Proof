@@ -61,7 +61,7 @@ function parseValue(value) {
   return value;
 }
 
-function parseItem(text, label) {
+function parseFrontmatterDocument(text, label) {
   const lines = text.replaceAll("\r\n", "\n").split("\n");
   if (lines[0] !== "---") {
     fail(`${label}: missing opening frontmatter delimiter`);
@@ -84,10 +84,17 @@ function parseItem(text, label) {
     if (Object.hasOwn(metadata, key)) fail(`${label}: duplicate field ${key}`);
     metadata[key] = parseValue(rawValue.trim());
   }
+  return { metadata, body: lines.slice(end + 1).join("\n") };
+}
+
+function parseItem(text, label) {
+  const parsed = parseFrontmatterDocument(text, label);
+  if (!parsed) return null;
+  const { metadata } = parsed;
   for (const field of requiredFields) {
     if (!Object.hasOwn(metadata, field)) fail(`${label}: missing field ${field}`);
   }
-  return { metadata, body: lines.slice(end + 1).join("\n") };
+  return parsed;
 }
 
 function isTimestamp(value) {
@@ -120,6 +127,33 @@ function gitText(reference, path) {
     return null;
   }
   return result.stdout;
+}
+
+function gitCommitExists(reference) {
+  const repositoryPath = root.replaceAll("\\", "/");
+  const result = spawnSync(
+    "git",
+    ["-c", `safe.directory=${repositoryPath}`, "cat-file", "-e", `${reference}^{commit}`],
+    { cwd: root, encoding: "utf8" },
+  );
+  return result.status === 0;
+}
+
+function gitIsAncestor(ancestor, descendant) {
+  const repositoryPath = root.replaceAll("\\", "/");
+  const result = spawnSync(
+    "git",
+    ["-c", `safe.directory=${repositoryPath}`, "merge-base", "--is-ancestor", ancestor, descendant],
+    { cwd: root, encoding: "utf8" },
+  );
+  return result.status === 0;
+}
+
+function matchesCommittedText(committed, current) {
+  return (
+    committed !== null &&
+    committed.replaceAll("\r\n", "\n") === current.replaceAll("\r\n", "\n")
+  );
 }
 
 if (!existsSync(itemsDirectory) || !existsSync(mapPath)) {
@@ -223,6 +257,7 @@ for (const [id, item] of items) {
     }
   }
 
+  let manifestValue = null;
   if (["review", "done"].includes(metadata.status)) {
     const directory = resolve(evidenceDirectory, id);
     const receipt = resolve(directory, "receipt.md");
@@ -237,6 +272,7 @@ for (const [id, item] of items) {
     } else {
       try {
         const value = JSON.parse(readFileSync(manifest, "utf8"));
+        manifestValue = value;
         if (value.item_id !== id) fail(`${id}: manifest item_id does not match`);
         for (const field of [
           "schema_version",
@@ -274,6 +310,116 @@ for (const [id, item] of items) {
         }
       } catch (error) {
         fail(`${id}: manifest.json is invalid JSON: ${error.message}`);
+      }
+    }
+  }
+  if (metadata.status === "done" && metadata.review_gate === "proof-assurance") {
+    const directory = resolve(evidenceDirectory, id);
+    const receipt = resolve(directory, "receipt.md");
+    const manifest = resolve(directory, "manifest.json");
+    const verdictPath = resolve(directory, "assurance-verdict.md");
+    if (!existsSync(verdictPath)) {
+      fail(`${id}: proof-assurance completion lacks assurance-verdict.md`);
+    } else {
+      const verdict = parseFrontmatterDocument(
+        readFileSync(verdictPath, "utf8"),
+        `${id}: assurance-verdict.md`,
+      );
+      if (verdict) {
+        const requiredVerdictFields = [
+          "item_id",
+          "review_gate",
+          "verdict",
+          "candidate_sha",
+          "engineering_evidence_commit",
+          "reviewed_by",
+          "reviewed_at",
+        ];
+        for (const field of requiredVerdictFields) {
+          if (!Object.hasOwn(verdict.metadata, field)) {
+            fail(`${id}: assurance verdict lacks ${field}`);
+          }
+        }
+
+        const candidateSha = verdict.metadata.candidate_sha;
+        const evidenceCommit = verdict.metadata.engineering_evidence_commit;
+        if (verdict.metadata.item_id !== id) fail(`${id}: assurance verdict item_id differs`);
+        if (verdict.metadata.review_gate !== metadata.review_gate) {
+          fail(`${id}: assurance verdict review_gate differs`);
+        }
+        if (verdict.metadata.verdict !== "supported") {
+          fail(`${id}: proof-assurance completion requires verdict: supported`);
+        }
+        if (verdict.metadata.reviewed_by !== "proof-assurance") {
+          fail(`${id}: assurance verdict reviewed_by must be proof-assurance`);
+        }
+        if (!isTimestamp(verdict.metadata.reviewed_at)) {
+          fail(`${id}: assurance verdict reviewed_at must be an RFC 3339 UTC timestamp`);
+        }
+        if (metadata.accepted_by !== verdict.metadata.reviewed_by) {
+          fail(`${id}: accepted_by must match the Assurance reviewer`);
+        }
+        if (metadata.accepted_at !== verdict.metadata.reviewed_at) {
+          fail(`${id}: accepted_at must match the Assurance review timestamp`);
+        }
+        if (!isSha(candidateSha)) fail(`${id}: assurance candidate_sha is invalid`);
+        if (!isSha(evidenceCommit)) {
+          fail(`${id}: assurance engineering_evidence_commit is invalid`);
+        }
+        if (manifestValue && candidateSha !== manifestValue.item_work_commit) {
+          fail(`${id}: assurance candidate_sha differs from manifest item_work_commit`);
+        }
+        if (isSha(candidateSha) && !gitCommitExists(candidateSha)) {
+          fail(`${id}: assurance candidate_sha is not a locally available commit`);
+        }
+        if (isSha(evidenceCommit) && !gitCommitExists(evidenceCommit)) {
+          fail(`${id}: engineering_evidence_commit is not a locally available commit`);
+        }
+        if (
+          isSha(candidateSha) &&
+          isSha(evidenceCommit) &&
+          (candidateSha === evidenceCommit || !gitIsAncestor(candidateSha, evidenceCommit))
+        ) {
+          fail(`${id}: engineering evidence must be a descendant of the candidate commit`);
+        }
+
+        if (isSha(evidenceCommit) && existsSync(receipt)) {
+          const committedReceipt = gitText(evidenceCommit, relative(root, receipt));
+          if (!matchesCommittedText(committedReceipt, readFileSync(receipt, "utf8"))) {
+            fail(`${id}: receipt.md does not match engineering_evidence_commit`);
+          }
+        }
+        if (isSha(evidenceCommit) && existsSync(manifest)) {
+          const committedManifest = gitText(evidenceCommit, relative(root, manifest));
+          if (!matchesCommittedText(committedManifest, readFileSync(manifest, "utf8"))) {
+            fail(`${id}: manifest.json does not match engineering_evidence_commit`);
+          }
+        }
+
+        const completionRecord = item.body.split("\n## Completion record\n", 2)[1] ?? "";
+        const assuranceReference = completionRecord.match(
+          /Assurance record commit:\s*`([0-9a-f]{40})`/,
+        )?.[1];
+        if (!assuranceReference) {
+          fail(`${id}: completion record lacks Assurance record commit`);
+        } else if (!gitCommitExists(assuranceReference)) {
+          fail(`${id}: Assurance record commit is not locally available`);
+        } else {
+          const committedVerdict = gitText(assuranceReference, relative(root, verdictPath));
+          if (!matchesCommittedText(committedVerdict, readFileSync(verdictPath, "utf8"))) {
+            fail(`${id}: assurance-verdict.md does not match Assurance record commit`);
+          }
+          if (
+            isSha(evidenceCommit) &&
+            (assuranceReference === evidenceCommit ||
+              !gitIsAncestor(evidenceCommit, assuranceReference))
+          ) {
+            fail(`${id}: Assurance record must descend from engineering evidence`);
+          }
+          if (!gitIsAncestor(assuranceReference, "HEAD")) {
+            fail(`${id}: Assurance record commit is not an ancestor of HEAD`);
+          }
+        }
       }
     }
   }

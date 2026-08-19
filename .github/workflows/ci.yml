@@ -27,7 +27,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          fetch-depth: 2
+          # Work-control validation proves the P-0007 candidate, Engineering
+          # evidence, and Assurance record ancestry before allowing `done`.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install pinned Rust toolchain
