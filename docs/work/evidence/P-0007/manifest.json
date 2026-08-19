@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "item_id": "P-0007",
+  "base_sha": "a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566",
+  "stale_candidate_sha": "a95ee484b7038358c0d4e30167862dbed85728c0",
+  "candidate_parent_sha": "f3e3c2195bdbf983f3322726dccf90985e9a17b3",
+  "item_work_commit": "fede487547c3e2bb27f5cb8fb168f5b5312a5f23",
+  "branch": "proof-engineering/p-0007-revalidation",
+  "qualified_at": "2026-08-19T18:31:07.396Z",
+  "inventory": {
+    "candidate_paths_from_original_base": 23,
+    "repair_paths_from_candidate_parent": 5,
+    "dependency_changes": 0,
+    "unrelated_paths": [],
+    "hash_inventory": "docs/work/evidence/P-0007/candidate-paths.sha256"
+  },
+  "required_evidence_matrices": {
+    "migration": {
+      "target_storage_version": 11,
+      "successful_inputs": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      "successful_test": "every_pre_localization_version_migrates_without_changing_v1_evidence",
+      "injected_failure_tests": [
+        "version_ten_migration_rolls_back_atomically_after_a_mid_script_failure",
+        "version_eleven_migration_rolls_back_atomically_after_an_injected_failure"
+      ],
+      "result": "passed locally; exact legacy evidence preserved and zero localized rows fabricated"
+    },
+    "source_to_rendition": {
+      "source_object_id": "019c0000-0000-7000-8000-000000000080",
+      "schema": "campaign@1",
+      "initial_targets": ["es-ES", "fr-FR"],
+      "replacement_target": "fr-FR revision 1 to revision 2",
+      "fallback_probe": "de-DE returned NotFound",
+      "cross_version_result": "v1 rollback hid renditions; exact v2 rollback restored both",
+      "fixture": "localized_human_path_repairs_and_releases_two_exact_locales"
+    },
+    "denial": {
+      "test": "localized_edit_denials_are_specific_and_atomic",
+      "stable_results": [
+        "NotReady",
+        "NotSubmitted",
+        "NotApproved",
+        "IntentMismatch",
+        "SourceConflict",
+        "TargetConflict",
+        "InvalidInput",
+        "DuplicateActiveTarget",
+        "InvalidSupersession",
+        "InvalidRepairEvidence",
+        "NotDraft"
+      ],
+      "result": "passed with per-attempt localized Edit row-count assertions"
+    },
+    "replay": {
+      "retained_results": [
+        "ContextPack identical replay and changed/moved-scope rejection",
+        "shared ChangeSet/Edit/commit/Edition operation-effect replay and tamper rejection",
+        "localized rollback identical replay equality",
+        "Release post-commit proof-export replay convergence"
+      ],
+      "assurance_remaining": "per-operation localized identical, changed-input, changed-target, and changed-lifecycle-position matrix"
+    }
+  },
+  "environment": {
+    "linux": {
+      "distribution": "Ubuntu 24.04.4 LTS",
+      "surface": "WSL2",
+      "kernel": "5.15.167.4-microsoft-standard-WSL2",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "node": "v22.23.1"
+    },
+    "windows": {
+      "git": "2.43.0.windows.1",
+      "purpose": "Windows-created worktree SHA, clean-tree, and normalized diff validation"
+    }
+  },
+  "commands": [
+    {
+      "surface": "outer-powershell",
+      "command": "git -c safe.directory=C:/Users/dakot/.buzz/REPOS/Proof-P0007-Revalidation rev-parse HEAD; git -c safe.directory=C:/Users/dakot/.buzz/REPOS/Proof-P0007-Revalidation status --porcelain",
+      "exit_code": 0,
+      "result": "candidate_sha_before and candidate_sha_after both fede487547c3e2bb27f5cb8fb168f5b5312a5f23; clean before and after"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo fmt --all --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "208 passed, 0 failed, 0 ignored"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "six crate targets, 0 failures"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "159 internal documentation links resolved at candidate"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "seven work items passed at candidate"
+    },
+    {
+      "surface": "windows",
+      "command": "git -c safe.directory=C:/Users/dakot/.buzz/REPOS/Proof-P0007-Revalidation -c core.autocrlf=true diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "159 internal documentation links resolved with the evidence packet present"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "seven work items passed with the evidence packet present"
+    },
+    {
+      "surface": "windows",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
+      "exit_code": 0,
+      "result": "51 Markdown files; 0 issues"
+    },
+    {
+      "surface": "windows",
+      "command": "PowerShell credential-shape scan over docs/work/evidence/P-0007 with the pattern assembled from nonmatching fragments",
+      "exit_code": 0,
+      "result": "no credential-shaped content found"
+    },
+    {
+      "surface": "github-actions",
+      "command": "Linux quality gate for exact candidate SHA",
+      "exit_code": 125,
+      "result": "not run: push and publication are explicitly prohibited by the authorizing directive"
+    }
+  ],
+  "artifact_digests": [
+    {"path": ".github/workflows/ci.yml", "algorithm": "sha256", "digest": "c77100c404a0761f3f2007be90ce0dac08c93573857369a5aed87366c98055fd"},
+    {"path": "conformance/v2/localized-content/schemas/artifacts.schema.json", "algorithm": "sha256", "digest": "e11bc88e1087da503863394a0ae85f8dc75ac970fb622624bfef128c1d0de14d"},
+    {"path": "conformance/v2/localized-content/schemas/operations.schema.json", "algorithm": "sha256", "digest": "00588dd9ffb5c333aac3e581955af1ab68d03140389e901d5ce49a305dcc8a8d"},
+    {"path": "conformance/v2/localized-content/vectors/artifact-digests.valid.json", "algorithm": "sha256", "digest": "ac8e5d2ca0fce34376f5aa26103315ea7a57b63742f679cc08dac0dec13003cd"},
+    {"path": "conformance/v2/localized-content/vectors/operation-registry.valid.json", "algorithm": "sha256", "digest": "584f2f3847d908781e887f4303f8cdbf035b39c44f1f21579086c83d099ee445"},
+    {"path": "crates/proof-application/src/localized.rs", "algorithm": "sha256", "digest": "1b151013f7d03a0a6f86f48eec9c4cf6c182a539aba691f9316fe02d151f3815"},
+    {"path": "crates/proof-attestation/src/lib.rs", "algorithm": "sha256", "digest": "851c2e894de604875f98c3be15b2a2133ded8655f175648279b8aa0dcaf8fbb9"},
+    {"path": "crates/proof-canonical/src/lib.rs", "algorithm": "sha256", "digest": "4548885ac09f0f906cce6a965d972a2c49f38ecbd5e1cc5e5c6780de3711e609"},
+    {"path": "crates/proof-cli/src/localized_cli.rs", "algorithm": "sha256", "digest": "2ac8c0ebf5bb891b533395b90e2d72054ad71dee0a0a567db7b1b4c7549d98ef"},
+    {"path": "crates/proof-cli/tests/cli.rs", "algorithm": "sha256", "digest": "d07cb72d86794e74016cfc69f9a65cd8623a3d7be592df1f72979b52dc2d725c"},
+    {"path": "crates/proof-domain/src/lib.rs", "algorithm": "sha256", "digest": "08eb4929512cfc2c669fd1e42259d9b6946ef94e747ba1df169e1398a516af0d"},
+    {"path": "crates/proof-local/src/lib.rs", "algorithm": "sha256", "digest": "4fa755d14295d3030232497dee2aa501109137ff98df7cb101a615e01b0368b9"},
+    {"path": "crates/proof-local/src/localized.rs", "algorithm": "sha256", "digest": "668f901ca46f35de1d9fa99f434174835f9ea77fd6f5713e1c65cbc3fb0fd14a"},
+    {"path": "crates/proof-local/tests/initialize.rs", "algorithm": "sha256", "digest": "16335c5bdd986cd1956eb6765a8c85f528ac8d887e5aed9c9460ec951ac8c725"},
+    {"path": "scripts/check-work-items.mjs", "algorithm": "sha256", "digest": "9bc7945991c8cf70268e73968ecd699d14db8e16dcbcd11a242ee56b3c63094f"}
+  ],
+  "evidence_paths": [
+    "docs/work/evidence/P-0007/receipt.md",
+    "docs/work/evidence/P-0007/manifest.json",
+    "docs/work/evidence/P-0007/traceability.md",
+    "docs/work/evidence/P-0007/candidate-paths.sha256"
+  ],
+  "gate_state": {
+    "engineering_local_qualification": "supported",
+    "github_exact_sha_ci": "indeterminate",
+    "assurance_verdict": "indeterminate",
+    "claim_reactivated": false,
+    "preferred_disposition_after_mandatory_gates": "RESTORE",
+    "current_disposition_eligible": false,
+    "disposition_executed": false
+  },
+  "boundaries": {
+    "pushed": false,
+    "tagged": false,
+    "released": false,
+    "published": false,
+    "production_mutated": false,
+    "customer_proven": false,
+    "delegated_agent_authority_claimed": false
+  }
+}
