@@ -59,7 +59,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `claimed` | P-0001, P-0002 | Reconcile the qualified authentication candidate with the ratified localized-content closure. |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `review` | P-0001, P-0002 | Accept or reject the qualified authenticated-actor reconciliation candidate. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
@@ -101,11 +101,11 @@ an existing locale-neutral Object, one `proof.dev/edit/v2`
 resource intent, and Edition/Release causality tied to the unchanged preview
 baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
-`DelegationV2` resource dimension is required. P-0007 implements and
-qualify that foundation through the Human path before P-0005 adds Agent
-authority. This is accepted semantics, not yet implemented behavior.
+`DelegationV2` resource dimension is required. P-0007 implements and qualifies
+that foundation through the Human path. Agent authority remains unimplemented;
+P-0005 adds it only after P-0003 and P-0004 close.
 
-### Proposed P-0003 profile — reconciliation in progress
+### Proposed P-0003 profile — review candidate
 
 P-0003 currently proposes local per-Agent Ed25519 proof of possession,
 adapter-derived `AuthenticatedActorContextV1`, single-use
@@ -114,14 +114,14 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras would treat Principal and Delegation identifiers as cross-checks
 or selectors rather than authority. This is not a closed decision or an
-implementation-status claim; P-0003 is `claimed`, and P-0004/P-0006 remain
+implementation-status claim; P-0003 is `review`, and P-0004/P-0006 remain
 blocked.
 
-The candidate is not yet ready for owner review. P-0002 has settled the exact
-content, Edit, Edition, and Release resource closure; P-0003 must now tighten
-its locale Schema, reconcile its operation registry and resource projections,
-and regenerate affected conformance vectors. P-0004 exposes no write path
-until that work is accepted. The qualified prior candidate is bound by the
+Candidate `38999d0` is qualified and ready for project-owner review. It aligns
+the exact locale Schema, closes the 14-pair operation registry, freezes the
+localized resource and budget projections, and regenerates the affected
+conformance vectors. P-0004 exposes no write path until this proposal is
+accepted. The exact candidate and falsification record are bound by the
 [P-0003 receipt](evidence/P-0003/receipt.md).
 
 The controlling proposal is the

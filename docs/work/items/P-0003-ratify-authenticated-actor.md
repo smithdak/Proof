@@ -1,7 +1,7 @@
 ---
 id: P-0003
 title: Ratify authenticated actor and Delegation semantics
-status: claimed
+status: review
 wave: now
 kind: decision
 blocked_by: [P-0001, P-0002]
@@ -189,7 +189,8 @@ Reclaimed by `codex:/root:p-0003` at `2026-08-20T18:58:18Z` from
 The refreshed [qualification receipt](../evidence/P-0003/receipt.md) records the
 exact candidate and validation results. ADR-0011 remains Proposed, C4 remains
 unchanged, P-0004 remains blocked, and the only unchecked acceptance criterion
-is explicit project-owner acceptance.
+is explicit project-owner acceptance. The item is therefore in `review`; it
+does not move to `done` until that acceptance is recorded.
 
 ## Residual risks and next-wave update
 

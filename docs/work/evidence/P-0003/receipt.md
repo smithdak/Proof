@@ -1,108 +1,156 @@
-# P-0003 candidate qualification receipt
+# P-0003 reconciliation qualification receipt
 
 ## Outcome
 
-P-0003 produced a qualified, versioned candidate for local Agent command
-authentication and direct delegated authority. It is not an accepted decision.
-The candidate is blocked on P-0002 because the final content, Edit, Edition,
-Release, and locale resource closure may require `DelegationV2` to reopen or
-version before project-owner review.
+P-0003 now has a qualified reconciliation candidate for project-owner review.
+The exact candidate is
+`38999d01fdce81015179da3162b90f6c382e3eba`, produced from claim commit
+`5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b` and clean `main` base
+`8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8`.
 
-The architecture and conformance checkpoint is
-`cf4e57d0ace70e80377d16b57e43b6099129e0d0`. The integrated item-work commit is
-`b124b2491dfd787df1a562786f122fb6e62a1497`. This follow-up control commit binds
-those immutable revisions, releases the claim, and records the P-0002 blocker.
-Nothing was pushed, tagged, released, published, or accepted.
+The candidate reconciles the previously qualified authenticated-actor profile
+with P-0007's supported localized-content candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb`. It remains a proposed decision:
+ADR-0011 is still Proposed, ratified C4 is unchanged, P-0004 remains blocked,
+and no authenticated Agent write path exists. Project-owner acceptance is the
+only remaining P-0003 acceptance criterion.
+
+Nothing was pushed, tagged, released, deployed, or accepted. Live remote state
+was not queried.
 
 ## Revision and inventory
 
 | Field | Exact value |
 | --- | --- |
 | Checkout | `D:\github\Proof` |
-| Branch | `main` |
+| Branch | `proof-architecture/p-0003-reconciliation` |
 | Worktrees | `1` |
-| Starting HEAD / claim base | `11eb4dfb57577e52ddd95822a00fed3001b5164a` |
-| Architecture and conformance commit | `cf4e57d0ace70e80377d16b57e43b6099129e0d0` |
-| Integrated item-work commit | `b124b2491dfd787df1a562786f122fb6e62a1497` |
-| Local `origin/main` tracking ref | `9f69e80cc631385b4f1942b76c584924d756aea9` |
-| Live remote verification | Not performed |
-| Claim | `codex:/root:p-0003` at `2026-08-17T20:41:57.212Z` |
-| Candidate qualified | `2026-08-18T00:25:23.2379066Z` |
+| Base | `8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8` |
+| Claim commit | `5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b` |
+| Reconciliation candidate | `38999d01fdce81015179da3162b90f6c382e3eba` |
+| Candidate parent | `5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b` |
+| Candidate delta | 23 paths; 1,690 insertions; 148 deletions |
+| Qualified at | `2026-08-20T19:39:00.6713118Z` |
 
-The candidate changed 84 paths from the claim base: 65 files under
-`conformance/v1/authority/` and 19 architecture, decision, reference, product,
-or work-control documents. No Rust source, migration, runtime database, private
-key, provider credential, generated Proof, or production configuration changed.
-The conformance corpus contains 26 strict Schemas, 38 vector files, and one
-local README. The temporary vector generator was removed before commit.
+The candidate changes nine authority-conformance files, 13 architecture,
+decision, reference, product, or work-control documents, and one retained Rust
+conformance test. It changes no runtime implementation, migration, database,
+private key, credential, production configuration, Release, or Proof.
 
-## Candidate decision
+## Reconciled decision
 
-The proposed local profile:
+The reconciliation closes the P-0002/P-0007 dependency without versioning
+`DelegationV2`:
 
-- derives requesting and operating Principals behind an authentication port;
-- proves Agent credential control with per-command Ed25519 signatures;
-- treats same-UID/private-Workspace processes as Human administrator trust and
-  requires an isolated Agent-side signer plus Human-owned bounded-stdin broker
-  for enforcement;
-- supports exactly one direct Human-to-Agent `DelegationV2` and rejects Agent
-  issuers, parents, chains, and subdelegation;
-- records binding, Principal, Delegation, revocation, presentation-consumption,
-  authorization, and planned root-transition facts in a signed causal authority
-  sequence; and
-- proposes, but does not ratify, a constitutional C4 replacement that makes
-  current authentication and authorization precede idempotent result disclosure.
+- The grant already has the exact Workspace, Environment, Object, Schema, and
+  locale axes required by P-0007. Immutable Human-issued
+  `ContentResourceIntentV1` tuples narrow that permission product; they do not
+  create a new grant axis and an Agent cannot issue or replace them.
+- `AuthorityOperationRegistryV1` retains the three implemented v1 read pairs,
+  removes the nine unimplemented v1 write reservations, and binds all 11 P-0007
+  v2 pairs to their action, localized input Schema, closure anchor, four
+  resource-projection profiles, evidence selectors, five budget profiles,
+  idempotency class, consequence, and enablement wave.
+- Localized lifecycle operations authorize the complete verified intent. A
+  subset grant never produces a filtered ChangeSet, diff, validation result,
+  Edition, or Release.
+- `object.query_released/v2` first checks the requested Workspace,
+  Environment, Objects, locales, and a nonempty Schema grant, then internally
+  resolves only the requested Objects' Schemas from the current Release and
+  Edition and checks those Schemas before disclosure.
+- Generated ChangeSet, Edition, and Release identifiers are exact evidence
+  selectors, not grant axes. Intent and ContextPack identifiers/digests are
+  command-bound directly or transitively through the selected ChangeSet.
+- Localized validate and submit use null signed idempotency fields with closed
+  derived internal keys; adapters cannot choose a different derivation. Reads
+  remain fresh authorized attempts with no application key.
+- `DelegationV2.scope.locales` and
+  `AuthorizationDecisionV2.requested_resources.locales` now use P-0002's exact
+  grammar. Lowercase variants and literal aliases are valid; mixed-case
+  variants are not.
 
-The strongest rejected alternative was starting with SPIFFE/mTLS. It provides a
-stronger future workload boundary, but it requires a daemon or secure channel,
-issuance and rotation infrastructure, workload selectors, and historical trust
-material before resolving exact command binding. The smallest complete local
-slice is a provider-neutral authentication port with Ed25519 proof of possession.
+The strongest rejected reconciliation alternative was a tuple-scoped
+`DelegationV3`. It represents nonrectangular targets directly but duplicates
+the already immutable Human intent, expands signed-grant and portable-evidence
+closure, and addresses no demonstrated Milestone 2 failure. It becomes valid
+only if the intent cannot remain Human-authoritative or source-read and
+target-write scopes diverge.
+
+## Falsification result
+
+The strongest counterargument was that exact Schema authorization cannot be
+known before a v2 released query resolves current state, making the selected
+five-axis profile either incomplete or an existence oracle. The first draft
+overreached by naming every Edition target Schema. The falsification pass
+narrowed the normative source to only the requested Objects' resolved Schemas,
+requires the caller-controlled axes and nonempty Schema grant before internal
+resolution, and requires exact Schema membership before disclosure.
+
+The retained test independently parses the authority and localized Schemas and
+then proves:
+
+- exact equality among the 14 operation pairs in `OperationV1`,
+  `AuthorizationDecisionV2`, and the authority registry;
+- exact action equality with all 11 P-0007 localized registry rows and input
+  Schema constants;
+- canonical registry order, only three v1 pairs, four exact resource profiles,
+  closure anchors, selector sources, retry classes, and budget classes;
+- Delegation action-set equality with the registry;
+- lowercase variant and literal-alias acceptance plus mixed-case rejection in
+  both Delegation and decision Schemas; and
+- rejected cases for each missing localized grant axis and a superseded v1
+  write pair.
+
+Confidence is **high** that the candidate is decision-complete for its bounded
+local profile. Evidence that would reverse that judgment is a required
+localized grant dimension not expressible by the five axes, an Agent-mutable
+resource intent, a P-0007 operation/input mismatch, or a Milestone 2 requirement
+for hostile same-UID containment or Agent-to-Agent delegation.
 
 ## Verification
 
-All final gates passed on the Windows checkout:
+| Surface | Result |
+| --- | --- |
+| Retained P-0003 registry/falsification test | Passed |
+| Existing localized portable-conformance control | Passed |
+| Strict Clippy for the retained test with `-D warnings` | Passed |
+| Complete locked Ubuntu workspace suite | 354 tests; 22 successful suite summaries; zero failures |
+| Authority JSON parse | 67 files |
+| Documentation links | 163 internal links |
+| Work-control validation | 7 items; lifecycle, dependencies, map parity, transitions, and evidence contracts passed |
+| Rust formatting and normalized diff checks | Passed |
+| Markdown lint, pinned `markdownlint-cli2@0.23.2` | Passed |
 
-- Draft 2020-12 metaschema, reference, and fixture validation: 26 Schemas, 46
-  fixture validations, 18 external references, zero missing references.
-- Public-byte dependency graph: eight Ed25519 signatures, 21 derived digests,
-  four DSSE byte manifests, and a contiguous nine-record authority chain.
-- Measured maximum canonical sizes: 6,137-byte `DelegationV2`, 19,128-byte
-  `AuthorizationDecisionV2`, and 25,778-byte authority envelope, all below their
-  declared 65,536/98,304-byte limits.
-- JSON parse: 64 JSON files; provider-mismatch mutation rejected; all required
-  authentication, authority, sorting, issuer, and administrator negative cases
-  present.
-- Documentation: 140 internal links, six work-item contracts, 43 Markdown
-  files with zero lint issues, Rust formatting check, normalized diff check,
-  and credential-shaped literal scan all passed.
+The complete Windows workspace attempt reached the CLI integration suite but
+20 fixtures failed before domain behavior because the Windows build reports
+`proof.auth.unauthenticated`: it provides no local identity adapter for that
+platform. Candidate-specific Windows conformance and strict lint passed. The
+same complete locked workspace suite then passed on Ubuntu with runtime
+temporaries under `/tmp`. The Windows result is an unsupported-surface
+qualification, not a candidate-attributable defect or a Windows support claim.
 
-The byte validator used only checked-in payloads, envelopes, signatures, and
-public keys plus a temporary BLAKE3 derive-key executable under `%TEMP%`. It
-verified existing bytes; no private signing material was serialized or needed.
+Full logs are retained under ignored `target/p0003-*.log` paths. The manifest
+binds checkout-independent Git blob SHA-256 values for all 23 candidate paths;
+worktree materialization hashes are deliberately not substituted for Git bytes.
 
-## Falsification and residuals
+## Historical qualification and residuals
 
-Independent falsification found no candidate-preservation blocker beyond
-P-0002. It specifically forced closure of public-versus-audit error taxonomy,
-historical-key versus current-binding evaluation, Agent-only operating-subject
-evidence, direct-only issuer/administrator rules, sorted set-like arrays,
-root-transition signer ordering, canonical base64, exact semantic idempotency,
-and hidden-Delegation disclosure.
+The initial P-0003 profile was qualified at architecture commit
+`cf4e57d0ace70e80377d16b57e43b6099129e0d0` and integrated at
+`b124b2491dfd787df1a562786f122fb6e62a1497` from base
+`11eb4dfb57577e52ddd95822a00fed3001b5164a`. That candidate correctly left its
+localized operation/resource closure blocked on P-0002. This receipt supersedes
+that blocker while preserving the prior commit lineage.
 
-Confidence is high (`0.94`) that no additional P-0003 candidate blocker remains.
-Confidence is moderate (`0.70`) that P-0002 will leave the current
-`DelegationV2` resource dimensions unchanged, because that question is
-deliberately unresolved.
+Accepted candidate residuals remain unchanged:
 
-Accepted candidate residuals:
-
-- same-UID or private-Workspace processes remain inside Human/admin trust;
-- valid-prefix rollback or a hidden fork requires an independently pinned
-  authority head to detect;
-- predecessor-root compromise cannot be repaired by ordinary dual-signed
-  rotation; a future explicit trust epoch/re-anchor is required; and
-- final delegated write-resource sufficiency is unknown until P-0002 closes.
+- same-UID/private-Workspace processes are inside Human/admin trust, so the
+  local key proves attribution and integrity, not containment;
+- the profile does not attest process, executable, model, or runtime identity;
+- valid-prefix rollback or a hidden authority fork needs an independently
+  pinned authority head to detect; and
+- predecessor-root compromise requires a future explicit trust epoch rather
+  than ordinary dual-signed rotation.
 
 ## Evidence paths
 

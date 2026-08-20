@@ -1,72 +1,112 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "item_id": "P-0003",
-  "base_sha": "11eb4dfb57577e52ddd95822a00fed3001b5164a",
-  "architecture_commit": "cf4e57d0ace70e80377d16b57e43b6099129e0d0",
-  "item_work_commit": "b124b2491dfd787df1a562786f122fb6e62a1497",
-  "branch": "main",
-  "local_origin_main": "9f69e80cc631385b4f1942b76c584924d756aea9",
+  "base_sha": "8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8",
+  "claim_commit": "5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b",
+  "candidate_commit": "38999d01fdce81015179da3162b90f6c382e3eba",
+  "item_work_commit": "38999d01fdce81015179da3162b90f6c382e3eba",
+  "candidate_parent": "5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b",
+  "p0007_supported_candidate": "47153144b4b834cfffab61b328e4551f09fe50cb",
+  "prior_architecture_commit": "cf4e57d0ace70e80377d16b57e43b6099129e0d0",
+  "prior_item_work_commit": "b124b2491dfd787df1a562786f122fb6e62a1497",
+  "branch": "proof-architecture/p-0003-reconciliation",
   "live_remote_verified": false,
-  "qualified_at": "2026-08-18T00:25:23.2379066Z",
+  "qualified_at": "2026-08-20T19:39:00.6713118Z",
+  "decision_state": {
+    "candidate_qualified": true,
+    "p0007_reconciled": true,
+    "owner_accepted": false,
+    "target_status": "review",
+    "adr_0011_status": "Proposed",
+    "constitution_c4_changed": false,
+    "p0004_unblocked": false
+  },
   "inventory": {
-    "changed_paths": 84,
-    "conformance_files": 65,
-    "documentation_and_control_files": 19,
-    "rust_source_files": 0,
-    "schemas": 26,
-    "vectors": 38,
+    "changed_paths": 23,
+    "insertions": 1690,
+    "deletions": 148,
+    "authority_conformance_paths": 9,
+    "documentation_and_control_paths": 13,
+    "retained_test_paths": 1,
+    "runtime_implementation_paths": 0,
+    "migration_paths": 0,
+    "schemas_total": 27,
+    "vectors_total": 40,
+    "authority_json_files_total": 67,
+    "registered_operation_pairs": 14,
+    "retained_v1_pairs": 3,
+    "localized_v2_pairs": 11,
+    "resource_projection_profiles": 4,
+    "budget_projection_profiles": 5,
     "unrelated_paths": []
   },
   "environment": {
-    "os": "Microsoft Windows NT 10.0.26100.0",
-    "python": "3.13.1",
-    "node": "v26.1.0",
-    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
-    "cargo": "1.97.1 (c980f4866 2026-06-30)",
-    "git": "2.43.0.windows.1"
+    "windows": {
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "node": "v26.1.0",
+      "npm": "11.16.0",
+      "python": "3.13.1",
+      "git": "2.43.0.windows.1"
+    },
+    "ubuntu": {
+      "distribution": "Ubuntu-24.04 on WSL2",
+      "kernel": "Linux 5.15.167.4-microsoft-standard-WSL2 x86_64 GNU/Linux",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "tmpdir": "/tmp"
+    }
   },
   "commands": [
     {
       "surface": "windows",
-      "command": "python Draft202012/jsonschema+referencing validator over conformance/v1/authority",
+      "command": "cargo test --locked -p proof-local --test p0003_authority_reconciliation",
       "exit_code": 0,
-      "result": "26 schemas; 46 fixture validations; 18 external references; 0 missing"
+      "result": "1 retained registry/projection/locale falsification test passed"
     },
     {
       "surface": "windows",
-      "command": "python public-byte dependency-graph validator with temporary BLAKE3 derive-key helper",
+      "command": "cargo test --locked -p proof-local --test p0003_authority_reconciliation --test localized_conformance",
       "exit_code": 0,
-      "result": "8 Ed25519 signatures; 21 derived digests; 9 authority records; all declared size bounds passed"
+      "result": "2 conformance suite summaries passed"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo clippy --locked -p proof-local --test p0003_authority_reconciliation -- -D warnings",
+      "exit_code": 0,
+      "result": "strict lint passed"
+    },
+    {
+      "surface": "ubuntu",
+      "command": "TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p0003-linux-build cargo test --workspace --locked",
+      "exit_code": 0,
+      "result": "354 test cases; 22 successful suite summaries; 0 failures"
+    },
+    {
+      "surface": "windows-diagnostic",
+      "command": "cargo test --workspace --locked",
+      "exit_code": 101,
+      "qualifying": false,
+      "result": "20 CLI fixtures failed before domain behavior because the Windows binary has no local identity adapter; direct init returned proof.auth.unauthenticated"
     },
     {
       "surface": "windows",
       "command": "PowerShell ConvertFrom-Json over conformance/v1/authority/**/*.json",
       "exit_code": 0,
-      "result": "64 JSON files parsed"
-    },
-    {
-      "surface": "windows",
-      "command": "python provider-mismatch and rejection-manifest assertions",
-      "exit_code": 0,
-      "result": "Agent operating-subject mismatch rejected; 13 authentication and 10 authority conditions present"
+      "result": "67 JSON files parsed"
     },
     {
       "surface": "windows",
       "command": "node scripts/check-doc-links.mjs",
       "exit_code": 0,
-      "result": "140 internal documentation links"
+      "result": "163 internal documentation links checked"
     },
     {
       "surface": "windows",
       "command": "node scripts/check-work-items.mjs",
       "exit_code": 0,
-      "result": "six work items passed lifecycle, dependency, map-parity, transition, and evidence checks"
-    },
-    {
-      "surface": "windows",
-      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
-      "exit_code": 0,
-      "result": "43 Markdown files; 0 issues"
+      "result": "7 work items passed metadata, lifecycle, dependencies, map parity, transitions, and evidence contracts"
     },
     {
       "surface": "windows",
@@ -76,46 +116,60 @@
     },
     {
       "surface": "windows",
-      "command": "git -c safe.directory=D:/github/Proof diff --check",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
       "exit_code": 0,
-      "result": "passed with checkout line-ending advisories only"
+      "result": "passed with task-local npm cache"
     },
     {
       "surface": "windows",
-      "command": "rg credential-shaped literal scan over docs and conformance",
-      "exit_code": 1,
-      "result": "expected no-match exit; no credential-shaped literals found"
+      "command": "git -c safe.directory=D:/github/Proof diff --check",
+      "exit_code": 0,
+      "result": "passed with checkout line-ending advisories only"
     }
   ],
+  "falsification": {
+    "strongest_counterargument": "The v2 released query cannot know exact Schema authority until it resolves current Release and Edition state.",
+    "finding": "The first draft overreached by naming every Edition target Schema.",
+    "correction": "The registry now authorizes caller-controlled axes first and resolves only requested Objects' Schemas before exact Schema membership and disclosure.",
+    "strongest_rejected_alternative": "Tuple-scoped DelegationV3",
+    "rejection_basis": "It duplicates immutable Human-issued target intent, expands signed and portable closure, and addresses no demonstrated Milestone 2 failure.",
+    "confidence": "high"
+  },
+  "limitations": [
+    "Project-owner acceptance has not occurred.",
+    "No authenticated Agent operation or runtime implementation is added by P-0003.",
+    "The local profile does not contain mutually hostile same-UID processes or attest a process, executable, model, or runtime.",
+    "Authority-prefix rollback and hidden forks require an independently pinned authority head.",
+    "The complete Windows workspace suite is not a qualifying surface because this build has no Windows local identity adapter.",
+    "No live remote, push, tag, release, deploy, or publication operation was performed."
+  ],
   "artifact_digests": [
-    {"path": "docs/architecture/authenticated-actor.md", "algorithm": "sha256", "digest": "15846a3e87b3e990f887fe1e1661322963c2c936091bd4b386a0264cd6660abf"},
-    {"path": "docs/decisions/0011-local-agent-command-authentication.md", "algorithm": "sha256", "digest": "5ed29de32a20860a35bedd91a15457ef1323735dbbf2c08ef89243f00dd8a185"},
-    {"path": "conformance/v1/authority/README.md", "algorithm": "sha256", "digest": "88e9e038efaa387cecbc03bb9a98a646f5c8e998544c56a498e82ac7f0c76ab6"},
-    {"path": "conformance/v1/authority/schemas/delegation-v2.schema.json", "algorithm": "sha256", "digest": "4eb5ca33dbf56d382be3e6d9bcffb01f08233ae9332699d3b024918c993c87ff"},
-    {"path": "conformance/v1/authority/schemas/authorization-decision-v2.schema.json", "algorithm": "sha256", "digest": "d0238bd7d537fce6c7083064f9ddd1c55cea239bc89e1b41647705ae1ff3ac62"},
-    {"path": "conformance/v1/authority/schemas/command-input-v1.schema.json", "algorithm": "sha256", "digest": "7030541d54e549e51acc37434288e6f52e073b9f1fd52cca12bfa4c559685c55"},
-    {"path": "conformance/v1/authority/vectors/semantic-command.valid.json", "algorithm": "sha256", "digest": "788158071f66f5fbf9348d4d8b5e9cd0921b8126c38188f7ede794a93698d8ee"},
-    {"path": "conformance/v1/authority/vectors/authorization-decision-v2.valid.json", "algorithm": "sha256", "digest": "d9a661f15584420ea8fe7793e36d1a95a5032196275607e0096b3e4e57b9d785"},
-    {"path": "conformance/v1/authority/vectors/workspace-authority-root-transition.dsse-bytes.valid.json", "algorithm": "sha256", "digest": "29d9735b2c7d7dbc2636ec4301df17fa48b72c91d5abbbc0ff26bc8623119047"}
+    {"path":"conformance/v1/authority/README.md","git_blob_oid":"c086e24614adbec80664a4e94182fea618c070e9","algorithm":"sha256","digest":"073265ea58681cbef8fa33fc104091310b0edc7aad9d441770baa89a68b1c363"},
+    {"path":"conformance/v1/authority/schemas/authority-operation-registry-v1.schema.json","git_blob_oid":"1112bb6d429c928e451fc51b2ebf6ab4b497611d","algorithm":"sha256","digest":"8d275e676a8e6b3176129277538db2f191d2f88170573ec20d9b82bce7b23663"},
+    {"path":"conformance/v1/authority/schemas/authorization-decision-v2.schema.json","git_blob_oid":"d6643c71b9308a8ba86e1dc088e8fcaf7a36c358","algorithm":"sha256","digest":"e2f941d49748f95b2bb80eb611a90e572321e6fa549feafe8b05bfa45dd96ff6"},
+    {"path":"conformance/v1/authority/schemas/delegation-v2.schema.json","git_blob_oid":"3c6f7543d5a9efcc749e98a4f04f5e12b0d1c176","algorithm":"sha256","digest":"75c1c031cdf441aa5eae07fdab8915bab031a8cae3ffa0b1b8a27e35e040706d"},
+    {"path":"conformance/v1/authority/schemas/operation-v1.schema.json","git_blob_oid":"54cb53a01b2c9bbf9be0c44907a0e9833ff0e0f9","algorithm":"sha256","digest":"ade6f265687bafb36e4e8649b55fa443756ad37c16a1d753a788b591eddcc2f9"},
+    {"path":"conformance/v1/authority/schemas/rejected-case-manifest-v1.schema.json","git_blob_oid":"0005484373dcdf4d17d6f71bbe176577f92a7dad","algorithm":"sha256","digest":"d8eff2b246421535b4d9a85a68081047520a4748bbddd82b76c7e76d858c4c47"},
+    {"path":"conformance/v1/authority/vectors/authority-operation-registry.valid.json","git_blob_oid":"29badfbf630b75503d65c6866ad93c9ae5e5d138","algorithm":"sha256","digest":"b4e67916e0d1cae8e7b73ce681057edcad7f83bc953487ccf127333a3340bca7"},
+    {"path":"conformance/v1/authority/vectors/delegation-v2.localized-scope.valid.json","git_blob_oid":"ee9e1198642e05c7f0aefb20e6ab8045cb786b08","algorithm":"sha256","digest":"6a7c203fb170aff88a907764e5d8e92e800d1d3a8ab0f987aba00795c83d065a"},
+    {"path":"conformance/v1/authority/vectors/rejected-authorization-cases.json","git_blob_oid":"aa7aa8509312d6b54b81afa88d3a18e02e49c2e6","algorithm":"sha256","digest":"35786401add25b7ec9fd94777cca7962b1d036f0f77382a6244add4b4f7fef4b"},
+    {"path":"crates/proof-local/tests/p0003_authority_reconciliation.rs","git_blob_oid":"4bf5c97e2f071d9a083ca84fe95ad56d75c45a41","algorithm":"sha256","digest":"54716398e97a87c3d12c63f8f7d9e4528a0e5475df72bcd4079be059a026d115"},
+    {"path":"docs/architecture/agent-authority.md","git_blob_oid":"b1dc37f7a714fb33b26742b6d07a1db7db660be5","algorithm":"sha256","digest":"b379f77da9f3ea040fb850fc99ed51e6ea19feebce59a66dd515b21558a4978e"},
+    {"path":"docs/architecture/authenticated-actor.md","git_blob_oid":"8d0354ad0ef3a3bc4fdd32ecdf8383d9c9fa25b3","algorithm":"sha256","digest":"1deb2836b454a3fdc65c055df5d55bd08088c945df5b23f369f282db64ad069b"},
+    {"path":"docs/architecture/delegated-content.md","git_blob_oid":"e34c39013d64707d2c694f367fcc9937094233be","algorithm":"sha256","digest":"9b335c4c0b32771ee831a371879cae9468b998d63767c9b0b953bceed4afcd78"},
+    {"path":"docs/architecture/domain-model.md","git_blob_oid":"0998021df4b03af075f2a6707da146388314337e","algorithm":"sha256","digest":"238ca89eb570f4d0fe6917768b7a4212db6e5ab4329b41858c969f0284718fbc"},
+    {"path":"docs/architecture/threat-model.md","git_blob_oid":"6be8ddf8fb917486122f75d1d82f143d1437d71f","algorithm":"sha256","digest":"9d67f592fedfefa778e0eac1c96d60ee68652d831cb0d3c9c971ad33e3ddf55c"},
+    {"path":"docs/decisions/0011-local-agent-command-authentication.md","git_blob_oid":"853e2e71968f8d473cfb2edafe6a9d56810315d4","algorithm":"sha256","digest":"33d4c43fcfbead494d52d0c347c0114e4c1c8fdf32e9f330528d6e2d563cbe33"},
+    {"path":"docs/product/roadmap.md","git_blob_oid":"8f57964d90ab187b62f0d6b01a749f876baf2efb","algorithm":"sha256","digest":"d0564386d047f03cdf2a71c84a6824981aca6b2b10e63098be6902868039a12d"},
+    {"path":"docs/product/vision.md","git_blob_oid":"275c28168b0215960ae3eeec9983a01448b464dd","algorithm":"sha256","digest":"76b11fed61111885e5e2bad3445b6424915d06ab225dc555c9ee2304d3bc1684"},
+    {"path":"docs/reference/cli.md","git_blob_oid":"24635ea812f5cfd0773305fc82733d9d5f501008","algorithm":"sha256","digest":"9727314c93be9c77c6c049a6e98f40f861b31edda7e55a1245a37457347b0810"},
+    {"path":"docs/reference/standards.md","git_blob_oid":"3266f08db62c7bee18e4b2ecd99392e82b5453ec","algorithm":"sha256","digest":"fb900fe45c25d1038ad9eeba70d0643e5a58b8b44a8e2336381603d408b8a536"},
+    {"path":"docs/work/items/P-0003-ratify-authenticated-actor.md","git_blob_oid":"3f83a2e421903518071e72951ff112a98895174f","algorithm":"sha256","digest":"738b6ad224110f6c121392382aed5e9ae632086bee095066de03c505fe9a8c10"},
+    {"path":"docs/work/items/P-0004-implement-authorization-kernel.md","git_blob_oid":"1346d76cc53774c58421a8a76cfe57b5b2af2d3e","algorithm":"sha256","digest":"61e1d6ca0378a0496e9cf5a07e12e03cc2de4ce0c0bb6eeed7972acc33630e67"},
+    {"path":"docs/work/items/P-0006-close-milestone-2.md","git_blob_oid":"e93ab7e081bf9cdc1eb7244efbb48d18e2242eca","algorithm":"sha256","digest":"78d85bc401005e59fd3778dbf6f462f420fa14482ab5842f0a6f5688155614ce"}
   ],
   "evidence_paths": [
     "docs/work/evidence/P-0003/receipt.md",
     "docs/work/evidence/P-0003/manifest.json"
-  ],
-  "decision_state": {
-    "candidate_qualified": true,
-    "owner_accepted": false,
-    "status_after_control_commit": "blocked",
-    "blocking_dependency": "P-0002"
-  },
-  "boundaries": {
-    "code_changed": false,
-    "pushed": false,
-    "tagged": false,
-    "released": false,
-    "published": false,
-    "provider_traffic": false,
-    "project_owner_accepted": false,
-    "constitution_ratified": false
-  }
+  ]
 }
