@@ -1,7 +1,7 @@
 ---
 id: P-0007
 title: Implement the localized content foundation
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0002]
@@ -9,8 +9,8 @@ claimed_by: buzz:proof-engineering:4fba209ea00d5d985d87873f17915f6ed117ca6e0272a
 claimed_at: 2026-08-19T17:39:58Z
 base_sha: a95ee484b7038358c0d4e30167862dbed85728c0
 review_gate: proof-assurance
-accepted_by: null
-accepted_at: null
+accepted_by: proof-assurance
+accepted_at: 2026-08-20T18:40:20.012Z
 ---
 
 # Implement the localized content foundation
@@ -197,11 +197,15 @@ Both `fede487547c3e2bb27f5cb8fb168f5b5312a5f23` and
 candidates. Neither is promoted, restored, or relabeled by replacement
 qualification.
 
-The item is not accepted or done until `proof-assurance` records a supported
-independent G1-G14 verdict. An unsupported or indeterminate row returns the
-item to Engineering or requires an authorized revision; it must not silently
-narrow the claim. Review status does not assert release, production, delegated
-Agent authority, or customer proof.
+Proof Assurance completed the independent G1-G14 run at
+`2026-08-20T18:40:20.012Z` and recorded `supported` for exact candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb`, bound through Engineering evidence
+commit `8308ebfb9090270982fcfb06c8247ab423fcb51d`. Every row passed; the bounded
+P-0007 item is accepted and `done`. Historical unsupported candidates remain
+unsupported. Completion does not assert release, production, delegated Agent
+authority, or customer proof.
+
+Assurance record commit: `29ad9d95c100c9ecfad5080c998915c23a2a5f93`
 
 ## Residual risks and next-wave update
 

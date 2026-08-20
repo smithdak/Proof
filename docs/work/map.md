@@ -60,12 +60,12 @@ only after the Milestone 2 exit scenario passes.
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `ready` | P-0001, P-0002 | Reconcile the qualified authentication candidate with the ratified localized-content closure. |
-| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `review` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
+| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
-P-0007 replacement candidate `4715314` is Engineering-qualified and awaiting a
-new independent G1-G14 verdict. Assurance remains `indeterminate`; historical
+P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
+is accepted as `done` through Assurance record `29ad9d9`. Historical
 unsupported candidates `fede487` and `c4b312d` remain unsupported and are not
-relabeled by the replacement entry.
+relabeled by completion.
 
 ## Next
 
