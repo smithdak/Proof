@@ -32,9 +32,9 @@ use proof_application::{
     AddLocalizedEditsCommand, BuildLocalizedContextCommand, CommitLocalizedChangeSetCommand,
     ContentResourceIntent, ContentResourceIntentId, CreateLocalizedChangeSetCommand,
     CreateLocalizedEditionCommand, ExpectedLocalizedSource, ExpectedLocalizedTarget,
-    IssueContentResourceIntentCommand, LocaleId, LocaleRevision, LocalizedContentError,
-    LocalizedContentRepository, LocalizedContentTarget, LocalizedContextLimits,
-    LocalizedContextPack, LocalizedPolicyRule, ObjectLocalePutInput,
+    IssueContentResourceIntentCommand, LocaleId, LocaleRevision, LocalizedChangeSet,
+    LocalizedContentError, LocalizedContentRepository, LocalizedContentTarget,
+    LocalizedContextLimits, LocalizedContextPack, LocalizedPolicyRule, ObjectLocalePutInput,
     PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand, ReleasedLocaleTarget,
     RollbackLocalizedReleaseCommand, VerifyLocalizedReleaseCommand,
 };
@@ -11292,6 +11292,7 @@ struct LocalizedDraftFixture {
     repository: LocalWorkspace,
     intent: ContentResourceIntent,
     context: LocalizedContextPack,
+    changeset: LocalizedChangeSet,
     intent_command: IssueContentResourceIntentCommand,
     context_command: BuildLocalizedContextCommand,
     changeset_id: ChangeSetId,
@@ -11320,14 +11321,16 @@ fn localized_draft_fixture() -> LocalizedDraftFixture {
         schema_id: schema_id.clone(),
         schema_version,
     };
-    let (intent, context, intent_command, context_command, changeset_id) =
+    let (intent, context, intent_command, context_command, changeset) =
         create_localized_draft(&repository, object_id, schema_id, &locale);
+    let changeset_id = changeset.changeset_id;
 
     LocalizedDraftFixture {
         _directory: directory,
         repository,
         intent,
         context,
+        changeset,
         intent_command,
         context_command,
         changeset_id,
@@ -11424,7 +11427,7 @@ fn create_localized_draft(
     LocalizedContextPack,
     IssueContentResourceIntentCommand,
     BuildLocalizedContextCommand,
-    ChangeSetId,
+    LocalizedChangeSet,
 ) {
     let intent_command = localized_intent_command(
         LOCALIZED_INTENT_ID,
@@ -11448,17 +11451,10 @@ fn create_localized_draft(
     let context = repository
         .build_localized_context(context_command.clone())
         .unwrap();
-    let changeset_id = repository
+    let changeset = repository
         .create_localized_changeset(localized_changeset_command(&intent, &context))
-        .unwrap()
-        .changeset_id;
-    (
-        intent,
-        context,
-        intent_command,
-        context_command,
-        changeset_id,
-    )
+        .unwrap();
+    (intent, context, intent_command, context_command, changeset)
 }
 
 fn localized_intent_command(
@@ -11552,6 +11548,253 @@ fn localized_governed_snapshot(repository: &LocalWorkspace) -> Vec<Vec<Vec<Strin
         )
     })
     .collect()
+}
+
+fn localized_release_governed_snapshot(repository: &LocalWorkspace) -> Vec<Vec<Vec<String>>> {
+    let connection = repository.open_database().unwrap();
+    [
+        "SELECT * FROM releases ORDER BY rowid",
+        "SELECT * FROM localized_release_metadata ORDER BY rowid",
+        "SELECT * FROM release_proofs ORDER BY rowid",
+        "SELECT * FROM localized_release_operations ORDER BY rowid",
+        "SELECT * FROM release_policy_decisions ORDER BY rowid",
+        "SELECT * FROM release_proof_export_outbox ORDER BY rowid",
+        "SELECT * FROM environment_current_releases ORDER BY rowid",
+        "SELECT * FROM editions ORDER BY rowid",
+        "SELECT * FROM localized_edition_metadata ORDER BY rowid",
+        "SELECT * FROM localized_edition_operations ORDER BY rowid",
+        "SELECT * FROM localized_commits ORDER BY rowid",
+        "SELECT * FROM known_state ORDER BY rowid",
+    ]
+    .iter()
+    .map(|query| snapshot_rows(&connection, query))
+    .collect()
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixture retains one complete mixed v1/v2 promotion and rollback chain"
+)]
+fn localized_mixed_release_chain_fixture() -> (LocalizedDraftFixture, ReleaseId, ReleaseId) {
+    const EDIT_ID: &str = "019c0000-0000-7000-8000-0000000002f0";
+    const ADD_KEY: &str = "019c0000-0000-7000-8000-0000000002f1";
+    const COMMIT_KEY: &str = "019c0000-0000-7000-8000-0000000002f2";
+    const EDITION_ID: &str = "019c0000-0000-7000-8000-0000000002f3";
+    const EDITION_KEY: &str = "019c0000-0000-7000-8000-0000000002f4";
+    const RELEASE_ID: &str = "019c0000-0000-7000-8000-0000000002f5";
+    const PROOF_ID: &str = "019c0000-0000-7000-8000-0000000002f6";
+    const RELEASE_KEY: &str = "019c0000-0000-7000-8000-0000000002f7";
+    const ROLLBACK_ID: &str = "019c0000-0000-7000-8000-0000000002f8";
+    const ROLLBACK_PROOF_ID: &str = "019c0000-0000-7000-8000-0000000002f9";
+    const ROLLBACK_KEY: &str = "019c0000-0000-7000-8000-0000000002fa";
+
+    let fixture = localized_draft_fixture();
+    let repository = &fixture.repository;
+    let canonical_content = canonicalize(&serde_json::json!({
+        "legal": "Des conditions standard s’appliquent",
+        "slug": "summer-campaign",
+        "title": "Campagne d’été",
+    }))
+    .unwrap();
+    repository
+        .add_localized_edits(AddLocalizedEditsCommand {
+            changeset_id: fixture.changeset_id,
+            edits: vec![ObjectLocalePutInput {
+                object_id: fixture.object_id,
+                locale: fixture.locale.clone(),
+                expected_source: fixture.expected_source.clone(),
+                expected_target: None,
+                canonical_content: canonical_content.as_str().to_owned(),
+                supersedes_edit_id: None,
+                repair_of_validation_result_digest: None,
+            }],
+            assigned_edit_ids: vec![EDIT_ID.parse().unwrap()],
+            idempotency_key: ADD_KEY.parse().unwrap(),
+        })
+        .unwrap();
+    assert!(
+        repository
+            .validate_localized_changeset(fixture.changeset_id)
+            .unwrap()
+            .valid
+    );
+    repository
+        .submit_localized_changeset(
+            fixture.changeset_id,
+            "2026-08-17T16:10:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    repository
+        .approve_localized_changeset(
+            fixture.changeset_id,
+            ApprovalName::new("editorial").unwrap(),
+            "2026-08-17T16:11:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    let committed = repository
+        .commit_localized_changeset(CommitLocalizedChangeSetCommand {
+            changeset_id: fixture.changeset_id,
+            idempotency_key: COMMIT_KEY.parse().unwrap(),
+            committed_at: "2026-08-17T16:12:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    let edition = repository
+        .create_localized_edition(CreateLocalizedEditionCommand {
+            edition_id: EDITION_ID.parse().unwrap(),
+            changeset_id: fixture.changeset_id,
+            resulting_state_digest: committed.resulting_state.digest,
+            idempotency_key: EDITION_KEY.parse().unwrap(),
+            created_at: "2026-08-17T16:13:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    let release = repository
+        .promote_localized_release(PromoteLocalizedReleaseCommand {
+            release_id: RELEASE_ID.parse().unwrap(),
+            proof_id: PROOF_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            edition_id: edition.edition_id,
+            expected_base_release_id: FIRST_RELEASE_ID.parse().unwrap(),
+            idempotency_key: RELEASE_KEY.parse().unwrap(),
+            released_at: "2026-08-17T16:14:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    let rollback = repository
+        .rollback_localized_release(RollbackLocalizedReleaseCommand {
+            release_id: ROLLBACK_ID.parse().unwrap(),
+            proof_id: ROLLBACK_PROOF_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            expected_current_release_id: release.release_id,
+            rollback_target_release_id: FIRST_RELEASE_ID.parse().unwrap(),
+            idempotency_key: ROLLBACK_KEY.parse().unwrap(),
+            released_at: "2026-08-17T16:15:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    assert!(
+        repository
+            .verify_localized_release(VerifyLocalizedReleaseCommand {
+                release_id: rollback.release_id,
+                verified_at: "2026-08-17T16:16:00Z".parse().unwrap(),
+            })
+            .unwrap()
+            .valid
+    );
+    (fixture, release.release_id, rollback.release_id)
+}
+
+#[test]
+fn localized_release_verifier_rejects_self_v2_predecessor_cycle_without_writes() {
+    let (fixture, release_id, _) = localized_mixed_release_chain_fixture();
+    let repository = &fixture.repository;
+    let connection = repository.open_database().unwrap();
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE releases SET previous_release_id = ?1 WHERE release_id = ?1",
+                [release_id.to_string()],
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE localized_release_metadata SET base_release_id = ?1
+                 WHERE release_id = ?1",
+                [release_id.to_string()],
+            )
+            .unwrap(),
+        1
+    );
+    drop(connection);
+    let before = localized_release_governed_snapshot(repository);
+    let error = repository
+        .verify_localized_release(VerifyLocalizedReleaseCommand {
+            release_id,
+            verified_at: "2026-08-17T16:16:00Z".parse().unwrap(),
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        LocalizedContentError::Integrity(
+            "localized Release predecessor is not earlier in the same Workspace and Environment"
+                .to_owned()
+        )
+    );
+    assert_eq!(localized_release_governed_snapshot(repository), before);
+}
+
+#[test]
+fn localized_release_verifier_rejects_self_v2_rollback_cycle_without_writes() {
+    let (fixture, _, rollback_id) = localized_mixed_release_chain_fixture();
+    let repository = &fixture.repository;
+    assert_eq!(
+        repository
+            .open_database()
+            .unwrap()
+            .execute(
+                "UPDATE releases SET rollback_target_release_id = ?1 WHERE release_id = ?1",
+                [rollback_id.to_string()],
+            )
+            .unwrap(),
+        1
+    );
+    let before = localized_release_governed_snapshot(repository);
+    let error = repository
+        .verify_localized_release(VerifyLocalizedReleaseCommand {
+            release_id: rollback_id,
+            verified_at: "2026-08-17T16:16:00Z".parse().unwrap(),
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        LocalizedContentError::Integrity(
+            "localized Release rollback target is not earlier in the same Workspace and Environment"
+                .to_owned()
+        )
+    );
+    assert_eq!(localized_release_governed_snapshot(repository), before);
+}
+
+#[test]
+fn localized_release_verifier_rejects_two_node_v2_predecessor_cycle_without_writes() {
+    let (fixture, release_id, rollback_id) = localized_mixed_release_chain_fixture();
+    let repository = &fixture.repository;
+    let connection = repository.open_database().unwrap();
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE releases SET previous_release_id = ?1 WHERE release_id = ?2",
+                (rollback_id.to_string(), release_id.to_string()),
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE localized_release_metadata SET base_release_id = ?1
+                 WHERE release_id = ?2",
+                (rollback_id.to_string(), release_id.to_string()),
+            )
+            .unwrap(),
+        1
+    );
+    drop(connection);
+    let before = localized_release_governed_snapshot(repository);
+    let error = repository
+        .verify_localized_release(VerifyLocalizedReleaseCommand {
+            release_id: rollback_id,
+            verified_at: "2026-08-17T16:16:00Z".parse().unwrap(),
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        LocalizedContentError::Integrity(
+            "localized Release predecessor is not earlier in the same Workspace and Environment"
+                .to_owned()
+        )
+    );
+    assert_eq!(localized_release_governed_snapshot(repository), before);
 }
 
 fn assert_intent_integrity_consumers_fail(fixture: &LocalizedDraftFixture, case: &str) {
@@ -12024,6 +12267,75 @@ fn localized_control_replays_survive_environment_pointer_movement() {
             .unwrap_err(),
         LocalizedContentError::IdempotencyKeyReused
     );
+    assert_eq!(localized_governed_snapshot(repository), before);
+}
+
+#[test]
+fn localized_changeset_create_replay_returns_original_draft_after_commit() {
+    const EDIT_ID: &str = "019c0000-0000-7000-8000-0000000002e0";
+    const ADD_KEY: &str = "019c0000-0000-7000-8000-0000000002e1";
+    const COMMIT_KEY: &str = "019c0000-0000-7000-8000-0000000002e2";
+
+    let fixture = localized_draft_fixture();
+    let repository = &fixture.repository;
+    let original = fixture.changeset.clone();
+    let command = localized_changeset_command(&fixture.intent, &fixture.context);
+    let canonical_content = canonicalize(&serde_json::json!({
+        "legal": "Des conditions standard s’appliquent",
+        "slug": "summer-campaign",
+        "title": "Campagne d’été",
+    }))
+    .unwrap();
+    repository
+        .add_localized_edits(AddLocalizedEditsCommand {
+            changeset_id: fixture.changeset_id,
+            edits: vec![ObjectLocalePutInput {
+                object_id: fixture.object_id,
+                locale: fixture.locale.clone(),
+                expected_source: fixture.expected_source,
+                expected_target: None,
+                canonical_content: canonical_content.as_str().to_owned(),
+                supersedes_edit_id: None,
+                repair_of_validation_result_digest: None,
+            }],
+            assigned_edit_ids: vec![EDIT_ID.parse().unwrap()],
+            idempotency_key: ADD_KEY.parse().unwrap(),
+        })
+        .unwrap();
+    assert!(
+        repository
+            .validate_localized_changeset(fixture.changeset_id)
+            .unwrap()
+            .valid
+    );
+    repository
+        .submit_localized_changeset(
+            fixture.changeset_id,
+            "2026-08-17T16:10:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    repository
+        .approve_localized_changeset(
+            fixture.changeset_id,
+            ApprovalName::new("editorial").unwrap(),
+            "2026-08-17T16:11:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    repository
+        .commit_localized_changeset(CommitLocalizedChangeSetCommand {
+            changeset_id: fixture.changeset_id,
+            idempotency_key: COMMIT_KEY.parse().unwrap(),
+            committed_at: "2026-08-17T16:12:00Z".parse().unwrap(),
+        })
+        .unwrap();
+
+    let before = localized_governed_snapshot(repository);
+    let replayed = repository.create_localized_changeset(command).unwrap();
+    assert_eq!(replayed, original);
+    assert_eq!(replayed.status.to_string(), "draft");
+    assert!(replayed.edits.is_empty());
+    assert!(replayed.proposal_digest.is_none());
+    assert!(replayed.sealed_changeset_digest.is_none());
     assert_eq!(localized_governed_snapshot(repository), before);
 }
 

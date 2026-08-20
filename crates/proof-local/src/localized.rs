@@ -3236,12 +3236,43 @@ fn create_changeset(
         let changeset_id = changeset_id
             .parse::<ChangeSetId>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let changeset = load_changeset(transaction, workspace_id, changeset_id)?;
-        let expected_effect = changeset_creation_effect(request_digest, &changeset)?;
+        let current = load_changeset(transaction, workspace_id, changeset_id)?;
+        let original = LocalizedChangeSet {
+            changeset_id: command.changeset_id,
+            workspace_id: current.workspace_id,
+            principal_id: current.principal_id,
+            intent: command.intent.clone(),
+            resource_intent_id: command.resource_intent_id,
+            resource_intent_digest: command.resource_intent_digest,
+            context_pack_id: command.context_pack_id,
+            context_pack_digest: command.context_pack_digest,
+            base_state: current.base_state.clone(),
+            created_at: command.created_at,
+            status: ChangeSetStatus::Draft,
+            edits: Vec::new(),
+            proposal_digest: None,
+            sealed_changeset_digest: None,
+        };
+        let expected_effect = changeset_creation_effect(request_digest, &original)?;
         if persisted_request != expected_effect.to_string() {
             return Err(LocalPortError::IdempotencyKeyReused);
         }
-        return Ok(changeset);
+        if current.changeset_id != original.changeset_id
+            || current.workspace_id != original.workspace_id
+            || current.principal_id != original.principal_id
+            || current.intent != original.intent
+            || current.resource_intent_id != original.resource_intent_id
+            || current.resource_intent_digest != original.resource_intent_digest
+            || current.context_pack_id != original.context_pack_id
+            || current.context_pack_digest != original.context_pack_digest
+            || current.base_state != original.base_state
+            || current.created_at != original.created_at
+        {
+            return Err(LocalPortError::Integrity(
+                "localized ChangeSet creation fields differ from the operation effect".to_owned(),
+            ));
+        }
+        return Ok(original);
     }
     let intent = load_resource_intent(transaction, workspace_id, command.resource_intent_id)?;
     let context = load_context(transaction, workspace_id, command.context_pack_id)?;
@@ -6662,6 +6693,45 @@ struct VersionedReleaseSelection {
     released_at: Timestamp,
 }
 
+fn verify_earlier_release_reference(
+    transaction: &Transaction<'_>,
+    workspace_id: proof_application::WorkspaceId,
+    release_id: ReleaseId,
+    environment_id: &proof_application::EnvironmentId,
+    later_sequence: u64,
+    later_released_at: Timestamp,
+    relationship: &str,
+) -> Result<(), LocalPortError> {
+    let row: (String, String, i64, String) = transaction
+        .query_row(
+            "SELECT workspace_id, environment_id, release_sequence, released_at
+             FROM releases WHERE release_id = ?1",
+            [release_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?
+        .ok_or_else(|| {
+            LocalPortError::Integrity(format!("localized Release {relationship} is missing"))
+        })?;
+    let release_sequence = u64::try_from(row.2)
+        .map_err(|_| LocalPortError::Integrity("invalid Release sequence".to_owned()))?;
+    let released_at = row
+        .3
+        .parse::<Timestamp>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if row.0 != workspace_id.to_string()
+        || row.1 != environment_id.as_str()
+        || release_sequence >= later_sequence
+        || released_at > later_released_at
+    {
+        return Err(LocalPortError::Integrity(format!(
+            "localized Release {relationship} is not earlier in the same Workspace and Environment"
+        )));
+    }
+    Ok(())
+}
+
 fn load_release_selection(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
@@ -7609,6 +7679,15 @@ fn load_localized_release(
         .4
         .parse::<ContentDigest>()
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    verify_earlier_release_reference(
+        transaction,
+        workspace_id,
+        previous_release_id,
+        &environment_id,
+        release_sequence,
+        released_at,
+        "predecessor",
+    )?;
     let base_release = load_release_selection(transaction, workspace_id, previous_release_id)?;
     if base_release.environment_id != environment_id
         || base_release.release_sequence >= release_sequence
@@ -7687,9 +7766,19 @@ fn load_localized_release(
                     "localized rollback evidence shape is invalid".to_owned(),
                 ));
             };
+            verify_earlier_release_reference(
+                transaction,
+                workspace_id,
+                target_release_id,
+                &environment_id,
+                base_release.release_sequence,
+                base_release.released_at,
+                "rollback target",
+            )?;
             let target = load_release_selection(transaction, workspace_id, target_release_id)?;
             if target.environment_id != environment_id
                 || target.release_sequence >= base_release.release_sequence
+                || target.released_at > base_release.released_at
                 || target.edition != edition.reference
             {
                 return Err(LocalPortError::Integrity(
