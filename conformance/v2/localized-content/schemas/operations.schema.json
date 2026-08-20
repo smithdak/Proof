@@ -40,10 +40,10 @@
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuidV7" }]
     },
     "stateReference": {
-      "$ref": "artifacts.schema.json#/$defs/stateReference"
+      "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/stateReference"
     },
     "editionReference": {
-      "$ref": "artifacts.schema.json#/$defs/editionReference"
+      "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/editionReference"
     },
     "semanticEdit": {
       "type": "object",
@@ -62,11 +62,11 @@
       "properties": {
         "api_version": { "const": "proof.dev/edit/v2" },
         "content": { "type": "object" },
-        "expected_source": { "$ref": "artifacts.schema.json#/$defs/expectedSource" },
+        "expected_source": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/expectedSource" },
         "expected_target": {
           "oneOf": [
             { "type": "null" },
-            { "$ref": "artifacts.schema.json#/$defs/expectedTarget" }
+            { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/expectedTarget" }
           ]
         },
         "kind": { "const": "object.locale.put" },
@@ -96,11 +96,11 @@
         "created_at": { "$ref": "#/$defs/timestamp" },
         "expires_at": { "$ref": "#/$defs/timestamp" },
         "idempotency_key": { "$ref": "#/$defs/uuidV7" },
-        "limits": { "$ref": "artifacts.schema.json#/$defs/contextLimits" },
+        "limits": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contextLimits" },
         "policy_rules": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "artifacts.schema.json#/$defs/policyRule" }
+          "items": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/policyRule" }
         },
         "resource_intent_digest": { "$ref": "#/$defs/digest" },
         "resource_intent_id": { "$ref": "#/$defs/uuidV7" }
@@ -119,7 +119,7 @@
       "properties": {
         "context_pack_digest": { "$ref": "#/$defs/digest" },
         "context_pack_id": { "$ref": "#/$defs/uuidV7" },
-        "manifest": { "$ref": "artifacts.schema.json#/$defs/contextPackV2" },
+        "manifest": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contextPackV2" },
         "resource_intent_digest": { "$ref": "#/$defs/digest" },
         "resource_intent_id": { "$ref": "#/$defs/uuidV7" }
       }
@@ -222,7 +222,7 @@
       }
     },
     "changeSetGetOutput": {
-      "$ref": "artifacts.schema.json#/$defs/changeSetV2"
+      "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/changeSetV2"
     },
     "changeSetDiffInput": {
       "type": "object",
@@ -242,7 +242,7 @@
         "effective_edits": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "artifacts.schema.json#/$defs/editV2" }
+          "items": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/editV2" }
         },
         "effective_leaf_digest": { "$ref": "#/$defs/digest" },
         "proposal_digest": { "$ref": "#/$defs/digest" }
@@ -278,7 +278,7 @@
         "effective_leaf_digest": { "$ref": "#/$defs/digest" },
         "findings": {
           "type": "array",
-          "items": { "$ref": "artifacts.schema.json#/$defs/finding" }
+          "items": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/finding" }
         },
         "previous_validation_result_digest": { "$ref": "#/$defs/nullableDigest" },
         "proposal_digest": { "$ref": "#/$defs/digest" },
@@ -347,7 +347,7 @@
         "renditions": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "artifacts.schema.json#/$defs/objectLocaleRevisionV1" }
+          "items": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/objectLocaleRevisionV1" }
         },
         "resulting_state": { "$ref": "#/$defs/stateReference" },
         "sealed_changeset_digest": { "$ref": "#/$defs/digest" },
@@ -382,7 +382,7 @@
       "properties": {
         "edition_digest": { "$ref": "#/$defs/digest" },
         "edition_id": { "$ref": "#/$defs/uuidV7" },
-        "manifest": { "$ref": "artifacts.schema.json#/$defs/editionV2" },
+        "manifest": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/editionV2" },
         "state": { "$ref": "#/$defs/stateReference" }
       }
     },
@@ -425,7 +425,7 @@
         "proof_id": { "$ref": "#/$defs/uuidV7" },
         "release_digest": { "$ref": "#/$defs/digest" },
         "release_id": { "$ref": "#/$defs/uuidV7" },
-        "release_manifest": { "$ref": "artifacts.schema.json#/$defs/releaseV2" }
+        "release_manifest": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/releaseV2" }
       }
     },
     "releasedTarget": {

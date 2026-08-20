@@ -973,6 +973,7 @@ dependencies = [
 name = "proof-local"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "jsonschema",
  "proof-application",
  "proof-attestation",
@@ -981,6 +982,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "serde_json_canonicalizer",
  "thiserror",
  "toml",
  "zeroize",

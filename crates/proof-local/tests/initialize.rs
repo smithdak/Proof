@@ -30,10 +30,11 @@ use proof_application::{
 };
 use proof_application::{
     AddLocalizedEditsCommand, BuildLocalizedContextCommand, CommitLocalizedChangeSetCommand,
-    ContentResourceIntentId, CreateLocalizedChangeSetCommand, CreateLocalizedEditionCommand,
-    ExpectedLocalizedSource, ExpectedLocalizedTarget, IssueContentResourceIntentCommand, LocaleId,
-    LocaleRevision, LocalizedContentError, LocalizedContentRepository, LocalizedContentTarget,
-    LocalizedContextLimits, LocalizedPolicyRule, ObjectLocalePutInput,
+    ContentResourceIntent, ContentResourceIntentId, CreateLocalizedChangeSetCommand,
+    CreateLocalizedEditionCommand, ExpectedLocalizedSource, ExpectedLocalizedTarget,
+    IssueContentResourceIntentCommand, LocaleId, LocaleRevision, LocalizedContentError,
+    LocalizedContentRepository, LocalizedContentTarget, LocalizedContextLimits,
+    LocalizedContextPack, LocalizedPolicyRule, ObjectLocalePutInput,
     PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand, ReleasedLocaleTarget,
     RollbackLocalizedReleaseCommand, VerifyLocalizedReleaseCommand,
 };
@@ -109,6 +110,17 @@ const SECOND_EDITION_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-0000000000
 const EDITION_SWAP_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-0000000000e4";
 const COMMIT_SWAP_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-0000000000e5";
 const DRAFT_SWAP_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-0000000000e6";
+const LOCALIZED_INTENT_ID: &str = "019c0000-0000-7000-8000-000000000200";
+const LOCALIZED_INTENT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000201";
+const LOCALIZED_CONTEXT_ID: &str = "019c0000-0000-7000-8000-000000000202";
+const LOCALIZED_CONTEXT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000203";
+const LOCALIZED_CHANGESET_ID: &str = "019c0000-0000-7000-8000-000000000204";
+const LOCALIZED_CHANGESET_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000205";
+const OTHER_LOCALIZED_INTENT_ID: &str = "019c0000-0000-7000-8000-0000000002d0";
+const OTHER_LOCALIZED_INTENT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-0000000002d1";
+const OTHER_LOCALIZED_CONTEXT_ID: &str = "019c0000-0000-7000-8000-0000000002d2";
+const OTHER_LOCALIZED_CONTEXT_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-0000000002d3";
+const DUPLICATE_LOCALIZED_OPERATION_KEY: &str = "019c0000-0000-7000-8000-0000000002df";
 const CREATED_AT: &str = "2026-08-03T14:00:00Z";
 
 #[test]
@@ -11278,6 +11290,10 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
 struct LocalizedDraftFixture {
     _directory: TestDirectory,
     repository: LocalWorkspace,
+    intent: ContentResourceIntent,
+    context: LocalizedContextPack,
+    intent_command: IssueContentResourceIntentCommand,
+    context_command: BuildLocalizedContextCommand,
     changeset_id: ChangeSetId,
     object_id: ObjectId,
     locale: LocaleId,
@@ -11304,11 +11320,16 @@ fn localized_draft_fixture() -> LocalizedDraftFixture {
         schema_id: schema_id.clone(),
         schema_version,
     };
-    let changeset_id = create_localized_draft(&repository, object_id, schema_id, &locale);
+    let (intent, context, intent_command, context_command, changeset_id) =
+        create_localized_draft(&repository, object_id, schema_id, &locale);
 
     LocalizedDraftFixture {
         _directory: directory,
         repository,
+        intent,
+        context,
+        intent_command,
+        context_command,
         changeset_id,
         object_id,
         locale,
@@ -11398,54 +11419,612 @@ fn create_localized_draft(
     object_id: ObjectId,
     schema_id: SchemaId,
     locale: &LocaleId,
-) -> ChangeSetId {
+) -> (
+    ContentResourceIntent,
+    LocalizedContextPack,
+    IssueContentResourceIntentCommand,
+    BuildLocalizedContextCommand,
+    ChangeSetId,
+) {
+    let intent_command = localized_intent_command(
+        LOCALIZED_INTENT_ID,
+        LOCALIZED_INTENT_IDEMPOTENCY_KEY,
+        object_id,
+        schema_id,
+        locale,
+        "2026-08-17T16:06:00Z",
+    );
     let intent = repository
-        .issue_content_resource_intent(IssueContentResourceIntentCommand {
-            intent_id: "019c0000-0000-7000-8000-000000000200".parse().unwrap(),
-            environment_id: ENVIRONMENT_ID.parse().unwrap(),
-            targets: vec![LocalizedContentTarget {
-                object_id,
-                schema_id,
-                locale: locale.clone(),
-            }],
-            idempotency_key: "019c0000-0000-7000-8000-000000000201".parse().unwrap(),
-            issued_at: "2026-08-17T16:06:00Z".parse().unwrap(),
-        })
+        .issue_content_resource_intent(intent_command.clone())
         .unwrap();
+    let context_command = localized_context_command(
+        LOCALIZED_CONTEXT_ID,
+        LOCALIZED_CONTEXT_IDEMPOTENCY_KEY,
+        &intent,
+        locale,
+        "2026-08-17T16:07:00Z",
+        "2026-08-18T16:07:00Z",
+    );
     let context = repository
-        .build_localized_context(BuildLocalizedContextCommand {
-            context_pack_id: "019c0000-0000-7000-8000-000000000202".parse().unwrap(),
-            resource_intent_id: intent.intent_id,
-            resource_intent_digest: intent.intent_digest,
-            policy_rules: vec![LocalizedPolicyRule {
-                locale: locale.clone(),
-                pointer: "/legal".to_owned(),
-                disallowed_values: vec!["Garantie absolue".to_owned()],
-            }],
-            limits: LocalizedContextLimits {
-                max_objects: 1,
-                max_edits: 10,
-                max_validation_attempts: 5,
-                max_bytes: 1_048_576,
-            },
-            idempotency_key: "019c0000-0000-7000-8000-000000000203".parse().unwrap(),
-            created_at: "2026-08-17T16:07:00Z".parse().unwrap(),
-            expires_at: "2026-08-18T16:07:00Z".parse().unwrap(),
-        })
+        .build_localized_context(context_command.clone())
         .unwrap();
-    repository
-        .create_localized_changeset(CreateLocalizedChangeSetCommand {
-            changeset_id: "019c0000-0000-7000-8000-000000000204".parse().unwrap(),
-            intent: ChangeSetIntent::new("Translate one exact campaign rendition").unwrap(),
-            resource_intent_id: intent.intent_id,
-            resource_intent_digest: intent.intent_digest,
-            context_pack_id: context.context_pack_id,
-            context_pack_digest: context.context_pack_digest,
-            idempotency_key: "019c0000-0000-7000-8000-000000000205".parse().unwrap(),
-            created_at: "2026-08-17T16:08:00Z".parse().unwrap(),
-        })
+    let changeset_id = repository
+        .create_localized_changeset(localized_changeset_command(&intent, &context))
         .unwrap()
-        .changeset_id
+        .changeset_id;
+    (
+        intent,
+        context,
+        intent_command,
+        context_command,
+        changeset_id,
+    )
+}
+
+fn localized_intent_command(
+    intent_id: &str,
+    idempotency_key: &str,
+    object_id: ObjectId,
+    schema_id: SchemaId,
+    locale: &LocaleId,
+    issued_at: &str,
+) -> IssueContentResourceIntentCommand {
+    IssueContentResourceIntentCommand {
+        intent_id: intent_id.parse().unwrap(),
+        environment_id: ENVIRONMENT_ID.parse().unwrap(),
+        targets: vec![LocalizedContentTarget {
+            object_id,
+            schema_id,
+            locale: locale.clone(),
+        }],
+        idempotency_key: idempotency_key.parse().unwrap(),
+        issued_at: issued_at.parse().unwrap(),
+    }
+}
+
+fn localized_context_command(
+    context_pack_id: &str,
+    idempotency_key: &str,
+    intent: &ContentResourceIntent,
+    locale: &LocaleId,
+    created_at: &str,
+    expires_at: &str,
+) -> BuildLocalizedContextCommand {
+    BuildLocalizedContextCommand {
+        context_pack_id: context_pack_id.parse().unwrap(),
+        resource_intent_id: intent.intent_id,
+        resource_intent_digest: intent.intent_digest,
+        policy_rules: vec![LocalizedPolicyRule {
+            locale: locale.clone(),
+            pointer: "/legal".to_owned(),
+            disallowed_values: vec!["Garantie absolue".to_owned()],
+        }],
+        limits: LocalizedContextLimits {
+            max_objects: 1,
+            max_edits: 10,
+            max_validation_attempts: 5,
+            max_bytes: 1_048_576,
+        },
+        idempotency_key: idempotency_key.parse().unwrap(),
+        created_at: created_at.parse().unwrap(),
+        expires_at: expires_at.parse().unwrap(),
+    }
+}
+
+fn localized_changeset_command(
+    intent: &ContentResourceIntent,
+    context: &LocalizedContextPack,
+) -> CreateLocalizedChangeSetCommand {
+    CreateLocalizedChangeSetCommand {
+        changeset_id: LOCALIZED_CHANGESET_ID.parse().unwrap(),
+        intent: ChangeSetIntent::new("Translate one exact campaign rendition").unwrap(),
+        resource_intent_id: intent.intent_id,
+        resource_intent_digest: intent.intent_digest,
+        context_pack_id: context.context_pack_id,
+        context_pack_digest: context.context_pack_digest,
+        idempotency_key: LOCALIZED_CHANGESET_IDEMPOTENCY_KEY.parse().unwrap(),
+        created_at: "2026-08-17T16:08:00Z".parse().unwrap(),
+    }
+}
+
+fn localized_governed_snapshot(repository: &LocalWorkspace) -> Vec<Vec<Vec<String>>> {
+    let connection = repository.open_database().unwrap();
+    [
+        "content_resource_intents",
+        "content_resource_intent_operations",
+        "localized_context_packs",
+        "localized_context_build_operations",
+        "localized_changesets",
+        "localized_edits",
+        "localized_add_operations",
+        "localized_validations",
+        "localized_submissions",
+        "localized_approvals",
+        "localized_commits",
+        "known_state",
+        "environment_current_releases",
+    ]
+    .into_iter()
+    .map(|table| {
+        snapshot_rows(
+            &connection,
+            &format!("SELECT * FROM {table} ORDER BY rowid"),
+        )
+    })
+    .collect()
+}
+
+fn assert_intent_integrity_consumers_fail(fixture: &LocalizedDraftFixture, case: &str) {
+    let repository = &fixture.repository;
+    let before = localized_governed_snapshot(repository);
+    let direct = repository.get_content_resource_intent(fixture.intent.intent_id);
+    assert!(
+        matches!(direct, Err(LocalizedContentError::Integrity(_))),
+        "{case}: direct resource-intent read returned {direct:?}"
+    );
+    let replay = repository.issue_content_resource_intent(fixture.intent_command.clone());
+    assert!(
+        matches!(replay, Err(LocalizedContentError::Integrity(_))),
+        "{case}: resource-intent replay returned {replay:?}"
+    );
+    let context = repository.get_localized_context(fixture.context.context_pack_id);
+    assert!(
+        matches!(context, Err(LocalizedContentError::Integrity(_))),
+        "{case}: dependent ContextPack read returned {context:?}"
+    );
+    let context_replay = repository.build_localized_context(fixture.context_command.clone());
+    assert!(
+        matches!(context_replay, Err(LocalizedContentError::Integrity(_))),
+        "{case}: dependent ContextPack replay returned {context_replay:?}"
+    );
+    assert_localized_changeset_consumers_fail(fixture, case);
+    assert_eq!(localized_governed_snapshot(repository), before, "{case}");
+}
+
+fn assert_context_integrity_consumers_fail(fixture: &LocalizedDraftFixture, case: &str) {
+    let repository = &fixture.repository;
+    let before = localized_governed_snapshot(repository);
+    let direct = repository.get_localized_context(fixture.context.context_pack_id);
+    assert!(
+        matches!(direct, Err(LocalizedContentError::Integrity(_))),
+        "{case}: direct ContextPack read returned {direct:?}"
+    );
+    let replay = repository.build_localized_context(fixture.context_command.clone());
+    assert!(
+        matches!(replay, Err(LocalizedContentError::Integrity(_))),
+        "{case}: ContextPack replay returned {replay:?}"
+    );
+    assert_localized_changeset_consumers_fail(fixture, case);
+    assert_eq!(localized_governed_snapshot(repository), before, "{case}");
+}
+
+fn assert_localized_changeset_consumers_fail(fixture: &LocalizedDraftFixture, case: &str) {
+    let repository = &fixture.repository;
+    let replay = repository.create_localized_changeset(localized_changeset_command(
+        &fixture.intent,
+        &fixture.context,
+    ));
+    assert!(
+        matches!(replay, Err(LocalizedContentError::Integrity(_))),
+        "{case}: ChangeSet replay returned {replay:?}"
+    );
+    let inspect = repository.inspect_localized_changeset(fixture.changeset_id);
+    assert!(
+        matches!(inspect, Err(LocalizedContentError::Integrity(_))),
+        "{case}: ChangeSet inspection returned {inspect:?}"
+    );
+    let diff = repository.diff_localized_changeset(fixture.changeset_id);
+    assert!(
+        matches!(diff, Err(LocalizedContentError::Integrity(_))),
+        "{case}: ChangeSet diff returned {diff:?}"
+    );
+    let validate = repository.validate_localized_changeset(fixture.changeset_id);
+    assert!(
+        matches!(validate, Err(LocalizedContentError::Integrity(_))),
+        "{case}: ChangeSet validation returned {validate:?}"
+    );
+}
+
+#[test]
+fn localized_resource_intent_operations_are_unique_and_effect_bound() {
+    for case in [
+        "missing",
+        "duplicate",
+        "workspace-substitution",
+        "idempotency-key",
+        "request-digest",
+        "effect-digest",
+        "cross-link",
+    ] {
+        let fixture = localized_draft_fixture();
+        let repository = &fixture.repository;
+        if case == "cross-link" {
+            let other = repository
+                .issue_content_resource_intent(localized_intent_command(
+                    OTHER_LOCALIZED_INTENT_ID,
+                    OTHER_LOCALIZED_INTENT_IDEMPOTENCY_KEY,
+                    fixture.object_id,
+                    fixture.expected_source.schema_id.clone(),
+                    &fixture.locale,
+                    "2026-08-17T16:09:00Z",
+                ))
+                .unwrap();
+            assert_eq!(
+                repository
+                    .open_database()
+                    .unwrap()
+                    .execute(
+                        "UPDATE content_resource_intent_operations
+                         SET intent_id = CASE intent_id WHEN ?1 THEN ?2 WHEN ?2 THEN ?1 END
+                         WHERE intent_id IN (?1, ?2)",
+                        (
+                            fixture.intent.intent_id.to_string(),
+                            other.intent_id.to_string(),
+                        ),
+                    )
+                    .unwrap(),
+                2
+            );
+        } else {
+            let connection = repository.open_database().unwrap();
+            let affected = match case {
+                "missing" => connection.execute(
+                    "DELETE FROM content_resource_intent_operations WHERE intent_id = ?1",
+                    [fixture.intent.intent_id.to_string()],
+                ),
+                "duplicate" => connection.execute(
+                    "INSERT INTO content_resource_intent_operations (
+                         workspace_id, principal_id, idempotency_key, request_digest,
+                         effect_digest, intent_id
+                     )
+                     SELECT workspace_id, principal_id, ?1, request_digest, effect_digest, intent_id
+                     FROM content_resource_intent_operations WHERE intent_id = ?2",
+                    (
+                        DUPLICATE_LOCALIZED_OPERATION_KEY,
+                        fixture.intent.intent_id.to_string(),
+                    ),
+                ),
+                "workspace-substitution" => connection.execute(
+                    "UPDATE content_resource_intent_operations SET workspace_id = ?1
+                     WHERE intent_id = ?2",
+                    (OTHER_WORKSPACE_ID, fixture.intent.intent_id.to_string()),
+                ),
+                "idempotency-key" => connection.execute(
+                    "UPDATE content_resource_intent_operations SET idempotency_key = ?1
+                     WHERE intent_id = ?2",
+                    (
+                        DUPLICATE_LOCALIZED_OPERATION_KEY,
+                        fixture.intent.intent_id.to_string(),
+                    ),
+                ),
+                "request-digest" => connection.execute(
+                    "UPDATE content_resource_intent_operations SET request_digest = ?1
+                     WHERE intent_id = ?2",
+                    (
+                        test_digest('a').to_string(),
+                        fixture.intent.intent_id.to_string(),
+                    ),
+                ),
+                "effect-digest" => connection.execute(
+                    "UPDATE content_resource_intent_operations SET effect_digest = ?1
+                     WHERE intent_id = ?2",
+                    (
+                        test_digest('b').to_string(),
+                        fixture.intent.intent_id.to_string(),
+                    ),
+                ),
+                _ => unreachable!(),
+            }
+            .unwrap();
+            assert_eq!(affected, 1, "{case}");
+        }
+        assert_intent_integrity_consumers_fail(&fixture, case);
+    }
+}
+
+#[test]
+fn localized_context_build_operations_are_unique_and_effect_bound() {
+    for case in [
+        "missing",
+        "duplicate",
+        "workspace-substitution",
+        "idempotency-key",
+        "request-digest",
+        "effect-digest",
+        "cross-link",
+    ] {
+        let fixture = localized_draft_fixture();
+        let repository = &fixture.repository;
+        if case == "cross-link" {
+            let other = repository
+                .build_localized_context(localized_context_command(
+                    OTHER_LOCALIZED_CONTEXT_ID,
+                    OTHER_LOCALIZED_CONTEXT_IDEMPOTENCY_KEY,
+                    &fixture.intent,
+                    &fixture.locale,
+                    "2026-08-17T16:09:00Z",
+                    "2026-08-18T16:09:00Z",
+                ))
+                .unwrap();
+            assert_eq!(
+                repository
+                    .open_database()
+                    .unwrap()
+                    .execute(
+                        "UPDATE localized_context_build_operations
+                         SET context_pack_id = CASE context_pack_id
+                             WHEN ?1 THEN ?2 WHEN ?2 THEN ?1 END
+                         WHERE context_pack_id IN (?1, ?2)",
+                        (
+                            fixture.context.context_pack_id.to_string(),
+                            other.context_pack_id.to_string(),
+                        ),
+                    )
+                    .unwrap(),
+                2
+            );
+        } else {
+            let connection = repository.open_database().unwrap();
+            let affected = match case {
+                "missing" => connection.execute(
+                    "DELETE FROM localized_context_build_operations WHERE context_pack_id = ?1",
+                    [fixture.context.context_pack_id.to_string()],
+                ),
+                "duplicate" => connection.execute(
+                    "INSERT INTO localized_context_build_operations (
+                         workspace_id, principal_id, idempotency_key, request_digest,
+                         effect_digest, context_pack_id
+                     )
+                     SELECT workspace_id, principal_id, ?1, request_digest, effect_digest,
+                            context_pack_id
+                     FROM localized_context_build_operations WHERE context_pack_id = ?2",
+                    (
+                        DUPLICATE_LOCALIZED_OPERATION_KEY,
+                        fixture.context.context_pack_id.to_string(),
+                    ),
+                ),
+                "workspace-substitution" => connection.execute(
+                    "UPDATE localized_context_build_operations SET workspace_id = ?1
+                     WHERE context_pack_id = ?2",
+                    (
+                        OTHER_WORKSPACE_ID,
+                        fixture.context.context_pack_id.to_string(),
+                    ),
+                ),
+                "idempotency-key" => connection.execute(
+                    "UPDATE localized_context_build_operations SET idempotency_key = ?1
+                     WHERE context_pack_id = ?2",
+                    (
+                        DUPLICATE_LOCALIZED_OPERATION_KEY,
+                        fixture.context.context_pack_id.to_string(),
+                    ),
+                ),
+                "request-digest" => connection.execute(
+                    "UPDATE localized_context_build_operations SET request_digest = ?1
+                     WHERE context_pack_id = ?2",
+                    (
+                        test_digest('c').to_string(),
+                        fixture.context.context_pack_id.to_string(),
+                    ),
+                ),
+                "effect-digest" => connection.execute(
+                    "UPDATE localized_context_build_operations SET effect_digest = ?1
+                     WHERE context_pack_id = ?2",
+                    (
+                        test_digest('d').to_string(),
+                        fixture.context.context_pack_id.to_string(),
+                    ),
+                ),
+                _ => unreachable!(),
+            }
+            .unwrap();
+            assert_eq!(affected, 1, "{case}");
+        }
+        assert_context_integrity_consumers_fail(&fixture, case);
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one tamper matrix rebuilds every ContextPack closure dimension"
+)]
+fn localized_context_reads_reconstruct_policy_resources_and_metadata() {
+    for case in [
+        "resource",
+        "manifest-metadata",
+        "row-metadata",
+        "byte-budget",
+        "policy-envelope",
+    ] {
+        let fixture = localized_draft_fixture();
+        let repository = &fixture.repository;
+        let connection = repository.open_database().unwrap();
+        let (manifest_json, policy_json): (String, String) = connection
+            .query_row(
+                "SELECT manifest_json, policy_json FROM localized_context_packs
+                 WHERE context_pack_id = ?1",
+                [fixture.context.context_pack_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&manifest_json).unwrap();
+        match case {
+            "resource" => {
+                *manifest
+                    .pointer_mut("/resources/0/source/content/title")
+                    .unwrap() = serde_json::Value::String("Forged campaign".to_owned());
+            }
+            "manifest-metadata" => {
+                manifest["validator"] = serde_json::Value::String("proof/forged/1".to_owned());
+            }
+            "row-metadata" => {
+                let changed_expiry = "2026-08-19T16:07:00Z";
+                manifest["expires_at"] = serde_json::Value::String(changed_expiry.to_owned());
+                assert_eq!(
+                    connection
+                        .execute(
+                            "UPDATE localized_context_packs SET expires_at = ?1
+                             WHERE context_pack_id = ?2",
+                            (changed_expiry, fixture.context.context_pack_id.to_string(),),
+                        )
+                        .unwrap(),
+                    1
+                );
+            }
+            "byte-budget" => {
+                manifest["limits"]["max_bytes"] = serde_json::json!(1);
+                assert_eq!(
+                    connection
+                        .execute(
+                            "UPDATE localized_context_packs SET max_bytes = 1
+                             WHERE context_pack_id = ?1",
+                            [fixture.context.context_pack_id.to_string()],
+                        )
+                        .unwrap(),
+                    1
+                );
+            }
+            "policy-envelope" => {
+                let mut policy: serde_json::Value = serde_json::from_str(&policy_json).unwrap();
+                policy
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("unexpected".to_owned(), serde_json::Value::Bool(true));
+                let policy = canonicalize(&policy).unwrap();
+                let policy_digest = digest(ArtifactKind::PolicyBundleV1, &policy);
+                manifest["policy"] = serde_json::from_str(policy.as_str()).unwrap();
+                manifest["policy_digest"] = serde_json::Value::String(policy_digest.to_string());
+                assert_eq!(
+                    connection
+                        .execute(
+                            "UPDATE localized_context_packs
+                             SET policy_json = ?1, policy_digest = ?2
+                             WHERE context_pack_id = ?3",
+                            (
+                                policy.as_str(),
+                                policy_digest.to_string(),
+                                fixture.context.context_pack_id.to_string(),
+                            ),
+                        )
+                        .unwrap(),
+                    1
+                );
+            }
+            _ => unreachable!(),
+        }
+        let manifest = canonicalize(&manifest).unwrap();
+        let context_pack_digest = digest(ArtifactKind::ContextPackV2, &manifest);
+        assert_eq!(
+            connection
+                .execute(
+                    "UPDATE localized_context_packs
+                     SET manifest_json = ?1, context_pack_digest = ?2
+                     WHERE context_pack_id = ?3",
+                    (
+                        manifest.as_str(),
+                        context_pack_digest.to_string(),
+                        fixture.context.context_pack_id.to_string(),
+                    ),
+                )
+                .unwrap(),
+            1
+        );
+        drop(connection);
+        assert_context_integrity_consumers_fail(&fixture, case);
+    }
+}
+
+#[test]
+fn localized_control_replays_survive_environment_pointer_movement() {
+    let fixture = localized_draft_fixture();
+    let repository = &fixture.repository;
+    promote_release(
+        repository,
+        promotion_command(
+            SECOND_RELEASE_ID,
+            SECOND_PROOF_ID,
+            EDITION_ID,
+            SECOND_RELEASE_IDEMPOTENCY_KEY,
+            "2026-08-17T16:20:00Z",
+        ),
+    )
+    .unwrap();
+    let before = localized_governed_snapshot(repository);
+
+    assert_eq!(
+        repository
+            .issue_content_resource_intent(fixture.intent_command.clone())
+            .unwrap(),
+        fixture.intent
+    );
+    assert_eq!(
+        repository
+            .build_localized_context(fixture.context_command.clone())
+            .unwrap(),
+        fixture.context
+    );
+    let existing_changeset = repository
+        .inspect_localized_changeset(fixture.changeset_id)
+        .unwrap();
+    assert_eq!(
+        repository
+            .create_localized_changeset(localized_changeset_command(
+                &fixture.intent,
+                &fixture.context,
+            ))
+            .unwrap(),
+        existing_changeset
+    );
+
+    let mut changed_intent = fixture.intent_command.clone();
+    changed_intent.intent_id = OTHER_LOCALIZED_INTENT_ID.parse().unwrap();
+    changed_intent.environment_id = OTHER_ENVIRONMENT_ID.parse().unwrap();
+    assert_eq!(
+        repository
+            .issue_content_resource_intent(changed_intent)
+            .unwrap_err(),
+        LocalizedContentError::IdempotencyKeyReused
+    );
+    let mut invalid_intent = fixture.intent_command.clone();
+    invalid_intent.targets.clear();
+    assert_eq!(
+        repository
+            .issue_content_resource_intent(invalid_intent)
+            .unwrap_err(),
+        LocalizedContentError::IdempotencyKeyReused
+    );
+    let mut changed_context = fixture.context_command.clone();
+    changed_context.context_pack_id = OTHER_LOCALIZED_CONTEXT_ID.parse().unwrap();
+    changed_context.resource_intent_id = OTHER_LOCALIZED_INTENT_ID.parse().unwrap();
+    changed_context.resource_intent_digest = test_digest('e');
+    assert_eq!(
+        repository
+            .build_localized_context(changed_context)
+            .unwrap_err(),
+        LocalizedContentError::IdempotencyKeyReused
+    );
+    let mut invalid_context = fixture.context_command.clone();
+    invalid_context.expires_at = invalid_context.created_at;
+    assert_eq!(
+        repository
+            .build_localized_context(invalid_context)
+            .unwrap_err(),
+        LocalizedContentError::IdempotencyKeyReused
+    );
+    let mut changed_changeset = localized_changeset_command(&fixture.intent, &fixture.context);
+    changed_changeset.changeset_id = OTHER_CHANGESET_ID.parse().unwrap();
+    changed_changeset.resource_intent_id = OTHER_LOCALIZED_INTENT_ID.parse().unwrap();
+    changed_changeset.resource_intent_digest = test_digest('e');
+    changed_changeset.context_pack_id = OTHER_LOCALIZED_CONTEXT_ID.parse().unwrap();
+    changed_changeset.context_pack_digest = test_digest('f');
+    assert_eq!(
+        repository
+            .create_localized_changeset(changed_changeset)
+            .unwrap_err(),
+        LocalizedContentError::IdempotencyKeyReused
+    );
+    assert_eq!(localized_governed_snapshot(repository), before);
 }
 
 fn localized_edit_count(repository: &LocalWorkspace, changeset_id: ChangeSetId) -> i64 {

@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "artifact_kind": "EditionDeltaV2",
+      "artifact": {
+        "api_version": "proof.dev/edition-delta/v2",
+        "base": {
+          "edition": {
+            "api_version": "proof.dev/edition/v1",
+            "digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "edition_id": "019c0000-0000-7000-8000-000000000060"
+          },
+          "state": {
+            "api_version": "proof.dev/known-state/v1",
+            "authoritative_sequence": 2,
+            "digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          }
+        },
+        "objects": [],
+        "renditions": [
+          {
+            "after": {
+              "locale": "fr-FR",
+              "object_id": "019c0000-0000-7000-8000-000000000080",
+              "rendition_digest": "blake3:0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+              "revision": 1,
+              "schema_id": "campaign",
+              "schema_version": 1,
+              "source_object_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "before": null,
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000080"
+          }
+        ],
+        "schemas": [],
+        "target": {
+          "edition": {
+            "api_version": "proof.dev/edition/v2",
+            "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+            "edition_id": "019c0000-0000-7000-8000-000000000260"
+          },
+          "state": {
+            "api_version": "proof.dev/known-state/v2",
+            "authoritative_sequence": 3,
+            "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+          }
+        }
+      }
+    },
+    {
+      "artifact_kind": "ReleaseProofPredicateV2",
+      "artifact": {
+        "api_version": "proof.dev/release-proof-predicate/v2",
+        "authority": {
+          "authorization_decision_digest": "blake3:1313131313131313131313131313131313131313131313131313131313131313",
+          "human_principal_id": "019c0000-0000-7000-8000-000000000020",
+          "policy_profile": "editorial"
+        },
+        "content_evidence": {
+          "approval_digest": "blake3:1818181818181818181818181818181818181818181818181818181818181818",
+          "changeset_digest": "blake3:0808080808080808080808080808080808080808080808080808080808080808",
+          "validation_results_digest": "blake3:0909090909090909090909090909090909090909090909090909090909090909"
+        },
+        "exact_delta": {
+          "api_version": "proof.dev/edition-delta/v2",
+          "base": {
+            "edition": {
+              "api_version": "proof.dev/edition/v1",
+              "digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "edition_id": "019c0000-0000-7000-8000-000000000060"
+            },
+            "state": {
+              "api_version": "proof.dev/known-state/v1",
+              "authoritative_sequence": 2,
+              "digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          },
+          "objects": [],
+          "renditions": [
+            {
+              "after": {
+                "locale": "fr-FR",
+                "object_id": "019c0000-0000-7000-8000-000000000080",
+                "rendition_digest": "blake3:0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+                "revision": 1,
+                "schema_id": "campaign",
+                "schema_version": 1,
+                "source_object_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "before": null,
+              "locale": "fr-FR",
+              "object_id": "019c0000-0000-7000-8000-000000000080"
+            }
+          ],
+          "schemas": [],
+          "target": {
+            "edition": {
+              "api_version": "proof.dev/edition/v2",
+              "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+              "edition_id": "019c0000-0000-7000-8000-000000000260"
+            },
+            "state": {
+              "api_version": "proof.dev/known-state/v2",
+              "authoritative_sequence": 3,
+              "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+            }
+          }
+        },
+        "exact_delta_digest": "blake3:1616161616161616161616161616161616161616161616161616161616161616",
+        "implementation": {
+          "canonical_json": "RFC 8785",
+          "digest": "BLAKE3-256 domain-separated",
+          "dsse": "DSSE v1 PAE",
+          "known_state": "proof.dev/known-state/v2",
+          "signature": "Ed25519",
+          "statement": "in-toto Statement v1"
+        },
+        "release": {
+          "base_release": {
+            "api_version": "proof.dev/release/v1",
+            "digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+            "release_id": "019c0000-0000-7000-8000-0000000000c0"
+          },
+          "changeset_id": "019c0000-0000-7000-8000-000000000204",
+          "edition": {
+            "api_version": "proof.dev/edition/v2",
+            "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+            "edition_id": "019c0000-0000-7000-8000-000000000260"
+          },
+          "environment_id": "preview",
+          "key_id": "local-ed25519:17171717171717171717171717171717",
+          "kind": "promotion",
+          "release_digest": "blake3:8080808080808080808080808080808080808080808080808080808080808080",
+          "release_id": "019c0000-0000-7000-8000-0000000002c0",
+          "release_sequence": 2,
+          "released_at": "2026-08-17T16:13:00Z",
+          "resource_intent_id": "019c0000-0000-7000-8000-000000000200",
+          "rollback_target_release_id": null
+        },
+        "state": {
+          "api_version": "proof.dev/known-state/v2",
+          "authoritative_sequence": 3,
+          "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+        },
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      }
+    }
+  ]
+}

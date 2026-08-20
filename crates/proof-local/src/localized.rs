@@ -649,24 +649,8 @@ fn issue_resource_intent(
     principal_id: proof_application::PrincipalId,
     command: &IssueContentResourceIntentCommand,
 ) -> Result<ContentResourceIntent, LocalPortError> {
-    let targets = normalized_targets(&command.targets)?;
-    let (baseline, released_at) =
-        current_baseline(transaction, workspace_id, &command.environment_id)?;
-    if command.issued_at < released_at {
-        return Err(LocalPortError::Invalid);
-    }
-    verify_targets_at_baseline(transaction, &baseline, &targets)?;
-    let request = canonicalize(&json!({
-        "api_version": "proof.dev/operation/content-intent.issue/v1",
-        "environment_id": command.environment_id.as_str(),
-        "idempotency_key": command.idempotency_key.to_string(),
-        "intent_id": command.intent_id.to_string(),
-        "issued_at": command.issued_at.to_string(),
-        "targets": targets_value(&targets),
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let request_digest = digest(proof_application::ArtifactKind::OperationEffectV1, &request);
-    if let Some((persisted_request, intent_id)) = transaction
+    let targets = normalized_targets(&command.targets);
+    let persisted = transaction
         .query_row(
             "SELECT request_digest, intent_id FROM content_resource_intent_operations
              WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
@@ -678,16 +662,39 @@ fn issue_resource_intent(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()
-        .map_err(|error| LocalPortError::Storage(error.to_string()))?
-    {
-        if persisted_request != request_digest.to_string() {
-            return Err(LocalPortError::IdempotencyKeyReused);
-        }
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if let Some((persisted_request, intent_id)) = persisted {
         let intent_id = intent_id
             .parse::<ContentResourceIntentId>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        return load_resource_intent(transaction, workspace_id, intent_id);
+        let intent = load_resource_intent(transaction, workspace_id, intent_id)?;
+        let targets = targets.map_err(|_| LocalPortError::IdempotencyKeyReused)?;
+        let request_digest = content_intent_request_digest(
+            &command.environment_id,
+            command.idempotency_key,
+            command.intent_id,
+            command.issued_at,
+            &targets,
+        )?;
+        if persisted_request != request_digest.to_string() {
+            return Err(LocalPortError::IdempotencyKeyReused);
+        }
+        return Ok(intent);
     }
+    let targets = targets?;
+    let request_digest = content_intent_request_digest(
+        &command.environment_id,
+        command.idempotency_key,
+        command.intent_id,
+        command.issued_at,
+        &targets,
+    )?;
+    let (baseline, released_at) =
+        current_baseline(transaction, workspace_id, &command.environment_id)?;
+    if command.issued_at < released_at {
+        return Err(LocalPortError::Invalid);
+    }
+    verify_targets_at_baseline(transaction, &baseline, &targets)?;
     let candidate_exists: bool = transaction
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM content_resource_intents WHERE intent_id = ?1)",
@@ -749,17 +756,8 @@ fn issue_resource_intent(
             ],
         )
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    let effect = canonicalize(&json!({
-        "api_version": "proof.dev/operation-effect/v1",
-        "operation_kind": "content-intent.issue/v1",
-        "request_digest": request_digest.to_string(),
-        "result": {
-            "intent_digest": intent_digest.to_string(),
-            "intent_id": command.intent_id.to_string(),
-        },
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let effect_digest = digest(proof_application::ArtifactKind::OperationEffectV1, &effect);
+    let effect_digest =
+        content_intent_effect_digest(request_digest, command.intent_id, intent_digest)?;
     transaction
         .execute(
             "INSERT INTO content_resource_intent_operations (
@@ -799,6 +797,49 @@ fn content_intent_manifest(
         "workspace_id": workspace_id.to_string(),
     }))
     .map_err(|error| LocalPortError::Integrity(error.to_string()))
+}
+
+fn content_intent_request_digest(
+    environment_id: &proof_application::EnvironmentId,
+    idempotency_key: proof_application::IdempotencyKey,
+    intent_id: ContentResourceIntentId,
+    issued_at: Timestamp,
+    targets: &[proof_application::LocalizedContentTarget],
+) -> Result<ContentDigest, LocalPortError> {
+    let request = canonicalize(&json!({
+        "api_version": "proof.dev/operation/content-intent.issue/v1",
+        "environment_id": environment_id.as_str(),
+        "idempotency_key": idempotency_key.to_string(),
+        "intent_id": intent_id.to_string(),
+        "issued_at": issued_at.to_string(),
+        "targets": targets_value(targets),
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    Ok(digest(
+        proof_application::ArtifactKind::OperationEffectV1,
+        &request,
+    ))
+}
+
+fn content_intent_effect_digest(
+    request_digest: ContentDigest,
+    intent_id: ContentResourceIntentId,
+    intent_digest: ContentDigest,
+) -> Result<ContentDigest, LocalPortError> {
+    let effect = canonicalize(&json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": "content-intent.issue/v1",
+        "request_digest": request_digest.to_string(),
+        "result": {
+            "intent_digest": intent_digest.to_string(),
+            "intent_id": intent_id.to_string(),
+        },
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    Ok(digest(
+        proof_application::ArtifactKind::OperationEffectV1,
+        &effect,
+    ))
 }
 
 fn normalized_targets(
@@ -1317,7 +1358,7 @@ fn load_resource_intent(
             "resource-intent artifact does not reproduce".to_owned(),
         ));
     }
-    Ok(ContentResourceIntent {
+    let intent = ContentResourceIntent {
         intent_id,
         workspace_id,
         issued_by_principal_id: principal_id,
@@ -1327,7 +1368,65 @@ fn load_resource_intent(
         targets,
         canonical_json: row.14,
         intent_digest,
-    })
+    };
+    verify_content_resource_intent_operation(transaction, &intent)?;
+    Ok(intent)
+}
+
+fn verify_content_resource_intent_operation(
+    transaction: &Transaction<'_>,
+    intent: &ContentResourceIntent,
+) -> Result<(), LocalPortError> {
+    let mut statement = transaction
+        .prepare(
+            "SELECT workspace_id, principal_id, idempotency_key, request_digest, effect_digest
+             FROM content_resource_intent_operations
+             WHERE intent_id = ?1
+             ORDER BY workspace_id, principal_id, idempotency_key",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map([intent.intent_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if rows.len() != 1 {
+        return Err(LocalPortError::Integrity(
+            "resource-intent operation evidence does not reproduce".to_owned(),
+        ));
+    }
+    let (workspace_id, principal_id, raw_key, request_digest, effect_digest) = &rows[0];
+    let idempotency_key = raw_key
+        .parse::<proof_application::IdempotencyKey>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let expected_request = content_intent_request_digest(
+        &intent.environment_id,
+        idempotency_key,
+        intent.intent_id,
+        intent.issued_at,
+        &intent.targets,
+    )?;
+    let expected_effect =
+        content_intent_effect_digest(expected_request, intent.intent_id, intent.intent_digest)?;
+    if idempotency_key.to_string() != *raw_key
+        || workspace_id != &intent.workspace_id.to_string()
+        || principal_id != &intent.issued_by_principal_id.to_string()
+        || request_digest != &expected_request.to_string()
+        || effect_digest != &expected_effect.to_string()
+    {
+        return Err(LocalPortError::Integrity(
+            "resource-intent operation evidence does not reproduce".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_targets(
@@ -1397,32 +1496,8 @@ fn build_context(
     principal_id: proof_application::PrincipalId,
     command: &BuildLocalizedContextCommand,
 ) -> Result<LocalizedContextPack, LocalPortError> {
-    let intent = load_resource_intent(transaction, workspace_id, command.resource_intent_id)?;
-    if intent.intent_digest != command.resource_intent_digest {
-        return Err(LocalPortError::Invalid);
-    }
-    verify_baseline_is_current(transaction, workspace_id, &intent)?;
-    let rules = normalized_policy_rules(&command.policy_rules)?;
-    validate_context_limits(&command.limits, &intent)?;
-    if command.expires_at <= command.created_at {
-        return Err(LocalPortError::Invalid);
-    }
-    let policy = policy_manifest(&rules)?;
-    let policy_digest = digest(proof_application::ArtifactKind::PolicyBundleV1, &policy);
-    let request = canonicalize(&json!({
-        "api_version": "proof.dev/operation/context.build/v2",
-        "context_pack_id": command.context_pack_id.to_string(),
-        "created_at": command.created_at.to_string(),
-        "expires_at": command.expires_at.to_string(),
-        "idempotency_key": command.idempotency_key.to_string(),
-        "limits": limits_value(command.limits),
-        "policy_digest": policy_digest.to_string(),
-        "resource_intent_digest": command.resource_intent_digest.to_string(),
-        "resource_intent_id": command.resource_intent_id.to_string(),
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let request_digest = digest(proof_application::ArtifactKind::OperationEffectV1, &request);
-    if let Some((persisted_request, context_pack_id)) = transaction
+    let rules = normalized_policy_rules(&command.policy_rules);
+    let persisted = transaction
         .query_row(
             "SELECT request_digest, context_pack_id FROM localized_context_build_operations
              WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
@@ -1434,16 +1509,55 @@ fn build_context(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()
-        .map_err(|error| LocalPortError::Storage(error.to_string()))?
-    {
-        if persisted_request != request_digest.to_string() {
-            return Err(LocalPortError::IdempotencyKeyReused);
-        }
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if let Some((persisted_request, context_pack_id)) = persisted {
         let context_pack_id = context_pack_id
             .parse::<ContextPackId>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        return load_context(transaction, workspace_id, context_pack_id);
+        let context = load_context(transaction, workspace_id, context_pack_id)?;
+        let rules = rules.map_err(|_| LocalPortError::IdempotencyKeyReused)?;
+        if command.expires_at <= command.created_at {
+            return Err(LocalPortError::IdempotencyKeyReused);
+        }
+        let policy = policy_manifest(&rules)?;
+        let policy_digest = digest(proof_application::ArtifactKind::PolicyBundleV1, &policy);
+        let request_digest = localized_context_request_digest(
+            command.context_pack_id,
+            command.created_at,
+            command.expires_at,
+            command.idempotency_key,
+            command.limits,
+            policy_digest,
+            command.resource_intent_id,
+            command.resource_intent_digest,
+        )?;
+        if persisted_request != request_digest.to_string() {
+            return Err(LocalPortError::IdempotencyKeyReused);
+        }
+        return Ok(context);
     }
+    let rules = rules?;
+    if command.expires_at <= command.created_at {
+        return Err(LocalPortError::Invalid);
+    }
+    let policy = policy_manifest(&rules)?;
+    let policy_digest = digest(proof_application::ArtifactKind::PolicyBundleV1, &policy);
+    let request_digest = localized_context_request_digest(
+        command.context_pack_id,
+        command.created_at,
+        command.expires_at,
+        command.idempotency_key,
+        command.limits,
+        policy_digest,
+        command.resource_intent_id,
+        command.resource_intent_digest,
+    )?;
+    let intent = load_resource_intent(transaction, workspace_id, command.resource_intent_id)?;
+    if intent.intent_digest != command.resource_intent_digest {
+        return Err(LocalPortError::Invalid);
+    }
+    validate_context_limits(&command.limits, &intent)?;
+    verify_baseline_is_current(transaction, workspace_id, &intent)?;
     let candidate_exists: bool = transaction
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM localized_context_packs WHERE context_pack_id = ?1)",
@@ -1457,47 +1571,18 @@ fn build_context(
         ));
     }
     let resources = context_resources(transaction, &intent, &rules)?;
-    let intent_value = parse_strict(intent.canonical_json.as_bytes())
-        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let manifest = canonicalize(&json!({
-        "allowed_operations": [
-            "proof.dev/operation/changeset.create/v2",
-            "proof.dev/operation/changeset.add/v2",
-            "proof.dev/operation/changeset.get/v2",
-            "proof.dev/operation/changeset.diff/v2",
-            "proof.dev/operation/changeset.validate/v2",
-            "proof.dev/operation/changeset.submit/v2",
-            "proof.dev/operation/changeset.commit/v2",
-            "proof.dev/operation/edition.create/v2",
-            "proof.dev/operation/release.create/v2",
-            "proof.dev/operation/object.query_released/v2"
-        ],
-        "api_version": LOCALIZED_CONTEXT_API_VERSION,
-        "context_pack_id": command.context_pack_id.to_string(),
-        "created_at": command.created_at.to_string(),
-        "explicit_exclusions": [
-            "agent-authority",
-            "campaign-expansion",
-            "deletion",
-            "fallback",
-            "generic-object-replacement",
-            "relationship-mutation",
-            "schema-mutation"
-        ],
-        "expires_at": command.expires_at.to_string(),
-        "limits": limits_value(command.limits),
-        "policy": parse_strict(policy.as_bytes())
-            .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
-        "policy_digest": policy_digest.to_string(),
-        "principal_id": principal_id.to_string(),
-        "resource_intent": intent_value,
-        "resource_intent_digest": intent.intent_digest.to_string(),
-        "resources": resources,
-        "target_ordering": "object_id,schema_id,locale:utf8-ascending",
-        "validator": proof_application::LOCALIZED_CONTENT_VALIDATOR,
-        "workspace_id": workspace_id.to_string(),
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let manifest = localized_context_manifest(
+        command.context_pack_id,
+        workspace_id,
+        principal_id,
+        &intent,
+        &policy,
+        policy_digest,
+        command.limits,
+        command.created_at,
+        command.expires_at,
+        &resources,
+    )?;
     let manifest_len =
         u64::try_from(manifest.as_bytes().len()).map_err(|_| LocalPortError::LimitExceeded)?;
     if manifest_len > command.limits.max_bytes || manifest_len > MAX_LOCALIZED_CONTEXT_BYTES {
@@ -1532,17 +1617,11 @@ fn build_context(
             ],
         )
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    let effect = canonicalize(&json!({
-        "api_version": "proof.dev/operation-effect/v1",
-        "operation_kind": "context.build/v2",
-        "request_digest": request_digest.to_string(),
-        "result": {
-            "context_pack_digest": context_pack_digest.to_string(),
-            "context_pack_id": command.context_pack_id.to_string(),
-        },
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let effect_digest = digest(proof_application::ArtifactKind::OperationEffectV1, &effect);
+    let effect_digest = localized_context_effect_digest(
+        request_digest,
+        command.context_pack_id,
+        context_pack_digest,
+    )?;
     transaction
         .execute(
             "INSERT INTO localized_context_build_operations (
@@ -1614,6 +1693,177 @@ fn policy_manifest(
             "locale": rule.locale.as_str(),
             "pointer": rule.pointer,
         })).collect::<Vec<_>>(),
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))
+}
+
+fn parse_policy_rules(text: &str) -> Result<Vec<LocalizedPolicyRule>, LocalPortError> {
+    let _ = strict_canonical(text, "localized policy")?;
+    let value = parse_strict(text.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| LocalPortError::Integrity("localized policy is not an object".to_owned()))?;
+    if object.len() != 2
+        || object.get("api_version").and_then(Value::as_str)
+            != Some("proof.dev/localized-content-policy/v1")
+    {
+        return Err(LocalPortError::Integrity(
+            "localized policy envelope is invalid".to_owned(),
+        ));
+    }
+    let rules = object
+        .get("rules")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            LocalPortError::Integrity("localized policy rules are missing".to_owned())
+        })?;
+    let mut parsed = Vec::with_capacity(rules.len());
+    for rule in rules {
+        let rule = rule.as_object().ok_or_else(|| {
+            LocalPortError::Integrity("localized policy rule is invalid".to_owned())
+        })?;
+        if rule.len() != 3 {
+            return Err(LocalPortError::Integrity(
+                "localized policy rule has unknown members".to_owned(),
+            ));
+        }
+        let values = rule
+            .get("disallowed_values")
+            .and_then(Value::as_array)
+            .ok_or_else(|| LocalPortError::Integrity("policy values are missing".to_owned()))?
+            .iter()
+            .map(|value| {
+                value.as_str().map(ToOwned::to_owned).ok_or_else(|| {
+                    LocalPortError::Integrity("policy value is not a string".to_owned())
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        parsed.push(LocalizedPolicyRule {
+            locale: proof_application::LocaleId::new(required_string(rule, "locale")?)
+                .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+            pointer: required_string(rule, "pointer")?,
+            disallowed_values: values,
+        });
+    }
+    let normalized = normalized_policy_rules(&parsed)
+        .map_err(|_| LocalPortError::Integrity("localized policy rules are invalid".to_owned()))?;
+    if normalized != parsed || policy_manifest(&parsed)?.as_str() != text {
+        return Err(LocalPortError::Integrity(
+            "localized policy rules are not canonical".to_owned(),
+        ));
+    }
+    Ok(parsed)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the canonical request binds every caller-controlled ContextPack input"
+)]
+fn localized_context_request_digest(
+    context_pack_id: ContextPackId,
+    created_at: Timestamp,
+    expires_at: Timestamp,
+    idempotency_key: proof_application::IdempotencyKey,
+    limits: LocalizedContextLimits,
+    policy_digest: ContentDigest,
+    resource_intent_id: ContentResourceIntentId,
+    resource_intent_digest: ContentDigest,
+) -> Result<ContentDigest, LocalPortError> {
+    let request = canonicalize(&json!({
+        "api_version": "proof.dev/operation/context.build/v2",
+        "context_pack_id": context_pack_id.to_string(),
+        "created_at": created_at.to_string(),
+        "expires_at": expires_at.to_string(),
+        "idempotency_key": idempotency_key.to_string(),
+        "limits": limits_value(limits),
+        "policy_digest": policy_digest.to_string(),
+        "resource_intent_digest": resource_intent_digest.to_string(),
+        "resource_intent_id": resource_intent_id.to_string(),
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    Ok(digest(
+        proof_application::ArtifactKind::OperationEffectV1,
+        &request,
+    ))
+}
+
+fn localized_context_effect_digest(
+    request_digest: ContentDigest,
+    context_pack_id: ContextPackId,
+    context_pack_digest: ContentDigest,
+) -> Result<ContentDigest, LocalPortError> {
+    let effect = canonicalize(&json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": "context.build/v2",
+        "request_digest": request_digest.to_string(),
+        "result": {
+            "context_pack_digest": context_pack_digest.to_string(),
+            "context_pack_id": context_pack_id.to_string(),
+        },
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    Ok(digest(
+        proof_application::ArtifactKind::OperationEffectV1,
+        &effect,
+    ))
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ContextPack manifest binds every source, policy, limit, identity, and freshness field"
+)]
+fn localized_context_manifest(
+    context_pack_id: ContextPackId,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    intent: &ContentResourceIntent,
+    policy: &proof_canonical::CanonicalJson,
+    policy_digest: ContentDigest,
+    limits: LocalizedContextLimits,
+    created_at: Timestamp,
+    expires_at: Timestamp,
+    resources: &[Value],
+) -> Result<proof_canonical::CanonicalJson, LocalPortError> {
+    let intent_value = parse_strict(intent.canonical_json.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    canonicalize(&json!({
+        "allowed_operations": [
+            "proof.dev/operation/changeset.create/v2",
+            "proof.dev/operation/changeset.add/v2",
+            "proof.dev/operation/changeset.get/v2",
+            "proof.dev/operation/changeset.diff/v2",
+            "proof.dev/operation/changeset.validate/v2",
+            "proof.dev/operation/changeset.submit/v2",
+            "proof.dev/operation/changeset.commit/v2",
+            "proof.dev/operation/edition.create/v2",
+            "proof.dev/operation/release.create/v2",
+            "proof.dev/operation/object.query_released/v2"
+        ],
+        "api_version": LOCALIZED_CONTEXT_API_VERSION,
+        "context_pack_id": context_pack_id.to_string(),
+        "created_at": created_at.to_string(),
+        "explicit_exclusions": [
+            "agent-authority",
+            "campaign-expansion",
+            "deletion",
+            "fallback",
+            "generic-object-replacement",
+            "relationship-mutation",
+            "schema-mutation"
+        ],
+        "expires_at": expires_at.to_string(),
+        "limits": limits_value(limits),
+        "policy": parse_strict(policy.as_bytes())
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+        "policy_digest": policy_digest.to_string(),
+        "principal_id": principal_id.to_string(),
+        "resource_intent": intent_value,
+        "resource_intent_digest": intent.intent_digest.to_string(),
+        "resources": resources,
+        "target_ordering": "object_id,schema_id,locale:utf8-ascending",
+        "validator": proof_application::LOCALIZED_CONTENT_VALIDATOR,
+        "workspace_id": workspace_id.to_string(),
     }))
     .map_err(|error| LocalPortError::Integrity(error.to_string()))
 }
@@ -2587,7 +2837,8 @@ fn load_context(
             "ContextPack resource-intent digest differs".to_owned(),
         ));
     }
-    let policy = strict_canonical(&row.13, "localized policy")?;
+    let policy_rules = parse_policy_rules(&row.13)?;
+    let policy = policy_manifest(&policy_rules)?;
     let policy_digest = row
         .4
         .parse::<ContentDigest>()
@@ -2607,30 +2858,8 @@ fn load_context(
         max_bytes: u64::try_from(row.8)
             .map_err(|_| LocalPortError::Integrity("invalid byte budget".to_owned()))?,
     };
-    validate_context_limits(&limits, &intent)?;
-    let manifest = strict_canonical(&row.9, "localized ContextPack")?;
-    let context_pack_digest = row
-        .10
-        .parse::<ContentDigest>()
-        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    if digest(proof_application::ArtifactKind::ContextPackV2, &manifest) != context_pack_digest {
-        return Err(LocalPortError::Integrity(
-            "ContextPack digest does not reproduce".to_owned(),
-        ));
-    }
-    let manifest_value = parse_strict(row.9.as_bytes())
-        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let embedded_intent = manifest_value
-        .as_object()
-        .and_then(|object| object.get("resource_intent"))
-        .ok_or_else(|| LocalPortError::Integrity("ContextPack intent is missing".to_owned()))?;
-    let embedded = canonicalize(embedded_intent)
-        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    if embedded.as_str() != intent.canonical_json {
-        return Err(LocalPortError::Integrity(
-            "ContextPack does not embed the exact resource intent".to_owned(),
-        ));
-    }
+    validate_context_limits(&limits, &intent)
+        .map_err(|_| LocalPortError::Integrity("ContextPack limits do not reproduce".to_owned()))?;
     let created_at = row
         .11
         .parse::<Timestamp>()
@@ -2644,7 +2873,49 @@ fn load_context(
             "ContextPack freshness window is invalid".to_owned(),
         ));
     }
-    Ok(LocalizedContextPack {
+    let resources =
+        context_resources(transaction, &intent, &policy_rules).map_err(|error| match error {
+            LocalPortError::Storage(detail) => LocalPortError::Storage(detail),
+            LocalPortError::Integrity(detail) => LocalPortError::Integrity(detail),
+            _ => LocalPortError::Integrity(
+                "ContextPack resource closure does not reproduce".to_owned(),
+            ),
+        })?;
+    let manifest = strict_canonical(&row.9, "localized ContextPack")?;
+    let expected_manifest = localized_context_manifest(
+        context_pack_id,
+        workspace_id,
+        principal_id,
+        &intent,
+        &policy,
+        policy_digest,
+        limits,
+        created_at,
+        expires_at,
+        &resources,
+    )?;
+    let manifest_len = u64::try_from(expected_manifest.as_bytes().len())
+        .map_err(|_| LocalPortError::Integrity("ContextPack size does not reproduce".to_owned()))?;
+    if manifest_len > limits.max_bytes || manifest_len > MAX_LOCALIZED_CONTEXT_BYTES {
+        return Err(LocalPortError::Integrity(
+            "ContextPack exceeds its persisted byte budget".to_owned(),
+        ));
+    }
+    let context_pack_digest = row
+        .10
+        .parse::<ContentDigest>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if manifest.as_str() != expected_manifest.as_str()
+        || digest(
+            proof_application::ArtifactKind::ContextPackV2,
+            &expected_manifest,
+        ) != context_pack_digest
+    {
+        return Err(LocalPortError::Integrity(
+            "ContextPack artifact does not reproduce".to_owned(),
+        ));
+    }
+    let context = LocalizedContextPack {
         context_pack_id,
         workspace_id,
         principal_id,
@@ -2657,7 +2928,71 @@ fn load_context(
         expires_at,
         manifest_json: row.9,
         context_pack_digest,
-    })
+    };
+    verify_localized_context_build_operation(transaction, &context)?;
+    Ok(context)
+}
+
+fn verify_localized_context_build_operation(
+    transaction: &Transaction<'_>,
+    context: &LocalizedContextPack,
+) -> Result<(), LocalPortError> {
+    let mut statement = transaction
+        .prepare(
+            "SELECT workspace_id, principal_id, idempotency_key, request_digest, effect_digest
+             FROM localized_context_build_operations
+             WHERE context_pack_id = ?1
+             ORDER BY workspace_id, principal_id, idempotency_key",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map([context.context_pack_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if rows.len() != 1 {
+        return Err(LocalPortError::Integrity(
+            "localized ContextPack operation evidence does not reproduce".to_owned(),
+        ));
+    }
+    let (workspace_id, principal_id, raw_key, request_digest, effect_digest) = &rows[0];
+    let idempotency_key = raw_key
+        .parse::<proof_application::IdempotencyKey>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let expected_request = localized_context_request_digest(
+        context.context_pack_id,
+        context.created_at,
+        context.expires_at,
+        idempotency_key,
+        context.limits,
+        context.policy_digest,
+        context.resource_intent_id,
+        context.resource_intent_digest,
+    )?;
+    let expected_effect = localized_context_effect_digest(
+        expected_request,
+        context.context_pack_id,
+        context.context_pack_digest,
+    )?;
+    if idempotency_key.to_string() != *raw_key
+        || workspace_id != &context.workspace_id.to_string()
+        || principal_id != &context.principal_id.to_string()
+        || request_digest != &expected_request.to_string()
+        || effect_digest != &expected_effect.to_string()
+    {
+        return Err(LocalPortError::Integrity(
+            "localized ContextPack operation evidence does not reproduce".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 #[expect(
@@ -2871,22 +3206,6 @@ fn create_changeset(
     principal_id: proof_application::PrincipalId,
     command: &CreateLocalizedChangeSetCommand,
 ) -> Result<LocalizedChangeSet, LocalPortError> {
-    let intent = load_resource_intent(transaction, workspace_id, command.resource_intent_id)?;
-    let context = load_context(transaction, workspace_id, command.context_pack_id)?;
-    if intent.intent_digest != command.resource_intent_digest
-        || context.resource_intent_id != intent.intent_id
-        || context.resource_intent_digest != intent.intent_digest
-        || context.context_pack_digest != command.context_pack_digest
-    {
-        return Err(LocalPortError::IntentMismatch);
-    }
-    if intent.issued_by_principal_id != principal_id {
-        return Err(LocalPortError::NotFound);
-    }
-    if command.created_at < context.created_at || command.created_at >= context.expires_at {
-        return Err(LocalPortError::PolicyDenied);
-    }
-    verify_baseline_is_current(transaction, workspace_id, &intent)?;
     let request = canonicalize(&json!({
         "api_version": "proof.dev/operation/changeset.create/v2",
         "changeset_id": command.changeset_id.to_string(),
@@ -2924,6 +3243,22 @@ fn create_changeset(
         }
         return Ok(changeset);
     }
+    let intent = load_resource_intent(transaction, workspace_id, command.resource_intent_id)?;
+    let context = load_context(transaction, workspace_id, command.context_pack_id)?;
+    if intent.intent_digest != command.resource_intent_digest
+        || context.resource_intent_id != intent.intent_id
+        || context.resource_intent_digest != intent.intent_digest
+        || context.context_pack_digest != command.context_pack_digest
+    {
+        return Err(LocalPortError::IntentMismatch);
+    }
+    if intent.issued_by_principal_id != principal_id {
+        return Err(LocalPortError::NotFound);
+    }
+    if command.created_at < context.created_at || command.created_at >= context.expires_at {
+        return Err(LocalPortError::PolicyDenied);
+    }
+    verify_baseline_is_current(transaction, workspace_id, &intent)?;
     let candidate_exists: bool = transaction
         .query_row(
             "SELECT EXISTS(
@@ -7966,54 +8301,7 @@ fn load_policy_rules(
             |row| row.get(0),
         )
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    let value = parse_strict(policy_json.as_bytes())
-        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-    let object = value
-        .as_object()
-        .ok_or_else(|| LocalPortError::Integrity("localized policy is not an object".to_owned()))?;
-    if object.get("api_version").and_then(Value::as_str)
-        != Some("proof.dev/localized-content-policy/v1")
-    {
-        return Err(LocalPortError::Integrity(
-            "localized policy API version is invalid".to_owned(),
-        ));
-    }
-    let rules = object
-        .get("rules")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            LocalPortError::Integrity("localized policy rules are missing".to_owned())
-        })?;
-    let mut parsed = Vec::with_capacity(rules.len());
-    for rule in rules {
-        let rule = rule.as_object().ok_or_else(|| {
-            LocalPortError::Integrity("localized policy rule is invalid".to_owned())
-        })?;
-        let values = rule
-            .get("disallowed_values")
-            .and_then(Value::as_array)
-            .ok_or_else(|| LocalPortError::Integrity("policy values are missing".to_owned()))?
-            .iter()
-            .map(|value| {
-                value.as_str().map(ToOwned::to_owned).ok_or_else(|| {
-                    LocalPortError::Integrity("policy value is not a string".to_owned())
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        parsed.push(LocalizedPolicyRule {
-            locale: proof_application::LocaleId::new(required_string(rule, "locale")?)
-                .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
-            pointer: required_string(rule, "pointer")?,
-            disallowed_values: values,
-        });
-    }
-    let normalized = normalized_policy_rules(&parsed)?;
-    if normalized != parsed {
-        return Err(LocalPortError::Integrity(
-            "localized policy rules are not canonical".to_owned(),
-        ));
-    }
-    Ok(parsed)
+    parse_policy_rules(&policy_json)
 }
 
 fn context_schema_digests(context: &LocalizedContextPack) -> Result<Vec<Value>, LocalPortError> {
