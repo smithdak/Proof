@@ -1,10 +1,11 @@
 # Proposed local authority conformance profile
 
-Status: **P-0003 candidate, blocked on P-0002**. These schemas and vectors freeze
-the smallest Milestone-2 local authentication and authority profile. The three
-currently implemented operations are normative. Reserved write operation and
-resource vocabulary must be revalidated against P-0002/P-0005 and versioned if
-their closure cannot be expressed without drift.
+Status: **P-0003 reconciliation candidate, pending project-owner review**.
+These schemas and vectors freeze the smallest Milestone-2 local authentication
+and authority profile. The three v1 read operations are implemented; the 11
+localized v2 application contracts are implemented only through P-0007's Human
+path and remain unavailable to an Agent until P-0005. This profile binds their
+authority vocabulary now so P-0004 cannot invent adapter-local semantics.
 
 No file in this directory contains an Agent key, Workspace-authority key, blind,
 or other secret. Public keys, exact signatures, canonical payload bytes, DSSE
@@ -45,6 +46,9 @@ Agent execution provides attribution only. No network server is required.
 - `DelegationV2`: direct Human-to-Agent grant.
 - `AuthorizationDecisionV2`: signed, durable presentation-consumption and
   authorization record.
+- `AuthorityOperationRegistryV1`: closed operation/action, localized input,
+  resource-projection, selector, idempotency, consequence, and availability
+  mapping for the three v1 reads and 11 P-0007 v2 operations.
 - `AuthorityRecordV1`: discriminated union of typed log records.
 - `WorkspaceAuthorityRootV1` and
   `WorkspaceAuthorityRootTransitionV1`: public root metadata and planned
@@ -177,6 +181,12 @@ A C4 retry signs a fresh presentation over the same semantic command and
 idempotency key. Changing normalized input under the same key is
 `proof.idempotency.key_reused`.
 
+Localized validate and submit carry a null signed idempotency field but derive
+their internal C4 operation key from verified application state. Validation
+binds Workspace, ChangeSet, proposal, policy, and validator; submission binds
+Workspace and ChangeSet while `submitted_at` remains semantic input. A fresh
+presentation does not create a new logical attempt for the same derived key.
+
 Authenticated reads use `idempotency_key: null`. Every fresh read
 presentation is a distinct authenticated attempt and intentionally appends one
 consumption/decision record but performs zero governed content or projection
@@ -192,26 +202,44 @@ requiring an empty dimension is denied. All arrays are sorted and unique.
 An authority record whose set-like arrays are not already sorted is rejected
 before signing; verifiers never silently reorder a signed record.
 Environment IDs are lowercase ASCII `^[a-z][a-z0-9._-]{0,127}$`.
+Locale IDs use the P-0002 grammar: lowercase language and variant subtags,
+optional title-case script, optional uppercase-alpha or three-digit region, at
+most 64 characters, exact case-sensitive comparison, and no alias
+normalization. Literal syntactic aliases such as `iw` remain distinct from
+`he`.
 
 | Operation/version | Requested action | Idempotency | Consequence/resource status |
 | --- | --- | --- | --- |
 | `workspace.status` / `proof.dev/operation/workspace.status/v1` | `workspace:status` | null | Workspace; authority evidence only |
-| `object.query_released` / `proof.dev/operation/object.query_released/v1` | `object:query_released` | null | Workspace, one Environment, exact Objects; authority evidence only |
-| `context.build` / `proof.dev/operation/context.build/v1` | `context:build` | required UUIDv7 | Workspace, one Environment, exact Objects; immutable ContextPack plus evidence |
-| `changeset.create` / `proof.dev/operation/changeset.create/v1` | `changeset:create` | required UUIDv7 | candidate; P-0002/P-0005 resource closure reserved |
-| `changeset.add` / `proof.dev/operation/changeset.add/v1` | `changeset:add` | required UUIDv7 | candidate; P-0002/P-0005 resource closure reserved |
-| `changeset.get` / `proof.dev/operation/changeset.get/v1` | `changeset:get` | null | candidate; disclosure closure reserved |
-| `changeset.diff` / `proof.dev/operation/changeset.diff/v1` | `changeset:diff` | null | candidate; disclosure closure reserved |
-| `changeset.validate` / `proof.dev/operation/changeset.validate/v1` | `changeset:validate` | null; proposal digest/profile derive the key | candidate; P-0002/P-0005 resource closure reserved |
-| `changeset.submit` / `proof.dev/operation/changeset.submit/v1` | `changeset:submit` | required UUIDv7 | candidate; P-0002/P-0005 resource closure reserved |
-| `changeset.commit` / `proof.dev/operation/changeset.commit/v1` | `changeset:commit` | required UUIDv7 | candidate; P-0002/P-0005 resource closure reserved |
-| `edition.create` / `proof.dev/operation/edition.create/v1` | `edition:create` | required UUIDv7 | candidate; P-0002/P-0005 resource closure reserved |
-| `release.create` / `proof.dev/operation/release.create/v1` | `release:create` | required UUIDv7 | candidate; P-0002/P-0005 resource closure reserved |
+| `object.query_released` / `proof.dev/operation/object.query_released/v1` | `object:query_released` | null | Workspace, Environment, exact Objects; authority evidence only |
+| `context.build` / `proof.dev/operation/context.build/v1` | `context:build` | required UUIDv7 | Workspace, Environment, exact Objects; immutable v1 ContextPack |
+| `context.build` / `proof.dev/operation/context.build/v2` | `context:build` | required UUIDv7 | Complete verified localized intent; immutable localized ContextPack |
+| `changeset.create` / `proof.dev/operation/changeset.create/v2` | `changeset:create` | required UUIDv7 | Complete selected intent; draft ChangeSet |
+| `changeset.add` / `proof.dev/operation/changeset.add/v2` | `changeset:add` | required UUIDv7 | Complete bound intent plus member Edit targets; Edit batch |
+| `changeset.get` / `proof.dev/operation/changeset.get/v2` | `changeset:get` | null | Complete bound intent; unfiltered read |
+| `changeset.diff` / `proof.dev/operation/changeset.diff/v2` | `changeset:diff` | null | Complete bound intent; unfiltered lineage read |
+| `changeset.validate` / `proof.dev/operation/changeset.validate/v2` | `changeset:validate` | derived proposal/policy/validator key | Complete bound intent; validation attempt |
+| `changeset.submit` / `proof.dev/operation/changeset.submit/v2` | `changeset:submit` | derived ChangeSet key | Complete bound intent; submission lifecycle |
+| `changeset.commit` / `proof.dev/operation/changeset.commit/v2` | `changeset:commit` | required UUIDv7 | Complete bound intent and exact effective leaves; rendition commit |
+| `edition.create` / `proof.dev/operation/edition.create/v2` | `edition:create` | required UUIDv7 | Complete committed ChangeSet intent; immutable Edition |
+| `release.create` / `proof.dev/operation/release.create/v2` | `release:create` | required UUIDv7 | Intent resolved through exact Edition/ChangeSet; Release, pointer, and Proof |
+| `object.query_released` / `proof.dev/operation/object.query_released/v2` | `object:query_released` | null | Workspace, Environment, exact Object/locale requests, resolved Schemas; unfiltered read |
 
-Only the first three rows are currently normative. P-0004 may implement a
-generic exact-set evaluator for the reserved enum but must not expose write
-operations. If P-0002 requires unrepresentable dimensions, this schema must
-reopen and version before acceptance.
+The normative
+[`authority-operation-registry.valid.json`](vectors/authority-operation-registry.valid.json)
+and its [Schema](schemas/authority-operation-registry-v1.schema.json) define four
+projection profiles. Localized lifecycle operations resolve the complete
+immutable Human-issued intent directly or through their ChangeSet/Edition.
+The v2 released query uses staged evaluation: grant-check Workspace,
+Environment, requested Objects and locales; resolve the current Release and
+Edition internally; then grant-check every resolved Schema before disclosure.
+ChangeSet, Edition, and Release IDs are evidence selectors, not grant axes.
+Five budget profiles separately freeze whether effective constraints come from
+the Delegation alone, requested Object count, normalized v1/v2 context limits,
+or a verified bound ContextPack. The v2 ContextPack validation-attempt limit is
+application policy, not an invented Delegation constraint.
+P-0004 may implement the evaluator and three v1 reads but must not expose the
+localized rows; P-0005 performs that wiring without changing the registry.
 
 ## Authority log, roots, and offline evidence
 
@@ -247,6 +275,14 @@ The Context build pair proves identical `CommandInputV1`, idempotency key, and
 command digest with distinct presentations, signatures, and envelope digests.
 Rejected manifests define both public code and trusted audit reason plus
 whether a durable decision append occurs.
+
+The unsigned registry and localized-scope vectors add no credential material.
+They prove the exact 14-pair closed registry, cross-link all 11 P-0007 v2 input
+Schemas, retain only the three implemented v1 pairs, reproduce the four
+resource-projection profiles, and accept lowercase variants/literal aliases
+while rejecting mixed-case variants. The retained Rust conformance test also
+mutates the operation set, action mapping, projection source, retry class, and
+locale casing so these files cannot pass as unexamined documentation.
 
 Vectors were generated in one in-memory dependency graph. Secret material was
 never serialized. The temporary derive-key helper was built outside the tree

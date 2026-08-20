@@ -213,8 +213,9 @@ profile uses `changeset.create/v2`, `changeset.add/v2`, `changeset.get/v2`,
 `changeset.diff/v2`, `changeset.validate/v2`, `changeset.submit/v2`,
 `changeset.commit/v2`, `edition.create/v2`, and `release.create/v2`; approval
 remains a separate Human operation. These are reservations, not advertised
-capabilities. P-0003 must reconcile its operation-version registry before this
-profile can be exposed.
+capabilities. P-0003's review candidate has reconciled the operation-version,
+action, retry, and exact resource-projection registry; P-0005 still must wire
+that accepted registry before this profile can be exposed to an Agent.
 
 The one new content Edit is a complete localized-rendition put:
 

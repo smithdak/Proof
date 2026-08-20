@@ -1,0 +1,339 @@
+{
+  "api_version": "proof.dev/authority-operation-registry/v1",
+  "resource_projection_profiles": [
+    {
+      "profile": "legacy-object-selection/v1",
+      "grant_axes": [
+        "environment_ids",
+        "object_ids",
+        "workspace_ids"
+      ],
+      "evaluation": "single-stage",
+      "sources": {
+        "workspace_ids": "command.workspace_id",
+        "environment_ids": "normalized_input.environment_id",
+        "object_ids": "normalized_input.object_ids",
+        "schema_ids": "none",
+        "locales": "none"
+      }
+    },
+    {
+      "profile": "localized-intent-closure/v1",
+      "grant_axes": [
+        "environment_ids",
+        "locales",
+        "object_ids",
+        "schema_ids",
+        "workspace_ids"
+      ],
+      "evaluation": "single-stage",
+      "sources": {
+        "workspace_ids": "command.workspace_id",
+        "environment_ids": "verified_content_resource_intent.environment_id",
+        "object_ids": "verified_content_resource_intent.targets.object_id",
+        "schema_ids": "verified_content_resource_intent.targets.schema_id",
+        "locales": "verified_content_resource_intent.targets.locale"
+      }
+    },
+    {
+      "profile": "localized-released-selection/v1",
+      "grant_axes": [
+        "environment_ids",
+        "locales",
+        "object_ids",
+        "schema_ids",
+        "workspace_ids"
+      ],
+      "evaluation": "staged-object-locale-then-resolved-schema",
+      "sources": {
+        "workspace_ids": "command.workspace_id",
+        "environment_ids": "normalized_input.environment_id",
+        "object_ids": "normalized_input.targets.object_id",
+        "schema_ids": "resolved_current_release.edition.requested_objects.schema_id",
+        "locales": "normalized_input.targets.locale"
+      }
+    },
+    {
+      "profile": "workspace-only/v1",
+      "grant_axes": [
+        "workspace_ids"
+      ],
+      "evaluation": "single-stage",
+      "sources": {
+        "workspace_ids": "command.workspace_id",
+        "environment_ids": "none",
+        "object_ids": "none",
+        "schema_ids": "none",
+        "locales": "none"
+      }
+    }
+  ],
+  "operations": [
+    {
+      "operation": {
+        "name": "changeset.add",
+        "version": "proof.dev/operation/changeset.add/v2"
+      },
+      "requested_action": "changeset:add",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetAddInput",
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "verified-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "localized-edit-batch",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "changeset.commit",
+        "version": "proof.dev/operation/changeset.commit/v2"
+      },
+      "requested_action": "changeset:commit",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCommitInput",
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "verified-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "localized-rendition-commit",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "changeset.create",
+        "version": "proof.dev/operation/changeset.create/v2"
+      },
+      "requested_action": "changeset:create",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCreateInput",
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "normalized-input-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "draft-localized-changeset",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "changeset.diff",
+        "version": "proof.dev/operation/changeset.diff/v2"
+      },
+      "requested_action": "changeset:diff",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetDiffInput",
+      "application_idempotency": "none",
+      "closure_anchor": "verified-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "authority-evidence-only",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "changeset.get",
+        "version": "proof.dev/operation/changeset.get/v2"
+      },
+      "requested_action": "changeset:get",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetGetInput",
+      "application_idempotency": "none",
+      "closure_anchor": "verified-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "authority-evidence-only",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "changeset.submit",
+        "version": "proof.dev/operation/changeset.submit/v2"
+      },
+      "requested_action": "changeset:submit",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetSubmitInput",
+      "application_idempotency": "derived-changeset",
+      "closure_anchor": "verified-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "localized-submission",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "changeset.validate",
+        "version": "proof.dev/operation/changeset.validate/v2"
+      },
+      "requested_action": "changeset:validate",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetValidateInput",
+      "application_idempotency": "derived-proposal-policy-validator",
+      "closure_anchor": "verified-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "localized-validation-attempt",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "context.build",
+        "version": "proof.dev/operation/context.build/v1"
+      },
+      "requested_action": "context:build",
+      "localized_contract": null,
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "command",
+      "resource_projection_profile": "legacy-object-selection/v1",
+      "budget_projection": "normalized-v1-context-limits",
+      "selector_projection": {
+        "changeset_ids": "none",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "immutable-context-pack",
+      "availability": "implemented-v1-read"
+    },
+    {
+      "operation": {
+        "name": "context.build",
+        "version": "proof.dev/operation/context.build/v2"
+      },
+      "requested_action": "context:build",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/contextBuildInput",
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "normalized-input-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "normalized-v2-context-limits",
+      "selector_projection": {
+        "changeset_ids": "none",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "immutable-context-pack",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "edition.create",
+        "version": "proof.dev/operation/edition.create/v2"
+      },
+      "requested_action": "edition:create",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/editionCreateInput",
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "verified-committed-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "normalized_input.changeset_id",
+        "edition_ids": "normalized_input.edition_id",
+        "release_ids": "none"
+      },
+      "consequence": "immutable-localized-edition",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "object.query_released",
+        "version": "proof.dev/operation/object.query_released/v1"
+      },
+      "requested_action": "object:query_released",
+      "localized_contract": null,
+      "application_idempotency": "none",
+      "closure_anchor": "command",
+      "resource_projection_profile": "legacy-object-selection/v1",
+      "budget_projection": "requested-object-count",
+      "selector_projection": {
+        "changeset_ids": "none",
+        "edition_ids": "resolved_current_release.edition_id",
+        "release_ids": "resolved_current_release.release_id"
+      },
+      "consequence": "authority-evidence-only",
+      "availability": "implemented-v1-read"
+    },
+    {
+      "operation": {
+        "name": "object.query_released",
+        "version": "proof.dev/operation/object.query_released/v2"
+      },
+      "requested_action": "object:query_released",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/objectQueryReleasedInput",
+      "application_idempotency": "none",
+      "closure_anchor": "resolved-current-release",
+      "resource_projection_profile": "localized-released-selection/v1",
+      "budget_projection": "requested-object-count",
+      "selector_projection": {
+        "changeset_ids": "none",
+        "edition_ids": "resolved_current_release.edition_id",
+        "release_ids": "resolved_current_release.release_id"
+      },
+      "consequence": "authority-evidence-only",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "release.create",
+        "version": "proof.dev/operation/release.create/v2"
+      },
+      "requested_action": "release:create",
+      "localized_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/releaseCreateInput",
+      "application_idempotency": "required-uuidv7",
+      "closure_anchor": "verified-edition-changeset-resource-intent",
+      "resource_projection_profile": "localized-intent-closure/v1",
+      "budget_projection": "bound-context-limits",
+      "selector_projection": {
+        "changeset_ids": "resolved_edition.changeset_id",
+        "edition_ids": "normalized_input.edition_id",
+        "release_ids": "canonical-sorted(normalized_input.expected_base_release_id,normalized_input.release_id)"
+      },
+      "consequence": "localized-release-pointer-and-proof",
+      "availability": "p0005-delegated-localized"
+    },
+    {
+      "operation": {
+        "name": "workspace.status",
+        "version": "proof.dev/operation/workspace.status/v1"
+      },
+      "requested_action": "workspace:status",
+      "localized_contract": null,
+      "application_idempotency": "none",
+      "closure_anchor": "command",
+      "resource_projection_profile": "workspace-only/v1",
+      "budget_projection": "delegation-only",
+      "selector_projection": {
+        "changeset_ids": "none",
+        "edition_ids": "none",
+        "release_ids": "none"
+      },
+      "consequence": "authority-evidence-only",
+      "availability": "implemented-v1-read"
+    }
+  ]
+}

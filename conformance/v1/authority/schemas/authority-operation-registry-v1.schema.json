@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/authority/operation-registry/v1",
+  "title": "Milestone 2 authority operation registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/authority-operation-registry/v1"
+    },
+    "resource_projection_profiles": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/resource_projection_profile"
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/operation_entry"
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "resource_projection_profiles",
+    "operations"
+  ],
+  "$defs": {
+    "projection_source": {
+      "enum": [
+        "command.workspace_id",
+        "none",
+        "normalized_input.environment_id",
+        "normalized_input.object_ids",
+        "normalized_input.targets.locale",
+        "normalized_input.targets.object_id",
+        "resolved_current_release.edition.requested_objects.schema_id",
+        "verified_content_resource_intent.environment_id",
+        "verified_content_resource_intent.targets.locale",
+        "verified_content_resource_intent.targets.object_id",
+        "verified_content_resource_intent.targets.schema_id"
+      ]
+    },
+    "resource_projection_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "enum": [
+            "legacy-object-selection/v1",
+            "localized-intent-closure/v1",
+            "localized-released-selection/v1",
+            "workspace-only/v1"
+          ]
+        },
+        "grant_axes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "environment_ids",
+              "locales",
+              "object_ids",
+              "schema_ids",
+              "workspace_ids"
+            ]
+          }
+        },
+        "evaluation": {
+          "enum": [
+            "single-stage",
+            "staged-object-locale-then-resolved-schema"
+          ]
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workspace_ids": { "$ref": "#/$defs/projection_source" },
+            "environment_ids": { "$ref": "#/$defs/projection_source" },
+            "object_ids": { "$ref": "#/$defs/projection_source" },
+            "schema_ids": { "$ref": "#/$defs/projection_source" },
+            "locales": { "$ref": "#/$defs/projection_source" }
+          },
+          "required": [
+            "workspace_ids",
+            "environment_ids",
+            "object_ids",
+            "schema_ids",
+            "locales"
+          ]
+        }
+      },
+      "required": [
+        "profile",
+        "grant_axes",
+        "evaluation",
+        "sources"
+      ]
+    },
+    "selector_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changeset_ids": {
+          "enum": [
+            "none",
+            "normalized_input.changeset_id",
+            "resolved_edition.changeset_id"
+          ]
+        },
+        "edition_ids": {
+          "enum": [
+            "none",
+            "normalized_input.edition_id",
+            "resolved_current_release.edition_id"
+          ]
+        },
+        "release_ids": {
+          "enum": [
+            "none",
+            "canonical-sorted(normalized_input.expected_base_release_id,normalized_input.release_id)",
+            "resolved_current_release.release_id"
+          ]
+        }
+      },
+      "required": [
+        "changeset_ids",
+        "edition_ids",
+        "release_ids"
+      ]
+    },
+    "localized_contract": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^https://proof\\.dev/schemas/localized-content/operations-v2\\.schema\\.json#/\\$defs/[A-Za-z][A-Za-z0-9]+Input$",
+          "maxLength": 256
+        }
+      ]
+    },
+    "operation_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "https://proof.dev/schema/authority/operation/v1"
+        },
+        "requested_action": {
+          "enum": [
+            "changeset:add",
+            "changeset:commit",
+            "changeset:create",
+            "changeset:diff",
+            "changeset:get",
+            "changeset:submit",
+            "changeset:validate",
+            "context:build",
+            "edition:create",
+            "object:query_released",
+            "release:create",
+            "workspace:status"
+          ]
+        },
+        "localized_contract": {
+          "$ref": "#/$defs/localized_contract"
+        },
+        "application_idempotency": {
+          "enum": [
+            "derived-changeset",
+            "derived-proposal-policy-validator",
+            "none",
+            "required-uuidv7"
+          ]
+        },
+        "closure_anchor": {
+          "enum": [
+            "command",
+            "normalized-input-resource-intent",
+            "resolved-current-release",
+            "verified-changeset-resource-intent",
+            "verified-committed-changeset-resource-intent",
+            "verified-edition-changeset-resource-intent"
+          ]
+        },
+        "resource_projection_profile": {
+          "enum": [
+            "legacy-object-selection/v1",
+            "localized-intent-closure/v1",
+            "localized-released-selection/v1",
+            "workspace-only/v1"
+          ]
+        },
+        "budget_projection": {
+          "enum": [
+            "bound-context-limits",
+            "delegation-only",
+            "normalized-v1-context-limits",
+            "normalized-v2-context-limits",
+            "requested-object-count"
+          ]
+        },
+        "selector_projection": {
+          "$ref": "#/$defs/selector_projection"
+        },
+        "consequence": {
+          "enum": [
+            "authority-evidence-only",
+            "draft-localized-changeset",
+            "immutable-context-pack",
+            "immutable-localized-edition",
+            "localized-edit-batch",
+            "localized-release-pointer-and-proof",
+            "localized-rendition-commit",
+            "localized-submission",
+            "localized-validation-attempt"
+          ]
+        },
+        "availability": {
+          "enum": [
+            "implemented-v1-read",
+            "p0005-delegated-localized"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "requested_action",
+        "localized_contract",
+        "application_idempotency",
+        "closure_anchor",
+        "resource_projection_profile",
+        "budget_projection",
+        "selector_projection",
+        "consequence",
+        "availability"
+      ]
+    }
+  }
+}

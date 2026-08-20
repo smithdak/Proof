@@ -103,7 +103,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3}))*$",
+            "pattern": "^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$",
             "maxLength": 64
           }
         },
@@ -493,6 +493,31 @@
             "operation": {
               "properties": {
                 "name": {
+                  "const": "object.query_released"
+                },
+                "version": {
+                  "const": "proof.dev/operation/object.query_released/v2"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "object:query_released"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
                   "const": "context.build"
                 },
                 "version": {
@@ -518,10 +543,35 @@
             "operation": {
               "properties": {
                 "name": {
+                  "const": "context.build"
+                },
+                "version": {
+                  "const": "proof.dev/operation/context.build/v2"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            },
+            "requested_action": {
+              "const": "context:build"
+            }
+          },
+          "required": [
+            "operation",
+            "requested_action"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "properties": {
+                "name": {
                   "const": "changeset.create"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.create/v1"
+                  "const": "proof.dev/operation/changeset.create/v2"
                 }
               },
               "required": [
@@ -546,7 +596,7 @@
                   "const": "changeset.add"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.add/v1"
+                  "const": "proof.dev/operation/changeset.add/v2"
                 }
               },
               "required": [
@@ -571,7 +621,7 @@
                   "const": "changeset.get"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.get/v1"
+                  "const": "proof.dev/operation/changeset.get/v2"
                 }
               },
               "required": [
@@ -596,7 +646,7 @@
                   "const": "changeset.diff"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.diff/v1"
+                  "const": "proof.dev/operation/changeset.diff/v2"
                 }
               },
               "required": [
@@ -621,7 +671,7 @@
                   "const": "changeset.validate"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.validate/v1"
+                  "const": "proof.dev/operation/changeset.validate/v2"
                 }
               },
               "required": [
@@ -646,7 +696,7 @@
                   "const": "changeset.submit"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.submit/v1"
+                  "const": "proof.dev/operation/changeset.submit/v2"
                 }
               },
               "required": [
@@ -671,7 +721,7 @@
                   "const": "changeset.commit"
                 },
                 "version": {
-                  "const": "proof.dev/operation/changeset.commit/v1"
+                  "const": "proof.dev/operation/changeset.commit/v2"
                 }
               },
               "required": [
@@ -696,7 +746,7 @@
                   "const": "edition.create"
                 },
                 "version": {
-                  "const": "proof.dev/operation/edition.create/v1"
+                  "const": "proof.dev/operation/edition.create/v2"
                 }
               },
               "required": [
@@ -721,7 +771,7 @@
                   "const": "release.create"
                 },
                 "version": {
-                  "const": "proof.dev/operation/release.create/v1"
+                  "const": "proof.dev/operation/release.create/v2"
                 }
               },
               "required": [

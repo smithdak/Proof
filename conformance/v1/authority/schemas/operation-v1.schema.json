@@ -13,14 +13,16 @@
     { "properties": { "name": { "const": "workspace.status" }, "version": { "const": "proof.dev/operation/workspace.status/v1" } } },
     { "properties": { "name": { "const": "object.query_released" }, "version": { "const": "proof.dev/operation/object.query_released/v1" } } },
     { "properties": { "name": { "const": "context.build" }, "version": { "const": "proof.dev/operation/context.build/v1" } } },
-    { "properties": { "name": { "const": "changeset.create" }, "version": { "const": "proof.dev/operation/changeset.create/v1" } } },
-    { "properties": { "name": { "const": "changeset.add" }, "version": { "const": "proof.dev/operation/changeset.add/v1" } } },
-    { "properties": { "name": { "const": "changeset.get" }, "version": { "const": "proof.dev/operation/changeset.get/v1" } } },
-    { "properties": { "name": { "const": "changeset.diff" }, "version": { "const": "proof.dev/operation/changeset.diff/v1" } } },
-    { "properties": { "name": { "const": "changeset.validate" }, "version": { "const": "proof.dev/operation/changeset.validate/v1" } } },
-    { "properties": { "name": { "const": "changeset.submit" }, "version": { "const": "proof.dev/operation/changeset.submit/v1" } } },
-    { "properties": { "name": { "const": "changeset.commit" }, "version": { "const": "proof.dev/operation/changeset.commit/v1" } } },
-    { "properties": { "name": { "const": "edition.create" }, "version": { "const": "proof.dev/operation/edition.create/v1" } } },
-    { "properties": { "name": { "const": "release.create" }, "version": { "const": "proof.dev/operation/release.create/v1" } } }
+    { "properties": { "name": { "const": "context.build" }, "version": { "const": "proof.dev/operation/context.build/v2" } } },
+    { "properties": { "name": { "const": "changeset.create" }, "version": { "const": "proof.dev/operation/changeset.create/v2" } } },
+    { "properties": { "name": { "const": "changeset.add" }, "version": { "const": "proof.dev/operation/changeset.add/v2" } } },
+    { "properties": { "name": { "const": "changeset.get" }, "version": { "const": "proof.dev/operation/changeset.get/v2" } } },
+    { "properties": { "name": { "const": "changeset.diff" }, "version": { "const": "proof.dev/operation/changeset.diff/v2" } } },
+    { "properties": { "name": { "const": "changeset.validate" }, "version": { "const": "proof.dev/operation/changeset.validate/v2" } } },
+    { "properties": { "name": { "const": "changeset.submit" }, "version": { "const": "proof.dev/operation/changeset.submit/v2" } } },
+    { "properties": { "name": { "const": "changeset.commit" }, "version": { "const": "proof.dev/operation/changeset.commit/v2" } } },
+    { "properties": { "name": { "const": "edition.create" }, "version": { "const": "proof.dev/operation/edition.create/v2" } } },
+    { "properties": { "name": { "const": "release.create" }, "version": { "const": "proof.dev/operation/release.create/v2" } } },
+    { "properties": { "name": { "const": "object.query_released" }, "version": { "const": "proof.dev/operation/object.query_released/v2" } } }
   ]
 }

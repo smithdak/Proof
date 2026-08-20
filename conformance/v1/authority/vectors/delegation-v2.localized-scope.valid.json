@@ -1,0 +1,49 @@
+{
+  "api_version": "proof.dev/delegation/v2",
+  "authority_sequence": 4,
+  "previous_authority_record_digest": "blake3:21b5c6a02c3dd59eb1e139f4a5411a231efae10da7f51b00e28aa7c7c8403646",
+  "delegation_id": "019c0000-0000-7000-8000-000000000505",
+  "workspace_id": "019c0000-0000-7000-8000-000000000001",
+  "delegation_profile": "proof.local/authority/direct/v1",
+  "issuer_principal_id": "019c0000-0000-7000-8000-000000000002",
+  "recipient_principal_id": "019c0000-0000-7000-8000-000000000003",
+  "actions": [
+    "changeset:add",
+    "changeset:commit",
+    "changeset:create",
+    "changeset:diff",
+    "changeset:get",
+    "changeset:submit",
+    "changeset:validate",
+    "context:build",
+    "edition:create",
+    "object:query_released",
+    "release:create",
+    "workspace:status"
+  ],
+  "scope": {
+    "environment_ids": [
+      "preview"
+    ],
+    "object_ids": [
+      "019c0000-0000-7000-8000-000000000080"
+    ],
+    "schema_ids": [
+      "campaign"
+    ],
+    "locales": [
+      "fr-FR",
+      "iw",
+      "sl-rozaj"
+    ]
+  },
+  "constraints": {
+    "max_objects": 1,
+    "max_context_bytes": 1048576,
+    "max_edits_per_changeset": 10,
+    "allow_subdelegation": false
+  },
+  "not_before": "2026-08-17T20:01:00Z",
+  "expires_at": "2026-08-18T20:01:00Z",
+  "issued_at": "2026-08-17T20:01:00Z"
+}

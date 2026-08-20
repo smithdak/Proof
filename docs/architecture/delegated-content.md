@@ -2,24 +2,23 @@
 
 **Status:** Ratified by P-0002 and ADR-0012
 
-**Version:** 0.1
+**Version:** 0.2
 
-**As of:** August 17, 2026
+**As of:** August 20, 2026
 
 **Review gate:** Project owner
 
 This contract defines the smallest complete content-mutation profile required
 for the Milestone 2 north-star scenario. Project-owner acceptance of P-0002
 ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It does
-not describe implemented behavior. The current implementation supports
-only `schema.create` and `object.create`, uses v1 ChangeSet and release
-artifacts, and treats failed validation as terminal rejection.
+now has a Human-operated implementation through P-0007. It does not claim
+authenticated Agent authority; that remains P-0005 after P-0003/P-0004.
 
-P-0007 implements and proves the human-operated content foundation defined
-here. P-0005 may bind authenticated Agent authority to it only after that
-foundation exists. P-0003 is reopened after P-0002 acceptance because its
-closed operation registry currently names v1 write operations without this
-content and release resource closure.
+P-0007 implemented and proved the human-operated content foundation defined
+here. P-0005 may bind authenticated Agent authority to it only after P-0003 is
+accepted and P-0004 implements the authority kernel. P-0003's reconciled review
+candidate replaces its stale v1 write reservations with this contract's v2
+pairs and exact resource projections.
 
 ## Decision
 
@@ -454,13 +453,10 @@ existing exact-set dimensions are sufficient:
 | every target `schema_id` | member of `scope.schema_ids` |
 | every target `locale` | member of `scope.locales` |
 
-The current P-0003 candidate's locale item pattern is a syntactic superset
-because it permits mixed-case variant subtags. A P-0002 content operation first
-requires the stricter P-0002 LocaleId grammar and then exact membership in the
-Delegation set. P-0003 must tighten its unaccepted Schema and regenerate its
-vectors before review; this changes no resource dimension or accepted stored
-artifact. A grant string outside the P-0002 grammar authorizes no content
-operation even if the earlier candidate accepts its syntax.
+P-0003's reconciled candidate now applies the same restricted LocaleId grammar
+to `DelegationV2` and `AuthorizationDecisionV2`. Lowercase variants and literal
+registry aliases validate; mixed-case variants do not. This changes no resource
+dimension or accepted stored artifact.
 
 The scope arrays form a dimension-wise permission product. The separately
 authenticated Human-issued target tuples narrow that product for this task;
@@ -489,10 +485,11 @@ The affected application operations use the existing reserved actions:
 | `object.query_released` / `proof.dev/operation/object.query_released/v2` | `object:query_released` | Environment, Objects, Schemas, exact locales |
 
 The canonical operation identifiers use the existing
-`proof.dev/operation/<name>/v2` form. P-0003 owns the final closed registry and
-must reconcile these v2 pairs before P-0004. Generated ChangeSet, Edit, Edition,
-Release, and Proof identifiers are selectors and evidence after creation, not
-additional grant axes.
+`proof.dev/operation/<name>/v2` form. P-0003's
+`AuthorityOperationRegistryV1` now freezes these 11 pairs, the three retained
+v1 reads, and their exact projection/retry classes for owner review. Generated
+ChangeSet, Edit, Edition, Release, and Proof identifiers are selectors and
+evidence after creation, not additional grant axes.
 
 Every operation re-evaluates the complete direct Delegation at its current
 authority head. A caller authorized for only a subset receives a denial, never
@@ -640,11 +637,13 @@ reject an unsupported cross-version combination rather than coerce it.
 The selected path is a named foundation prerequisite, not direct expansion of
 P-0005:
 
-1. **P-0007 — localized content foundation:** implement versioned rendition,
-   Edit, repair, validation, ContextPack, Edition, Release, query, migration,
-   and human-operated end-to-end conformance without Agent authority.
-2. **P-0003 reopen:** reconcile the authenticated command operation registry
-   and exact resource projections with this accepted contract before P-0004.
+1. **P-0007 — localized content foundation (complete):** implement versioned
+   rendition, Edit, repair, validation, ContextPack, Edition, Release, query,
+   migration, and human-operated end-to-end conformance without Agent
+   authority.
+2. **P-0003 review candidate:** reconcile the authenticated command operation
+   registry and exact resource projections with this accepted contract, then
+   obtain explicit owner acceptance before P-0004.
 3. **P-0004:** implement authenticated actor and direct-Delegation enforcement
    only after that reconciliation is accepted.
 4. **P-0005:** bind the proven P-0007 operations to authenticated Agent
@@ -661,10 +660,10 @@ operation input/output Schemas, canonical artifact Schemas, state transitions,
 and Human-path behavior. Reopened P-0003 owns the closed
 operation-version-to-action/resource-projection registry and authority
 conformance against P-0002's normative operation identifiers, fields, and
-resource projections; it does not bind Schema digests that P-0007 has not yet
-produced. P-0004 implements the generic authentication/authorization kernel but
-exposes no content write. P-0007 later registers the exact content Schema
-identifiers and digests. P-0005 binds those registered Schemas to the accepted
+resource projections. P-0004 implements the generic
+authentication/authorization kernel but exposes no content write. P-0007 has
+registered the exact content Schema identifiers and digests. P-0005 binds
+those registered Schemas to the accepted
 authority registry through adapters and may not redefine either contract.
 
 ## Conformance and falsification
@@ -790,5 +789,7 @@ ChangeSet as rejected; Editions are Workspace-wide; and `DelegationV2` already
 contains exact Environment, Object, Schema, and locale dimensions plus the
 reserved ChangeSet/Edition/Release action vocabulary.
 
-Those facts make the accepted version boundary and P-0007 prerequisite
-necessary. They are not evidence that the new behavior is implemented.
+Those facts made the accepted version boundary and P-0007 prerequisite
+necessary. P-0007 candidate `47153144b4b834cfffab61b328e4551f09fe50cb`
+subsequently implemented and independently qualified the Human path; it is not
+evidence that authenticated Agent authority exists.

@@ -3,7 +3,9 @@
   "status": "proposed",
   "baseline_fixtures": [
     "authorization-decision-v2.valid.json",
+    "authority-operation-registry.valid.json",
     "delegation-v2.valid.json",
+    "delegation-v2.localized-scope.valid.json",
     "principal-binding.valid.json",
     "context-build.command-input.valid.json",
     "authenticated-command.envelope.valid.json"
@@ -128,6 +130,96 @@
       "audit_reason": "proof.auth.malformed",
       "expected_authorized": false,
       "expected_decision_append": false
+    },
+    {
+      "id": "uppercase-locale-variant",
+      "layer": "schema",
+      "condition": "locale_invalid",
+      "target_fixture": "delegation-v2.localized-scope.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/scope/locales/2",
+        "value": "sl-ROZAJ"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "superseded-v1-write-operation",
+      "layer": "schema",
+      "condition": "operation_unregistered",
+      "target_fixture": "authority-operation-registry.valid.json",
+      "mutation": {
+        "kind": "json_replace",
+        "path": "/operations/0/operation/version",
+        "value": "proof.dev/operation/changeset.add/v1"
+      },
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
+      "expected_authorized": false,
+      "expected_decision_append": false
+    },
+    {
+      "id": "localized-environment-scope-missing",
+      "layer": "authorization",
+      "condition": "scope_exceeded",
+      "target_fixture": "delegation-v2.localized-scope.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_request/environment_ids",
+        "value": ["production"]
+      },
+      "public_code": "proof.authorization.scope_exceeded",
+      "audit_reason": "proof.authorization.scope_exceeded",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "localized-object-scope-missing",
+      "layer": "authorization",
+      "condition": "scope_exceeded",
+      "target_fixture": "delegation-v2.localized-scope.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_request/object_ids",
+        "value": ["019c0000-0000-7000-8000-000000000081"]
+      },
+      "public_code": "proof.authorization.scope_exceeded",
+      "audit_reason": "proof.authorization.scope_exceeded",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "localized-schema-scope-missing",
+      "layer": "authorization",
+      "condition": "scope_exceeded",
+      "target_fixture": "delegation-v2.localized-scope.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_request/schema_ids",
+        "value": ["article"]
+      },
+      "public_code": "proof.authorization.scope_exceeded",
+      "audit_reason": "proof.authorization.scope_exceeded",
+      "expected_authorized": false,
+      "expected_decision_append": true
+    },
+    {
+      "id": "localized-locale-scope-missing",
+      "layer": "authorization",
+      "condition": "scope_exceeded",
+      "target_fixture": "delegation-v2.localized-scope.valid.json",
+      "mutation": {
+        "kind": "state_override",
+        "path": "/evaluated_request/locales",
+        "value": ["de-DE"]
+      },
+      "public_code": "proof.authorization.scope_exceeded",
+      "audit_reason": "proof.authorization.scope_exceeded",
+      "expected_authorized": false,
+      "expected_decision_append": true
     },
     {
       "id": "cross-principal-active-key-reuse",

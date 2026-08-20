@@ -51,11 +51,12 @@ language, script, region, or parent-locale fallback. Expanding this profile or
 adding registry-aware equivalence or fallback changes content and authorization
 semantics and requires a versioned contract.
 
-The still-Proposed P-0003 `DelegationV2` Schema currently permits mixed-case
-variant characters. P-0003 must tighten that unaccepted pattern and regenerate
-its conformance vectors before owner review. Until then, this P-0002 grammar is
-the narrower content-operation input rule; a broader grant string authorizes no
-localized-content operation.
+The reconciled P-0003 candidate applies this exact pattern to both
+`DelegationV2.scope.locales` and
+`AuthorizationDecisionV2.requested_resources.locales`. Its vectors accept
+lowercase variants and literal aliases and reject mixed-case variants. The
+decision remains Proposed until project-owner acceptance, but there is no
+longer a grammar mismatch between the content and authority Schemas.
 
 ## MCP version position
 

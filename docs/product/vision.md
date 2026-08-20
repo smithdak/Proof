@@ -115,5 +115,6 @@ The preview Release is valid only when its baseline Environment Release is
 unchanged and its Edition is the exact causal result of that one approved
 ChangeSet. Unrelated committed state cannot ride along with the delegated
 release. The ratified mechanism and versioned artifacts are defined by P-0002;
-P-0007 implements and qualifies the content foundation before delegated
-mutation is enabled.
+P-0007 has implemented and qualified the Human-path content foundation;
+delegated mutation remains disabled until P-0003 is accepted and P-0004/P-0005
+complete.

@@ -2,9 +2,9 @@
 
 **Status:** Proposed by P-0003
 
-**Version:** 0.1
+**Version:** 0.2
 
-**As of:** August 17, 2026
+**As of:** August 20, 2026
 **Review gate:** Project owner
 
 This document is a proposal until
@@ -12,6 +12,11 @@ This document is a proposal until
 It does not describe implemented behavior. The current implementation still
 authenticates only the local Unix Human and accepts caller-declared Agent and
 Delegation identifiers for delegated reads.
+
+| Revision | Date | Decision state |
+| --- | --- | --- |
+| 0.1 | 2026-08-17 | Qualified local authentication and direct-Delegation candidate; localized resource closure still blocked on P-0002. |
+| 0.2 | 2026-08-20 | Reconciled the closed registry, exact resource projections, retry classes, and locale grammar with P-0007; pending owner acceptance. |
 
 ## Decision
 
@@ -360,34 +365,90 @@ authenticated-command envelope digests use
 ### Operation and action registry
 
 Dots identify application operations; colons identify Delegation actions. They
-are not interchangeable strings. Version 1 has this closed mapping:
+are not interchangeable strings. The Milestone 2 authority profile has this
+closed mapping:
 
 | Operation and exact version | Required action | Requested resource closure | Application idempotency | Persisted consequence in addition to the authorization decision |
 | --- | --- | --- | --- | --- |
 | `workspace.status` / `proof.dev/operation/workspace.status/v1` | `workspace:status` | Workspace | `null` | authority evidence only |
 | `object.query_released` / `proof.dev/operation/object.query_released/v1` | `object:query_released` | Workspace, one Environment, requested Objects | `null` | authority evidence only |
-| `context.build` / `proof.dev/operation/context.build/v1` | `context:build` | Workspace, one Environment, requested Objects | required UUIDv7 | immutable ContextPack and authority evidence |
-| `changeset.create` / `proof.dev/operation/changeset.create/v1` | `changeset:create` | Workspace; content closure reserved for P-0002/P-0005 | required UUIDv7 | draft ChangeSet and authority evidence |
-| `changeset.add` / `proof.dev/operation/changeset.add/v1` | `changeset:add` | Reserved for P-0002/P-0005 | required UUIDv7 | draft Edits and authority evidence |
-| `changeset.get` / `proof.dev/operation/changeset.get/v1` | `changeset:get` | Reserved for P-0002/P-0005 disclosure closure | `null` | authority evidence only |
-| `changeset.diff` / `proof.dev/operation/changeset.diff/v1` | `changeset:diff` | Reserved for P-0002/P-0005 disclosure closure | `null` | authority evidence only |
-| `changeset.validate` / `proof.dev/operation/changeset.validate/v1` | `changeset:validate` | Reserved for P-0002/P-0005 | `null`; proposal digest/profile derive the operation key | validation/lifecycle and authority evidence |
-| `changeset.submit` / `proof.dev/operation/changeset.submit/v1` | `changeset:submit` | Reserved for P-0002/P-0005 | required UUIDv7 | submission/lifecycle and authority evidence |
-| `changeset.commit` / `proof.dev/operation/changeset.commit/v1` | `changeset:commit` | Reserved for P-0002/P-0005 | required UUIDv7 | authoritative facts, projections, and authority evidence |
-| `edition.create` / `proof.dev/operation/edition.create/v1` | `edition:create` | Reserved for P-0002/P-0005 | required UUIDv7 | immutable Edition and authority evidence |
-| `release.create` / `proof.dev/operation/release.create/v1` | `release:create` | Reserved for P-0002/P-0005 | required UUIDv7 | Release, Environment pointer, Proof/outbox, and authority evidence |
+| `context.build` / `proof.dev/operation/context.build/v1` | `context:build` | Workspace, one Environment, requested Objects | required UUIDv7 | immutable v1 ContextPack and authority evidence |
+| `context.build` / `proof.dev/operation/context.build/v2` | `context:build` | Complete verified `ContentResourceIntentV1` | required UUIDv7 | immutable localized ContextPack and authority evidence |
+| `changeset.create` / `proof.dev/operation/changeset.create/v2` | `changeset:create` | Complete verified intent selected by the command | required UUIDv7 | draft localized ChangeSet and authority evidence |
+| `changeset.add` / `proof.dev/operation/changeset.add/v2` | `changeset:add` | Complete intent bound to the ChangeSet; every Edit target must be a member | required UUIDv7 | localized Edit batch and authority evidence |
+| `changeset.get` / `proof.dev/operation/changeset.get/v2` | `changeset:get` | Complete intent bound to the ChangeSet | `null` | authority evidence only; never a filtered ChangeSet |
+| `changeset.diff` / `proof.dev/operation/changeset.diff/v2` | `changeset:diff` | Complete intent bound to the ChangeSet | `null` | authority evidence only; never a filtered lineage |
+| `changeset.validate` / `proof.dev/operation/changeset.validate/v2` | `changeset:validate` | Complete intent bound to the ChangeSet | derived from proposal, policy, and validator | one validation attempt/lifecycle result and authority evidence |
+| `changeset.submit` / `proof.dev/operation/changeset.submit/v2` | `changeset:submit` | Complete intent bound to the ChangeSet | derived from ChangeSet identity; timestamp remains semantic input | submission/lifecycle result and authority evidence |
+| `changeset.commit` / `proof.dev/operation/changeset.commit/v2` | `changeset:commit` | Complete intent, exact base, and effective leaves | required UUIDv7 | authoritative rendition facts, projections, and authority evidence |
+| `edition.create` / `proof.dev/operation/edition.create/v2` | `edition:create` | Complete intent bound to the exact committed ChangeSet | required UUIDv7 | immutable localized Edition and authority evidence |
+| `release.create` / `proof.dev/operation/release.create/v2` | `release:create` | Complete intent resolved through the exact Edition and ChangeSet | required UUIDv7 | localized Release, Environment pointer, Proof/outbox, and authority evidence |
+| `object.query_released` / `proof.dev/operation/object.query_released/v2` | `object:query_released` | Workspace, Environment, exact requested Object/locale pairs, and Schemas resolved from the current released Edition | `null` | authority evidence only; never a filtered result |
 
 Every resource array is canonical sorted and unique. Generated result
 identifiers are not invented as preauthorization inputs. Unknown operation,
 version, action, pair, or incomplete resource closure fails closed before
 idempotency lookup or protected disclosure.
 
-P-0003 reserves the write vocabulary and exact retry/consequence classes but
-does not decide P-0002's content, locale, or mutation resource closure. P-0004
-may implement the generic exact-set evaluator but MUST NOT expose these write
-operations. P-0005 binds them to the P-0002 contract. If P-0002 needs a scope
-dimension that `DelegationV2` cannot express, P-0003 must reopen or the affected
-Schemas must version together before owner acceptance; v2 meaning cannot drift.
+The machine-readable
+[`AuthorityOperationRegistryV1`](../../conformance/v1/authority/vectors/authority-operation-registry.valid.json)
+freezes the operation/action pair, localized input Schema, application
+idempotency class, closure anchor, requested-resource projection, evidence
+selectors, consequence class, and implementation wave for every row.
+
+Four projection profiles are closed:
+
+1. `workspace-only/v1` derives only the signed command Workspace.
+2. `legacy-object-selection/v1` derives the signed Workspace plus Environment
+   and exact Objects from the v1 normalized input.
+3. `localized-intent-closure/v1` verifies the immutable Human-issued
+   `ContentResourceIntentV1` selected directly by the command or transitively
+   through the ChangeSet and projects its one Environment and every Object,
+   Schema, and locale target. The complete intent is evaluated even when one
+   operation touches only one target.
+4. `localized-released-selection/v1` first requires the signed Workspace,
+   requested Environment, Objects, and locales to be granted, then resolves the
+   current Release and Edition internally and requires every resolved Schema to
+   be granted before disclosure. A missing released target may yield the stable
+   not-found result only after the caller's requested axes and a nonempty Schema
+   grant have passed; a resolved-but-ungranted Schema is a disclosure-neutral
+   scope denial.
+
+Budget projection is equally closed. `delegation-only` records the grant's
+three effective maxima for operations with no narrower request budget;
+`requested-object-count` additionally bounds the unique requested Objects;
+`normalized-v1-context-limits` intersects the v1 context request's Object/byte
+limits with the grant; `normalized-v2-context-limits` intersects the localized
+context command's Object/byte/Edit limits with the grant; and
+`bound-context-limits` verifies the ChangeSet's persisted ContextPack and
+intersects those same three limits for every downstream operation. The
+ContextPack's validation-attempt limit remains a bound application-policy
+limit because `DelegationV2` has no validation-attempt budget field; it is not
+silently projected into another axis.
+
+For the two derived-key rows, signed `CommandInputV1.idempotency_key` is
+`null`; the application derives a stable internal operation key only after the
+selected ChangeSet, proposal, policy, validator, and lifecycle evidence have
+been verified. Validation keys bind Workspace, ChangeSet, proposal, policy,
+and validator. Submission keys bind Workspace and ChangeSet while
+`submitted_at` remains semantic input, so an exact retry returns the persisted
+submission and a changed timestamp fails as key reuse. Adapters cannot invent
+their own key or treat a fresh presentation as a new validation/submission.
+
+ChangeSet, Edition, and Release identifiers are recorded as exact evidence
+selectors in `AuthorizationDecisionV2`; they are not additional Delegation
+axes. Resource-intent and ContextPack identifiers/digests are bound directly
+by the normalized command or transitively by the selected ChangeSet. New result
+identifiers are preallocated signed inputs where required for deterministic
+replay, but never widen the grant.
+
+The Human-issued intent narrows the dimension-wise Delegation product to exact
+target tuples. An Agent cannot issue, replace, narrow, or widen it. P-0004 may
+implement the generic evaluator and the three existing v1 reads but MUST NOT
+expose the localized operations. P-0005 binds those v2 operations to P-0007's
+implemented application contracts. Any future requirement for a grant axis
+outside Workspace, Environment, Object, Schema, or locale requires a new
+Delegation version; transport aliases cannot change this registry.
 
 ## Time, replay, and idempotency
 
@@ -448,7 +509,9 @@ window. Fresh signing keeps C4 while making presentation replay unambiguous.
   `changeset:diff`, `changeset:validate`, `changeset:submit`,
   `changeset:commit`, `edition:create`, and `release:create` path;
 - canonical sorted unique Environment, Object, Schema, and locale resource
-  identifiers;
+  identifiers; locales use P-0002's exact restricted grammar, including
+  lowercase language and variant subtags, title-case script, uppercase alpha
+  region, literal registry aliases, and no normalization;
 - explicit budgets and time interval;
 - no parent field; and
 - no subdelegation permission.
@@ -727,6 +790,13 @@ P-0004 requires at least:
   authority position;
 - direct allow plus Agent issuer, parent, subdelegation, cycle-shaped, widened,
   and over-budget denial cases;
+- exact cross-check of all 14 authority operation/version pairs against the 11
+  P-0007 localized operation Schemas, including rejection of the superseded v1
+  write pairs;
+- complete-intent projection for each localized lifecycle operation and staged
+  Object/locale-then-resolved-Schema evaluation for released v2 queries;
+- valid lowercase locale variants and literal aliases plus mixed-case variant,
+  wrong region case, and missing Environment/Object/Schema/locale grant cases;
 - authority-root separation and root-transition failure;
 - CLI, modern MCP, and legacy MCP producing the same command digest and decision;
 - denial atomicity and disclosure-neutral errors; and
@@ -746,6 +816,17 @@ P-0004 requires at least:
   its meaning.
 - The final portable bundle is deferred to P-0006 so the Release evidence shape
   is not guessed before P-0005.
+
+## Open-decision register
+
+| Decision | Default if not accepted | Owner | Decision point | Consequence |
+| --- | --- | --- | --- | --- |
+| Accept the bounded local Human-to-Agent profile and ADR-0011's C4 replacement | Keep ADR-0011 Proposed, leave P-0004 blocked, and expose no authenticated Agent operation | Project owner | P-0003 review | Acceptance unblocks P-0004; rejection pivots to a protected broker/workload identity or a revised Milestone 2 boundary. |
+
+No operation-version, locale, resource-axis, retry-class, or projection question
+remains open inside this candidate. A newly required source-locale grant,
+field/path grant, hostile same-UID containment, or Agent-to-Agent chain is a
+reopen trigger, not an implementation choice for P-0004.
 
 ## Kill and pivot triggers
 
@@ -807,6 +888,18 @@ closure, and substantially larger offline evidence. No current Milestone 2
 scenario needs more than one Human-to-Agent grant. The direct profile is the
 strongest alternative that remains complete for the demonstrated outcome.
 
+### Tuple-scoped DelegationV3 for localized targets
+
+Embedding exact `(object_id, schema_id, locale)` tuples directly in a new grant
+would represent nonrectangular target sets without a separate intent. It would
+also let the Agent-facing authority path select task scope, duplicate
+Human-issued editorial intent, require a new signed grant/version and portable
+closure, and still need the ContextPack freshness artifact. The accepted
+`ContentResourceIntentV1` already supplies the exact immutable tuples and can
+only narrow the v2 permission product, so a sixth grant axis has no demonstrated
+failure mode in Milestone 2. Reopen only if the Human-issued intent cannot
+remain authoritative or source-read and target-write scopes diverge.
+
 ### Reuse the Release signing key
 
 One key and provider would be smaller. It lets one compromise manufacture both
@@ -823,15 +916,16 @@ semantic idempotency key.
 
 ## Current-source and standards basis
 
-This proposal was checked against the code and documentation at
-`11eb4dfb57577e52ddd95822a00fed3001b5164a`. Current Agent registration stores
+This revision was checked against the P-0007 supported candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb` and its completed integration on
+`main` at `8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8`. Current Agent registration stores
 no credential, current Delegation verification compares the recipient only to a
 caller-supplied Principal, and CLI/MCP expose that selector. Existing
 `proof-canonical` RFC 8785 parsing/digests and `proof-attestation` Ed25519 key
 provider and strict verification primitives can be reused after a generic typed
 message API is separated from the Release Statement profile.
 
-Standards grounding as of August 17, 2026:
+Standards grounding as of August 20, 2026:
 
 - [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) defines Ed25519.
 - [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) defines JSON Canonicalization

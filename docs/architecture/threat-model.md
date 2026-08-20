@@ -235,6 +235,17 @@ The conformance and red-team suite includes:
   only direct Human-to-Agent Delegation is supported.
 - **Proposed P-0003 profile:** Revocation and consequence execute concurrently;
   the authority-log/transaction ordering must make exactly one outcome valid.
+- **Proposed P-0003 profile:** Agent selects one authorized Edit from a
+  ChangeSet whose immutable intent contains an ungranted target; complete-intent
+  projection must deny the operation rather than authorize only the immediate
+  Edit or filter later reads.
+- **Proposed P-0003 profile:** Agent uses a released v2 query whose Object and
+  locale are granted but whose resolved current-Edition Schema is not; staged
+  evaluation must deny before content or Schema identity is disclosed.
+- **Proposed P-0003 profile:** Agent substitutes a resource-intent digest,
+  ContextPack digest, ChangeSet, Edition, Release, or superseded v1 write
+  operation after signing; registry, command, transitive-artifact, and selector
+  bindings must fail closed.
 
 ## Security review gates
 

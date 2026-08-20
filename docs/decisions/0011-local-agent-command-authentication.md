@@ -4,6 +4,7 @@
 
 **Constitutional:** Yes — proposes replacing C4
 **Date:** 2026-08-17
+**Last revised:** 2026-08-20 — reconciled with ADR-0012 and P-0007
 
 ## Context
 
@@ -54,6 +55,22 @@ The proposed local Agent authentication profile is defined by the
   binding. MCP `_meta` is transport, never authority.
 - Historical `DelegationV1` remains reproducible but does not silently become
   live v2 authority.
+- `DelegationV2` retains exact Workspace, Environment, Object, Schema, and
+  locale grant axes. The immutable Human-issued `ContentResourceIntentV1`
+  narrows their permission product to exact target tuples; it does not create a
+  sixth grant axis and the Agent cannot issue or replace it.
+- The closed authority registry retains the three implemented v1 read pairs and
+  replaces the nine unimplemented reserved v1 write pairs with P-0007's eleven
+  localized v2 pairs. It binds each pair to its action, input Schema, complete
+  resource- and budget-projection profiles, evidence selectors, idempotency
+  class, and consequence class.
+- Locale scope uses ADR-0012's exact restricted casing: language and variant
+  subtags are lowercase, script is title case, alpha region is uppercase, and
+  registry aliases remain literal without normalization.
+- `object.query_released/v2` authorizes the requested Workspace, Environment,
+  Object, and locale axes before resolving the current Release/Edition, then
+  authorizes every resolved Schema before disclosure. All other localized v2
+  operations authorize the complete verified intent, never a filtered subset.
 - OIDC, SPIFFE, Windows credentials, KMS/HSM, workload measurement, and the
   final portable evidence bundle remain deferred adapters or later work.
 
@@ -126,6 +143,11 @@ falsification vectors are part of the linked contract and
 - Application idempotency never bypasses current authentication or
   authorization. A retry obtains the original result only after fresh C5/C6
   checks; revocation can deny disclosure without duplicating the prior effect.
+- P-0007's explicit UUIDv7 keys remain request-bound. Localized validation
+  derives its operation key from the proposal, policy, and validator;
+  submission derives it from the ChangeSet while retaining `submitted_at` as
+  semantic input. Reads use no application idempotency key. These classes are
+  frozen in `AuthorityOperationRegistryV1` rather than inferred by adapters.
 - Provider churn is isolated behind authentication and signing ports.
 - P-0004 becomes implementation-ready only after project-owner acceptance.
   P-0006 can be reshaped now but stays blocked by P-0005.
@@ -142,6 +164,14 @@ falsification vectors are part of the linked contract and
 - **Full chain now:** matches earlier direction but adds substantial semantics
   with no Milestone 2 use case. Rejected in favor of an explicit direct-only
   version.
+- **Tuple-scoped `DelegationV3` now:** directly represents nonrectangular
+  localized targets, but duplicates the immutable Human-issued resource intent,
+  widens the signed grant and portable evidence, and solves no demonstrated
+  scope failure. The exact intent safely narrows the existing v2 product.
+- **Add explicit keys to localized validate/submit:** would require new P-0007
+  operation versions. Proposal/policy/validator and ChangeSet identity already
+  provide stable derived operation keys, while changed semantic input remains
+  detectable; adapters are forbidden from choosing another derivation.
 - **Reuse the Release key:** smaller but couples authority manufacture to
   outcome attestation and weakens compromise isolation.
 - **Replay identical signed presentations:** convenient for transport retries,
@@ -155,6 +185,9 @@ falsification vectors are part of the linked contract and
 - Negative vectors cover wrong signer/binding/requester/recipient/audience,
   altered command, expiry, replay, disabled or revoked state, direct-profile
   violations, scope/budget denial, and metadata substitution.
+- Registry vectors cross-check all 14 authority pairs with P-0007's 11
+  localized operation Schemas, exact projection profiles, retry classes, and
+  rejection of mixed-case locale variants and superseded v1 write pairs.
 - P-0004 must prove CLI, modern MCP, and legacy MCP parity, denial atomicity,
   fresh-presentation idempotent replay, exact migrations, and no secret or raw
   provider subject disclosure.

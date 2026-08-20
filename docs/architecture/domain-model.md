@@ -323,8 +323,10 @@ dimensions and add no new action or grant axis.
 Generated ChangeSet, Edit, Edition, Release, and Proof identifiers are outcome
 selectors and evidence, not authority. P-0007 implements this content
 foundation for a Human path before P-0005 binds it to authenticated Agent
-authority. P-0003 must reconcile its closed write-operation registry with the
-v2 operation and resource closure following P-0002 owner acceptance.
+authority. P-0003's reconciled candidate freezes the 11 v2 pairs and their
+complete-intent or staged released-query projections in
+`AuthorityOperationRegistryV1`; P-0005 may wire them but cannot reinterpret
+them.
 
 ## Proposed P-0003 profile — portable authority closure
 

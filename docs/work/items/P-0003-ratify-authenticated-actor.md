@@ -139,6 +139,13 @@ Agent secret, or support Agent-to-Agent delegation.
 - [x] The strongest rejected design and residual trust boundary are recorded.
 - [x] ADR-0011 is explicitly Constitutional, proposes exact C4 replacement
       text, and records the behavioral compatibility boundary.
+- [x] `AuthorityOperationRegistryV1` retains only the three implemented v1
+      reads, cross-links all 11 P-0007 v2 input Schemas, and freezes their
+      action, closure anchor, resource/budget projections, evidence selectors,
+      retry class, consequence, and enablement wave.
+- [x] `DelegationV2` and `AuthorizationDecisionV2` use P-0002's exact locale
+      grammar; vectors accept lowercase variants and literal aliases and reject
+      mixed-case variants.
 - [ ] The project owner explicitly accepts the decision before this item moves
       from `review` to `done` or any implementation successor becomes `ready`.
 - [x] P-0004 and P-0006 are reshaped and promoted only if implementation scope
@@ -161,12 +168,28 @@ Claimed by `codex:/root:p-0003` at `2026-08-17T20:41:57.212Z` from
 checkpoint is `cf4e57d0ace70e80377d16b57e43b6099129e0d0`; the integrated item-work
 commit is `b124b2491dfd787df1a562786f122fb6e62a1497`.
 
-The candidate, machine contracts, vectors, downstream shaping, and independent
-falsification are complete. P-0002 subsequently ratified the delegated content
-and write-resource closure. P-0003 is now `ready` to reconcile its operation
-registry and locale Schema with that accepted contract before entering owner
-review. ADR-0011 remains Proposed, C4 remains unchanged, and P-0004 remains
-blocked. See the [qualification receipt](../evidence/P-0003/receipt.md).
+That initial candidate, machine contracts, vectors, downstream shaping, and
+independent falsification were complete, but P-0002 subsequently ratified a
+localized v2 write-resource closure that required reconciliation before review.
+
+Reclaimed by `codex:/root:p-0003` at `2026-08-20T18:58:18Z` from
+`8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8` on
+`proof-architecture/p-0003-reconciliation`. The reconciled candidate:
+
+- retains only the three implemented v1 read pairs and binds all 11 P-0007 v2
+  pairs to their exact operation Schemas;
+- freezes complete-intent and staged released-query resource projections,
+  evidence selectors, five budget profiles, retry classes, consequences, and
+  enablement wave in `AuthorityOperationRegistryV1`;
+- aligns Delegation and decision locale grammar with P-0002; and
+- adds a retained cross-profile test plus rejected vectors for registry drift,
+  mixed-case variants, superseded v1 writes, and each missing localized grant
+  axis.
+
+The refreshed [qualification receipt](../evidence/P-0003/receipt.md) records the
+exact candidate and validation results. ADR-0011 remains Proposed, C4 remains
+unchanged, P-0004 remains blocked, and the only unchecked acceptance criterion
+is explicit project-owner acceptance.
 
 ## Residual risks and next-wave update
 

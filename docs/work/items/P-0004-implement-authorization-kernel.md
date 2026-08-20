@@ -36,8 +36,10 @@ The following reshape is pending project-owner acceptance of P-0003. It does
 not make this item `ready` and does not claim any authenticated Agent path is
 implemented. The controlling proposal is the
 [authenticated actor contract](../../architecture/authenticated-actor.md).
-P-0002 must first settle the write-resource closure before P-0003 can enter
-owner review; this candidate reshape remains blocked and exposes no write path.
+P-0002 and P-0007 have settled and implemented the Human-path resource closure.
+P-0003's reconciled candidate now fixes the authority registry against it; this
+item remains blocked only on explicit P-0003 owner acceptance and exposes no
+write path.
 
 ## Authorized scope
 
@@ -111,13 +113,18 @@ owner review; this candidate reshape remains blocked and exposes no write path.
   Agent recipient. Evaluate action, resource, budget, time, binding,
   revocation, and policy; reject parent references, subdelegation, chains, and
   cycles rather than partially evaluating them.
-- Reserve the exact canonical tokens `changeset:create`, `changeset:add`, `changeset:get`,
-  `changeset:diff`, `changeset:validate`, `changeset:submit`,
-  `changeset:commit`, `edition:create`, and `release:create`; implement the
-  generic exact-set evaluator and all 12 normative operation/version-to-action
-  mappings, rejecting unknown pairs. Expose only current status/query/context
-  operations. P-0002/P-0005 own write-resource closure and enablement; if they
-  require absent scope dimensions, P-0003 must reopen/version before acceptance.
+- Implement the exact 14-row `AuthorityOperationRegistryV1`: the three retained
+  v1 reads plus all 11 P-0007 localized v2 pairs, with their action,
+  idempotency, consequence, closure-anchor, resource/budget projection, and
+  selector mappings. Reject every
+  unknown pair and the superseded unimplemented v1 write pairs. Implement the
+  four registered projection profiles, including the resolver boundary needed
+  for staged Object/locale-then-Schema query evaluation, but expose only the
+  three current v1 reads. P-0005 enables the localized rows and cannot add or
+  reinterpret an operation, action, resource source, or retry class.
+- Apply the same restricted locale grammar to Delegation scope and decision
+  projections: lowercase variants are valid, mixed-case variants fail, and
+  literal registry aliases are not normalized.
 - Enforce payload limits: 4,096-byte command/enrollment canonical payload and
   16,384-byte complete envelopes; 65,536-byte canonical authority record and
   98,304-byte complete authority/root-transition envelope. Generate and verify
@@ -220,10 +227,16 @@ owner review; this candidate reshape remains blocked and exposes no write path.
 - [ ] The Unix local Human path remains supported through the same port.
 - [ ] A deterministic adapter and portable vectors prove behavior without OS or
       wall-clock dependence.
-- [ ] All 12 normative operation/version-to-action mappings reproduce the
-      authenticated-actor/conformance table and unknown pairs fail. Only the
-      current status/query/context operations are exposed; no P-0004 write is
-      enabled.
+- [ ] All 14 `AuthorityOperationRegistryV1` rows reproduce the
+      authenticated-actor/conformance operation, action, retry, consequence,
+      closure-anchor, projection, and selector mapping; all 11 localized rows
+      cross-check P-0007's input Schemas. Unknown pairs and the superseded v1
+      writes fail. Only the three current v1 reads are exposed; no P-0004
+      localized operation is enabled.
+- [ ] Projection tests prove complete-intent evaluation, staged
+      Object/locale-then-resolved-Schema query evaluation, literal locale alias
+      behavior, mixed-case variant rejection, and denial for each missing
+      required grant axis without filtered disclosure.
 - [ ] Command, enrollment, authority, and root-transition vectors prove `keyid`
       matches the resolved expected key after verification and reject duplicate,
       permuted, or substituted root-transition identities/signatures.

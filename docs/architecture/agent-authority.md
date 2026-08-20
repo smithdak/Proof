@@ -200,12 +200,11 @@ the operation immediately before consequence.
 reserves the Milestone 2 `changeset:create`, `changeset:add`, `changeset:get`,
 `changeset:diff`, `changeset:validate`, `changeset:submit`,
 `changeset:commit`, `edition:create`, and `release:create` tokens. P-0003 fixes
-their exact operation/action identities but not the downstream content,
-Edit, Edition, or Release resource closure. P-0004 exposes only the current
-status/query/context operations; P-0002 and P-0005 own write semantics and
-enablement. If their required scope dimensions do not fit `DelegationV2`,
-P-0003 must reopen and version the contract before acceptance. Transport or
-implementation aliases never silently change the vocabulary.
+their exact operation/action identities and, after P-0007, their complete
+content, Edit, Edition, and Release resource projections. P-0004 exposes only
+the current status/query/context v1 operations; P-0005 enables the localized v2
+rows without changing their authority meaning. Transport or implementation
+aliases never silently change the vocabulary.
 
 Every `DelegationV2` scope array is exact-set semantics: an empty array grants
 none, never wildcard. Dimensions unused by an operation are ignored; a required
@@ -266,11 +265,15 @@ dimensions. Edition and Release authorization additionally proves that the
 Environment baseline is unchanged and that the state delta is exactly the one
 bound ChangeSet, not merely a subset of the broad Delegation product.
 
-P-0003's proposed closed registry currently names v1 write operations and
-reserves their content closure. It is reopened after P-0002 acceptance to
-reconcile the v2 operation/version pairs and exact resource projections before
-P-0004 proceeds. P-0007 proves the same content path under an authenticated
-Human before P-0005 enables it for an Agent.
+P-0003's reconciled candidate retains the three implemented v1 read pairs,
+replaces the unimplemented reserved v1 write pairs with all 11 P-0007 localized
+v2 pairs, and freezes four exact resource-projection profiles in
+[`AuthorityOperationRegistryV1`](../../conformance/v1/authority/vectors/authority-operation-registry.valid.json).
+The complete intent is evaluated for every localized lifecycle operation; the
+released v2 query authorizes Object/locale selectors before internally
+resolving and authorizing Schemas from the current Edition. P-0007 proves the
+same content path under an authenticated Human before P-0005 enables it for an
+Agent.
 
 ## Delegation
 

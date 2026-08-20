@@ -79,12 +79,12 @@ invocation. No Agent-controlled path or argv can make the broker open a file,
 and the ambient CLI remains Human-only. This adds no network/collaboration
 server.
 
-P-0004 implements the generic exact-set evaluator and reserves all 12 normative
-operation/action tokens, but exposes only current status/query/context
-operations. P-0002 and P-0005 own the exact content/Edit/Edition/Release resource
-closure and write enablement. If those operations need scope dimensions absent
-from `DelegationV2`, P-0003 must reopen and version the contract before
-acceptance.
+P-0004 implements the generic evaluator for the reconciled 14-row authority
+registry—three retained v1 reads and 11 localized v2 pairs—but exposes only the
+current v1 status/query/context operations. P-0007 owns the exact
+content/Edit/Edition/Release contracts; P-0003 fixes their complete-intent and
+staged released-query projections; P-0005 owns Agent write enablement and may
+not reinterpret either side.
 
 Authenticated status/query reads use no idempotency key: every fresh
 presentation is a distinct attempt that appends one consumption plus decision
@@ -124,9 +124,10 @@ content semantics inside delegated mutation.
   the operation's authority.
 - Ratified application contracts reserve `/v2` successors for
   `context.build`, `object.query_released`, all content-capable `changeset.*`
-  operations, `edition.create`, and `release.create`. P-0003 must reconcile its
-  operation registry with these reservations before owner review; reservation
-  is not capability advertisement.
+  operations, `edition.create`, and `release.create`. P-0003's review candidate
+  reconciles all 11 with the three retained v1 reads and freezes their exact
+  resource projections; this remains a decision candidate, not capability
+  advertisement.
 
 If accepted, P-0005 depends on both P-0007 and P-0004 and supplies authenticated
 Agent authority, adapter parity, and end-to-end delegated evidence. P-0006 then

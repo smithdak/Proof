@@ -35,8 +35,9 @@ The following P-0003-dependent clauses are pending project-owner acceptance.
 They reshape future qualification only. This item remains blocked by P-0005.
 The controlling proposal is the
 [authenticated actor contract](../../architecture/authenticated-actor.md).
-P-0002 must settle write-resource closure before P-0003 owner review; this
-candidate profile therefore remains upstream-blocked and is not accepted.
+P-0002 and P-0007 have closed the Human-path write-resource contract, and
+P-0003's reconciled candidate binds its exact operation/projection registry.
+That profile is still unaccepted until the project owner closes P-0003.
 
 ## Authorized scope
 
