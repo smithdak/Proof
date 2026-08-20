@@ -1,183 +1,211 @@
-# P-0007 Engineering revalidation receipt
+# P-0007 Engineering qualification receipt
 
 ## Outcome
 
-Engineering produced and locally qualified item-work candidate
-`fede487547c3e2bb27f5cb8fb168f5b5312a5f23`. It repairs every strict-Clippy
-failure exposed after the stale `a95ee484b7038358c0d4e30167862dbed85728c0`
-candidate and corrects the CLI status test to the implemented v11 storage
-schema. The changes preserve behavior except for that stale test expectation.
+Engineering qualified item-work candidate
+`c4b312d6f493936e15c2cc658277953ea18777f7` from a clean detached checkout.
+The pinned Ubuntu gate passed locally and in GitHub Actions at that exact SHA.
+The local gate comprised formatting, strict workspace/all-target/all-feature
+Clippy, 345 Rust tests, documentation tests, 159 internal documentation links,
+and all seven work-control records. GitHub Actions run
+[`32380862459`](https://github.com/smithdak/Proof/actions/runs/32380862459)
+completed every required step successfully; no required step was skipped,
+cancelled, neutral, or failing.
 
-The complete local Ubuntu gate passed at unchanged candidate HEAD with a clean
-tree: formatting, strict workspace/all-target/all-feature Clippy, 208 Rust
-tests, documentation tests, 159 internal documentation links, seven work-item
-records, and normalized diff validation all passed.
+This candidate supersedes, but does not relabel, historical candidate
+`fede487547c3e2bb27f5cb8fb168f5b5312a5f23`. Assurance found that the historical
+candidate did not reconstruct all ContextPack authority and returned mutable
+precondition failures instead of original results for three lifecycle-advanced
+replays. Candidate `c4b312d...` repairs those defects and retains focused
+falsification tests for their failure mechanisms.
 
-This is Engineering evidence, not an Assurance verdict. P-0007 remains
-`claimed`, the prior capability claim remains stale, and the current Assurance
-verdict remains `indeterminate`. Exact-SHA GitHub Actions is not available
-because the directive prohibits pushing or publication. Assurance entry
-condition 4 therefore remains open, and Engineering is not requesting final
-Assurance execution from this packet.
+This receipt is Engineering evidence, not an Assurance verdict. At this
+commit, P-0007 is in `review`, Assurance remains `indeterminate`, and the
+bounded claim is not reactivated. No tag, release, deployment, production, or
+customer claim follows from qualification.
 
 ## Revision topology
 
 | Field | Exact value |
 | --- | --- |
 | Original P-0007 base | `a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566` |
-| Original claim commit | `12c8e15f37a2e090e84dca6b7d601d7d9cd17a0e` |
-| Stale candidate | `a95ee484b7038358c0d4e30167862dbed85728c0` |
-| Engineering ownership transfer | `cd6d547` |
-| Assurance gate | `a1d695da0ec55868f1aee7539590d601a6ac9adf` |
-| Revalidation control plane | `f3e3c2195bdbf983f3322726dccf90985e9a17b3` |
-| Candidate parent | `f3e3c2195bdbf983f3322726dccf90985e9a17b3` |
-| Candidate SHA | `fede487547c3e2bb27f5cb8fb168f5b5312a5f23` |
-| Branch | `proof-engineering/p-0007-revalidation` |
-| Checkout | `C:\Users\dakot\.buzz\REPOS\Proof-P0007-Revalidation` |
-| Evidence commit | Recorded by Git history and the Assurance verdict; not embedded here, avoiding self-reference |
-| Remote publication | Not authorized; not performed |
+| Engineering revalidation base | `a95ee484b7038358c0d4e30167862dbed85728c0` |
+| Historical unsupported candidate | `fede487547c3e2bb27f5cb8fb168f5b5312a5f23` |
+| Candidate parent | `2c4335c6ba307523ecbc6965adfeeddc4dcca9f9` |
+| Candidate SHA | `c4b312d6f493936e15c2cc658277953ea18777f7` |
+| Engineering branch | `proof-engineering/p-0007-finalization` |
+| Temporary CI ref | `refs/heads/proof-assurance/p-0007-candidate` |
+| Fresh Assurance checkout | `D:\github\Proof\target\assurance-p0007-c4b312d` |
+| Evidence commit | The Git commit containing this packet; bound by the Assurance verdict rather than self-referenced here |
+| Main at qualification time | `a95ee484b7038358c0d4e30167862dbed85728c0` |
 
-## Candidate change
+The candidate is reachable from the reviewed branch and the temporary CI ref.
+Its fresh checkout printed the exact SHA before execution and remained clean
+after execution. `candidate-paths.sha256` inventories all 34 paths changed from
+the original P-0007 base using SHA-256 over Git blob bytes at the candidate.
+This byte domain is independent of CRLF/LF checkout materialization. The ten
+paths changed from the candidate parent are separately identified in
+`manifest.json`.
 
-The successor candidate changes five files relative to its parent:
+## Candidate repair scope
 
-- splits long canonical and integration-test helpers without changing the
-  covered artifact or lifecycle assertions;
-- factors localized projection verification into source, pointer, and content
-  checks while preserving fail-closed errors;
-- removes stale or unnecessary Clippy constructs and borrows Environment
-  identifiers instead of moving them; and
-- changes the CLI status expectation from storage schema `10` to `11`.
+The candidate-parent delta contains ten paths:
 
-No dependency, architecture contract, migration SQL, public API, release
-configuration, production state, or secret changed in the repair commit.
+- `Cargo.lock` and `crates/proof-local/Cargo.toml` add only the existing
+  workspace `blake3` and `serde_json_canonicalizer` packages as test-only
+  dependencies;
+- `conformance/v2/localized-content/schemas/operations.schema.json` fixes the
+  canonical artifact Schema reference;
+- `operation-instances.valid.json` supplies valid input/output instances for
+  all 11 localized operation contracts;
+- `portable-artifacts.valid.json` adds independently checked Edition delta and
+  Release proof-predicate vectors;
+- `crates/proof-local/src/localized.rs` verifies unique, effect-bound resource
+  intent and ContextPack operations, reconstructs exact ContextPack closure and
+  budget constraints on read, and performs replay lookup before mutable
+  lifecycle preconditions;
+- `initialize.rs` and `localized_conformance.rs` retain the repaired replay,
+  integrity, canonicalization, Schema, and mutation cases; and
+- `p0007_assurance_g6_g9.rs` plus `p0007_assurance_g10_g13.rs` retain budget,
+  lineage, migration, projection, and recovery matrices.
 
-## Exact local qualification
+No Agent credential, delegated authorization, network service, provider,
+translation system, UI, locale fallback, rendition deletion, relationship
+traversal, or production integration was added.
 
-Environment:
+## Exact qualification
+
+### Environment
 
 - Ubuntu 24.04.4 LTS under WSL2, kernel
   `5.15.167.4-microsoft-standard-WSL2`;
 - `rustc 1.97.1 (8bab26f4f 2026-07-14)`;
 - `cargo 1.97.1 (c980f4866 2026-06-30)`;
 - Node `v22.23.1`; and
-- Windows Git `2.43.0.windows.1` for worktree-aware SHA/clean-tree and
-  normalized diff checks.
+- Windows Git `2.43.0.windows.1` for worktree, Git-object, and normalized-diff
+  checks.
 
-The exact-SHA harness printed the same full SHA before and after the gate and
-an empty post-run porcelain status. Commands and exit codes are recorded in
-`manifest.json`. The Rust test count is 208: 5 application, 11 attestation, 14
-canonical, 1 architecture, 28 CLI, 14 domain, 118 local integration, 9 MCP
-unit, and 8 MCP protocol tests. Documentation tests completed for six crates
-with no failures.
+### Local exact-SHA gate
 
-WSL Git cannot parse this Windows-created worktree's `.git` file because it
-contains a Windows absolute gitdir. The outer PowerShell harness therefore
-established clean exact HEAD before and after the Ubuntu commands and ran
-`git -c core.autocrlf=true diff --check` through Windows Git. The initial WSL
-attempt's final Git command was infrastructure-indeterminate; it did not alter
-or weaken the successful Rust, documentation, or work-control results.
+All commands ran with `--locked`; Rust build output was isolated under
+`D:\github\Proof\target\assurance-c4b-build`.
 
-## Required evidence matrices
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | exit 0 |
+| `cargo test --locked --workspace --all-targets --all-features` | 345 passed, 0 failed, 0 ignored |
+| `cargo test --locked --doc --workspace --all-features` | six crate targets, 0 failures |
+| `node scripts/check-doc-links.mjs` | 159 links passed |
+| `node scripts/check-work-items.mjs` | seven items passed |
 
-### Migration matrix
+The 345 Rust tests comprise 5 application, 11 attestation, 14 canonical, 1
+architecture, 28 CLI, 14 domain, 122 local integration, 1 localized
+conformance, 129 G10/G13 integration-binary tests, 3 G6/G7/G9 retained tests,
+9 MCP unit, and 8 MCP protocol tests. The G10/G13 binary deliberately includes
+the 122 local integration cases plus seven focused cases, so 122 cases execute
+twice in the workspace total.
 
-| Input storage version | Transition | Retained result |
-| --- | --- | --- |
-| v1-v9 | Successive atomic migrations through v11 | `every_pre_localization_version_migrates_without_changing_v1_evidence` passed for each input version; legacy snapshots remained byte/digest equal, foreign keys were clean, and zero v11 localized rows were fabricated. |
-| v10 | Atomic migration to v11 | The same every-version test passed with operation-effect commitments preserved and zero fabricated localized rows. |
-| v9 with injected v10 failure | Remain exactly v9, then retry to current | `version_ten_migration_rolls_back_atomically_after_a_mid_script_failure` passed. |
-| v10 with injected v11 failure | Remain exactly v10, then retry to v11 | `version_eleven_migration_rolls_back_atomically_after_an_injected_failure` passed. |
+### GitHub exact-SHA gate
 
-### Source-to-rendition fixture matrix
+Run `32380862459`, job `96463454459`, checked out candidate
+`c4b312d6f493936e15c2cc658277953ea18777f7` and completed on
+2026-08-20 at 14:36:06 UTC. Setup, checkout, pinned-toolchain installation and
+verification, formatting, Clippy, all tests, documentation tests,
+documentation-link validation, work-control validation, checkout cleanup, and
+job completion all concluded `success`.
 
-| Phase | Source / target | Retained result |
-| --- | --- | --- |
-| Baseline | Object `019c0000-0000-7000-8000-000000000080`, Schema `campaign@1`, locale-neutral revision 1 | Source digest is independently computed by `object_revision_digest`; the first localized commit asserts KnownState v1 to v2. |
-| Initial localized commit | Exact `es-ES` and `fr-FR` targets, both absent at base | Two immutable rendition revision-1 records are committed; exact-locale query returns two and `de-DE` returns `NotFound` without fallback. |
-| Repair | Invalid French prohibited-claim attempt followed by a valid superseding Edit | Both attempts remain stored; validation attempt 2 passes and the effective French head is the repair. |
-| Exact replacement | Existing `fr-FR` revision 1/digest as the expected target | One revision-2 French rendition is committed with `previous_revision_digest` bound to revision 1; Spanish remains revision 1. |
-| Cross-version rollback | v2 Release to baseline v1, then v1 back to the exact v2 Release | v1 query exposes no rendition; restored v2 query returns both exact locales and Release verification passes. |
+## Required Engineering evidence matrices
 
-Canonical fixture bytes and portable expected digests are retained in
-`conformance/v2/localized-content/vectors/artifact-digests.valid.json`; their
-SHA-256 is recorded in `manifest.json`. The runtime scenario reconstructs
-content digests rather than storing a disposable database in evidence.
+### Canonical and operation contracts
 
-### Denial matrix
+The conformance corpus contains closed artifact and operation Schemas, the
+artifact digest vectors, 11 operation registry entries, 22 operation input and
+output instances, and portable Edition/Release cases. Retained tests validate
+every fixture, recompute RFC 8785 canonical bytes and BLAKE3 digests without
+trusting stored expected values, and reject widened or substituted values.
+Exact Git-blob SHA-256 values are in `manifest.json` and
+`candidate-paths.sha256`.
 
-| Challenge | Stable result | Atomicity assertion |
-| --- | --- | --- |
-| Submit before valid validation | `NotReady` | no lifecycle advance |
-| Approve before submit | `NotSubmitted` | no approval |
-| Commit before approval | `NotApproved` | no commit |
-| Locale outside exact intent | `IntentMismatch` | zero localized Edits |
-| Stale source digest | `SourceConflict` | zero localized Edits |
-| Target claimed present when absent | `TargetConflict` | zero localized Edits |
-| Change outside localizable pointers | `InvalidInput` | zero localized Edits |
-| Duplicate active target | `DuplicateActiveTarget` | original one Edit remains |
-| Unknown supersession predecessor | `InvalidSupersession` | original one Edit remains |
-| Missing or wrong repair evidence | `InvalidRepairEvidence` | original one Edit remains |
-| Fork after a valid repair | `InvalidSupersession` | two-Edit linear history remains |
-| Edit after valid sealing | `NotDraft` | two-Edit history remains |
+### Source-to-rendition lifecycle
 
-All rows are retained by `localized_edit_denials_are_specific_and_atomic`.
-The independent G3, G7, G8, and G13 database snapshot expansion remains an
-Assurance action, not an Engineering pass claim.
+| Phase | Retained result |
+| --- | --- |
+| Baseline | Exact v1 Object/Schema/Known State and a Human-authenticated immutable intent for `es-ES` and `fr-FR`. |
+| Invalid attempt | A prohibited French claim remains immutable and contributes to the attempt and validation budgets. |
+| Repair | A valid superseding Edit forms one acyclic effective head; complete attempt lineage remains bound into validation and approval. |
+| Commit and Edition | Exact source and target preconditions produce the expected two-rendition delta without ambient state. |
+| Release and query | Promotion uses compare-and-swap pointer semantics; exact `es-ES` and `fr-FR` queries succeed, while absent or mis-cased locales do not fall back. |
+| Cross-version | Rollback to v1 hides renditions; restoration to the exact v2 Release reproduces both and verifies. |
+
+The application and CLI lifecycle tests both pass at the exact candidate. The
+direct adapter and CLI expose the same identifiers, digests, transitions,
+Problems, and normalized result shapes for equivalent operations.
+
+### Denial, lineage, and budget matrix
+
+Retained cases reject stale source and target references, wrong
+Object/Schema/locale, non-localizable changes, duplicate active targets,
+cross-target supersession, missing or wrong repair evidence, fork, skipped
+predecessor, cycle, edits after sealing, and lifecycle operations before their
+required prior state. Context object/byte, Edit-attempt, and
+validation-attempt budgets return `LimitExceeded` with identical typed BLAKE3
+state fingerprints before and after. Raw deletion, reorder, substitution, and
+cycle injection returns `Integrity`, leaves the injected database fingerprint
+unchanged, and never repairs authoritative history.
 
 ### Replay matrix
 
-| Operation family | Retained result | Remaining independent coverage |
-| --- | --- | --- |
-| ContextPack build | Identical replay returns the original before revalidating candidate time; changed/moved scope rejects without writes. | Localized exact-target cross-link mutation |
-| ChangeSet create/add/commit and Edition create | Shared local operation-effect tests return original outputs, reject changed-input/key aliasing, and detect tampered effects. | Per-operation localized-envelope replay matrix |
-| Localized rollback | The application scenario replays the identical rollback command and asserts equality with the original Release. | Changed target and lifecycle-position reuse |
-| Release promotion/proof export | Release operation-effect tamper/key-swap tests reject; post-commit proof-export retry converges once. | Localized promote changed-input matrix |
+Exact replay and changed-input/key reuse are retained for all seven
+consequential localized operations: issue intent, build ContextPack, create
+ChangeSet, add Edits, commit, promote, and rollback. Identical replay returns
+the original result after later Environment pointer movement. Changed input,
+target, malformed freshness/target values, key aliasing, missing operation
+evidence, two-row key swaps, and lifecycle-position reuse fail without
+duplicate facts, pointer movement, or overwritten evidence.
 
-These retained results satisfy Engineering's replay evidence obligation but do
-not close G11; Assurance must execute every consequential localized operation
-with identical and changed inputs.
+### Migration matrix
 
-## Acceptance and gate mapping
+Every source storage version v1-v10 is faulted independently during v11
+migration. Each injected failure preserves the source `user_version`, migration
+history, Schema, and a domain-separated BLAKE3 legacy fingerprint. One retry
+reaches `11/11/11`, preserves the legacy fingerprint, creates zero localized
+rows, and retains exactly one v1 Known State artifact. A second retry is stable.
 
-`traceability.md` maps every acceptance criterion and G1-G14 row to its public
-entry point, source, retained test or command, Engineering result, and remaining
-independent action. `candidate-paths.sha256` records SHA-256 for every path
-changed from the original P-0007 base through the candidate.
+### Rebuild and recovery matrix
 
-Engineering provides supporting local evidence for all nine acceptance
-criteria, with explicit partial states where only Assurance's independent
-mutation or reconstruction can resolve the gate. It does not substitute a
-broad green suite for integrity-parity testing.
+Locale, Known State, and Environment-pointer projections are corrupted one
+family at a time. Repeated dry-runs are byte/digest equal and perform no writes;
+repair reconstructs independently expected rows and a second dry-run reports
+no drift. Authoritative tamper fails closed in both modes. Pre-write and
+mid-transaction SQLite aborts leave commit snapshots unchanged and converge on
+one retry. A post-commit/pre-export failure retains durable release evidence;
+replay repairs the export once and then remains stable.
 
-## Disposition
+The mid-transaction injection proves SQLite transactional atomicity after
+earlier writes in the same transaction. It is interruption-equivalent evidence
+for that boundary, not a power-loss, kernel-kill, or storage-controller test.
 
-**Preferred disposition after the mandatory gates: RESTORE. No disposition is
-currently eligible or executed.** The candidate clears the known
-implementation and local Linux failures without changing the ratified scope.
-Restoration remains fail-closed on both missing facts: a green GitHub Actions
-`Linux quality gate` for the exact candidate SHA, and a `supported` Assurance
-verdict binding this candidate and its evidence commit. Until both exist, the
-operative state is stale / revalidation in progress / Assurance
-`indeterminate`.
+## Disposition and residual boundary
 
-The strongest alternative is `REVISE` because several G rows still require
-independent adversarial evidence. It is rejected as the current recommendation:
-the missing facts concern qualification, not a demonstrated contract or
-implementation defect. Any candidate-attributable failure in the authorized
-CI or G1-G14 run changes the recommendation to `REVISE`; an invariant that
-cannot be met without scope expansion changes it to `RETIRE`.
+Engineering recommends `RESTORE` only if independent Proof Assurance records
+every G1-G14 row as `supported` against this exact candidate and binds this
+evidence commit. The strongest alternative is `REVISE`: it becomes mandatory
+if the independent run finds any candidate-attributable integrity,
+atomicity, causality, replay, migration, provenance, or quality-gate failure.
 
-## Residual risks and explicit exclusions
+One architectural trust-boundary residual remains: the local SQLite database
+has no external cryptographic anchor for an original idempotency key. A simple
+key-only mutation, row swap, cross-link, or changed effect is detected. An
+omnipotent actor able to rewrite a key and every dependent unsigned row digest
+self-consistently is outside the bounded local-store integrity claim. This does
+not weaken the tested fail-closed behavior for partial corruption, but the
+candidate must not be described as tamper-proof against total database forgery.
 
-- Exact-SHA GitHub CI is absent because push/publication is prohibited.
-- Assurance has not independently executed G1-G14 on a fresh checkout.
-- Engineering's broad suite cannot exclude a shared integrity bug across
-  direct reads, verifiers, query, rebuild, repair, and recovery surfaces.
-- WSL is local Linux evidence, not GitHub runner, release, production, or
-  customer evidence.
-- Nothing was pushed, tagged, released, published, deployed, or externally
-  communicated. No delegated Agent authority is claimed.
+The tested runtime identity surface is Linux and the authenticated local Human
+adapter. Windows compilation passed through strict all-target Clippy, but live
+Windows identity execution was not qualified. No delegated Agent authority is
+implemented or claimed.
 
 ## Evidence paths
 

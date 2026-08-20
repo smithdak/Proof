@@ -1,7 +1,7 @@
 ---
 id: P-0007
 title: Implement the localized content foundation
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0002]
@@ -70,34 +70,34 @@ candidate while P-0002 remains in review.
 
 ## Acceptance criteria
 
-- [ ] One Human-path scenario creates two target-locale renditions from an
+- [x] One Human-path scenario creates two target-locale renditions from an
       existing source Object, persists a prohibited-claim finding, appends a
       valid superseding Edit, and completes approval, commit, Edition, Release,
       exact-locale query, and verification.
-- [ ] Resource-intent issuance is Human-authenticated, immutable, idempotent,
+- [x] Resource-intent issuance is Human-authenticated, immutable, idempotent,
       and effect-bound; the digest graph from intent to ContextPack to ChangeSet
       is acyclic, and no later command can narrow or widen the exact tuples.
-- [ ] Missing-target creation and exact revision/digest replacement are
+- [x] Missing-target creation and exact revision/digest replacement are
       deterministic; stale source, stale target, duplicate active target,
       supersession fork/cycle, wrong target, and non-localizable-field changes
       fail atomically with stable Problems.
-- [ ] Every attempted Edit remains immutable and counts toward the budget;
+- [x] Every attempted Edit remains immutable and counts toward the budget;
       effective heads alone drive diff/validation/commit, while approval and
       evidence bind the complete attempt lineage and final effective digest.
-- [ ] Edition and Release reject ambient or intervening state, a moved
+- [x] Edition and Release reject ambient or intervening state, a moved
       Environment pointer, an unrelated same-resource commit, or any delta
       outside the immutable exact resource intent.
-- [ ] ContextPack v2 and released-query v2 expose only the exact requested
+- [x] ContextPack v2 and released-query v2 expose only the exact requested
       Object/Schema/locale closure and perform no fallback or relationship
       traversal.
-- [ ] Every supported pre-P-0007 storage version migrates atomically; all v1
+- [x] Every supported pre-P-0007 storage version migrates atomically; all v1
       bytes and digests reproduce exactly, no locale facts are fabricated, and
       injected failures roll back cleanly.
-- [ ] The first v1-to-v2 content transition reproduces exact versioned base
+- [x] The first v1-to-v2 content transition reproduces exact versioned base
       references and the cross-version delta; the closed legacy/v2 command,
       query, rollback, and historical-verification matrix fails unsupported
       combinations without losing rendition state.
-- [ ] Canonical format, migration, rebuild, replay, denial atomicity, and Linux
+- [x] Canonical format, migration, rebuild, replay, denial atomicity, and Linux
       quality gates pass an adversarial falsification review.
 
 ## Required evidence
@@ -159,16 +159,19 @@ The project owner declared the prior P-0007 capability claim stale and
 authorized transfer of operating ownership to Proof Engineering in Buzz event
 `4fba209ea00d5d985d87873f17915f6ed117ca6e0272a81c100ca3166586f846` at
 `2026-08-19T17:39:58Z`. Proof Engineering claimed revalidation from
-`a95ee484b7038358c0d4e30167862dbed85728c0`; the work item remains `claimed`
-only as execution ownership and does not assert that the localized-content v2
-candidate is current, accepted, verified, released, or customer-proven.
+`a95ee484b7038358c0d4e30167862dbed85728c0`.
 
-P-0007 can move to `review` only after the required receipt and manifest bind
-the exact qualified candidate and every acceptance criterion above has direct
-evidence. It can move to `done` only after `proof-assurance` records its
-independent result. If revalidation cannot support the current outcome,
-Engineering must revise this item through an authorized replacement or retire
-it as `superseded`; it must not silently narrow the claim.
+Engineering qualified exact candidate
+`c4b312d6f493936e15c2cc658277953ea18777f7` in a clean fresh Ubuntu checkout
+and GitHub Actions run `32380862459` completed every required step successfully
+at the same SHA. The receipt, manifest, portable Git-blob inventory, and
+traceability table bind that candidate and move the item to `review`.
+
+The item is not accepted or done until `proof-assurance` records a supported
+independent G1-G14 verdict. An unsupported or indeterminate row returns the
+item to Engineering or requires an authorized revision; it must not silently
+narrow the claim. Review status does not assert release, production, delegated
+Agent authority, or customer proof.
 
 ## Residual risks and next-wave update
 

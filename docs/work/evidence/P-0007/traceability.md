@@ -2,57 +2,70 @@
 
 ## Decision boundary
 
-This table maps the nine P-0007 acceptance criteria and Assurance rows G1-G14
-to the exact candidate `fede487547c3e2bb27f5cb8fb168f5b5312a5f23`.
-Engineering evidence is not an Assurance verdict. `partial` means the retained
-candidate suite supplies supporting evidence but the independent adversarial
-execution required by the gate has not occurred. `blocked` means the directive
-prohibits the publication needed to obtain the required result.
+This table maps every P-0007 acceptance criterion and Assurance row G1-G14 to
+candidate `c4b312d6f493936e15c2cc658277953ea18777f7`. `supported by Engineering`
+means the exact-candidate implementation and retained evidence passed; it is
+not an Assurance verdict. Only `assurance-verdict.md` can transition the
+bounded claim from `indeterminate` to `supported`.
 
 ## Acceptance criteria
 
-| AC | Requirement | Candidate evidence | Engineering state |
+| AC | Requirement | Exact-candidate evidence | Engineering state |
 | --- | --- | --- | --- |
-| AC1 | Two-locale Human repair-to-Release scenario | `localized_human_path_repairs_and_releases_two_exact_locales`; `localized_cli_repairs_and_releases_two_exact_locales` | supported locally |
-| AC2 | Human-authenticated immutable, idempotent, effect-bound intent and acyclic digest graph | `LocalizedContentRepository::issue_content_resource_intent`; the application scenario; operation-effect verification in `crates/proof-local/src/localized.rs` | partial; independent mutation run pending |
-| AC3 | Deterministic create/replace and atomic stable denials | `localized_edit_denials_are_specific_and_atomic`; replacement phase of the application scenario | supported locally; independent falsification pending |
-| AC4 | Immutable attempts, effective heads, complete approval/evidence lineage | application scenario and denial matrix; sealed validation/approval/commit reconstruction in `crates/proof-local/src/localized.rs` | partial; deletion/substitution mutation run pending |
-| AC5 | Exact commit/Edition/Release causality | application scenario; `release_reads_reject_independent_approval_digest_tamper`; `release_verifier_enforces_predecessor_time_and_non_regressing_editions` | partial; localized pointer/delta mutation run pending |
-| AC6 | Exact ContextPack and query closure without fallback/traversal | application scenario exact-locale and absent-locale assertions; `releases_queries_and_context_packs_preserve_immutable_history_and_exact_authority` | partial; independent disclosure matrix pending |
-| AC7 | Atomic migration of every supported pre-v11 version with v1 reproduction | `every_pre_localization_version_migrates_without_changing_v1_evidence`; `version_eleven_migration_rolls_back_atomically_after_an_injected_failure` | supported locally; independent fixture hashing pending |
-| AC8 | Exact first v1-to-v2 transition and closed compatibility matrix | application scenario assertions for KnownState v1/v2, v1/v2 rollback, and unsupported legacy operations | supported locally; independent reconstruction pending |
-| AC9 | Canonical, migration, rebuild, replay, denial, and Linux gates | canonical localized tests; migration/rebuild/denial tests; exact-SHA Ubuntu run in `receipt.md` | partial; exact-SHA GitHub CI and Assurance remain pending |
+| AC1 | Two-locale Human repair-to-Release lifecycle | `localized_human_path_repairs_and_releases_two_exact_locales`; `localized_cli_repairs_and_releases_two_exact_locales` | supported by Engineering |
+| AC2 | Human-authenticated immutable, idempotent, effect-bound intent and acyclic immutable closure | `localized_resource_intent_operations_are_unique_and_effect_bound`; `localized_context_build_operations_are_unique_and_effect_bound`; `localized_control_replays_survive_environment_pointer_movement` | supported by Engineering |
+| AC3 | Deterministic create/replace and atomic stable denials | `localized_edit_denials_are_specific_and_atomic`; lifecycle replacement phase; G7 retained matrix | supported by Engineering |
+| AC4 | Immutable attempts, effective heads, complete evidence lineage, and budgets | lifecycle scenario; G7 raw-lineage and separate-budget tests | supported by Engineering |
+| AC5 | Exact commit/Edition/Release causality | lifecycle scenario; Release integrity/chronology tests; moved-pointer and pre-promotion denials | supported by Engineering |
+| AC6 | Exact ContextPack/query closure without fallback or traversal | `localized_context_reads_reconstruct_policy_resources_and_metadata`; `releases_queries_and_context_packs_preserve_immutable_history_and_exact_authority`; exact/absent-locale lifecycle assertions | supported by Engineering |
+| AC7 | Atomic v1-v10 migration to v11 without fabricated locale facts | G9 every-version injected-failure/rollback/retry matrix; existing v10/v11 fault cases | supported by Engineering |
+| AC8 | Exact v1-to-v2 transition and closed compatibility matrix | lifecycle v1/v2 rollback/restore assertions; G9 legacy fingerprint equality | supported by Engineering |
+| AC9 | Canonical, migration, rebuild, replay, denial, and Linux gates | exact local 345-test gate; GitHub run `32380862459`; focused G2-G14 retained cases | supported by Engineering; Assurance pending |
 
-## G1-G14 plan and retained evidence
+## G1-G14 mapping
 
-| Gate | AC | Exact public entry point | Source | Retained test or command | Engineering result / Assurance action |
-| --- | --- | --- | --- | --- | --- |
-| G1 | AC9 | Repository Linux quality gate | `.github/workflows/ci.yml`; `rust-toolchain.toml` | Exact commands and 208-test result in `receipt.md` | local Ubuntu supported; GitHub exact-SHA CI blocked by no-push directive |
-| G2 | AC9 | `object_locale_revision`; `known_state_v2_manifest`; `known_state_v2`; versioned Schemas | `crates/proof-canonical/src/lib.rs`; `conformance/v2/localized-content/` | `localized_artifact_golden_digests_are_stable`; public builder vector tests; `localized_conformance_schemas_and_golden_artifacts_are_closed` | positive vectors and selected mutations supported; Assurance must independently reconstruct and complete mutation corpus |
-| G3 | AC2-AC5 | `get_content_resource_intent`; `get_localized_context`; `inspect_localized_changeset`; `query_released_renditions` | `crates/proof-application/src/localized.rs`; `crates/proof-local/src/localized.rs` | operation-effect integrity tests in `initialize.rs`; application scenario direct reads | partial; Assurance must tamper each localized authoritative family and prove unchanged state |
-| G4 | AC5, AC8 | `verify_localized_release`; CLI `localized release-verify` | `crates/proof-local/src/localized.rs`; `crates/proof-cli/src/localized_cli.rs` | application/CLI scenarios; generic Release tamper, chronology, trust, and proof-repair tests | partial; Assurance must run localized wrong-bytes/ancestry/version matrix |
-| G5 | AC6 | `build_localized_context`; `get_localized_context`; `query_released_renditions` | application trait and local adapter localized modules | application exact/absent locale assertions; immutable-history/exact-authority test | partial; Assurance independently derives closure and disclosure denials |
-| G6 | AC1, AC2 | Complete `LocalizedContentRepository`; CLI `run_localized` | application trait, local adapter, and CLI localized modules | application and CLI two-locale repair-to-Release scenarios | supported locally; Assurance compares normalized envelopes and digest graph |
-| G7 | AC3, AC4 | `add_localized_edits`; inspect/diff/validate methods | `crates/proof-local/src/localized.rs` | `localized_edit_denials_are_specific_and_atomic`; application repair lineage | retained atomic denial matrix supported; Assurance expands fork/cycle/budget mutations |
-| G8 | AC5 | commit, Edition, promote, rollback methods | `crates/proof-local/src/localized.rs` | application replacement, stale Edition, moved pointer, rollback, and Release verification assertions | partial; Assurance independently reconstructs exact delta and pointer snapshots |
-| G9 | AC7, AC8 | workspace initialization/migration and latest-schema preflight | `crates/proof-local/src/lib.rs`; localized migration in `localized.rs` | every-pre-localization-version migration; injected v11 rollback; application legacy/v2 matrix | supported locally; Assurance independently hashes fixtures and retries injected failures |
-| G10 | AC9 | `rebuild_projections`; CLI `projection rebuild` | `crates/proof-local/src/lib.rs`; `crates/proof-local/src/localized.rs` | application localized corruption/dry-run/repair/no-drift assertions; authoritative-tamper rejection tests | supported locally; Assurance repeats with independent expected state |
-| G11 | AC2, AC9 | consequential localized repository methods | `crates/proof-local/src/localized.rs` | exact replay in application rollback; operation-effect replay/tamper tests across shared local adapter | partial; Assurance executes per-operation identical and changed-input matrix |
-| G12 | AC2 | Human identity preflight on every localized method | `require_human_principal` in `crates/proof-local/src/localized.rs` | Human application/CLI scenarios; local identity authentication denial tests; no Agent entry point exists | partial; Assurance invokes each mutation without Human identity and confirms Agent boundary absent |
-| G13 | AC3, AC5, AC7, AC9 | commit, promote, rollback transaction/recovery boundaries | local adapter transaction and proof-export helpers | commit rollback; Release post-commit proof repair; migration rollback; rebuild recovery tests | partial; Assurance runs localized fault points and convergence snapshots |
-| G14 | all | Git/work-control provenance | `scripts/check-work-items.mjs`; this evidence packet | `candidate-paths.sha256`; ancestry checks; normalized diff; credential-shape scan | local inventory supported; evidence-only diff and independent secret scan repeat after evidence commit |
+| Gate | Ratified requirement and public surface | Source | Retained test or exact command | Engineering result / independent action |
+| --- | --- | --- | --- | --- |
+| G1 | Repository quality through `.github/workflows/ci.yml` | workflow, `rust-toolchain.toml`, repository scripts | pinned local gate and GitHub run `32380862459`, job `96463454459` | exact local and CI gates supported; evidence-only checks rerun before commit |
+| G2 | Canonical builders, Schemas, vectors, and independent reconstruction | `crates/proof-canonical/src/lib.rs`; `conformance/v2/localized-content/` | canonical unit corpus; `localized_conformance_schemas_and_golden_artifacts_are_closed`; `localized_portable_artifacts_and_operation_instances_are_closed` | all artifact/operation fixtures, independent RFC 8785+BLAKE3 recomputation, and mutation rejection retained; Assurance independently recomputes |
+| G3 | Integrity-equivalent direct reads: `get_content_resource_intent`, `get_localized_context`, `inspect_localized_changeset`, `query_released_renditions` | `crates/proof-local/src/localized.rs` | resource-intent/Context operation-uniqueness tests; Context reconstruction; operation/effect tamper and key-swap matrices; existing Edit-through-Release integrity cases | missing, duplicate, substituted, tampered, and cross-linked evidence fails closed with no read repair; Assurance expands table snapshots |
+| G4 | Historical/current `verify_localized_release` and CLI verifier | local adapter and CLI localized modules | lifecycle verification; `release_reads_reject_independent_approval_digest_tamper`; chronology/trust/predecessor tests | valid and wrong ancestry/reference/version/time cases retained; Assurance independently challenges artifacts |
+| G5 | Exact `build_localized_context`, `get_localized_context`, and released query closure | application trait and local adapter localized modules | exact closure reconstruction test; immutable history/exact authority; application/CLI exact and absent locale probes | target closure, casing, stale/source/scope changes, and budget constraints retained; Assurance derives expected closure independently |
+| G6 | Complete Human lifecycle and application/CLI parity | application trait, local adapter, Human CLI | application and CLI two-locale repair-to-Release scenarios | complete lifecycle supported; Assurance compares identifiers, digests, transitions, Problems, and normalized envelopes |
+| G7 | Target preconditions, immutable attempts, repair lineage, and budgets | `crates/proof-local/src/localized.rs` | `localized_edit_denials_are_specific_and_atomic`; `p0007_g7_separate_context_edit_and_validation_budgets_are_atomic`; `p0007_g7_raw_lineage_deletion_reorder_substitution_and_cycle_are_detected_read_only` | deterministic denials, budgets, lineage integrity, and unchanged snapshots retained |
+| G8 | Exact commit, Edition, Release, delta, and pointer causality | local adapter commit/Edition/Release paths | lifecycle replacement and moved-pointer phases; Release evidence/pointer tests | stale/missing/extra/wrong/ambient cases reject before Release attribution or pointer movement; Assurance independently reconstructs delta |
+| G9 | Atomic v1-v11 migration and closed compatibility | local initialization and `migrate_schema_v11` | `p0007_g9_each_v1_to_v10_failure_rolls_back_retries_and_preserves_legacy_hash`; every-pre-version and lifecycle compatibility tests | all ten source versions roll back exactly and converge once without locale fabrication; Assurance independently hashes legacy fixtures |
+| G10 | Deterministic dry-run and derived-only repair through `rebuild_projections` | local rebuild implementation and CLI | four `p0007_assurance_g10_*` cases | each localized derived family independently repaired; repeated dry-runs stable/no-write; authoritative tamper rejected |
+| G11 | Replay/idempotency for seven consequential localized operations | local adapter operation/effect implementation | `localized_control_replays_survive_environment_pointer_movement`; changed-input/key/effect matrices; lifecycle replay cases | identical replay precedes mutable preconditions; changed valid/invalid input, target, key, and lifecycle reuse fail without writes |
+| G12 | Human authentication and explicit absence of delegated Agent authority | `require_human_principal` and every localized repository method | Human lifecycle; `mismatched_local_identity_fails_authentication`; `disabled_bootstrap_principal_fails_authentication`; source-surface enumeration | Human boundary supported; Assurance independently invokes all 17 surfaces through Agent/disabled identities; no delegated authority claim |
+| G13 | Atomic failure recovery and one-step convergence | commit transaction and Release proof-export/replay helpers | three `p0007_assurance_g13_*` cases; existing storage/migration/release-export failures | pre-write and mid-transaction abort rollback; post-commit export and replay converge once; no power-loss claim |
+| G14 | Exact provenance, scope, inventory, and secret exclusion | work-control validator, Git objects, evidence packet | 34-path Git-blob inventory; candidate-parent 10-path diff; clean status; diff/links/work-items/Markdown/credential scans | portable inventory and explicit non-goals retained; Assurance verifies evidence-only diff and exclusions |
 
 ## Scope reconciliation
 
-The candidate adds only the ratified localized-content foundation, its Human
-CLI, v11 storage/migration, conformance material, tests, quality workflow, and
-work-control enforcement. No dependency changed. No Agent credential,
-DelegationV2, MCP mutation surface, server, PostgreSQL, HTTP API, UI, model
-provider, translation service, locale fallback, rendition deletion, or generic
-variant behavior was added.
+The 34-path original-base inventory is entirely attributable to the ratified
+localized-content foundation, its Human application/CLI path, storage v11,
+canonical/conformance material, retained verification, quality workflow, and
+work-control gate. The candidate-parent repair is limited to ten listed paths.
+Its only dependency change exposes two already workspace-pinned libraries to
+`proof-local` tests; production dependencies are unchanged.
 
-The strongest counterargument is that the 208-test exact-SHA run plus two
-end-to-end scenarios should be sufficient. It is rejected for claim
-reactivation: direct reads, verifiers, queries, rebuilds, and recovery paths can
-share a faulty helper or trusted projection. Only the independent G1-G14 run
-can close that residual uncertainty.
+The implementation does not add an Agent credential, DelegationV2,
+authorization-decision surface, MCP mutation path, server, HTTP API,
+PostgreSQL adapter, UI, model/translation provider, locale fallback, rendition
+deletion, relationship localization, or generic variants.
+
+## Falsification posture
+
+The strongest counterargument is that a green end-to-end test and CI already
+exercise the same code, making independent G2-G14 checks redundant. It is
+rejected: direct reads, verifiers, query, rebuild, recovery, and migration can
+share an incorrect helper or trust one corrupted projection while remaining
+jointly green. Integrity parity across all reachable paths is the crux.
+
+Any exact-candidate digest mismatch, returned success after authoritative
+tamper, partial denial write, pointer movement, changed legacy fingerprint,
+fabricated locale row, replay divergence, evidence provenance conflict, or
+required quality-step failure changes Engineering's recommendation to
+`REVISE`. Until Assurance completes that falsification pass, the bounded claim
+remains `indeterminate`.
