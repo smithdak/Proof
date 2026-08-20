@@ -59,7 +59,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `ready` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
+| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `claimed` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
@@ -114,7 +114,7 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras treat Principal and Delegation identifiers as cross-checks or
 selectors rather than authority. This is accepted architecture, not an
-implementation-status claim; P-0004 is `ready`, and P-0006 remains blocked.
+implementation-status claim; P-0004 is `claimed`, and P-0006 remains blocked.
 
 Candidate `38999d0` was qualified and accepted by project owner `smithdak` at
 `2026-08-20T19:52:12.756Z`. It aligns

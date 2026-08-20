@@ -1,13 +1,13 @@
 ---
 id: P-0004
 title: Implement the authenticated authorization kernel
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0003]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0004
+claimed_at: 2026-08-20T19:59:59.679Z
+base_sha: 445f56c8737e97d7041ece2971ac755fea5fa05c
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -296,6 +296,10 @@ denial atomicity, adapter parity, test commands, and residual trust boundaries.
 Ready after project owner `smithdak` accepted P-0003 at
 `2026-08-20T19:52:12.756Z`. No P-0004 implementation is claimed by the
 acceptance transition.
+
+Claimed by `codex:/root:p-0004` at `2026-08-20T19:59:59.679Z` from accepted
+P-0003 commit `445f56c8737e97d7041ece2971ac755fea5fa05c` on
+`proof-engineering/p-0004-authorization-kernel`.
 
 ## Residual risks and next-wave update
 
