@@ -1,13 +1,13 @@
 ---
 id: P-0003
 title: Ratify authenticated actor and Delegation semantics
-status: ready
+status: claimed
 wave: now
 kind: decision
 blocked_by: [P-0001, P-0002]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0003
+claimed_at: 2026-08-20T18:58:18Z
+base_sha: 8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8
 review_gate: project-owner
 accepted_by: null
 accepted_at: null

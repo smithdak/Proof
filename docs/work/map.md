@@ -59,7 +59,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `ready` | P-0001, P-0002 | Reconcile the qualified authentication candidate with the ratified localized-content closure. |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `claimed` | P-0001, P-0002 | Reconcile the qualified authentication candidate with the ratified localized-content closure. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
@@ -105,7 +105,7 @@ selection resolves to exact Object IDs before grant issuance; no new
 qualify that foundation through the Human path before P-0005 adds Agent
 authority. This is accepted semantics, not yet implemented behavior.
 
-### Proposed P-0003 profile — ready for reconciliation
+### Proposed P-0003 profile — reconciliation in progress
 
 P-0003 currently proposes local per-Agent Ed25519 proof of possession,
 adapter-derived `AuthenticatedActorContextV1`, single-use
@@ -114,7 +114,7 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras would treat Principal and Delegation identifiers as cross-checks
 or selectors rather than authority. This is not a closed decision or an
-implementation-status claim; P-0003 is `ready`, and P-0004/P-0006 remain
+implementation-status claim; P-0003 is `claimed`, and P-0004/P-0006 remain
 blocked.
 
 The candidate is not yet ready for owner review. P-0002 has settled the exact
