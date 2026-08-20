@@ -31,7 +31,7 @@
       "mutation": {
         "kind": "json_replace",
         "path": "/signatures/1/keyid",
-        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+        "value": "ed25519:247b9ffc395d19a551889705a93c7cb466a4b5aea9e315f974b7b46dbe7f9453"
       },
       "public_code": "proof.auth.malformed",
       "audit_reason": "proof.authority.integrity",
@@ -76,7 +76,7 @@
       "mutation": {
         "kind": "json_replace",
         "path": "/signatures/0/keyid",
-        "value": "ed25519:f33dd3605ce5cafe2d5a024c23e9b7bb8356cff7e200fbf57356ebecb919ff3a"
+        "value": "ed25519:c81f4ae33c9b631ed6ea507c1083eafd4b2b6cc89b5feaae4b5702c14591ea2e"
       },
       "public_code": "proof.auth.malformed",
       "audit_reason": "proof.authority.integrity",
@@ -91,7 +91,7 @@
       "mutation": {
         "kind": "json_replace",
         "path": "/signatures/0/keyid",
-        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+        "value": "ed25519:247b9ffc395d19a551889705a93c7cb466a4b5aea9e315f974b7b46dbe7f9453"
       },
       "public_code": "proof.auth.denied",
       "audit_reason": "proof.auth.signature_invalid",

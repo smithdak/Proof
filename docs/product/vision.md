@@ -90,10 +90,10 @@ An enterprise delegates an agent authority to localize a product launch into two
 
 That complete loop—not content generation alone—is the product.
 
-### Ratified P-0002 interpretation
+### Implemented P-0007 content interpretation
 
-This interpretation is project-owner accepted but not implemented. It does not
-change the ratified north-star outcome.
+This interpretation is implemented for the Human content path. It does not
+change the ratified north-star outcome or imply Agent mutation authority.
 
 For Milestone 2, the campaign and content-subtree descriptions are task intent,
 not dynamic authorization resources. Before work begins, the Human resolves
@@ -115,5 +115,6 @@ The preview Release is valid only when its baseline Environment Release is
 unchanged and its Edition is the exact causal result of that one approved
 ChangeSet. Unrelated committed state cannot ride along with the delegated
 release. The ratified mechanism and versioned artifacts are defined by P-0002;
-P-0007 has implemented and qualified the Human-path content foundation;
-delegated mutation remains disabled until P-0004 and P-0005 complete.
+P-0007 implements and qualifies the Human-path content foundation, and P-0004
+implements authenticated Agent reads. Delegated mutation remains disabled until
+P-0005 completes.

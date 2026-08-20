@@ -1,11 +1,12 @@
 # Proof model
 
-**Status:** Ratified architecture; P-0002 content ratified, P-0003 authority closure proposed
-**Baseline:** August 3, 2026
+**Status:** Ratified architecture; P-0007 content and P-0004 authority foundations implemented
+**Baseline:** August 20, 2026
 
-> **Ratified P-0003 profile:** The authority additions below are normative
-> architecture. They do not change existing Release Proof bytes or claim that
-> portable authority verification is implemented.
+> **Implemented P-0004 profile:** The authority additions below are normative
+> architecture and the local authority records are implemented. They do not
+> change existing Release Proof bytes or claim that the future portable
+> `AuthorityEvidenceBundleV1` is implemented.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 >
 > **Ratified P-0002 profile:** The localized-content and exact-delta additions
@@ -149,11 +150,11 @@ verify that distinction. Its authority portion carries or references:
 }
 ```
 
-This shape remains illustrative until P-0004 implements its ratified Schemas
-and golden vectors. `DelegationV2` supports exactly one Human issuer and one
-Agent recipient; it does not encode a chain. `AuthorizationDecisionV2` is a new
-contract. Existing `AuthorizationDecisionV1` remains legacy and is not assigned
-new semantics.
+This presentation shape is illustrative; P-0004 implements the exact ratified
+Schemas, canonical authority records, and golden vectors. `DelegationV2`
+supports exactly one Human issuer and one Agent recipient; it does not encode a
+chain. Existing `AuthorizationDecisionV1` remains legacy and is not assigned new
+semantics.
 
 `requesting_subject_commitment` is a hiding commitment formed with a 32-byte
 blind, not a checksum of a raw UID. The actor-context digest uses only that

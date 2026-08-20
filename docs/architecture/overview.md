@@ -52,11 +52,11 @@ Dependencies point inward. The domain core has no dependency on CLI parsing, HTT
 
 No message is published before its authoritative transaction commits. External effects are delivered from the transactional outbox and are idempotent.
 
-### Ratified P-0003 profile — authenticated delegated path
+### Implemented P-0004 profile — authenticated delegated reads
 
-Under the ratified architecture, an Agent operation uses this ordering once
-P-0004 implements the path:
-The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+The three enabled authenticated Agent reads use this ordering. The normative
+contract is the [authenticated actor contract](authenticated-actor.md); P-0005
+reuses the same kernel when it enables delegated mutation.
 
 1. The adapter bounds and parses untrusted CLI or MCP input and authenticates
    the requesting Human through ADR-0009's Unix binding.
@@ -71,7 +71,8 @@ The normative proposal is the [authenticated actor contract](authenticated-actor
 4. The application treats request Principal identifiers as expected-value
    cross-checks and resolves the one direct Human-to-Agent Delegation.
 5. It evaluates recipient, action, resource, budget, time, binding, revocation,
-   and policy, producing canonical `AuthorizationDecisionV2` evidence.
+   and the immutable direct/v1 authority profile, producing canonical
+   `AuthorizationDecisionV2` evidence.
 6. One local transaction enforces unique `presentation_id`, appends signed
    `AuthorityRecordV1` consumption and decision records, resolves idempotency,
    and commits the governed consequence without a revocation check-then-act
@@ -79,11 +80,12 @@ The normative proposal is the [authenticated actor contract](authenticated-actor
    decision but cannot move governed state or projections.
 7. A retry uses a fresh presentation with the same idempotency key and
    equivalent normalized input. Fresh C5 authentication and current C6
-   authorization must succeed before C4 may return a prior result; revocation,
-   disablement, or policy denial blocks disclosure.
+   authorization must succeed before C4 may return a prior result; revocation
+   or disablement blocks disclosure. A future mutable authority-policy profile
+   must preserve the same rule.
 
-This proposed ordering does not claim the current CLI or MCP implementation has
-authenticated Agent bindings.
+The CLI broker and both MCP protocol eras enter this same executor. This does
+not claim that the 11 localized mutation contracts are Agent-enabled.
 
 ## Read path
 

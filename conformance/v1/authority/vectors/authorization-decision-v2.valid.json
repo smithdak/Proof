@@ -8,7 +8,7 @@
     "sequence": 4,
     "record_digest": "blake3:d7d90a82d1f63843ac63477732b64d79f75926ea5e72b11232407b083023f121"
   },
-  "authority_key_id": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b",
+  "authority_key_id": "ed25519:247b9ffc395d19a551889705a93c7cb466a4b5aea9e315f974b7b46dbe7f9453",
   "operation": {
     "name": "workspace.status",
     "version": "proof.dev/operation/workspace.status/v1"
@@ -45,6 +45,7 @@
   },
   "binding": {
     "binding_id": "019c0000-0000-7000-8000-000000000004",
+    "authority_sequence": 3,
     "record_digest": "blake3:21b5c6a02c3dd59eb1e139f4a5411a231efae10da7f51b00e28aa7c7c8403646",
     "revocation_record_digest": null
   },

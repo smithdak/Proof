@@ -3,9 +3,10 @@
 **Status:** Ratified baseline  
 **Baseline:** August 3, 2026
 
-> **Ratified P-0003 profile:** The authenticated-actor and authority-evidence
-> additions below are normative architecture. Existing records retain their
-> current meaning until P-0004's versioned migration is implemented.
+> **Implemented P-0004 profile:** The authenticated-actor and authority-evidence
+> additions below are normative architecture and are persisted by storage
+> schema v12. The migration preserves the meaning and bytes of historical
+> Release evidence.
 > The normative contract is the [authenticated actor contract](authenticated-actor.md).
 >
 > **Ratified P-0002 profile:** Localized existing-Object mutation is modeled as
@@ -264,8 +265,9 @@ normalized operation. Its `presentation_id` is the replay identity. Its
 consumption is an `AuthorityRecordV1` fact. A new presentation
 may reuse an idempotency key only for the same normalized operation input.
 Fresh C5 authentication and current C6 authorization precede C4 disclosure of
-any prior idempotent result; current revocation, disablement, or policy denial
-blocks disclosure without undoing the completed effect.
+any prior idempotent result; current revocation or disablement blocks disclosure
+without undoing the completed effect. A future mutable authority-policy profile
+must preserve the same rule; direct/v1 has no mutable policy-denial state.
 
 An `AuthorizationDecisionV2` records allow or deny, authenticated actor-context
 commitment, exact command and envelope digests, direct Delegation and revocation

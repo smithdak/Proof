@@ -75,6 +75,26 @@ operational_id!(
 operational_id!(WorkspaceId, "The identity of one governed Workspace.");
 operational_id!(PrincipalId, "The identity of one authenticated Principal.");
 operational_id!(
+    BindingId,
+    "The identity of one immutable Principal credential binding."
+);
+operational_id!(
+    PresentationId,
+    "The single-use identity of one authenticated command presentation."
+);
+operational_id!(
+    EnrollmentChallengeId,
+    "The single-use identity of one Principal-binding enrollment challenge."
+);
+operational_id!(
+    RevocationId,
+    "The identity of one immutable authority revocation record."
+);
+operational_id!(
+    AuthorityRootTransitionId,
+    "The identity of one planned Workspace authority-root transition."
+);
+operational_id!(
     DelegationId,
     "The identity of one immutable bounded authority Delegation."
 );
@@ -249,6 +269,14 @@ impl SchemaId {
 impl fmt::Display for SchemaId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for SchemaId {
+    type Err = SchemaIdError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
     }
 }
 
@@ -689,6 +717,22 @@ pub enum ArtifactKind {
     AuthorizationDecisionV1,
     /// One exact versioned policy bundle.
     PolicyBundleV1,
+    /// One normalized authenticated semantic command.
+    CommandV1,
+    /// One authenticated-command DSSE envelope.
+    AuthenticatedCommandEnvelopeV1,
+    /// One single-use Agent binding-enrollment challenge.
+    BindingEnrollmentChallengeV1,
+    /// One binding-enrollment DSSE envelope.
+    BindingEnrollmentEnvelopeV1,
+    /// One hiding commitment to an authenticated requesting subject.
+    AuthenticatedSubjectCommitmentV1,
+    /// One persisted evidence-safe authenticated actor context.
+    AuthenticatedActorContextV1,
+    /// One typed append-only authority-log record.
+    AuthorityRecordV1,
+    /// One ordinary or root-transition authority DSSE envelope.
+    AuthorityRecordEnvelopeV1,
     /// One immutable Human-issued localized-content resource intent.
     ContentResourceIntentV1,
     /// One exact localized-content source closure.
@@ -736,6 +780,14 @@ impl ArtifactKind {
             Self::PrincipalRegistrationV1 => "proof:principal-registration:v1",
             Self::AuthorizationDecisionV1 => "proof:authorization-decision:v1",
             Self::PolicyBundleV1 => "proof:policy-bundle:v1",
+            Self::CommandV1 => "proof:command:v1",
+            Self::AuthenticatedCommandEnvelopeV1 => "proof:authenticated-command-envelope:v1",
+            Self::BindingEnrollmentChallengeV1 => "proof:binding-enrollment-challenge:v1",
+            Self::BindingEnrollmentEnvelopeV1 => "proof:binding-enrollment-envelope:v1",
+            Self::AuthenticatedSubjectCommitmentV1 => "proof:authenticated-subject-commitment:v1",
+            Self::AuthenticatedActorContextV1 => "proof:authenticated-actor-context:v1",
+            Self::AuthorityRecordV1 => "proof:authority-record:v1",
+            Self::AuthorityRecordEnvelopeV1 => "proof:authority-record-envelope:v1",
             Self::ContentResourceIntentV1 => "proof:content-resource-intent:v1",
             Self::ContextPackV2 => "proof:context-pack:v2",
             Self::EditBatchV2 => "proof:edit-batch:v2",
@@ -856,10 +908,11 @@ pub enum DigestParseError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ArtifactKind, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus, ContentDigest,
-        CorrelationId, DigestAlgorithm, DigestParseError, IdentifierError, LocaleId,
-        LocaleRevision, LocaleRevisionError, ObjectId, ObjectLifecycleState, ObjectRevision,
-        ObjectRevisionError, OperationId, PrincipalId, PrincipalType, SchemaId, SchemaIdError,
+        ArtifactKind, AuthorityRootTransitionId, BindingId, ChangeSetIntent, ChangeSetIntentError,
+        ChangeSetStatus, ContentDigest, CorrelationId, DigestAlgorithm, DigestParseError,
+        EnrollmentChallengeId, IdentifierError, LocaleId, LocaleRevision, LocaleRevisionError,
+        ObjectId, ObjectLifecycleState, ObjectRevision, ObjectRevisionError, OperationId,
+        PresentationId, PrincipalId, PrincipalType, RevocationId, SchemaId, SchemaIdError,
         SchemaVersion, SchemaVersionError, Timestamp, TimestampError,
     };
     use uuid::Uuid;
@@ -872,6 +925,20 @@ mod tests {
 
         assert_eq!(value.to_string(), UUID_V7);
         assert_eq!(value.as_uuid(), Uuid::parse_str(UUID_V7).unwrap());
+    }
+
+    #[test]
+    fn authority_operational_ids_share_the_uuid_v7_invariant() {
+        assert!(UUID_V7.parse::<BindingId>().is_ok());
+        assert!(UUID_V7.parse::<PresentationId>().is_ok());
+        assert!(UUID_V7.parse::<EnrollmentChallengeId>().is_ok());
+        assert!(UUID_V7.parse::<RevocationId>().is_ok());
+        assert!(UUID_V7.parse::<AuthorityRootTransitionId>().is_ok());
+        assert!(
+            "550e8400-e29b-41d4-a716-446655440000"
+                .parse::<BindingId>()
+                .is_err()
+        );
     }
 
     #[test]
@@ -1038,6 +1105,47 @@ mod tests {
             ArtifactKind::OperationEffectV1.derive_key_context(),
             "proof:operation-effect:v1"
         );
+    }
+
+    #[test]
+    fn authority_artifact_contexts_match_the_ratified_digest_registry() {
+        let expected = [
+            (ArtifactKind::CommandV1, "proof:command:v1"),
+            (
+                ArtifactKind::AuthenticatedCommandEnvelopeV1,
+                "proof:authenticated-command-envelope:v1",
+            ),
+            (
+                ArtifactKind::BindingEnrollmentChallengeV1,
+                "proof:binding-enrollment-challenge:v1",
+            ),
+            (
+                ArtifactKind::BindingEnrollmentEnvelopeV1,
+                "proof:binding-enrollment-envelope:v1",
+            ),
+            (
+                ArtifactKind::AuthenticatedSubjectCommitmentV1,
+                "proof:authenticated-subject-commitment:v1",
+            ),
+            (
+                ArtifactKind::AuthenticatedActorContextV1,
+                "proof:authenticated-actor-context:v1",
+            ),
+            (ArtifactKind::AuthorityRecordV1, "proof:authority-record:v1"),
+            (
+                ArtifactKind::AuthorityRecordEnvelopeV1,
+                "proof:authority-record-envelope:v1",
+            ),
+            (ArtifactKind::PolicyBundleV1, "proof:policy-bundle:v1"),
+        ];
+        let contexts = expected
+            .into_iter()
+            .map(|(kind, context)| {
+                assert_eq!(kind.derive_key_context(), context);
+                context
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(contexts.len(), expected.len());
     }
 
     #[test]

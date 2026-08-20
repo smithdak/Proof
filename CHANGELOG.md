@@ -15,6 +15,13 @@ All notable project changes are documented here. The format follows [Keep a Chan
   Human-issued resource intent, and causally closed Edition/Release semantics.
 - Ratified the bounded local authenticated-actor, direct Human-to-Agent
   Delegation, authority-log, and current-authorization retry contract.
+- Implemented the exact-locale Human content foundation with append-only
+  repair, immutable intent, versioned Edition/Release evidence, migration, and
+  exact released-rendition queries.
+- Implemented the bounded authenticated Agent read kernel with per-Agent
+  Ed25519 bindings, single-use DSSE commands, direct Delegation evaluation,
+  separately rooted canonical authority evidence, and equivalent CLI plus
+  modern and legacy MCP broker paths.
 - Added ordered `object.create` Edits with strict canonical input, Schema validation, atomic mixed ChangeSet commits, and immutable Object revisions.
 - Added Object-bearing Known State and Edition commitments while preserving Schema-only canonical digests.
 - Added versioned Environments, immutable promotion and rollback history, and portable Ed25519 DSSE/in-toto Release Proofs.

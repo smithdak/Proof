@@ -1,23 +1,25 @@
 # Authenticated actor contract
 
-**Status:** Ratified by P-0003
+**Status:** Ratified by P-0003; bounded local read profile implemented by P-0004
 
-**Version:** 0.2
+**Version:** 1.1
 
 **As of:** August 20, 2026
 **Review gate:** Project owner
 
 This document is ratified by
 [ADR-0011](../decisions/0011-local-agent-command-authentication.md).
-It does not describe implemented behavior. The current implementation still
-authenticates only the local Unix Human and accepts caller-declared Agent and
-Delegation identifiers for delegated reads.
+P-0004 implements this contract for the bounded local Human-to-Agent profile and
+the three enabled v1 reads. The 11 localized v2 operation contracts remain
+disabled for Agents until P-0005, and P-0006 still owns portable authority
+bundles and the Milestone 2 containment qualification.
 
 | Revision | Date | Decision state |
 | --- | --- | --- |
 | 0.1 | 2026-08-17 | Qualified local authentication and direct-Delegation candidate; localized resource closure still blocked on P-0002. |
 | 0.2 | 2026-08-20 | Reconciled the closed registry, exact resource projections, retry classes, and locale grammar with P-0007; pending owner acceptance. |
 | 1.0 | 2026-08-20 | Ratified by project-owner acceptance; implementation remains owned by P-0004. |
+| 1.1 | 2026-08-20 | Implemented the bounded local read profile through P-0004; delegated mutation and portable bundles remain downstream. |
 
 ## Decision
 
@@ -83,10 +85,11 @@ Provider subject syntax is adapter-owned. The local Agent profile uses provider
 `ed25519:<64-lowercase-public-key-hex>`. Provider claims do not enter domain
 authorization except through a verified binding.
 
-Within one Workspace, one active local Ed25519 subject/key MUST map to exactly
-one Agent Principal. Reusing that key for another Principal is authority
-integrity failure. Rotation for the same Principal creates a new binding with a
-distinct key; overlapping active bindings are permitted only for distinct keys.
+Within one Workspace, a local Ed25519 subject/public key appears in at most one
+immutable binding history. Reusing it after retirement or revocation, including
+for another Principal, is authority integrity failure. Rotation for the same
+Principal creates a new binding with a distinct key; overlapping active
+bindings are permitted only for distinct keys.
 For every binding, the authenticated subject, `ed25519:` plus lowercase hex of
 the decoded 32-byte `public_key`, enrollment `candidate_key_id`, and verified
 enrollment-envelope signer/key ID MUST all be byte-for-byte equivalent.
@@ -114,7 +117,8 @@ The following requirements are normative under ADR-0011.
   satisfy C5 and C6 with a fresh authenticated presentation and current
   authority. An idempotency record prevents duplicate effects; it is not a
   bearer capability to disclose the original result after binding, Principal,
-  Delegation, or policy invalidation.
+  or Delegation invalidation. Any future mutable authority-policy profile is
+  subject to the same rule.
 - **A6 — Atomic consequence.** Presentation consumption, authorization
   decision, idempotency outcome, and governed consequence MUST share one
   transaction. A validly authenticated denial MAY atomically persist a bounded
@@ -122,8 +126,10 @@ The following requirements are normative under ADR-0011.
   content or a successful idempotency result.
 - **A7 — Direct Delegation.** Milestone 2 MUST accept exactly one direct
   Human-to-Agent `DelegationV2`. Parent references, Agent issuers,
-  `allow_subdelegation: true`, repeated links, and chain-shaped input MUST fail
-  with `proof.delegation.chain_unsupported`.
+  `allow_subdelegation: true`, repeated links, and chain-shaped input are not
+  representable in the v2 type and MUST fail structural parsing with
+  `proof.auth.malformed`. `proof.delegation.chain_unsupported` remains reserved
+  for a future typed chain profile that reaches authorization.
 - **A8 — Complete direct evaluation.** The requesting Principal MUST equal the
   Delegation issuer; the operating Principal MUST equal its recipient. Action,
   Workspace, resource, budgets, time, revocation, Principal status, and binding
@@ -179,7 +185,7 @@ AuthenticatedActorContextV1 + normalized application command
 AuthorizationKernel.evaluate
   ├─ direct DelegationV2
   ├─ binding/Principal/revocation state at authority head
-  ├─ action/resource/budget/policy
+  ├─ direct/v1 policy + action/resource/budget
   └─ AuthorizationDecisionV2
                     │
                     ▼
@@ -478,9 +484,9 @@ presentation check MUST all succeed before consumption. Any
 authentication failure consumes nothing and appends no
 `AuthorizationDecisionV2`. Only then does Proof reserve the presentation in the
 same transaction as the authorization allow/deny outcome. Scope, budget,
-current binding activity, Principal status, Delegation, or policy denial is
-consumed and recorded; a second use returns `proof.auth.replay` without a second
-record, even when bytes are identical.
+current binding activity, Principal status, or Delegation denial is consumed
+and recorded; a second use returns `proof.auth.replay` without a second record,
+even when bytes are identical.
 
 Application idempotency remains separate. After an ambiguous timeout the Agent
 signs a fresh presentation with the same semantic input and idempotency key.
@@ -489,9 +495,10 @@ C4 only after the retry independently authenticates under C5 and is authorized
 under current C6 state. Authentication timestamps, presentation identity,
 signature, and binding rotation are excluded from semantic idempotency
 equivalence; derived requester, derived operator, direct Delegation, operation
-version, and normalized input are included. Revocation, Principal disablement,
-or policy denial prevents disclosure of the prior result without changing or
-duplicating the completed effect.
+version, and normalized input are included. Revocation or Principal disablement
+prevents disclosure of the prior result without changing or duplicating the
+completed effect. A future mutable authority-policy profile MUST apply the same
+ordering.
 
 The strongest rejected replay rule would return the original result for an
 identical reused presentation. It is operationally convenient but lets a
@@ -523,10 +530,14 @@ ignores its empty set; an operation that requires the dimension denies when the
 set is empty. Version 2 has no wildcard syntax.
 
 The evaluator denies by default. It requires issuer/requester and
-recipient/operator equality, then intersects the one grant with current policy,
-requested action/resources, budgets, Principal state, binding state, and
-revocation state at the exact authority head. It re-evaluates immediately
-before every consequential commit and Release.
+recipient/operator equality, then intersects the one grant with the immutable
+`proof.local/authority/direct/v1` policy profile, requested action/resources,
+budgets, Principal state, binding state, and revocation state at the exact
+authority head. Direct/v1 admits only the three enabled registry operations and
+has no mutable runtime policy-denial state. `proof.authorization.policy_denied`
+remains a reserved wire value for a future versioned policy profile; P-0004 does
+not fabricate an unreachable provider merely to emit it. The evaluator
+re-evaluates immediately before every consequential commit and Release.
 
 The earlier full-chain direction is not implemented under this profile. A
 future chain design requires `DelegationV3` and a new ADR covering adjacency,
@@ -728,7 +739,7 @@ replay, or authorization detail.
 | `proof.auth.not_yet_valid` | `issued_at` exceeds the accepted future-skew boundary | Correct clock and sign a fresh presentation |
 | `proof.auth.expired` | Command validity window has ended | Sign a fresh presentation |
 | `proof.auth.replay` | Presentation identity was already consumed | Sign a fresh presentation |
-| `proof.delegation.chain_unsupported` | Parent, Agent issuer, or subdelegation requested | Use one direct grant |
+| `proof.delegation.chain_unsupported` | Reserved for a future typed chain profile; direct/v1 rejects parent or subdelegation fields structurally as `proof.auth.malformed` | Use one direct v2 grant |
 | `proof.authorization.denied` | Disclosure-neutral public authorization failure, including a hidden or missing Delegation | Change authority or request without assuming resource existence |
 | `proof.authorization.principal_disabled` | Requesting or operating Principal is disabled | Recover with an enabled Principal |
 | `proof.authorization.delegation_not_yet_valid` | Direct Delegation has not reached `not_before` | Retry after the bound or replace the grant |
@@ -737,7 +748,7 @@ replay, or authorization detail.
 | `proof.authorization.delegation_unavailable` | Trusted-audit reason for an unknown or hidden Delegation; public response remains `proof.authorization.denied` | Do not disclose selector existence |
 | `proof.authorization.scope_exceeded` | Authenticated request exceeds the exact granted action or resource set | Narrow the request or change the grant |
 | `proof.authorization.budget_exceeded` | Authenticated request exceeds a granted budget | Narrow the request or change the grant |
-| `proof.authorization.policy_denied` | Current authority policy denies an otherwise authenticated request | Change policy or request |
+| `proof.authorization.policy_denied` | Reserved for a future versioned authority-policy profile with mutable denial state; direct/v1 never emits it | Upgrade the policy profile or change policy/request when such a profile exists |
 | `proof.authority.integrity` | Authority sequence, signature, digest, or trust transition fails | Repair or investigate |
 
 An invalid signature creates no attacker-controlled persistent row. A validly

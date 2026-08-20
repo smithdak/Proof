@@ -216,6 +216,9 @@
         "binding_id": {
           "$ref": "#/$defs/uuidv7"
         },
+        "authority_sequence": {
+          "$ref": "#/$defs/sequence"
+        },
         "record_digest": {
           "$ref": "#/$defs/digest"
         },
@@ -225,6 +228,7 @@
       },
       "required": [
         "binding_id",
+        "authority_sequence",
         "record_digest",
         "revocation_record_digest"
       ]
@@ -839,7 +843,8 @@
         "proof.authorization.policy_denied",
         "proof.authorization.principal_disabled",
         "proof.authorization.scope_exceeded",
-        "proof.delegation.chain_unsupported"
+        "proof.delegation.chain_unsupported",
+        "proof.idempotency.key_reused"
       ]
     }
   }

@@ -1,11 +1,11 @@
 # Ratified local authority conformance profile
 
-Status: **Ratified by P-0003; runtime implementation remains owned by P-0004**.
+Status: **Ratified by P-0003; bounded local read runtime implemented by P-0004**.
 These schemas and vectors freeze the smallest Milestone-2 local authentication
 and authority profile. The three v1 read operations are implemented; the 11
 localized v2 application contracts are implemented only through P-0007's Human
 path and remain unavailable to an Agent until P-0005. This profile binds their
-authority vocabulary now so P-0004 cannot invent adapter-local semantics.
+authority vocabulary so P-0005 cannot invent adapter-local mutation semantics.
 
 No file in this directory contains an Agent key, Workspace-authority key, blind,
 or other secret. Public keys, exact signatures, canonical payload bytes, DSSE
@@ -116,12 +116,14 @@ object:
 
 The requester commitment preimage is exactly
 `{api_version:"proof.dev/authenticated-subject-commitment/v1",workspace_id,authenticated_subject,blind}`.
-`blind` is base64url without padding for 32 random bytes, generated per
-binding and retained only in private authority state or an explicit audit
-disclosure. The evidence-safe actor context contains that commitment, the
+`blind` is base64url without padding for 32 random bytes, generated once when
+the private ADR-0009 Human binding is created or migrated and retained only in
+private authority state or an explicit audit disclosure. The opening is stable
+across Agent binding issuance and rotation. The evidence-safe actor context
+contains that commitment, the
 authenticated operating subject, authentication profile, binding/Principal
 IDs, operation, command and envelope digests, presentation ID, and
-`authenticated_at`. P-0004 must persist its canonical bytes and digest.
+`authenticated_at`. P-0004 persists its canonical bytes and digest.
 `authenticated_at` is authentication completion time and need not equal the
 decision's `evaluated_at`.
 
@@ -138,10 +140,10 @@ Enrollment challenges expire within 300 seconds and are single-use. A binding
 is issued only after proof of possession. These cross-field invariants are
 mandatory:
 
-1. Within one Workspace, one active `proof/local-ed25519` subject/key maps to
-   exactly one Agent Principal. Cross-Principal active key reuse is integrity
-   failure. Same-Principal rotation uses a new key and binding; overlap is
-   allowed only between distinct keys.
+1. Within one Workspace, each `proof/local-ed25519` subject/public key appears
+   in at most one immutable binding history. Historical reuse after retirement
+   or revocation is integrity failure. Same-Principal rotation uses a new key
+   and binding; overlap is allowed only between distinct keys.
 2. `authenticated_subject.subject` equals `ed25519:` plus lowercase hex of
    the decoded 32-byte `public_key`, equals the enrollment
    `candidate_key_id`, and equals the verified enrollment signer/key ID.
@@ -167,9 +169,12 @@ available only after cryptographic proof.
 
 Current binding activity is authorization state, not signature-discovery state.
 After a historical key verifies, the kernel checks binding time/revocation,
-Principal status, Delegation resolution/time/revocation/scope, budgets, and
-policy. It atomically reserves the presentation and appends one signed
-`AuthorizationDecisionV2`, including denials. Missing or hidden Delegation
+Principal status, Delegation resolution/time/revocation/scope, budgets, and the
+immutable direct/v1 authority profile. It atomically reserves the presentation
+and appends one signed `AuthorizationDecisionV2`, including denials. The
+`proof.authorization.policy_denied` enum value is reserved for a future
+versioned profile with mutable denial state; direct/v1 never emits it. Missing
+or hidden Delegation
 uses audit reason `proof.authorization.delegation_unavailable` and public
 `proof.authorization.denied`. Replay returns the existing result/error and
 never appends a second decision.
@@ -196,9 +201,12 @@ Bounded per-attempt security evidence is outside application idempotency.
 ## Delegation and registered operations
 
 The profile is direct Human-to-Agent only: no parent Delegation and
-`allow_subdelegation` is absent or false. Empty scope arrays grant none in
-that dimension, never wildcard. An unused dimension is ignored; an operation
-requiring an empty dimension is denied. All arrays are sorted and unique.
+`allow_subdelegation` is absent or false. A parent field or literal `true`
+therefore fails v2 structural parsing as `proof.auth.malformed` before
+authorization; `proof.delegation.chain_unsupported` is reserved for a future
+typed chain profile. Empty scope arrays grant none in that dimension, never
+wildcard. An unused dimension is ignored; an operation requiring an empty
+dimension is denied. All arrays are sorted and unique.
 An authority record whose set-like arrays are not already sorted is rejected
 before signing; verifiers never silently reorder a signed record.
 Environment IDs are lowercase ASCII `^[a-z][a-z0-9._-]{0,127}$`.
@@ -238,7 +246,7 @@ Five budget profiles separately freeze whether effective constraints come from
 the Delegation alone, requested Object count, normalized v1/v2 context limits,
 or a verified bound ContextPack. The v2 ContextPack validation-attempt limit is
 application policy, not an invented Delegation constraint.
-P-0004 may implement the evaluator and three v1 reads but must not expose the
+P-0004 implements the evaluator and three v1 reads without exposing the
 localized rows; P-0005 performs that wiring without changing the registry.
 
 ## Authority log, roots, and offline evidence
@@ -284,17 +292,23 @@ while rejecting mixed-case variants. The retained Rust conformance test also
 mutates the operation set, action mapping, projection source, retry class, and
 locale casing so these files cannot pass as unexamined documentation.
 
-Vectors were generated in one in-memory dependency graph. Secret material was
-never serialized. The temporary derive-key helper was built outside the tree
-with:
+Vectors were generated in one in-memory dependency graph. On 2026-08-20, the
+graph was regenerated under fresh deterministic synthetic predecessor and
+successor roots after binding evidence gained its issuing
+`authority_sequence`. That regeneration re-signed the binding, decision, and
+dual-root transition and repaired every causal digest from sequence 5 through
+sequence 9. Secret material was never serialized. The ephemeral generator used
+a dedicated target under its temporary directory:
 
 ```powershell
-$env:CARGO_TARGET_DIR = Join-Path $env:TEMP 'proof-authority-vector-target'
-cargo build --manifest-path conformance\v1\authority\vector-helper\Cargo.toml --locked
+$env:CARGO_TARGET_DIR = Join-Path (Get-Location) '.tmp-p4-authority-vector-generator\target'
+cargo run --offline --manifest-path .tmp-p4-authority-vector-generator\Cargo.toml
+cargo clean --manifest-path .tmp-p4-authority-vector-generator\Cargo.toml
 ```
 
-That one-off source is deliberately removed after generation. Reverification
-must derive every context from the checked-in canonical preimage, decode and
-canonical-base64 re-encode every byte field, verify every Ed25519 signature
-from public material only, cross-link every duplicated ID/key/digest, and walk
-the complete authority sequence from the independently trusted root/head.
+The generator source, lockfile, target, and both private seeds were removed
+after generation. Reverification must derive every context from the checked-in
+canonical preimage, decode and canonical-base64 re-encode every byte field,
+verify every Ed25519 signature from public material only, cross-link every
+duplicated ID/key/digest, and walk the complete authority sequence from the
+independently trusted root/head.

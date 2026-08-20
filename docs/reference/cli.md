@@ -70,6 +70,8 @@ The grammar above is the compatibility target. The implemented executable curren
 ```text
 proof init
 proof status
+proof auth sign --command - --credential <HANDLE>
+proof auth execute --invocation -
 proof changeset create|get|add|diff|validate|submit|approve|commit
 proof edition create
 proof environment create|get
@@ -83,7 +85,13 @@ proof capability list
 proof verify --file <PATH> --trusted-key-id <ed25519:HEX> --expected-envelope-digest <blake3:HEX>
 ```
 
-`--principal` and `--delegation` are a required pair for delegated `status`, released-Object query, and ContextPack operations. In this slice they are caller-supplied identifiers, not proof of an authenticated Agent binding. Plain `status` and released-Object query use the authenticated local Human. Explicit authority is rejected on operations that cannot enforce it; it is never silently ignored. This slice accepts a Delegation ID, not a path to a Delegation document.
+The ambient Human CLI retains explicit Principal and Delegation selectors for
+its Human-owned paths; those identifiers are not Agent authentication. An Agent
+uses `auth sign` to create a single-use DSSE presentation and the fixed
+Human-owned `auth execute` broker to authenticate, authorize, consume, and
+execute it. Explicit authority is rejected on operations that cannot enforce
+it; it is never silently ignored. A Delegation selector is an identifier, never
+a path to a Delegation document.
 
 An Environment is a logical, versioned release target and policy binding; it is not a content package or directory. The local adapter target kind is `proof.local/released-state/v1`. Promotion creates an immutable Release and signed Proof. Rollback creates another immutable Release selecting an earlier Edition and advances the derived Environment pointer; it does not rewrite either Release.
 
@@ -91,30 +99,41 @@ A ContextPack is a bounded, immutable package assembled from exact released Obje
 
 The standalone offline verifier checks canonical DSSE/in-toto bytes, a caller-supplied expected envelope digest, and the Ed25519 signature against a caller-supplied trusted key ID. It does not verify Workspace policy or persisted Release evidence. `release verify` is the operation that verifies the persisted local Release, Proof subjects, evidence, and configured trust.
 
-The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP `2025-11-25` for capability discovery, delegated Workspace status, delegated released-Object query, and ContextPack build. Modern requests are independent and carry protocol version plus client capabilities in per-request `_meta`; they do not require `initialize`. The server implements `server/discover`, returns `resultType: "complete"` on modern results, and publishes public cache hints for discovery and the deterministic tool registry. Legacy clients retain the `initialize` / `notifications/initialized` path. Every authority-bearing tool call supplies its Principal and Delegation explicitly; MCP session state is not authority. This is a read/evidence slice, not a delegated mutation or collaboration server.
+The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP
+`2025-11-25` for capability discovery, authenticated Workspace status,
+released-Object query, and ContextPack build. Modern requests are independent
+and carry protocol version plus client capabilities in per-request `_meta`;
+they do not require `initialize`. Legacy clients retain the `initialize` /
+`notifications/initialized` path. Both eras carry the exact authenticated DSSE
+string in `params._meta["dev.proof/authentication"]` and enter the same
+application executor. Session state and request identifiers are not authority.
+This is an authenticated read/evidence slice, not delegated mutation or a
+collaboration server.
 
-### Ratified P-0003 profile — authenticated Agent invocation
+### Implemented P-0004 profile — authenticated Agent invocation
 
-This profile is accepted architecture and is not implemented by the current
-delegated read slice. The normative contract is the
+The bounded local profile is implemented for status, released-Object query, and
+ContextPack build. The normative contract is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
-- `--profile` selects a protected local Agent credential handle. The profile
-  name and handle are configuration selectors, not authority.
-- `--principal` is an optional expected operating-Principal cross-check. The
-  identity adapter derives the operating Principal from a validly issued
-  immutable historical `PrincipalBindingV1`; a mismatch fails authentication,
-  while current binding state is evaluated during authorization.
-- `--delegation` selects one `DelegationV2`. The application derives the
-  requesting Human from its issuer and requires the authenticated Agent to be
-  its recipient.
+- `auth sign --credential <HANDLE>` selects a separator-free file name under
+  the fixed per-user credential directory. The handle is a local secret-store
+  selector, not authority, and cannot be a path.
+- `operating_principal_id` in the signed `CommandInputV1` is an expected-value
+  cross-check. The identity adapter derives the operating Principal from a
+  validly issued immutable historical `PrincipalBindingV1`; a mismatch fails
+  authentication, while current binding state is evaluated during
+  authorization.
+- `delegation_id` in the signed command selects one `DelegationV2`. The
+  application derives the requesting Human independently and requires the
+  authenticated Agent to be the Delegation recipient.
 - The profile reserves the exact application action tokens
   `changeset:create`, `changeset:add`, `changeset:get`, `changeset:diff`,
   `changeset:validate`, `changeset:submit`, `changeset:commit`,
   `edition:create`, and `release:create` for downstream P-0002/P-0005 work.
   P-0004 implements the generic exact-set evaluator but exposes only the current
-  status, released-query, and ContextPack operations. The exact 12
-  operation-version-to-action entries are normative in the
+  status, released-query, and ContextPack operations. The exact 14
+  operation-version entries and 12 action tokens are normative in the
   [authenticated actor contract](../architecture/authenticated-actor.md) and
   [`conformance/v1/authority/`](../../conformance/v1/authority/README.md); adapters reject
   unknown pairs and never infer punctuation aliases. If downstream write
@@ -151,8 +170,17 @@ delegated read slice. The normative contract is the
   Each fresh presentation is a distinct attempt, appends exactly one consumption
   plus decision, and returns a newly authorized current read. This bounded
   per-attempt security evidence is not a duplicate governed effect under the
-  proposed C4 carve-out: governed content and projections remain unchanged.
+  ratified C4 replacement: governed content and projections remain unchanged.
   ContextPack build remains idempotent under its existing operation contract.
+
+On Unix, the current file provider resolves `<HANDLE>` only as
+`$XDG_DATA_HOME/proof/credentials/<HANDLE>.json`, falling back to
+`$HOME/.local/share/proof/credentials/<HANDLE>.json`. It rejects symlinks,
+requires exact Unix modes `0700` for the directory and `0600` for the file,
+bounds the file at 4,096 bytes, and verifies that the stored key ID matches the
+secret before signing.
+The Agent or harness provisions this opaque credential during enrollment;
+Proof does not export the private key or accept its path on the command line.
 
 The authenticated local Human path remains adapter-derived from ADR-0009 and
 does not impersonate an Agent merely because both processes share one Unix user.
@@ -198,12 +226,11 @@ eligibility, signed artifacts, an SBOM, provenance, reproducibility, or public
 distribution. Windows builds and local test runs do not constitute live
 Windows runtime qualification or published Windows support.
 
-### Ratified P-0002 profile — exact-locale content mutation
+### Implemented P-0007 Human profile — exact-locale content mutation
 
-This profile is project-owner accepted but not implemented. The current
-`proof.dev/edit/v1` create-only contract and its terminal validation
-rejection behavior remain authoritative until a versioned successor is built
-and migrated.
+P-0007 implements the exact-locale content foundation for the authenticated
+Human path. Its versioned localized `/v2` contracts and append-only repair
+history are authoritative; P-0005 still owns Agent enablement.
 
 The command grammar does not add direct Object mutation. Localized writes still
 enter through `changeset add`. Ratified application contracts reserve `/v2`
@@ -610,8 +637,10 @@ The key is scoped to Workspace, Principal, and operation. Proof stores a digest 
 Principal, and authorized under current authority. C5 authentication and C6
 authorization precede C4 disclosure of a stored result. Retrying an unknown
 outcome uses the same idempotency key and normalized request but a new
-`presentation_id`. Replaying a consumed presentation fails; revocation,
-Principal or binding disablement, or policy denial also blocks the stored result.
+`presentation_id`. Replaying a consumed presentation fails; revocation or
+Principal or binding disablement also blocks the stored result. The fixed
+direct/v1 profile has no mutable policy-denial state; a future profile must
+apply the same current-authorization rule.
 
 ## Explanation
 

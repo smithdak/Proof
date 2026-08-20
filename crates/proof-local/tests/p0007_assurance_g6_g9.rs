@@ -769,6 +769,7 @@ fn legacy_edition_command(
 }
 
 fn downgrade_database_to_v10(repository: &LocalWorkspace) {
+    downgrade_database_to_v11(repository);
     let connection = repository.open_database().unwrap();
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -804,6 +805,37 @@ fn downgrade_database_to_v10(repository: &LocalWorkspace) {
              DELETE FROM schema_migrations WHERE version = 11;
              UPDATE workspace_metadata SET schema_version = 10 WHERE singleton = 1;
              PRAGMA user_version = 10;",
+        )
+        .unwrap();
+}
+
+fn downgrade_database_to_v11(repository: &LocalWorkspace) {
+    let connection = repository.open_database().unwrap();
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    if version == 11 {
+        return;
+    }
+    assert_eq!(version, 12);
+    connection
+        .execute_batch(
+            "DROP TABLE authenticated_operation_results_v1;
+             DROP TABLE presentation_consumptions_v1;
+             DROP TABLE authorization_decisions_v2;
+             DROP TABLE authenticated_actor_context_evidence_v1;
+             DROP TABLE delegation_revocations_v2;
+             DROP TABLE delegations_v2;
+             DROP TABLE principal_binding_revocations_v1;
+             DROP TABLE principal_status_v1;
+             DROP TABLE authenticated_subject_commitment_openings_v1;
+             DROP TABLE principal_bindings_v1;
+             DROP TABLE binding_enrollment_challenges;
+             DROP TABLE authority_records;
+             DROP TABLE workspace_authority_roots;
+             DELETE FROM schema_migrations WHERE version = 12;
+             UPDATE workspace_metadata SET schema_version = 11 WHERE singleton = 1;
+             PRAGMA user_version = 11;",
         )
         .unwrap();
 }
@@ -1319,7 +1351,7 @@ fn p0007_g9_each_v1_to_v10_failure_rolls_back_retries_and_preserves_legacy_hash(
             .unwrap();
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_eq!(storage_version(&repository), (11, 11, 11));
+        assert_eq!(storage_version(&repository), (12, 12, 12));
         let legacy_after_retry = legacy_fingerprint(&repository, source_version);
         assert_eq!(
             legacy_after_retry, legacy_before,
@@ -1329,7 +1361,7 @@ fn p0007_g9_each_v1_to_v10_failure_rolls_back_retries_and_preserves_legacy_hash(
         let migration_history = table_fingerprint(&repository, &["schema_migrations"]);
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_eq!(storage_version(&repository), (11, 11, 11));
+        assert_eq!(storage_version(&repository), (12, 12, 12));
         assert_eq!(
             legacy_fingerprint(&repository, source_version),
             legacy_before
@@ -1341,7 +1373,7 @@ fn p0007_g9_each_v1_to_v10_failure_rolls_back_retries_and_preserves_legacy_hash(
         );
         assert_zero_localized_migration_facts(&repository);
         eprintln!(
-            "G9 v{source_version}->v11 rollback={legacy_after_failure} retry={legacy_after_retry} migration-history={migration_history} versions=11/11/11 localized_rows=0"
+            "G9 v{source_version}->v12 rollback={legacy_after_failure} retry={legacy_after_retry} migration-history={migration_history} versions=12/12/12 localized_rows=0"
         );
     }
 }

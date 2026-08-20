@@ -3,17 +3,19 @@
 //! Transport-independent application contracts for Proof.
 
 pub use proof_domain::{
-    ArtifactKind, ChangeSetId, ChangeSetIntent, ChangeSetIntentError, ChangeSetStatus,
-    ContentDigest, ContentResourceIntentId, ContextPackId, CorrelationId, DelegationId,
-    DigestAlgorithm, EditId, EditionId, EnvironmentId, EnvironmentIdError, IdempotencyKey,
-    IdentifierError, LocaleId, LocaleIdError, LocaleRevision, LocaleRevisionError, ObjectId,
-    ObjectLifecycleState, ObjectRevision, ObjectRevisionError, OperationId, PrincipalId,
-    PrincipalType, ProofId, ReleaseId, ReleaseKind, SchemaId, SchemaIdError, SchemaVersion,
+    ArtifactKind, AuthorityRootTransitionId, BindingId, ChangeSetId, ChangeSetIntent,
+    ChangeSetIntentError, ChangeSetStatus, ContentDigest, ContentResourceIntentId, ContextPackId,
+    CorrelationId, DelegationId, DigestAlgorithm, EditId, EditionId, EnrollmentChallengeId,
+    EnvironmentId, EnvironmentIdError, IdempotencyKey, IdentifierError, LocaleId, LocaleIdError,
+    LocaleRevision, LocaleRevisionError, ObjectId, ObjectLifecycleState, ObjectRevision,
+    ObjectRevisionError, OperationId, PresentationId, PrincipalId, PrincipalType, ProofId,
+    ReleaseId, ReleaseKind, RevocationId, SchemaId, SchemaIdError, SchemaVersion,
     SchemaVersionError, Timestamp, TimestampError, WorkspaceId,
 };
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod authority;
 mod localized;
 pub use localized::*;
 
@@ -2102,6 +2104,23 @@ pub enum CapabilitySideEffect {
     EvidenceWrite,
 }
 
+impl CapabilitySideEffect {
+    /// Stable caller-visible classification token.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read_only",
+            Self::EvidenceWrite => "evidence_write",
+        }
+    }
+}
+
+impl std::fmt::Display for CapabilitySideEffect {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// Static transport-independent description of one agent-visible operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct CapabilityDescriptor {
@@ -2125,6 +2144,10 @@ pub struct CapabilityDescriptor {
     pub dry_run: bool,
     /// Stable expected Problem codes.
     pub error_codes: &'static [&'static str],
+    /// Codes reachable through the legacy ambient-Human application path.
+    pub ambient_error_codes: &'static [&'static str],
+    /// Public codes reachable through authenticated P-0004 execution.
+    pub authenticated_error_codes: &'static [&'static str],
     /// Maximum accepted Object count, when applicable.
     pub max_objects: Option<u32>,
     /// Maximum accepted payload bytes, when applicable.
@@ -2132,7 +2155,7 @@ pub struct CapabilityDescriptor {
 }
 
 const WORKSPACE_STATUS_INPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/workspace.status/input/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"delegation_id":{"format":"uuid","type":"string"},"operating_principal_id":{"format":"uuid","type":"string"}},"required":["operating_principal_id","delegation_id"],"type":"object"}"#;
-const WORKSPACE_STATUS_OUTPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/workspace.status/output/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"authoritative_sequence":{"minimum":0,"type":"integer"},"authorization_decision_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"delegation_id":{"format":"uuid","type":"string"},"principal_id":{"format":"uuid","type":"string"},"state_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"storage_schema_version":{"minimum":1,"type":"integer"},"workspace_id":{"format":"uuid","type":"string"}},"required":["workspace_id","principal_id","delegation_id","storage_schema_version","authoritative_sequence","state_digest","authorization_decision_digest"],"type":"object"}"#;
+const WORKSPACE_STATUS_OUTPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/workspace.status/output/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"authoritative_sequence":{"minimum":0,"type":"integer"},"authorization_decision_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"delegation_id":{"format":"uuid","type":"string"},"operating_principal_id":{"format":"uuid","type":"string"},"requesting_principal_id":{"format":"uuid","type":"string"},"state_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"storage_schema_version":{"minimum":1,"type":"integer"},"workspace_id":{"format":"uuid","type":"string"}},"required":["workspace_id","requesting_principal_id","operating_principal_id","delegation_id","storage_schema_version","authoritative_sequence","state_digest","authorization_decision_digest"],"type":"object"}"#;
 const RELEASED_OBJECT_QUERY_INPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/object.query_released/input/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"delegation_id":{"format":"uuid","type":"string"},"environment_id":{"maxLength":128,"minLength":1,"type":"string"},"object_ids":{"items":{"format":"uuid","type":"string"},"maxItems":100,"minItems":1,"type":"array","uniqueItems":true},"operating_principal_id":{"format":"uuid","type":"string"}},"required":["operating_principal_id","delegation_id","environment_id","object_ids"],"type":"object"}"#;
 const RELEASED_OBJECT_QUERY_OUTPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/object.query_released/output/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"authorization_decision_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"delegation_id":{"format":"uuid","type":"string"},"edition_id":{"format":"uuid","type":"string"},"environment_id":{"type":"string"},"objects":{"items":{"additionalProperties":false,"properties":{"canonical_content":{"type":"string"},"lifecycle_state":{"const":"active"},"object_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"object_id":{"format":"uuid","type":"string"},"revision":{"minimum":1,"type":"integer"},"schema_id":{"type":"string"},"schema_version":{"minimum":1,"type":"integer"}},"required":["object_id","revision","schema_id","schema_version","lifecycle_state","canonical_content","object_digest"],"type":"object"},"maxItems":100,"type":"array"},"principal_id":{"format":"uuid","type":"string"},"release_id":{"format":"uuid","type":"string"},"workspace_id":{"format":"uuid","type":"string"}},"required":["workspace_id","environment_id","release_id","edition_id","principal_id","delegation_id","authorization_decision_digest","objects"],"type":"object"}"#;
 const CONTEXT_BUILD_INPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/context.build/input/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"delegation_id":{"format":"uuid","type":"string"},"environment_id":{"maxLength":128,"minLength":1,"type":"string"},"expires_at":{"format":"date-time","type":"string"},"idempotency_key":{"format":"uuid","type":"string"},"intent":{"maxLength":4096,"minLength":1,"type":"string"},"max_bytes":{"maximum":1048576,"minimum":1,"type":"integer"},"max_objects":{"maximum":100,"minimum":1,"type":"integer"},"object_ids":{"items":{"format":"uuid","type":"string"},"maxItems":100,"minItems":1,"type":"array","uniqueItems":true},"operating_principal_id":{"format":"uuid","type":"string"},"task_id":{"maxLength":256,"minLength":1,"type":"string"}},"required":["operating_principal_id","delegation_id","task_id","intent","environment_id","object_ids","max_objects","max_bytes","idempotency_key","expires_at"],"type":"object"}"#;
@@ -2148,12 +2171,52 @@ pub static CAPABILITY_REGISTRY: [CapabilityDescriptor; 3] = [
         output_schema_json: WORKSPACE_STATUS_OUTPUT_SCHEMA,
         required_action: DelegatedAction::WorkspaceStatus,
         idempotency: CapabilityIdempotency::NotApplicable,
-        side_effect: CapabilitySideEffect::ReadOnly,
+        side_effect: CapabilitySideEffect::EvidenceWrite,
         dry_run: false,
         error_codes: &[
-            "proof.auth.unauthenticated",
+            "proof.auth.actor_mismatch",
+            "proof.auth.audience_mismatch",
+            "proof.auth.binding_inactive",
             "proof.auth.denied",
+            "proof.auth.expired",
+            "proof.auth.malformed",
+            "proof.auth.not_yet_valid",
+            "proof.auth.replay",
+            "proof.auth.unauthenticated",
+            "proof.authority.integrity",
+            "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked",
+            "proof.authorization.denied",
+            "proof.authorization.principal_disabled",
+            "proof.authorization.scope_exceeded",
+            "proof.dependency.unavailable",
             "proof.digest.mismatch",
+            "proof.internal",
+        ],
+        ambient_error_codes: &[
+            "proof.auth.denied",
+            "proof.auth.unauthenticated",
+            "proof.dependency.unavailable",
+            "proof.digest.mismatch",
+        ],
+        authenticated_error_codes: &[
+            "proof.auth.actor_mismatch",
+            "proof.auth.audience_mismatch",
+            "proof.auth.binding_inactive",
+            "proof.auth.denied",
+            "proof.auth.expired",
+            "proof.auth.malformed",
+            "proof.auth.not_yet_valid",
+            "proof.auth.replay",
+            "proof.authority.integrity",
+            "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked",
+            "proof.authorization.denied",
+            "proof.authorization.principal_disabled",
+            "proof.authorization.scope_exceeded",
+            "proof.internal",
         ],
         max_objects: None,
         max_payload_bytes: None,
@@ -2166,11 +2229,61 @@ pub static CAPABILITY_REGISTRY: [CapabilityDescriptor; 3] = [
         output_schema_json: RELEASED_OBJECT_QUERY_OUTPUT_SCHEMA,
         required_action: DelegatedAction::ObjectQueryReleased,
         idempotency: CapabilityIdempotency::NotApplicable,
-        side_effect: CapabilitySideEffect::ReadOnly,
+        side_effect: CapabilitySideEffect::EvidenceWrite,
         dry_run: false,
         error_codes: &[
+            "proof.auth.actor_mismatch",
+            "proof.auth.audience_mismatch",
+            "proof.auth.binding_inactive",
             "proof.auth.denied",
-            "proof.delegation.scope_exceeded",
+            "proof.auth.expired",
+            "proof.auth.malformed",
+            "proof.auth.not_yet_valid",
+            "proof.auth.replay",
+            "proof.auth.unauthenticated",
+            "proof.authority.integrity",
+            "proof.authorization.budget_exceeded",
+            "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked",
+            "proof.authorization.denied",
+            "proof.authorization.principal_disabled",
+            "proof.authorization.scope_exceeded",
+            "proof.dependency.unavailable",
+            "proof.digest.mismatch",
+            "proof.input.unsupported_version",
+            "proof.internal",
+            "proof.resource.not_found",
+            "proof.validation.failed",
+        ],
+        ambient_error_codes: &[
+            "proof.auth.denied",
+            "proof.auth.unauthenticated",
+            "proof.dependency.unavailable",
+            "proof.digest.mismatch",
+            "proof.input.unsupported_version",
+            "proof.resource.not_found",
+            "proof.validation.failed",
+        ],
+        authenticated_error_codes: &[
+            "proof.auth.actor_mismatch",
+            "proof.auth.audience_mismatch",
+            "proof.auth.binding_inactive",
+            "proof.auth.denied",
+            "proof.auth.expired",
+            "proof.auth.malformed",
+            "proof.auth.not_yet_valid",
+            "proof.auth.replay",
+            "proof.authority.integrity",
+            "proof.authorization.budget_exceeded",
+            "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked",
+            "proof.authorization.denied",
+            "proof.authorization.principal_disabled",
+            "proof.authorization.scope_exceeded",
+            "proof.input.unsupported_version",
+            "proof.internal",
             "proof.resource.not_found",
         ],
         max_objects: Some(100),
@@ -2187,10 +2300,63 @@ pub static CAPABILITY_REGISTRY: [CapabilityDescriptor; 3] = [
         side_effect: CapabilitySideEffect::EvidenceWrite,
         dry_run: false,
         error_codes: &[
+            "proof.auth.actor_mismatch",
+            "proof.auth.audience_mismatch",
+            "proof.auth.binding_inactive",
             "proof.auth.denied",
+            "proof.auth.expired",
+            "proof.auth.malformed",
+            "proof.auth.not_yet_valid",
+            "proof.auth.replay",
+            "proof.auth.unauthenticated",
+            "proof.authority.integrity",
+            "proof.authorization.budget_exceeded",
+            "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked",
+            "proof.authorization.denied",
+            "proof.authorization.principal_disabled",
+            "proof.authorization.scope_exceeded",
             "proof.delegation.expired",
-            "proof.delegation.scope_exceeded",
+            "proof.dependency.unavailable",
+            "proof.evidence.incomplete",
+            "proof.idempotency.key_reused",
             "proof.input.too_large",
+            "proof.internal",
+            "proof.resource.not_found",
+        ],
+        ambient_error_codes: &[
+            "proof.auth.denied",
+            "proof.auth.unauthenticated",
+            "proof.delegation.expired",
+            "proof.dependency.unavailable",
+            "proof.evidence.incomplete",
+            "proof.idempotency.key_reused",
+            "proof.input.too_large",
+            "proof.resource.not_found",
+        ],
+        authenticated_error_codes: &[
+            "proof.auth.actor_mismatch",
+            "proof.auth.audience_mismatch",
+            "proof.auth.binding_inactive",
+            "proof.auth.denied",
+            "proof.auth.expired",
+            "proof.auth.malformed",
+            "proof.auth.not_yet_valid",
+            "proof.auth.replay",
+            "proof.authority.integrity",
+            "proof.authorization.budget_exceeded",
+            "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked",
+            "proof.authorization.denied",
+            "proof.authorization.principal_disabled",
+            "proof.authorization.scope_exceeded",
+            "proof.delegation.expired",
+            "proof.idempotency.key_reused",
+            "proof.input.too_large",
+            "proof.internal",
+            "proof.resource.not_found",
         ],
         max_objects: Some(100),
         max_payload_bytes: Some(MAX_CONTEXT_PACK_BYTES),
@@ -2792,10 +2958,13 @@ impl StatusData {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{
-        ApprovalName, CAPABILITY_REGISTRY, ChangeSetEdit, ContentDigest, CorrelationId, EditId,
-        ExitCode, InspectedChangeSetEdit, InspectedObjectCreateEdit, ObjectCreateEdit, ObjectId,
-        OperationId, ResultEnvelope, SchemaId, SchemaVersion, StatusData,
+        ApprovalName, CAPABILITY_REGISTRY, CapabilitySideEffect, ChangeSetEdit, ContentDigest,
+        CorrelationId, EditId, ExitCode, InspectedChangeSetEdit, InspectedObjectCreateEdit,
+        ObjectCreateEdit, ObjectId, OperationId, ResultEnvelope, SchemaId, SchemaVersion,
+        StatusData,
     };
 
     const OPERATION_ID: &str = "019c0000-0000-7000-8000-000000000001";
@@ -2826,6 +2995,8 @@ mod tests {
     fn agent_capability_registry_exposes_complete_versioned_schemas() {
         assert_eq!(CAPABILITY_REGISTRY.len(), 3);
         for capability in CAPABILITY_REGISTRY {
+            assert_eq!(capability.side_effect, CapabilitySideEffect::EvidenceWrite);
+            assert_eq!(capability.side_effect.to_string(), "evidence_write");
             let input: serde_json::Value =
                 serde_json::from_str(capability.input_schema_json).unwrap();
             let output: serde_json::Value =
@@ -2859,6 +3030,144 @@ mod tests {
             "max_bytes",
         ] {
             assert!(required.iter().any(|value| value == field));
+        }
+    }
+
+    #[test]
+    fn capability_error_code_sets_are_sorted_mode_unions() {
+        for capability in CAPABILITY_REGISTRY {
+            for codes in [
+                capability.error_codes,
+                capability.ambient_error_codes,
+                capability.authenticated_error_codes,
+            ] {
+                assert!(codes.windows(2).all(|pair| pair[0] < pair[1]));
+            }
+            let expected_union = capability
+                .ambient_error_codes
+                .iter()
+                .chain(capability.authenticated_error_codes)
+                .copied()
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                capability
+                    .error_codes
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>(),
+                expected_union
+            );
+            for required in [
+                "proof.auth.malformed",
+                "proof.auth.denied",
+                "proof.auth.audience_mismatch",
+                "proof.auth.binding_inactive",
+                "proof.auth.actor_mismatch",
+                "proof.auth.not_yet_valid",
+                "proof.auth.expired",
+                "proof.auth.replay",
+                "proof.authorization.denied",
+                "proof.authorization.principal_disabled",
+                "proof.authorization.delegation_not_yet_valid",
+                "proof.authorization.delegation_expired",
+                "proof.authorization.delegation_revoked",
+                "proof.authorization.scope_exceeded",
+                "proof.authority.integrity",
+                "proof.internal",
+            ] {
+                assert!(capability.authenticated_error_codes.contains(&required));
+            }
+            for reserved in [
+                "proof.authorization.policy_denied",
+                "proof.delegation.chain_unsupported",
+            ] {
+                assert!(!capability.authenticated_error_codes.contains(&reserved));
+            }
+            assert!(
+                !capability
+                    .error_codes
+                    .contains(&"proof.delegation.scope_exceeded")
+            );
+        }
+    }
+
+    #[test]
+    fn capability_error_codes_distinguish_ambient_and_authenticated_paths() {
+        let status = CAPABILITY_REGISTRY
+            .iter()
+            .find(|capability| capability.operation == "workspace.status")
+            .unwrap();
+        assert_eq!(
+            status.ambient_error_codes,
+            [
+                "proof.auth.denied",
+                "proof.auth.unauthenticated",
+                "proof.dependency.unavailable",
+                "proof.digest.mismatch",
+            ]
+        );
+        let status_output: serde_json::Value =
+            serde_json::from_str(status.output_schema_json).unwrap();
+        assert!(
+            status_output["properties"]
+                .get("requesting_principal_id")
+                .is_some()
+        );
+        assert!(
+            status_output["properties"]
+                .get("operating_principal_id")
+                .is_some()
+        );
+        assert!(status_output["properties"].get("principal_id").is_none());
+        let serialized_status = serde_json::to_value(status).unwrap();
+        assert_eq!(
+            serialized_status["ambient_error_codes"],
+            serde_json::json!(status.ambient_error_codes)
+        );
+        assert_eq!(
+            serialized_status["authenticated_error_codes"],
+            serde_json::json!(status.authenticated_error_codes)
+        );
+        assert_eq!(
+            serialized_status["error_codes"],
+            serde_json::json!(status.error_codes)
+        );
+
+        let query = CAPABILITY_REGISTRY
+            .iter()
+            .find(|capability| capability.operation == "object.query_released")
+            .unwrap();
+        assert!(
+            query
+                .authenticated_error_codes
+                .contains(&"proof.authorization.budget_exceeded")
+        );
+        assert!(
+            query
+                .authenticated_error_codes
+                .contains(&"proof.input.unsupported_version")
+        );
+        assert!(
+            query
+                .authenticated_error_codes
+                .contains(&"proof.resource.not_found")
+        );
+        let context = CAPABILITY_REGISTRY
+            .iter()
+            .find(|capability| capability.operation == "context.build")
+            .unwrap();
+        assert!(
+            context
+                .authenticated_error_codes
+                .contains(&"proof.idempotency.key_reused")
+        );
+        for code in [
+            "proof.auth.denied",
+            "proof.delegation.expired",
+            "proof.input.too_large",
+            "proof.resource.not_found",
+        ] {
+            assert!(context.authenticated_error_codes.contains(&code));
         }
     }
 

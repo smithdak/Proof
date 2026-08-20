@@ -49,7 +49,7 @@ The roadmap is organized around complete capability loops rather than feature co
 - Stable MCP adapter with protocol negotiation.
 - Agent-security abuse cases and conformance tests.
 
-**Ratified P-0003 profile:** Milestone 2 uses distinct local per-Agent Ed25519
+**Implemented P-0004 read profile:** Milestone 2 uses distinct local per-Agent Ed25519
 proof-of-possession credentials, adapter-derived authenticated actor context,
 single-use signed command presentations, one direct Human-to-Agent
 `DelegationV2`, and a separately rooted append-only authority log. CLI and both
@@ -58,8 +58,8 @@ selectors, never authority. P-0006 then defines and qualifies the portable
 `AuthorityEvidenceBundleV1`, including an independently pinned authority-head
 checkpoint when rollback or latest-history completeness must be detected. The
 local SQLite-plus-file-signer profile does not prevent restoration of a valid
-older authority prefix or fork. This profile is accepted architecture and is
-not an implementation-status claim. Its normative definition is the
+older authority prefix or fork. P-0004 implements this profile for the three
+enabled v1 reads. Its normative definition is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
 **Ratified P-0003 qualification boundary:** a process with the bootstrap Unix
@@ -90,13 +90,13 @@ Authenticated status/query reads use no idempotency key: every fresh
 presentation is a distinct attempt that appends one consumption plus decision
 and returns a newly authorized current read. Their metadata is
 `evidence_write`, while governed content/projections remain unchanged under the
-proposed C4 security-evidence carve-out. ContextPack build remains idempotent.
+ratified C4 security-evidence rule. ContextPack build remains idempotent.
 
-### Ratified P-0002 content sequence
+### Implemented P-0007 Human content sequence
 
-This sequence is project-owner accepted but not implemented. It selects a
-named content-foundation prerequisite rather than placing unproven
-content semantics inside delegated mutation.
+This sequence is implemented for the Human content path. It remains a named
+content-foundation prerequisite rather than placing unproven content semantics
+inside delegated mutation.
 
 - P-0007 implements the Human-path localized content foundation before
   P-0005 enables Agent writes. It covers append-only `ObjectLocaleRevisionV1`
@@ -126,11 +126,11 @@ content semantics inside delegated mutation.
   `context.build`, `object.query_released`, all content-capable `changeset.*`
   operations, `edition.create`, and `release.create`. P-0003's ratified profile
   reconciles all 11 with the three retained v1 reads and freezes their exact
-  resource projections; this remains architecture, not capability
-  advertisement, until P-0004 and P-0005 implement it.
+  resource projections; these remain disabled Agent capabilities until P-0005
+  enables them through the P-0004 kernel.
 
-P-0005 depends on both P-0007 and P-0004 and supplies authenticated
-Agent authority, adapter parity, and end-to-end delegated evidence. P-0006 then
+P-0005 depends on both P-0007 and P-0004 and supplies authenticated Agent
+mutation and end-to-end delegated evidence. P-0006 then
 qualifies the complete north-star loop and portable verification. Until those
 items pass, the Milestone 2 exit condition remains unmet.
 

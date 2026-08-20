@@ -88,7 +88,7 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.delegation.scope_exceeded`
 - `proof.approval.required`
 
-**Ratified P-0003 profile** codes, reserved until P-0004 implements them:
+**Implemented P-0004 profile** codes:
 
 The normative definitions are in the
 [authenticated actor contract](../architecture/authenticated-actor.md).
@@ -102,7 +102,8 @@ The normative definitions are in the
 - `proof.auth.not_yet_valid`
 - `proof.auth.expired`
 - `proof.auth.replay`
-- `proof.delegation.chain_unsupported`
+- `proof.delegation.chain_unsupported` (reserved; direct/v1 rejects parent and
+  subdelegation fields as `proof.auth.malformed` before authorization)
 - `proof.authorization.denied`
 - `proof.authorization.principal_disabled`
 - `proof.authorization.delegation_not_yet_valid`
@@ -111,11 +112,13 @@ The normative definitions are in the
 - `proof.authorization.delegation_unavailable`
 - `proof.authorization.scope_exceeded`
 - `proof.authorization.budget_exceeded`
-- `proof.authorization.policy_denied`
+- `proof.authorization.policy_denied` (reserved; the fixed direct/v1 profile
+  never emits it)
 - `proof.authority.integrity`
 
-These codes do not claim current implementation. `proof.auth.not_yet_valid`
-means `issued_at` exceeds the accepted future-skew bound;
+Except for the explicitly reserved values, these codes are emitted by the
+bounded local authenticated-read kernel. `proof.auth.not_yet_valid` means
+`issued_at` exceeds the accepted future-skew bound;
 `proof.auth.expired` is reserved for `evaluated_at >= expires_at`. Exact bounds
 and boundary vectors live in the authenticated actor contract and conformance
 corpus linked above.
@@ -144,8 +147,9 @@ consumption. Failure in that phase writes no consumption or decision. A valid
 signature under a known historical binding authenticates credential control;
 current binding time/revocation and Principal-enabled state are authorization
 checks. Their denial atomically consumes the presentation and appends
-`AuthorizationDecisionV2`, as do scope, budget, policy, or Delegation denials.
-Replay writes no second record.
+`AuthorizationDecisionV2`, as do scope, budget, or Delegation denials. Replay
+writes no second record. A future versioned authority policy with mutable denial
+state may emit `proof.authorization.policy_denied`; direct/v1 cannot.
 
 Audience or actor mismatch is a pre-consumption authentication failure and
 cannot appear in `AuthorizationDecisionV2`. After a valid signature under a
@@ -160,11 +164,12 @@ After credential proof, public authorization Problems may use
 `proof.authorization.delegation_not_yet_valid`,
 `proof.authorization.delegation_expired`,
 `proof.authorization.delegation_revoked`,
-`proof.authorization.scope_exceeded`,
-`proof.authorization.budget_exceeded`, or
-`proof.authorization.policy_denied`. Those codes describe authority already
+`proof.authorization.scope_exceeded`, or
+`proof.authorization.budget_exceeded`. Those codes describe authority already
 proven relevant to the authenticated actor; they must not reveal a hidden
-selector or protected resource. `proof.authorization.delegation_unavailable`
+selector or protected resource. The reserved
+`proof.authorization.policy_denied` follows the same disclosure rule if a
+future policy profile enables it. `proof.authorization.delegation_unavailable`
 is a protected audit/decision reason, never the public code for an unresolved
 Delegation selector.
 
@@ -172,7 +177,7 @@ Authenticated `status` and released-query reads use `idempotency_key: null`.
 Each fresh presentation is a distinct attempt that writes one consumption and
 decision before returning a newly authorized current read. The `evidence_write`
 does not mutate governed content/projections and is excluded from duplicate
-governed effects by the proposed C4 carve-out. ContextPack build remains
+governed effects by the ratified C4 replacement. ContextPack build remains
 idempotent.
 
 ### Validation and policy

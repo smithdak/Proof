@@ -82,8 +82,8 @@
         "value": "019c0000-0000-7000-8000-00000000000a"
       },
       "expected_authorized": false,
-      "public_code": "proof.delegation.chain_unsupported",
-      "audit_reason": "proof.delegation.chain_unsupported",
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
       "expected_decision_append": false
     },
     {
@@ -97,8 +97,8 @@
         "value": true
       },
       "expected_authorized": false,
-      "public_code": "proof.delegation.chain_unsupported",
-      "audit_reason": "proof.delegation.chain_unsupported",
+      "public_code": "proof.auth.malformed",
+      "audit_reason": "proof.auth.malformed",
       "expected_decision_append": false
     },
     {
@@ -244,7 +244,7 @@
       "mutation": {
         "kind": "json_replace",
         "path": "/authenticated_subject/subject",
-        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+        "value": "ed25519:247b9ffc395d19a551889705a93c7cb466a4b5aea9e315f974b7b46dbe7f9453"
       },
       "public_code": "proof.auth.malformed",
       "audit_reason": "proof.authority.integrity",

@@ -8,9 +8,20 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 ## Project status
 
-**Milestone 1 — local proof loop complete. Milestone 2 — read-authority slice begun.**
+**Milestone 1 — local proof loop complete. Milestone 2 — authenticated read
+authority implemented; delegated mutation remains.**
 
-The implemented local path covers authenticated Workspace initialization, idempotent ChangeSets, ordered Schema- and Object-create Edits, deterministic validation, exact-evidence submission and approval, atomic commits, reproducible Known State, immutable Editions, versioned Environments, signed Release Proofs, exact released-content queries, persisted Release verification, offline envelope verification against explicit caller trust, and dry-run or transactional projection rebuild. The first authority slice adds Agent Principals, bounded Delegations, ContextPacks, capability discovery, and a dual-era read-authority MCP stdio adapter. Its delegated reads still accept caller-supplied Agent Principal and Delegation identifiers; only the local Human path is adapter-authenticated. Delegated content mutations, authenticated Agent bindings, the collaboration server, and a public release remain.
+The implemented local path covers authenticated Workspace initialization,
+idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
+validation, exact-evidence approval and commit, reproducible Known State,
+immutable Editions, versioned Environments, signed Release Proofs, persisted
+Release verification, offline verification against explicit caller trust, and
+projection rebuild. The authority kernel adds per-Agent Ed25519 bindings,
+single-use authenticated commands, direct bounded Delegations, canonical
+authorization evidence, ContextPacks, capability discovery, and equivalent CLI
+and dual-era MCP broker paths for authenticated status, released-Object query,
+and ContextPack build. Delegated content mutation, portable authority bundles,
+the collaboration server, and a public release remain.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -24,7 +35,7 @@ qualification or a published Windows support claim.
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
-| Rust implementation | Milestone 1 complete; Milestone 2 begun |
+| Rust implementation | Milestone 1 complete; Milestone 2 authenticated read kernel complete |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 
@@ -115,6 +126,8 @@ The executable is `proof`. Human-readable output is a projection of the same str
 
 ```bash
 proof init
+proof auth sign --command - --credential agent-a
+proof auth execute --invocation -
 proof changeset create --intent "Localize the homepage for fr-CA"
 proof changeset add <changeset-id> --file edits.ndjson
 proof changeset diff <changeset-id>

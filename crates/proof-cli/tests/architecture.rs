@@ -3,6 +3,10 @@ use std::{collections::BTreeSet, path::Path, process::Command};
 use serde_json::Value;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the exact dependency sets keep every workspace layer visible in one architecture guard"
+)]
 fn inward_dependency_boundaries_are_enforced() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new(env!("CARGO"))
@@ -29,8 +33,10 @@ fn inward_dependency_boundaries_are_enforced() {
     assert_eq!(
         application,
         BTreeSet::from([
+            "base64".to_owned(),
             "proof-domain".to_owned(),
             "serde".to_owned(),
+            "serde_json".to_owned(),
             "thiserror".to_owned(),
         ]),
         "application contracts may depend inward, never on interface or adapter crates"
@@ -65,6 +71,8 @@ fn inward_dependency_boundaries_are_enforced() {
     assert_eq!(
         local,
         BTreeSet::from([
+            "base64".to_owned(),
+            "getrandom".to_owned(),
             "jsonschema".to_owned(),
             "proof-application".to_owned(),
             "proof-attestation".to_owned(),
@@ -90,6 +98,7 @@ fn inward_dependency_boundaries_are_enforced() {
             "serde".to_owned(),
             "serde_json".to_owned(),
             "uuid".to_owned(),
+            "zeroize".to_owned(),
         ]),
         "the CLI may compose application contracts and adapters but owns no domain behavior"
     );
@@ -98,6 +107,7 @@ fn inward_dependency_boundaries_are_enforced() {
         BTreeSet::from([
             "clap".to_owned(),
             "proof-application".to_owned(),
+            "proof-attestation".to_owned(),
             "proof-local".to_owned(),
             "serde".to_owned(),
             "serde_json".to_owned(),

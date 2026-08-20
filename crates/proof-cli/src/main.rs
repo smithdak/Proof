@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod auth_cli;
 mod authority_cli;
 mod localized_cli;
 mod release_cli;
@@ -38,6 +39,7 @@ use proof_local::LocalWorkspace;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use auth_cli::AuthAction;
 use authority_cli::{CapabilityAction, ContextAction, DelegationAction, PrincipalAction};
 use localized_cli::LocalizedAction;
 use release_cli::{EnvironmentAction, ObjectAction, ProjectionAction, ReleaseAction};
@@ -104,6 +106,11 @@ enum Command {
     Init,
     /// Report the current implementation and Workspace status.
     Status,
+    /// Sign or execute one bounded authenticated Agent invocation.
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
     /// Work with atomic, intent-scoped governed proposals.
     Changeset {
         #[command(subcommand)]
@@ -251,6 +258,12 @@ impl Command {
         match self {
             Self::Init => "init",
             Self::Status => "status",
+            Self::Auth {
+                action: AuthAction::Sign { .. },
+            } => "auth.sign",
+            Self::Auth {
+                action: AuthAction::Execute { .. },
+            } => "auth.execute",
             Self::Changeset {
                 action: ChangeSetAction::Create { .. },
             } => "changeset.create",
@@ -447,6 +460,9 @@ fn run_command(
     let exit_code = match command {
         Command::Init => initialize_local_workspace(output, context, workspace)?,
         Command::Status => inspect_local_workspace(output, context, workspace, authority)?,
+        Command::Auth { action } => {
+            auth_cli::run_auth(action, output, context, workspace.as_deref())?
+        }
         Command::Changeset {
             action:
                 ChangeSetAction::Create {

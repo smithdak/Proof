@@ -912,6 +912,7 @@ dependencies = [
 name = "proof-application"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "proof-domain",
  "serde",
  "serde_json",
@@ -949,15 +950,18 @@ dependencies = [
 name = "proof-cli"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "clap",
  "proof-application",
  "proof-attestation",
  "proof-canonical",
  "proof-local",
+ "proof-mcp",
  "rusqlite",
  "serde",
  "serde_json",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -973,7 +977,9 @@ dependencies = [
 name = "proof-local"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "blake3",
+ "getrandom 0.4.3",
  "jsonschema",
  "proof-application",
  "proof-attestation",
@@ -994,6 +1000,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "proof-application",
+ "proof-attestation",
  "proof-local",
  "serde",
  "serde_json",

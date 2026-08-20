@@ -29,6 +29,21 @@ pub const REGISTRY_TTL_MS: u64 = 3_600_000;
 /// Maximum size of one newline-delimited JSON-RPC message.
 pub const MAX_MESSAGE_BYTES: usize = 1_048_576;
 
+/// Exact authentication metadata carried by one MCP tool call.
+///
+/// The envelope variant borrows the JSON string value without parsing or
+/// reconstructing it. This keeps the signed canonical DSSE bytes independent
+/// from both modern protocol metadata and legacy session state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuthenticationMetadata<'a> {
+    /// The call did not carry `dev.proof/authentication`.
+    Missing,
+    /// The metadata key was present but its value was not a JSON string.
+    InvalidType,
+    /// The exact UTF-8 DSSE envelope string supplied by the caller.
+    Envelope(&'a str),
+}
+
 /// Executes the application operations exposed as MCP tools.
 pub trait ToolBackend {
     /// Returns the complete deterministic MCP tool registry.
@@ -40,7 +55,12 @@ pub trait ToolBackend {
     ///
     /// Returns the complete structured domain Problem when the application
     /// operation rejects or cannot complete the request.
-    fn call(&self, name: &str, arguments: &Map<String, Value>) -> Result<Value, Value>;
+    fn call(
+        &self,
+        name: &str,
+        arguments: &Map<String, Value>,
+        authentication: AuthenticationMetadata<'_>,
+    ) -> Result<Value, Value>;
 }
 
 /// Runs one newline-delimited JSON-RPC session.
@@ -184,11 +204,13 @@ impl Session {
         }
 
         let params = object.get("params");
-        let carries_modern_meta = params
+        let declares_modern_protocol = params
             .and_then(Value::as_object)
-            .is_some_and(|params| params.contains_key("_meta"));
+            .and_then(|params| params.get("_meta"))
+            .and_then(Value::as_object)
+            .is_some_and(|meta| meta.contains_key("io.modelcontextprotocol/protocolVersion"));
         if method == "server/discover"
-            || carries_modern_meta
+            || declares_modern_protocol
             || ((!self.initialize_completed) && matches!(method, "tools/list" | "tools/call"))
         {
             return Some(Self::handle_modern(id, method, params, backend));
@@ -222,9 +244,9 @@ impl Session {
                 "serverInfo": {
                     "name": "proof-mcp",
                     "version": env!("CARGO_PKG_VERSION"),
-                    "description": "Read-authority MCP adapter for Proof"
+                    "description": "Authenticated authority MCP adapter for Proof"
                 },
-                "instructions": "Use capability discovery before invoking Proof read operations. Domain failures are returned as structured tool results."
+                "instructions": "Authority-bearing tools require a fresh exact DSSE presentation in params._meta[\"dev.proof/authentication\"]. Principal and Delegation fields are mismatch guards and selectors, never authority."
             }),
         )
     }
@@ -265,7 +287,7 @@ impl Session {
                 modern_result(json!({
                     "supportedVersions": SUPPORTED_PROTOCOL_VERSIONS,
                     "capabilities": { "tools": {} },
-                    "instructions": "Use capability discovery before invoking Proof read operations. Every authority-bearing tool call must supply its Principal and Delegation explicitly.",
+                    "instructions": "Authority-bearing tools require a fresh exact DSSE presentation in params._meta[\"dev.proof/authentication\"]. Principal and Delegation fields are mismatch guards and selectors, never authority.",
                     "ttlMs": REGISTRY_TTL_MS,
                     "cacheScope": "public"
                 })),
@@ -318,7 +340,17 @@ impl Session {
         {
             return error_response(id, -32_602, &format!("Unknown tool: {name}"), None);
         }
-        let mut result = match backend.call(name, arguments) {
+        let authentication = params
+            .get("_meta")
+            .and_then(Value::as_object)
+            .and_then(|meta| meta.get("dev.proof/authentication"))
+            .map_or(AuthenticationMetadata::Missing, |value| {
+                value.as_str().map_or(
+                    AuthenticationMetadata::InvalidType,
+                    AuthenticationMetadata::Envelope,
+                )
+            });
+        let mut result = match backend.call(name, arguments, authentication) {
             Ok(value) => tool_result(value, false),
             Err(problem) => tool_result(problem, true),
         };
@@ -450,8 +482,8 @@ fn error_response(id: Value, code: i64, message: &str, data: Option<Value>) -> V
 #[cfg(test)]
 mod tests {
     use super::{
-        LEGACY_PROTOCOL_VERSION, MAX_MESSAGE_BYTES, MODERN_PROTOCOL_VERSION, REGISTRY_TTL_MS,
-        SUPPORTED_PROTOCOL_VERSIONS, ToolBackend, serve,
+        AuthenticationMetadata, LEGACY_PROTOCOL_VERSION, MAX_MESSAGE_BYTES,
+        MODERN_PROTOCOL_VERSION, REGISTRY_TTL_MS, SUPPORTED_PROTOCOL_VERSIONS, ToolBackend, serve,
     };
     use serde_json::{Map, Value, json};
     use std::io::Cursor;
@@ -467,9 +499,49 @@ mod tests {
             })]
         }
 
-        fn call(&self, name: &str, _arguments: &Map<String, Value>) -> Result<Value, Value> {
+        fn call(
+            &self,
+            name: &str,
+            _arguments: &Map<String, Value>,
+            authentication: AuthenticationMetadata<'_>,
+        ) -> Result<Value, Value> {
             assert_eq!(name, "proof.capabilities.list");
+            assert_eq!(authentication, AuthenticationMetadata::Missing);
             Ok(json!({ "capabilities": [] }))
+        }
+    }
+
+    struct AuthenticationEchoBackend;
+
+    impl ToolBackend for AuthenticationEchoBackend {
+        fn tools(&self) -> Vec<Value> {
+            vec![json!({
+                "name": "proof.workspace.status",
+                "description": "Authenticated status",
+                "inputSchema": { "type": "object", "additionalProperties": false }
+            })]
+        }
+
+        fn call(
+            &self,
+            name: &str,
+            _arguments: &Map<String, Value>,
+            authentication: AuthenticationMetadata<'_>,
+        ) -> Result<Value, Value> {
+            assert_eq!(name, "proof.workspace.status");
+            match authentication {
+                AuthenticationMetadata::Envelope(envelope) => {
+                    Ok(json!({ "authentication": envelope }))
+                }
+                AuthenticationMetadata::Missing => Err(json!({
+                    "code": "proof.auth.malformed",
+                    "detail": "authentication metadata is required"
+                })),
+                AuthenticationMetadata::InvalidType => Err(json!({
+                    "code": "proof.auth.malformed",
+                    "detail": "authentication metadata must be a string"
+                })),
+            }
         }
     }
 
@@ -551,6 +623,179 @@ mod tests {
             let response: Value = serde_json::from_str(line).unwrap();
             assert_eq!(response["result"]["resultType"], "complete");
             assert_eq!(response["result"]["isError"], false);
+        }
+    }
+
+    #[test]
+    fn modern_and_legacy_calls_preserve_the_exact_authentication_string() {
+        let authentication =
+            r#"{"payload":"YWJj","payloadType":"application/example+json","signatures": []}"#;
+        let legacy_messages = [
+            json!({
+                "jsonrpc": "2.0",
+                "id": "initialize",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LEGACY_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": { "name": "test", "version": "1" }
+                }
+            }),
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "legacy",
+                "method": "tools/call",
+                "params": {
+                    "_meta": { "dev.proof/authentication": authentication },
+                    "name": "proof.workspace.status",
+                    "arguments": {}
+                }
+            }),
+        ];
+        let modern_message = json!({
+            "jsonrpc": "2.0",
+            "id": "modern",
+            "method": "tools/call",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                    "dev.proof/authentication": authentication
+                },
+                "name": "proof.workspace.status",
+                "arguments": {}
+            }
+        });
+        let mut input = legacy_messages
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        input.push('\n');
+        input.push_str(&modern_message.to_string());
+        input.push('\n');
+
+        let mut output = Vec::new();
+        serve(Cursor::new(input), &mut output, &AuthenticationEchoBackend).unwrap();
+        let responses = String::from_utf8(output).unwrap();
+        let responses = responses
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(responses.len(), 3);
+        assert_eq!(
+            responses[1]["result"]["structuredContent"]["authentication"],
+            authentication
+        );
+        assert!(responses[1]["result"].get("resultType").is_none());
+        assert_eq!(
+            responses[2]["result"]["structuredContent"]["authentication"],
+            authentication
+        );
+        assert_eq!(responses[2]["result"]["resultType"], "complete");
+    }
+
+    #[test]
+    fn modern_authenticated_tools_reject_missing_and_non_string_metadata() {
+        let requests = [Value::Null, json!({ "payload": "not-a-string" })]
+            .into_iter()
+            .enumerate()
+            .map(|(index, authentication)| {
+                let mut meta = json!({
+                    "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                });
+                if !authentication.is_null() {
+                    meta["dev.proof/authentication"] = authentication;
+                }
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": index,
+                    "method": "tools/call",
+                    "params": {
+                        "_meta": meta,
+                        "name": "proof.workspace.status",
+                        "arguments": {}
+                    }
+                })
+                .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let mut output = Vec::new();
+        serve(
+            Cursor::new(requests),
+            &mut output,
+            &AuthenticationEchoBackend,
+        )
+        .unwrap();
+
+        for line in String::from_utf8(output).unwrap().lines() {
+            let response: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(response["result"]["isError"], true);
+            let problem: Value =
+                serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(problem["code"], "proof.auth.malformed");
+        }
+    }
+
+    #[test]
+    fn legacy_authenticated_tools_reject_missing_and_non_string_metadata() {
+        let messages = [
+            json!({
+                "jsonrpc": "2.0",
+                "id": "initialize",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LEGACY_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": { "name": "test", "version": "1" }
+                }
+            }),
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "missing",
+                "method": "tools/call",
+                "params": { "name": "proof.workspace.status", "arguments": {} }
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "invalid",
+                "method": "tools/call",
+                "params": {
+                    "_meta": { "dev.proof/authentication": {} },
+                    "name": "proof.workspace.status",
+                    "arguments": {}
+                }
+            }),
+        ];
+        let input = messages
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let mut output = Vec::new();
+        serve(Cursor::new(input), &mut output, &AuthenticationEchoBackend).unwrap();
+        let responses = String::from_utf8(output).unwrap();
+        let responses = responses
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(responses.len(), 3);
+        for response in &responses[1..] {
+            assert_eq!(response["result"]["isError"], true);
+            assert!(response["result"].get("resultType").is_none());
+            let problem: Value =
+                serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(problem["code"], "proof.auth.malformed");
         }
     }
 

@@ -28,8 +28,7 @@ Proof uses established standards where they provide stable semantics or interope
 
 ## Ratified P-0002 restricted locale profile
 
-Accepted but not implemented, P-0002 selects this exact restricted locale
-syntax:
+P-0002 selected and P-0007 implemented this exact restricted locale syntax:
 
 ```regex
 ^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$

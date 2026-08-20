@@ -1,11 +1,12 @@
 # Agent authority and ContextPacks
 
-**Status:** Ratified direction; P-0002 additions ratified, P-0003 proposed
-**Baseline:** August 16, 2026
+**Status:** Ratified architecture; bounded local read profile implemented
+**Baseline:** August 20, 2026
 
-> **Ratified P-0003 profile:** Every section carrying this label is normative
-> architecture. It does not claim that authenticated Agent operations are
-> implemented; P-0004 owns implementation.
+> **Implemented P-0004 profile:** Every section carrying the P-0003 label is
+> normative architecture. P-0004 implements the bounded local profile for the
+> three enabled v1 reads. P-0005 owns delegated mutation and P-0006 owns the
+> portable evidence bundle and containment qualification.
 >
 > The complete contract is the [authenticated actor contract](authenticated-actor.md);
 > this document summarizes its consequences for Agent authority.
@@ -143,9 +144,10 @@ Failure appends neither a consumption nor a decision. Valid signature under a
 known historical binding proves credential control; current binding
 time/revocation and Principal-enabled state are AuthorizationKernel checks. The
 kernel then atomically consumes the presentation and appends
-`AuthorizationDecisionV2`; inactive binding/Principal, Delegation, scope,
-budget, or policy denial is a persisted authenticated denial. Replay appends no
-second record.
+`AuthorizationDecisionV2`; inactive binding/Principal, Delegation, scope, or
+budget denial is a persisted authenticated denial. Replay appends no second
+record. The fixed direct/v1 authority policy has no mutable denial state;
+`proof.authorization.policy_denied` is reserved for a future versioned profile.
 
 The adapter verifies the DSSE envelope, canonical payload, signature, audience,
 time bounds, and bindings before deriving `AuthenticatedActorContextV1`.
@@ -155,8 +157,9 @@ replay even when the request bytes are identical. A transport retry creates a
 fresh presentation over the same normalized request and idempotency key;
 fresh C5 authentication and current C6 authorization must succeed before C4
 idempotency may disclose the original operation result without repeating the
-consequence. Revocation, Principal or binding disablement, or policy denial
-therefore blocks that disclosure.
+consequence. Revocation or Principal or binding disablement therefore blocks
+that disclosure. A future mutable authority-policy profile must preserve the
+same ordering.
 
 Each append is a Workspace-authority-signed `AuthorityRecordV1`. The authority
 log has its own causal sequence and trust root, separate from governed content

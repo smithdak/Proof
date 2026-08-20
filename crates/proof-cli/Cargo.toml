@@ -18,8 +18,11 @@ proof-local = { path = "../proof-local" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
+proof-mcp = { path = "../proof-mcp" }
 rusqlite.workspace = true
 serde_json.workspace = true
 

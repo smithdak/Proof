@@ -4,8 +4,8 @@ use std::{
 };
 
 use proof_mcp::{
-    LEGACY_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, REGISTRY_TTL_MS, SUPPORTED_PROTOCOL_VERSIONS,
-    ToolBackend, serve,
+    AuthenticationMetadata, LEGACY_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, REGISTRY_TTL_MS,
+    SUPPORTED_PROTOCOL_VERSIONS, ToolBackend, serve,
 };
 use serde_json::{Map, Value, json};
 
@@ -31,8 +31,14 @@ impl ToolBackend for FixtureBackend {
         })]
     }
 
-    fn call(&self, name: &str, _arguments: &Map<String, Value>) -> Result<Value, Value> {
+    fn call(
+        &self,
+        name: &str,
+        _arguments: &Map<String, Value>,
+        authentication: AuthenticationMetadata<'_>,
+    ) -> Result<Value, Value> {
         assert_eq!(name, "proof.capabilities.list");
+        assert_eq!(authentication, AuthenticationMetadata::Missing);
         Ok(json!({ "capabilities": [] }))
     }
 }
@@ -44,7 +50,12 @@ impl ToolBackend for ErrorBackend {
         FixtureBackend.tools()
     }
 
-    fn call(&self, _name: &str, _arguments: &Map<String, Value>) -> Result<Value, Value> {
+    fn call(
+        &self,
+        _name: &str,
+        _arguments: &Map<String, Value>,
+        _authentication: AuthenticationMetadata<'_>,
+    ) -> Result<Value, Value> {
         Err(json!({
             "type": "urn:proof:problem:authority-denied",
             "title": "The operation is outside delegated authority",

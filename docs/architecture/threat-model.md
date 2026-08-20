@@ -1,12 +1,13 @@
 # Threat model
 
-**Status:** Initial baseline  
-**Baseline:** August 3, 2026
+**Status:** Ratified baseline with implemented local authenticated-read controls
+**Baseline:** August 20, 2026
 
-> **Ratified P-0003 profile:** The local authentication, replay, authority-log,
-> and portable-authority controls labeled below are normative architecture but
-> are not implementation claims.
-> The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+> **Implemented P-0004 profile:** The local authentication, replay, and
+> authority-log controls labeled below are implemented for the three enabled v1
+> reads. Portable authority bundles and hostile-process containment remain P-0006
+> qualification work. The normative contract is the
+> [authenticated actor contract](authenticated-actor.md).
 
 This threat model defines the security boundaries that shape Proof's architecture. It is updated when a new interface, trust relationship, or deployment mode is introduced.
 

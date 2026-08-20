@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
+getrandom.workspace = true
 jsonschema.workspace = true
 proof-application = { path = "../proof-application" }
 proof-attestation = { path = "../proof-attestation" }

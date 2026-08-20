@@ -2,14 +2,16 @@
 
 //! Local filesystem and `SQLite` adapters for Proof.
 
+mod authority;
 mod localized;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
+    fmt::{self, Write as _},
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use proof_application::ArtifactKind;
@@ -69,7 +71,7 @@ const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
 const RELEASE_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/release-signing.ed25519";
-const LATEST_DATABASE_SCHEMA_VERSION: u32 = 11;
+const LATEST_DATABASE_SCHEMA_VERSION: u32 = 12;
 const OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const LOCAL_RELEASE_TARGET: &str = "proof.local/released-state/v1";
 const LOCAL_RELEASE_POLICY: &str = "proof.local/release-policy/v1";
@@ -669,6 +671,52 @@ struct LocalIdentity {
     subject: String,
 }
 
+/// Deterministic local Human identity and authentication-completion clock for
+/// portable conformance tests and embedded hosts with an independently trusted
+/// identity boundary.
+///
+/// Selecting this adapter is a host-side construction decision. It is never
+/// accepted from a command, MCP frame, signed payload, or Workspace data.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct DeterministicLocalAuthorityAdapter {
+    unix_uid: u64,
+    authenticated_at: Timestamp,
+    subject_commitment_blind: [u8; 32],
+}
+
+impl fmt::Debug for DeterministicLocalAuthorityAdapter {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeterministicLocalAuthorityAdapter")
+            .field("unix_uid", &self.unix_uid)
+            .field("authenticated_at", &self.authenticated_at)
+            .field("subject_commitment_blind", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl DeterministicLocalAuthorityAdapter {
+    #[must_use]
+    pub const fn new(
+        unix_uid: u64,
+        authenticated_at: Timestamp,
+        subject_commitment_blind: [u8; 32],
+    ) -> Self {
+        Self {
+            unix_uid,
+            authenticated_at,
+            subject_commitment_blind,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum LocalAuthorityAdapter {
+    #[default]
+    OperatingSystem,
+    Deterministic(DeterministicLocalAuthorityAdapter),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum LatestSchemaError {
     Integrity(String),
@@ -679,6 +727,7 @@ enum LatestSchemaError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LocalWorkspace {
     root: PathBuf,
+    authority_adapter: LocalAuthorityAdapter,
 }
 
 impl LocalWorkspace {
@@ -698,7 +747,61 @@ impl LocalWorkspace {
                 "the selected path is not a directory".to_owned(),
             ));
         }
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            authority_adapter: LocalAuthorityAdapter::OperatingSystem,
+        })
+    }
+
+    /// Selects a Workspace with an explicit deterministic trusted-local adapter.
+    ///
+    /// This is intended for portable conformance and embedding tests. The
+    /// adapter is supplied by the host process and cannot be selected through
+    /// an Agent-controlled transport value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceInitializationError::RootUnavailable`] when the path
+    /// cannot be resolved or does not identify a directory.
+    pub fn with_deterministic_authority_adapter(
+        root: impl AsRef<Path>,
+        adapter: DeterministicLocalAuthorityAdapter,
+    ) -> Result<Self, WorkspaceInitializationError> {
+        let mut workspace = Self::new(root)?;
+        workspace.authority_adapter = LocalAuthorityAdapter::Deterministic(adapter);
+        Ok(workspace)
+    }
+
+    fn resolved_local_identity(&self) -> Result<LocalIdentity, WorkspaceInitializationError> {
+        match self.authority_adapter {
+            LocalAuthorityAdapter::OperatingSystem => current_local_identity(),
+            LocalAuthorityAdapter::Deterministic(adapter) => Ok(LocalIdentity {
+                provider: "os/unix",
+                subject: format!("uid:{}", adapter.unix_uid),
+            }),
+        }
+    }
+
+    fn resolved_local_timestamp(&self) -> Result<Timestamp, WorkspaceInitializationError> {
+        match self.authority_adapter {
+            LocalAuthorityAdapter::OperatingSystem => current_local_timestamp(),
+            LocalAuthorityAdapter::Deterministic(adapter) => Ok(adapter.authenticated_at),
+        }
+    }
+
+    fn resolved_subject_commitment_blind(&self) -> Result<[u8; 32], WorkspaceInitializationError> {
+        match self.authority_adapter {
+            LocalAuthorityAdapter::OperatingSystem => {
+                let mut blind = [0_u8; 32];
+                getrandom::fill(&mut blind).map_err(|error| {
+                    WorkspaceInitializationError::Storage(format!(
+                        "requesting-subject commitment randomness is unavailable: {error}"
+                    ))
+                })?;
+                Ok(blind)
+            }
+            LocalAuthorityAdapter::Deterministic(adapter) => Ok(adapter.subject_commitment_blind),
+        }
     }
 
     /// Returns the canonical Workspace root.
@@ -782,7 +885,7 @@ impl WorkspaceRepository for LocalWorkspace {
         if path_exists(&config_path)? || path_exists(&runtime_path)? {
             return Err(WorkspaceInitializationError::AlreadyExists);
         }
-        let local_identity = current_local_identity()?;
+        let local_identity = self.resolved_local_identity()?;
 
         fs::create_dir(&runtime_path)
             .map_err(|error| storage_error("create private runtime directory", &error))?;
@@ -798,6 +901,14 @@ impl WorkspaceRepository for LocalWorkspace {
             set_private_directory_permissions(path)?;
         }
 
+        let authority_created_at = self.resolved_local_timestamp()?;
+        let authority_subject_blind = self.resolved_subject_commitment_blind()?;
+        let authority_signer = authority::load_or_create_authority_signer(
+            &self.root,
+            &command.workspace_id.to_string(),
+        )
+        .map_err(WorkspaceInitializationError::Storage)?;
+
         let database_path = runtime_path.join("state/proof.db");
         let initial_state_digest = initial_known_state_digest(command.workspace_id)
             .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
@@ -809,6 +920,9 @@ impl WorkspaceRepository for LocalWorkspace {
             &principal_id,
             &local_identity,
             initial_state_digest.to_string(),
+            authority_created_at,
+            &authority_signer,
+            authority_subject_blind,
         )?;
         set_private_file_permissions(&database_path)?;
 
@@ -861,8 +975,9 @@ impl ChangeSetRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| CreateChangeSetError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| CreateChangeSetError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| CreateChangeSetError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(changeset_from_initialization)?;
@@ -981,8 +1096,9 @@ impl ChangeSetEditRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| AddChangeSetEditsError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| AddChangeSetEditsError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| AddChangeSetEditsError::Unauthenticated)?;
         let mut connection = self.open_database().map_err(edit_from_initialization)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1124,8 +1240,9 @@ impl ChangeSetInspectionRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| InspectChangeSetError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| InspectChangeSetError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| InspectChangeSetError::Unauthenticated)?;
         let mut connection =
             open_database_for_status(&self.database_path()).map_err(inspect_from_status)?;
         let transaction = connection
@@ -1182,8 +1299,9 @@ impl ChangeSetValidationRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| ValidateChangeSetError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| ValidateChangeSetError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| ValidateChangeSetError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(validation_from_initialization)?;
@@ -1308,8 +1426,9 @@ impl ChangeSetSubmissionRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| SubmitChangeSetError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| SubmitChangeSetError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| SubmitChangeSetError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(submission_from_initialization)?;
@@ -1424,8 +1543,9 @@ impl ChangeSetApprovalRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| ApproveChangeSetError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| ApproveChangeSetError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| ApproveChangeSetError::Unauthenticated)?;
         let mut connection = self.open_database().map_err(approval_from_initialization)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1529,8 +1649,9 @@ impl ChangeSetCommitRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| CommitChangeSetError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| CommitChangeSetError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| CommitChangeSetError::Unauthenticated)?;
         let mut connection = self.open_database().map_err(commit_from_initialization)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1582,8 +1703,9 @@ impl EditionRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| CreateEditionError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| CreateEditionError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| CreateEditionError::Unauthenticated)?;
         let mut connection = self.open_database().map_err(edition_from_initialization)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1657,8 +1779,9 @@ impl EnvironmentRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| EnvironmentError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| EnvironmentError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| EnvironmentError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(environment_from_initialization)?;
@@ -1858,8 +1981,9 @@ impl EnvironmentRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| EnvironmentError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| EnvironmentError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| EnvironmentError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(environment_from_initialization)?;
@@ -1909,8 +2033,9 @@ impl PrincipalRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| PrincipalError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| PrincipalError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| PrincipalError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(principal_from_initialization)?;
@@ -2086,8 +2211,9 @@ impl PrincipalRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| PrincipalError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| PrincipalError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| PrincipalError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(principal_from_initialization)?;
@@ -2160,8 +2286,9 @@ impl DelegationRepository for LocalWorkspace {
         {
             return Err(DelegationError::InvalidGrant);
         }
-        let local_identity =
-            current_local_identity().map_err(|_| DelegationError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| DelegationError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(delegation_from_initialization)?;
@@ -2834,8 +2961,9 @@ impl WorkspaceStatusRepository for LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| WorkspaceStatusError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| WorkspaceStatusError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| WorkspaceStatusError::Unauthenticated)?;
         let connection = open_database_for_status(&self.database_path())?;
         let journal_mode: String = connection
             .pragma_query_value(None, "journal_mode", |row| row.get(0))
@@ -2943,12 +3071,19 @@ pub struct StorageConfig {
     pub artifacts: String,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "initialization atomically binds Workspace metadata, local Human identity, authority root, and private commitment opening"
+)]
 fn initialize_database(
     path: &Path,
     workspace_id: &str,
     principal_id: &str,
     local_identity: &LocalIdentity,
     initial_state_digest: String,
+    authority_created_at: Timestamp,
+    authority_signer: &Ed25519SigningProvider,
+    authority_subject_blind: [u8; 32],
 ) -> Result<(), WorkspaceInitializationError> {
     let mut connection = open_database_at(path)?;
     let transaction = connection
@@ -2989,10 +3124,35 @@ fn initialize_database(
         )
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     localized::migrate_schema_v11(&transaction).map_err(WorkspaceInitializationError::Storage)?;
+    authority::migrate_schema_v12(&transaction).map_err(WorkspaceInitializationError::Storage)?;
+    authority::bootstrap_authority(
+        &transaction,
+        workspace_id
+            .parse::<WorkspaceId>()
+            .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?,
+        principal_id
+            .parse::<PrincipalId>()
+            .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?,
+        authority_created_at,
+        authority_signer,
+        local_identity,
+        authority_subject_blind,
+    )
+    .map_err(WorkspaceInitializationError::Storage)?;
     transaction
         .commit()
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     Ok(())
+}
+
+fn current_local_timestamp() -> Result<Timestamp, WorkspaceInitializationError> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    let nanoseconds = i128::try_from(elapsed.as_nanos())
+        .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    Timestamp::from_unix_timestamp_nanos(nanoseconds)
+        .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))
 }
 
 fn open_database_at(path: &Path) -> Result<Connection, WorkspaceInitializationError> {
@@ -4082,6 +4242,10 @@ fn ensure_latest_schema(
     if version == 10 {
         localized::migrate_schema_v11(transaction).map_err(LatestSchemaError::Storage)?;
         version = 11;
+    }
+    if version == 11 {
+        authority::migrate_schema_v12(transaction).map_err(LatestSchemaError::Storage)?;
+        version = 12;
     }
     if version == LATEST_DATABASE_SCHEMA_VERSION {
         Ok(())
@@ -6266,8 +6430,9 @@ impl LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| LocalPortError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| LocalPortError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(local_port_from_initialization)?;
@@ -6623,8 +6788,9 @@ impl LocalWorkspace {
             .workspace_id
             .parse::<WorkspaceId>()
             .map_err(|error| DelegationError::Integrity(error.to_string()))?;
-        let local_identity =
-            current_local_identity().map_err(|_| DelegationError::Unauthenticated)?;
+        let local_identity = self
+            .resolved_local_identity()
+            .map_err(|_| DelegationError::Unauthenticated)?;
         let mut connection = self
             .open_database()
             .map_err(delegation_from_initialization)?;
@@ -7746,10 +7912,6 @@ struct StoredContextPackManifest {
     workspace_id: String,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "ContextPack construction intersects authority, loads exact Release content, budgets, and persists evidence atomically"
-)]
 fn build_context_pack_transaction(
     connection: &Connection,
     workspace_id: WorkspaceId,
@@ -7772,6 +7934,82 @@ fn build_context_pack_transaction(
             .max_bytes
             .min(delegation.constraints.max_context_bytes),
     };
+    let replay_request_digest = context_pack_request_digest(
+        workspace_id,
+        requesting_principal_id,
+        command.operating_principal_id,
+        command.delegation_id,
+        &command.task_id,
+        &command.intent,
+        &command.environment_id,
+        &command.object_ids,
+        limits,
+        command.expires_at,
+    )?;
+    let replay: Option<(String, String)> = connection
+        .query_row(
+            "SELECT request_digest, context_pack_id
+             FROM context_pack_build_operations
+             WHERE workspace_id = ?1 AND requesting_principal_id = ?2
+                   AND operating_principal_id = ?3 AND idempotency_key = ?4",
+            (
+                workspace_id.to_string(),
+                requesting_principal_id.to_string(),
+                command.operating_principal_id.to_string(),
+                command.idempotency_key.to_string(),
+            ),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if let Some((persisted_request, context_pack_id)) = replay {
+        let context_pack_id = context_pack_id
+            .parse::<ContextPackId>()
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+        let context_pack = load_context_pack_record(connection, workspace_id, context_pack_id)?;
+        if persisted_request != replay_request_digest.to_string() {
+            return Err(LocalPortError::IdempotencyKeyReused);
+        }
+        return Ok(context_pack);
+    }
+    let authorization = verify_delegation_record(
+        connection,
+        workspace_id,
+        &VerifyDelegationCommand {
+            delegation_id: command.delegation_id,
+            operating_principal_id: command.operating_principal_id,
+            action: DelegatedAction::ContextBuild,
+            environment_id: Some(command.environment_id.clone()),
+            object_ids: command.object_ids.clone(),
+            evaluated_at: command.built_at,
+        },
+    )
+    .map_err(local_port_from_delegation)?;
+    build_context_pack_authorized_transaction(
+        connection,
+        workspace_id,
+        requesting_principal_id,
+        command,
+        limits,
+        delegated_capability_versions(&delegation),
+        authorization.decision_digest,
+    )
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the trusted authorization kernel supplies exact bounds while construction loads Release content and persists evidence atomically"
+)]
+fn build_context_pack_authorized_transaction(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    requesting_principal_id: PrincipalId,
+    command: &BuildContextPackCommand,
+    limits: ContextPackLimits,
+    capabilities: Vec<String>,
+    authorization_decision_digest: ContentDigest,
+) -> Result<ContextPack, LocalPortError> {
+    verify_context_pack_operation_scope(connection, workspace_id)?;
     if u32::try_from(command.object_ids.len()).map_or(true, |count| count > limits.max_objects) {
         return Err(LocalPortError::LimitExceeded);
     }
@@ -7816,19 +8054,6 @@ fn build_context_pack_transaction(
     if command.built_at >= command.expires_at {
         return Err(LocalPortError::LimitExceeded);
     }
-    let authorization = verify_delegation_record(
-        connection,
-        workspace_id,
-        &VerifyDelegationCommand {
-            delegation_id: command.delegation_id,
-            operating_principal_id: command.operating_principal_id,
-            action: DelegatedAction::ContextBuild,
-            environment_id: Some(command.environment_id.clone()),
-            object_ids: command.object_ids.clone(),
-            evaluated_at: command.built_at,
-        },
-    )
-    .map_err(local_port_from_delegation)?;
     let candidate_exists: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM context_packs WHERE context_pack_id = ?1)",
@@ -7847,7 +8072,6 @@ fn build_context_pack_transaction(
     }
     let objects = load_exact_released_objects(connection, &source.edition, &command.object_ids)?;
     let schemas = load_exact_released_schemas(connection, &source.edition, &objects)?;
-    let capabilities = delegated_capability_versions(&delegation);
     let manifest = context_pack_manifest(
         command.context_pack_id,
         workspace_id,
@@ -7866,7 +8090,7 @@ fn build_context_pack_transaction(
         command.built_at,
         command.expires_at,
         &capabilities,
-        authorization.decision_digest,
+        authorization_decision_digest,
     )?;
     if u64::try_from(manifest.as_str().len()).map_or(true, |length| length > limits.max_bytes) {
         return Err(LocalPortError::LimitExceeded);
@@ -8360,46 +8584,63 @@ fn load_context_pack_record(
             "ContextPack manifest differs from its indexed identity and source fields".to_owned(),
         ));
     }
-    let delegation = load_delegation(connection, workspace_id, delegation_id)
-        .map_err(local_port_from_delegation)?;
-    if operating_principal_id != delegation.recipient_principal_id
-        || !delegation.actions.contains(&DelegatedAction::ContextBuild)
-        || built_at < delegation.not_before
-        || built_at >= delegation.expires_at
-        || expires_at > delegation.expires_at
-        || delegation
-            .scope
-            .environment_ids
-            .binary_search(&environment_id)
-            .is_err()
-        || object_ids
-            .iter()
-            .any(|id| delegation.scope.object_ids.binary_search(id).is_err())
-        || u32::try_from(object_ids.len()).map_or(true, |count| {
-            count > delegation.constraints.max_objects || count > limits.max_objects
-        })
-        || limits.max_objects > delegation.constraints.max_objects
-        || limits.max_bytes > delegation.constraints.max_context_bytes
-        || limits.max_bytes > MAX_CONTEXT_PACK_BYTES
-    {
-        return Err(LocalPortError::Integrity(
-            "ContextPack exceeds its recorded Delegation or bounded limits".to_owned(),
-        ));
-    }
-    let expected_decision = delegation_decision_digest(
-        workspace_id,
-        &delegation,
-        operating_principal_id,
-        DelegatedAction::ContextBuild,
-        Some(&environment_id),
-        &object_ids,
-        built_at,
-    )?;
-    if expected_decision != authorization_decision_digest {
-        return Err(LocalPortError::Integrity(
-            "ContextPack authorization decision does not reproduce".to_owned(),
-        ));
-    }
+    let capabilities = match load_delegation(connection, workspace_id, delegation_id) {
+        Ok(delegation) => {
+            if operating_principal_id != delegation.recipient_principal_id
+                || !delegation.actions.contains(&DelegatedAction::ContextBuild)
+                || built_at < delegation.not_before
+                || built_at >= delegation.expires_at
+                || expires_at > delegation.expires_at
+                || delegation
+                    .scope
+                    .environment_ids
+                    .binary_search(&environment_id)
+                    .is_err()
+                || object_ids
+                    .iter()
+                    .any(|id| delegation.scope.object_ids.binary_search(id).is_err())
+                || u32::try_from(object_ids.len()).map_or(true, |count| {
+                    count > delegation.constraints.max_objects || count > limits.max_objects
+                })
+                || limits.max_objects > delegation.constraints.max_objects
+                || limits.max_bytes > delegation.constraints.max_context_bytes
+                || limits.max_bytes > MAX_CONTEXT_PACK_BYTES
+            {
+                return Err(LocalPortError::Integrity(
+                    "ContextPack exceeds its recorded Delegation or bounded limits".to_owned(),
+                ));
+            }
+            let expected_decision = delegation_decision_digest(
+                workspace_id,
+                &delegation,
+                operating_principal_id,
+                DelegatedAction::ContextBuild,
+                Some(&environment_id),
+                &object_ids,
+                built_at,
+            )?;
+            if expected_decision != authorization_decision_digest {
+                return Err(LocalPortError::Integrity(
+                    "ContextPack authorization decision does not reproduce".to_owned(),
+                ));
+            }
+            delegated_capability_versions(&delegation)
+        }
+        Err(DelegationError::NotFound) => authority::verify_authenticated_context_pack_authority(
+            connection,
+            workspace_id,
+            requesting_principal_id,
+            operating_principal_id,
+            delegation_id,
+            &environment_id,
+            &object_ids,
+            limits,
+            built_at,
+            expires_at,
+            authorization_decision_digest,
+        )?,
+        Err(error) => return Err(local_port_from_delegation(error)),
+    };
     let source = load_release_source_by_id(connection, workspace_id, release_id)?;
     if built_at < source.released_at {
         return Err(LocalPortError::Integrity(
@@ -8420,7 +8661,6 @@ fn load_context_pack_record(
             "ContextPack Schema set does not reproduce".to_owned(),
         ));
     }
-    let capabilities = delegated_capability_versions(&delegation);
     if capabilities != stored.capabilities {
         return Err(LocalPortError::Integrity(
             "ContextPack capability boundary does not reproduce".to_owned(),

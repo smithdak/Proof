@@ -412,7 +412,7 @@ pub(super) fn run_capability(
                     for capability in capabilities() {
                         println!("{} {}", capability.operation, capability.version);
                         println!("  {}", capability.description);
-                        println!("  side effect: {:?}", capability.side_effect);
+                        println!("  side effect: {}", capability.side_effect);
                         println!("  required action: {}", capability.required_action);
                     }
                 }

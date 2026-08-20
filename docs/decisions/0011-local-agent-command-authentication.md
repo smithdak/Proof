@@ -77,8 +77,10 @@ The local Agent authentication profile is defined by the
 ## Constitutional change
 
 The current C4 unconditionally requires an equivalent completed retry to return
-its original result. That conflicts with C5/C6 when a binding, Principal,
-Delegation, or policy is invalidated after the first effect. This ADR replaces
+its original result. That conflicts with C5/C6 when a binding, Principal, or
+Delegation is invalidated after the first effect. A future versioned authority
+policy with mutable denial state is subject to the same rule; the ratified
+`proof.local/authority/direct/v1` profile has no such state. This ADR replaces
 C4 with:
 
 > Every governed consequential application operation MUST accept or derive an

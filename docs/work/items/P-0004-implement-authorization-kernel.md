@@ -61,9 +61,10 @@ item exposes no write path until implementation and its own evidence gate pass.
   authentication completion time without assuming it equals authorization
   `evaluated_at`. Store the semantic `CommandInputV1` digest and
   authenticated-command envelope digest; do not invent a payload digest.
-- Enforce one active Agent key/subject to one Principal per Workspace. Rotation
-  for the same Principal uses a distinct new key; authenticated-subject key hex,
-  binding `public_key`, enrollment candidate, and signer key are byte-identical.
+- Enforce one immutable Agent key/subject binding history per Workspace.
+  Rotation for the same Principal uses a distinct new key; retired or revoked
+  keys cannot be rebound. Authenticated-subject key hex, binding `public_key`,
+  enrollment candidate, and signer key are byte-identical.
 - Enforce `issued_at <= not_before < expires_at` for bindings and Delegations,
   with activity exactly `not_before <= evaluated_at < expires_at`. Causal
   disable/revoke takes effect at its authority-record sequence regardless of
@@ -109,8 +110,9 @@ item exposes no write path until implementation and its own evidence gate pass.
   epoch/re-anchor rather than ordinary rotation.
 - Implement `DelegationV2` as exactly one Human issuer to one authenticated
   Agent recipient. Evaluate action, resource, budget, time, binding,
-  revocation, and policy; reject parent references, subdelegation, chains, and
-  cycles rather than partially evaluating them.
+  revocation, and the immutable direct/v1 authority policy; reject parent
+  references, subdelegation, chains, and cycles rather than partially
+  evaluating them.
 - Implement the exact 14-row `AuthorityOperationRegistryV1`: the three retained
   v1 reads plus all 11 P-0007 localized v2 pairs, with their action,
   idempotency, consequence, closure-anchor, resource/budget projection, and
@@ -135,7 +137,9 @@ item exposes no write path until implementation and its own evidence gate pass.
   presentation all succeed before any write. Failure writes no decision or
   consumption. Current binding time/revocation and Principal-enabled status are
   authorization checks; their denial consumes and appends a decision, as do
-  Delegation, scope, budget, and policy denial. Replay adds no second record.
+  Delegation, scope, and budget denial. Replay adds no second record. Keep
+  `proof.authorization.policy_denied` reserved for a future versioned profile;
+  direct/v1 has no mutable policy-denial state.
 - Migrate existing workspaces atomically and preserve historical read/Release
   verification.
 - Keep CLI and both MCP eras on the same application contracts.
@@ -147,7 +151,7 @@ item exposes no write path until implementation and its own evidence gate pass.
 - Keep authenticated status/released-query `idempotency_key` null. Each fresh
   presentation is a distinct attempt that appends one consumption and decision
   and returns a newly authorized current read. Classify it `evidence_write` but
-  do not mutate governed content/projections; the proposed C4 carve-out excludes
+  do not mutate governed content/projections; the ratified C4 replacement excludes
   this bounded security evidence from duplicate governed effects. Keep
   ContextPack build idempotent.
 
@@ -168,122 +172,127 @@ item exposes no write path until implementation and its own evidence gate pass.
 
 ## Acceptance criteria
 
-- [ ] A request cannot substitute its authenticated subject, requesting
+- [x] A request cannot substitute its authenticated subject, requesting
       Principal, or operating Principal. It may present an explicit Delegation,
       but only a grant cryptographically or adapter-verifiably bound to that
       operating Principal may authorize the request.
-- [ ] `requesting_subject_commitment` uses the canonical 32-byte-blind hiding
+- [x] `requesting_subject_commitment` uses the canonical 32-byte-blind hiding
       commitment vectors; persisted actor-context evidence never contains the
       raw requesting `os/unix` subject or blind, and private opening disclosure
       is audit-policy controlled.
-- [ ] `AuthenticatedActorContextEvidenceV1` persists the exact raw-UID-free
+- [x] `AuthenticatedActorContextEvidenceV1` persists the exact raw-UID-free
       canonical preimage and P-0006 can consume it; `authenticated_at` is proven
       as authentication completion time independent of `evaluated_at`.
-- [ ] Binding tests enforce the one-Workspace one-active-key/subject-to-Principal
-      invariant, distinct-key rotation for the same Principal, and equality of
-      subject hex, `public_key`, enrollment candidate, and verified signer.
-- [ ] Binding/Delegation boundary vectors prove
+- [x] Binding tests enforce the one-Workspace one-history-per-key/subject
+      invariant, distinct-key rotation for the same Principal, no historical
+      rebinding, and equality of subject hex, `public_key`, enrollment
+      candidate, and verified signer.
+- [x] Binding/Delegation boundary vectors prove
       `issued_at <= not_before < expires_at` and
       `not_before <= evaluated_at < expires_at`; causal disable/revoke wins at
       record sequence irrespective of timestamp.
-- [ ] Scope tests prove empty arrays grant none, unused dimensions are ignored,
+- [x] Scope tests prove empty arrays grant none, unused dimensions are ignored,
       required empty dimensions deny, and no empty array becomes wildcard.
-- [ ] Under the **Ratified P-0003 profile**, invalid signature, missing or
+- [x] Under the **Ratified P-0003 profile**, invalid signature, missing or
       inactive binding, actor mismatch, wrong
       Workspace/audience/operation/request digest, not-yet-valid or expired
       presentation, and
       reused `presentation_id` fail before a stored result is disclosed.
-- [ ] Excessive future `issued_at` returns `proof.auth.not_yet_valid`;
+- [x] Excessive future `issued_at` returns `proof.auth.not_yet_valid`;
       `proof.auth.expired` is reserved for `evaluated_at >= expires_at`. Exact
       boundary vectors reproduce the authenticated-actor/conformance contract.
-- [ ] Malformed structure may return `proof.auth.malformed`. A well-formed
+- [x] Malformed structure may return `proof.auth.malformed`. A well-formed
       unknown binding/key and an invalid signature before proof both return the
       same public `proof.auth.denied`; detailed lookup/signature reasons are
       trusted audit/offline only. Random-unknown and invalid-signature cases
       have parity in public code, shape, persistence, and observable lookup
       behavior. Detailed public post-proof failures require a valid signature
       under a known historical key.
-- [ ] Malformed command, signature failure, audience mismatch, binding failure,
+- [x] Malformed command, signature failure, audience mismatch, binding failure,
       actor mismatch, replay, expiry, revocation, wrong action/resource, and any
       parent/subdelegation/chain input fail closed with
       structured errors. Denial produces no governed content mutation,
       successful idempotency result, projection movement, or external effect. A
       canonical denial/audit record may append only if P-0003 ratifies it, and
       must commit atomically without granting authority.
-- [ ] Pre-consumption failures across canonical form, unknown historical
+- [x] Pre-consumption failures across canonical form, unknown historical
       binding/key, invalid signature, audience, actor, command time, and unseen
       presentation write no decision or consumption. A known historical binding
       plus valid signature authenticates credential control; current
-      binding/Principal-state, scope/budget/policy/Delegation denial atomically
-      consumes and persists one denial. Replay adds no second record.
-- [ ] Audience/actor mismatch remains a pre-consumption authentication failure
+      binding/Principal-state, scope/budget/Delegation denial atomically
+      consumes and persists one denial. Replay adds no second record. Tests do
+      not fabricate `PolicyDenied`: direct/v1 is immutable and that wire value
+      is reserved for a future versioned authority-policy profile.
+- [x] Audience/actor mismatch remains a pre-consumption authentication failure
       and never appears in `AuthorizationDecisionV2`. A validly signed unknown
       or hidden Delegation selector consumes and persists protected reason
       `proof.authorization.delegation_unavailable`, the bound selector,
       `resolution: not_found_or_hidden`, and null record digest; the public
       Problem is `proof.authorization.denied`.
-- [ ] The Unix local Human path remains supported through the same port.
-- [ ] A deterministic adapter and portable vectors prove behavior without OS or
+- [x] The Unix local Human path remains supported through the same port.
+- [x] A deterministic adapter and portable vectors prove behavior without OS or
       wall-clock dependence.
-- [ ] All 14 `AuthorityOperationRegistryV1` rows reproduce the
+- [x] All 14 `AuthorityOperationRegistryV1` rows reproduce the
       authenticated-actor/conformance operation, action, retry, consequence,
       closure-anchor, projection, and selector mapping; all 11 localized rows
       cross-check P-0007's input Schemas. Unknown pairs and the superseded v1
       writes fail. Only the three current v1 reads are exposed; no P-0004
       localized operation is enabled.
-- [ ] Projection tests prove complete-intent evaluation, staged
+- [x] Projection tests prove complete-intent evaluation, staged
       Object/locale-then-resolved-Schema query evaluation, literal locale alias
       behavior, mixed-case variant rejection, and denial for each missing
       required grant axis without filtered disclosure.
-- [ ] Command, enrollment, authority, and root-transition vectors prove `keyid`
+- [x] Command, enrollment, authority, and root-transition vectors prove `keyid`
       matches the resolved expected key after verification and reject duplicate,
       permuted, or substituted root-transition identities/signatures.
-- [ ] Authority-admin tests derive the enabled ADR-0009 bootstrap Human in the
+- [x] Authority-admin tests derive the enabled ADR-0009 bootstrap Human in the
       broker, require every actor and Delegation issuer to equal it, and reject
       all Agent- or Delegation-authorized administration.
-- [ ] Broker tests cover exact normalized-input/envelope pairing through MCP
+- [x] Broker tests cover exact normalized-input/envelope pairing through MCP
       stdio and `proof auth execute --invocation -`, enforce the 1,048,576-byte
       frame plus operation cap, and reject path/argv substitution without
       opening an Agent-selected file. Ambient Human CLI is never an Agent path.
-- [ ] Maximum-size Decision/Delegation fixtures prove the 65,536-byte authority
+- [x] Maximum-size Decision/Delegation fixtures prove the 65,536-byte authority
       payload and 98,304-byte envelope bounds; command/enrollment remain at
       4,096/16,384 bytes.
-- [ ] Predecessor-root loss before transition is fatal and preserves history;
+- [x] Predecessor-root loss before transition is fatal and preserves history;
       no P-0004 repair claims recovered continuity or silently establishes a
       new authority epoch.
-- [ ] Compromised-root tests prove ordinary dual-sign rotation cannot establish
+- [x] Compromised-root tests prove ordinary dual-sign rotation cannot establish
       recovery: an attacker successor/fork is valid from the compromised key,
       and trust is bounded by the independently pinned pre-compromise checkpoint.
-- [ ] A logical retry uses a fresh `AuthenticatedCommandV1` with the same
+- [x] A logical retry uses a fresh `AuthenticatedCommandV1` with the same
       idempotency key and equivalent normalized request. The authority log
-      proves single consumption; a changed request under the key still fails.
-      Fresh C5 authentication and current C6 authorization precede C4 result
-      disclosure, so current revocation, disablement, or policy denial withholds
-      the earlier result.
-- [ ] Hash-chain tests detect mutation and reordering relative to a pinned
+      proves one consumption and decision per fresh presentation while the
+      application records one consequence and result; a changed request under
+      the key still fails. Fresh C5 authentication and current C6 authorization
+      precede C4 result disclosure, so current revocation or disablement
+      withholds the earlier result. A future mutable authority-policy profile
+      must preserve the same ordering.
+- [x] Hash-chain tests detect mutation and reordering relative to a pinned
       trusted head. They also prove that a valid signed older prefix or fork is
       only internally valid without an independent checkpoint and is not a
       P-0004 rollback-resistance guarantee.
-- [ ] Documentation and conformance distinguish same-UID attribution from
+- [x] Documentation and conformance distinguish same-UID attribution from
       containment: bootstrap-UID/private-Workspace access is Human/admin trust,
       and no P-0004 result alone claims the Milestone 2 bounded-authority exit.
-- [ ] `AuthorityRecordV1`, `DelegationV2`, and `AuthorizationDecisionV2`
+- [x] `AuthorityRecordV1`, `DelegationV2`, and `AuthorizationDecisionV2`
       canonical bytes and golden vectors are portable inputs for P-0006, but no
       P-0004 evidence claims a complete `AuthorityEvidenceBundleV1`.
-- [ ] Every storage version supported immediately before this item, enumerated
+- [x] Every storage version supported immediately before this item, enumerated
       in the receipt, migrates atomically and historical Releases reproduce
       exactly.
-- [ ] CLI and modern/legacy MCP conformance prove no transport-specific
+- [x] CLI and modern/legacy MCP conformance prove no transport-specific
       authorization semantics.
-- [ ] Capability discovery, CLI explanation, and both MCP eras report
+- [x] Capability discovery, CLI explanation, and both MCP eras report
       authenticated Agent reads as `evidence_write` and never advertise
       `readOnlyHint: true`; tests separately prove the governed content read is
       nonmutating.
-- [ ] Authenticated status/query keeps `idempotency_key` null; every fresh
+- [x] Authenticated status/query keeps `idempotency_key` null; every fresh
       presentation appends exactly one consumption and decision and returns the
       current authorized read. Tests prove `evidence_write` without governed
       content/projection movement. ContextPack build remains idempotent.
-- [ ] The full Linux quality gate and a focused falsification review pass.
+- [x] The full Linux quality gate and a focused falsification review pass.
 
 ## Required evidence
 

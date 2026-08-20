@@ -1,6 +1,13 @@
 # Proof documentation
 
-This documentation separates durable product and architectural decisions from changeable implementation details. Milestone 1's local proof loop is implemented; Milestone 2 has begun with bounded read authority, ContextPacks, capability discovery, and a dual-era MCP stdio adapter for current stateless and legacy initialized clients. Delegated reads still accept caller-supplied Agent Principal and Delegation identifiers; only the local Human path is adapter-authenticated. Authenticated Agent bindings, delegated mutations, and the collaboration server are not implemented. P-0002's exact-locale rendition contract and P-0007 content-foundation sequence are ratified but not yet implemented.
+This documentation separates durable product and architectural decisions from
+changeable implementation details. Milestone 1's local proof loop, P-0007's
+exact-locale Human content foundation, and P-0004's authenticated Agent read
+kernel are implemented. Per-Agent Ed25519 bindings, direct bounded Delegations,
+single-use commands, canonical authorization decisions, and CLI plus modern and
+legacy MCP broker paths protect status, released-Object query, and ContextPack
+build. Delegated Agent mutation, portable authority bundles, the collaboration
+server, and a public release remain unimplemented.
 
 ## Reading paths
 
@@ -67,8 +74,8 @@ Documentation changes follow a docs-as-code workflow:
 
 ## Current baseline
 
-**Baseline date:** August 17, 2026
+**Baseline date:** August 20, 2026
 
-**Product phase:** Milestone 1 complete; Milestone 2 read-authority slice begun
+**Product phase:** Milestone 1 complete; Milestone 2 authenticated read-authority slice implemented, delegated mutation next
 
-**Documentation version:** 0.1
+**Documentation version:** 0.2

@@ -2,6 +2,8 @@
 
 //! Strict DSSE and in-toto Release Proof production and verification.
 
+pub mod authority;
+
 use std::collections::BTreeMap;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -203,16 +205,16 @@ pub struct DsseSignature {
     pub sig: String,
 }
 
-/// Strict single-signature DSSE envelope.
+/// Strict DSSE envelope shared by the Release and typed-authority profiles.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DsseEnvelope {
     /// Exact payload media type.
     #[serde(rename = "payloadType")]
     pub payload_type: String,
-    /// Standard-base64 encoded exact Statement payload bytes.
+    /// Standard-base64 encoded exact profile payload bytes.
     pub payload: String,
-    /// Exactly one Ed25519 signature in v1.
+    /// Profile-bounded ordered Ed25519 signatures.
     pub signatures: Vec<DsseSignature>,
 }
 
@@ -270,7 +272,15 @@ pub fn dsse_pae(payload_type: &str, payload: &[u8]) -> Result<Vec<u8>, Attestati
     if payload_type != DSSE_PAYLOAD_TYPE {
         return Err(AttestationError::UnsupportedPayloadType);
     }
-    if payload.len() > MAX_PAYLOAD_BYTES {
+    dsse_pae_bounded(payload_type, payload, MAX_PAYLOAD_BYTES)
+}
+
+pub(crate) fn dsse_pae_bounded(
+    payload_type: &str,
+    payload: &[u8],
+    max_payload_bytes: usize,
+) -> Result<Vec<u8>, AttestationError> {
+    if payload.len() > max_payload_bytes {
         return Err(AttestationError::PayloadTooLarge);
     }
     let prefix = format!(
@@ -486,7 +496,9 @@ pub fn verify_release_envelope(
     })
 }
 
-fn validate_signing_metadata(metadata: &SigningKeyMetadata) -> Result<(), AttestationError> {
+pub(crate) fn validate_signing_metadata(
+    metadata: &SigningKeyMetadata,
+) -> Result<(), AttestationError> {
     if metadata.algorithm != SignatureAlgorithm::Ed25519 {
         return Err(AttestationError::UnsupportedSignatureAlgorithm);
     }
@@ -547,7 +559,7 @@ fn validate_statement(statement: &InTotoStatement) -> Result<(), AttestationErro
     Ok(())
 }
 
-fn verify_signature(
+pub(crate) fn verify_signature(
     public_key: &[u8],
     signature: &[u8],
     pae: &[u8],
@@ -587,6 +599,15 @@ pub enum AttestationError {
     /// The v1 profile requires exactly one signature.
     #[error("the DSSE envelope must contain exactly one signature")]
     InvalidSignatureCount,
+    /// A typed authority envelope has the wrong number of signatures.
+    #[error("the authority DSSE envelope has an invalid signature count")]
+    InvalidAuthoritySignatureCount,
+    /// A root transition repeats a signing key identity.
+    #[error("the authority root transition must use two distinct key identifiers")]
+    DuplicateAuthorityKeyId,
+    /// A root transition repeats exact signature bytes.
+    #[error("the authority root transition must use two distinct signatures")]
+    DuplicateAuthoritySignature,
     /// Base64 payload or signature data is malformed.
     #[error("the DSSE envelope contains invalid base64")]
     InvalidBase64,
@@ -596,6 +617,9 @@ pub enum AttestationError {
     /// Typed Statement JSON is malformed or unsupported.
     #[error("the in-toto Statement is invalid: {0}")]
     InvalidStatement(String),
+    /// Typed authority payload JSON is malformed or unsupported.
+    #[error("the authority DSSE payload is invalid: {0}")]
+    InvalidAuthorityPayload(String),
     /// Statement `_type` is not in-toto Statement v1.
     #[error("the in-toto Statement type is unsupported")]
     UnsupportedStatementType,

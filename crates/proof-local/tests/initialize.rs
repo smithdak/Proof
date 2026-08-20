@@ -38,9 +38,10 @@ use proof_application::{
     PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand, ReleasedLocaleTarget,
     RollbackLocalizedReleaseCommand, VerifyLocalizedReleaseCommand,
 };
+use proof_attestation::authority::{AuthorityPayloadProfile, verify_authority_envelope};
 use proof_canonical::{
     ObjectStateReference, canonicalize, digest, initial_known_state_digest,
-    known_state_digest_with_objects, object_revision_digest,
+    known_state_digest_with_objects, object_revision_digest, parse_strict,
 };
 use proof_local::LocalWorkspace;
 
@@ -124,6 +125,10 @@ const DUPLICATE_LOCALIZED_OPERATION_KEY: &str = "019c0000-0000-7000-8000-0000000
 const CREATED_AT: &str = "2026-08-03T14:00:00Z";
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the initialization acceptance test inventories the complete durable private layout and schema metadata"
+)]
 fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     let directory = TestDirectory::new();
     let repository = LocalWorkspace::new(directory.path()).unwrap();
@@ -202,6 +207,28 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
+    let (authority_key_id, root_json): (String, String) = connection
+        .query_row(
+            "SELECT authority_key_id, root_json FROM workspace_authority_roots
+             WHERE workspace_id = ?1 AND active = 1",
+            [WORKSPACE_ID],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let (record_json, record_digest, envelope_json): (String, String, String) = connection
+        .query_row(
+            "SELECT record_json, record_digest, envelope_json FROM authority_records
+             WHERE authority_sequence = 1 AND record_kind = 'principal_status'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    let verified_status = verify_authority_envelope::<serde_json::Value>(
+        envelope_json.as_bytes(),
+        AuthorityPayloadProfile::AuthorityRecord,
+        &[authority_key_id.as_str()],
+    )
+    .unwrap();
 
     assert_eq!(persisted_id, WORKSPACE_ID);
     assert_eq!(persisted_principal_id, PRINCIPAL_ID);
@@ -218,7 +245,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 11);
+    assert_eq!(schema_version, 12);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -227,13 +254,24 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
             .unwrap()
             .to_string()
     );
+    assert_eq!(verified_status.parsed.payload_json, record_json);
+    assert_eq!(
+        digest(
+            ArtifactKind::AuthorityRecordV1,
+            &canonicalize(&parse_strict(record_json.as_bytes()).unwrap()).unwrap(),
+        )
+        .to_string(),
+        record_digest
+    );
+    assert!(!root_json.contains("uid:"));
+    assert!(!record_json.contains("uid:"));
 
     #[cfg(unix)]
     assert_private_permissions(&repository);
 }
 
 #[test]
-fn fresh_version_eleven_schema_requires_operation_effect_commitments() {
+fn fresh_latest_schema_requires_operation_effect_commitments() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
 
@@ -347,7 +385,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 11);
+    assert_eq!(status.storage_schema_version, 12);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -2156,16 +2194,17 @@ fn delayed_changeset_retries_return_original_results_after_commit() {
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9, v10, and v11 storage"
+    reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9 through v12 storage"
 )]
 fn lifecycle_chronology_rejects_invalid_first_writes_but_replays_original_results() {
-    for schema_version in [9, 10, 11] {
+    for schema_version in [9, 10, 11, 12] {
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         match schema_version {
             9 => downgrade_database_to_v9(&repository),
             10 => downgrade_database_to_v10(&repository),
-            11 => {}
+            11 => downgrade_database_to_v11(&repository),
+            12 => {}
             _ => unreachable!(),
         }
         assert_storage_version(&repository, schema_version);
@@ -4536,6 +4575,298 @@ fn every_pre_localization_version_migrates_without_changing_v1_evidence() {
 }
 
 #[test]
+fn p0004_each_v1_to_v11_v12_failure_rolls_back_exactly_and_retry_is_stable() {
+    for source_version in 1..=11 {
+        let directory = TestDirectory::new();
+        let repository = initialized_repository(&directory);
+        prepare_exact_pre_v12_fixture(&repository, source_version);
+        assert_storage_version(&repository, source_version);
+        repository
+            .open_database()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER reject_p0004_v12_migration
+                 BEFORE INSERT ON schema_migrations
+                 WHEN NEW.version = 12
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected P-0004 v12 migration failure');
+                 END;",
+            )
+            .unwrap();
+        let before_failure = storage_fingerprint(&repository);
+
+        assert!(matches!(
+            rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }),
+            Err(RebuildProjectionsError::Storage(_))
+        ));
+        assert_eq!(
+            storage_fingerprint(&repository),
+            before_failure,
+            "v{source_version} injected-v12 failure changed storage"
+        );
+        repository
+            .open_database()
+            .unwrap()
+            .execute("DROP TRIGGER reject_p0004_v12_migration", [])
+            .unwrap();
+
+        rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+        assert_storage_version(&repository, 12);
+        assert_foreign_keys_clean(&repository.open_database().unwrap());
+        let after_retry = storage_fingerprint(&repository);
+
+        rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+        assert_storage_version(&repository, 12);
+        assert_eq!(
+            storage_fingerprint(&repository),
+            after_retry,
+            "v{source_version} second retry changed converged storage"
+        );
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one causal migration fixture retains the complete v1/v2/rollback byte history and keyless verification"
+)]
+fn p0004_v12_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
+    const LOCALIZED_EDIT_ID: &str = "019c0000-0000-7000-8000-0000000002f0";
+    const LOCALIZED_ADD_KEY: &str = "019c0000-0000-7000-8000-0000000002f1";
+    const LOCALIZED_COMMIT_KEY: &str = "019c0000-0000-7000-8000-0000000002f2";
+    const LOCALIZED_EDITION_ID: &str = "019c0000-0000-7000-8000-0000000002f3";
+    const LOCALIZED_EDITION_KEY: &str = "019c0000-0000-7000-8000-0000000002f4";
+    const LOCALIZED_RELEASE_ID: &str = "019c0000-0000-7000-8000-0000000002f5";
+    const LOCALIZED_PROOF_ID: &str = "019c0000-0000-7000-8000-0000000002f6";
+    const LOCALIZED_RELEASE_KEY: &str = "019c0000-0000-7000-8000-0000000002f7";
+    const LOCALIZED_ROLLBACK_ID: &str = "019c0000-0000-7000-8000-0000000002f8";
+    const LOCALIZED_ROLLBACK_PROOF_ID: &str = "019c0000-0000-7000-8000-0000000002f9";
+    const LOCALIZED_ROLLBACK_KEY: &str = "019c0000-0000-7000-8000-0000000002fa";
+
+    let directory = TestDirectory::new();
+    let repository = initialized_repository(&directory);
+    let source = serde_json::json!({
+        "legal": "Standard terms apply",
+        "slug": "summer-campaign",
+        "title": "Summer campaign",
+    });
+    create_localized_source_baseline(&repository, &source);
+    let baseline_release = get_release(&repository, FIRST_RELEASE_ID.parse().unwrap()).unwrap();
+
+    // Release commands intentionally run the latest-schema preflight, so a public command cannot
+    // leave its write transaction marked v10. Retain the real signed public-API result, downgrade
+    // that database to the exact v10 layout, and make those historical bytes the migration oracle.
+    downgrade_database_to_v10(&repository);
+    assert_storage_version(&repository, 10);
+    let baseline_v10_bytes = legacy_v1_release_byte_snapshot(&repository, FIRST_RELEASE_ID);
+    let baseline_v10_artifact =
+        release_proof_artifact_bytes(directory.path(), baseline_release.proof_id);
+
+    rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+    assert_storage_version(&repository, 12);
+    assert_eq!(
+        legacy_v1_release_byte_snapshot(&repository, FIRST_RELEASE_ID),
+        baseline_v10_bytes,
+        "v10 ReleaseV1 bytes changed while migrating through v11 and v12"
+    );
+    assert_eq!(
+        release_proof_artifact_bytes(directory.path(), baseline_release.proof_id),
+        baseline_v10_artifact
+    );
+
+    let object_id = OBJECT_ID.parse::<ObjectId>().unwrap();
+    let locale = LocaleId::new("fr-FR").unwrap();
+    let schema_id = SchemaId::new("campaign").unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let expected_source = ExpectedLocalizedSource {
+        revision: ObjectRevision::INITIAL,
+        digest: object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap(),
+        schema_id: schema_id.clone(),
+        schema_version,
+    };
+    let (_, _, _, _, changeset) =
+        create_localized_draft(&repository, object_id, schema_id, &locale);
+    let localized_content = canonicalize(&serde_json::json!({
+        "legal": "Des conditions standard s’appliquent",
+        "slug": "summer-campaign",
+        "title": "Campagne d’été",
+    }))
+    .unwrap();
+    repository
+        .add_localized_edits(AddLocalizedEditsCommand {
+            changeset_id: changeset.changeset_id,
+            edits: vec![ObjectLocalePutInput {
+                object_id,
+                locale,
+                expected_source,
+                expected_target: None,
+                canonical_content: localized_content.as_str().to_owned(),
+                supersedes_edit_id: None,
+                repair_of_validation_result_digest: None,
+            }],
+            assigned_edit_ids: vec![LOCALIZED_EDIT_ID.parse().unwrap()],
+            idempotency_key: LOCALIZED_ADD_KEY.parse().unwrap(),
+        })
+        .unwrap();
+    assert!(
+        repository
+            .validate_localized_changeset(changeset.changeset_id)
+            .unwrap()
+            .valid
+    );
+    repository
+        .submit_localized_changeset(
+            changeset.changeset_id,
+            "2026-08-17T16:10:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    repository
+        .approve_localized_changeset(
+            changeset.changeset_id,
+            ApprovalName::new("editorial").unwrap(),
+            "2026-08-17T16:11:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    let committed = repository
+        .commit_localized_changeset(CommitLocalizedChangeSetCommand {
+            changeset_id: changeset.changeset_id,
+            idempotency_key: LOCALIZED_COMMIT_KEY.parse().unwrap(),
+            committed_at: "2026-08-17T16:12:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    let edition = repository
+        .create_localized_edition(CreateLocalizedEditionCommand {
+            edition_id: LOCALIZED_EDITION_ID.parse().unwrap(),
+            changeset_id: changeset.changeset_id,
+            resulting_state_digest: committed.resulting_state.digest,
+            idempotency_key: LOCALIZED_EDITION_KEY.parse().unwrap(),
+            created_at: "2026-08-17T16:13:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    let localized_release = repository
+        .promote_localized_release(PromoteLocalizedReleaseCommand {
+            release_id: LOCALIZED_RELEASE_ID.parse().unwrap(),
+            proof_id: LOCALIZED_PROOF_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            edition_id: edition.edition_id,
+            expected_base_release_id: baseline_release.release_id,
+            idempotency_key: LOCALIZED_RELEASE_KEY.parse().unwrap(),
+            released_at: "2026-08-17T16:14:00Z".parse().unwrap(),
+        })
+        .unwrap();
+    let localized_rollback = repository
+        .rollback_localized_release(RollbackLocalizedReleaseCommand {
+            release_id: LOCALIZED_ROLLBACK_ID.parse().unwrap(),
+            proof_id: LOCALIZED_ROLLBACK_PROOF_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            expected_current_release_id: localized_release.release_id,
+            rollback_target_release_id: baseline_release.release_id,
+            idempotency_key: LOCALIZED_ROLLBACK_KEY.parse().unwrap(),
+            released_at: "2026-08-17T16:15:00Z".parse().unwrap(),
+        })
+        .unwrap();
+
+    // Localized commands have the same latest-schema preflight. Downgrading the complete public-API
+    // chain produces the strongest literal v11 storage fixture without synthesizing Release rows.
+    downgrade_database_to_v11(&repository);
+    assert_storage_version(&repository, 11);
+    assert_eq!(
+        legacy_v1_release_byte_snapshot(&repository, FIRST_RELEASE_ID),
+        baseline_v10_bytes,
+        "the v11 mixed chain changed its v10 ReleaseV1 predecessor"
+    );
+    let history_before = release_history_byte_snapshot(&repository);
+    let artifacts_before = release_proof_artifact_snapshot(directory.path());
+    assert_eq!(artifacts_before.len(), 3);
+    repository
+        .open_database()
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER reject_p0004_release_history_v12_migration
+             BEFORE INSERT ON schema_migrations
+             WHEN NEW.version = 12
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected P-0004 Release-history v12 failure');
+             END;",
+        )
+        .unwrap();
+
+    assert!(matches!(
+        rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }),
+        Err(RebuildProjectionsError::Storage(_))
+    ));
+    assert_storage_version(&repository, 11);
+    assert_eq!(release_history_byte_snapshot(&repository), history_before);
+    assert_eq!(
+        release_proof_artifact_snapshot(directory.path()),
+        artifacts_before
+    );
+    repository
+        .open_database()
+        .unwrap()
+        .execute(
+            "DROP TRIGGER reject_p0004_release_history_v12_migration",
+            [],
+        )
+        .unwrap();
+
+    rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+    assert_storage_version(&repository, 12);
+    assert_eq!(release_history_byte_snapshot(&repository), history_before);
+    assert_eq!(
+        release_proof_artifact_snapshot(directory.path()),
+        artifacts_before
+    );
+
+    let release_key_path = directory
+        .path()
+        .join(".proof")
+        .join("state")
+        .join("release-signing.ed25519");
+    assert!(release_key_path.is_file());
+    fs::remove_file(release_key_path).unwrap();
+    assert_eq!(
+        get_release(&repository, baseline_release.release_id).unwrap(),
+        baseline_release
+    );
+    assert!(
+        verify_release(
+            &repository,
+            VerifyReleaseCommand {
+                release_id: baseline_release.release_id,
+                verified_at: "2026-08-17T16:16:00Z".parse().unwrap(),
+            },
+        )
+        .unwrap()
+        .valid
+    );
+    for (release_id, verified_at) in [
+        (localized_release.release_id, "2026-08-17T16:16:00Z"),
+        (localized_rollback.release_id, "2026-08-17T16:17:00Z"),
+    ] {
+        assert!(
+            repository
+                .verify_localized_release(VerifyLocalizedReleaseCommand {
+                    release_id,
+                    verified_at: verified_at.parse().unwrap(),
+                })
+                .unwrap()
+                .valid
+        );
+    }
+    assert_eq!(
+        get_environment(&repository, ENVIRONMENT_ID.parse().unwrap())
+            .unwrap()
+            .current_release_id,
+        Some(localized_rollback.release_id)
+    );
+    assert_eq!(
+        release_proof_artifact_snapshot(directory.path()),
+        artifacts_before
+    );
+}
+
+#[test]
 fn version_ten_migration_rolls_back_atomically_after_a_mid_script_failure() {
     let directory = TestDirectory::new();
     let repository = initialized_repository(&directory);
@@ -5154,7 +5485,7 @@ fn legacy_projection_rebuild_migrates_v8_then_repairs_schema_and_known_state() {
     assert_eq!(dry_run.schema_count, 1);
     assert_eq!(dry_run.object_count, 0);
     assert_eq!(dry_run.environment_pointer_count, 0);
-    assert_storage_version(&repository, 11);
+    assert_storage_version(&repository, 12);
     assert_operation_effect_columns(&repository);
     assert_legacy_effect_digests(&repository, 8);
     let after_dry_run = legacy_evidence_snapshot(&repository, 8);
@@ -5246,7 +5577,7 @@ fn legacy_projection_rebuild_migrates_v9_then_repairs_object_and_known_state() {
     assert_eq!(dry_run.schema_count, 1);
     assert_eq!(dry_run.object_count, 1);
     assert_eq!(dry_run.environment_pointer_count, 0);
-    assert_storage_version(&repository, 11);
+    assert_storage_version(&repository, 12);
     assert_operation_effect_columns(&repository);
     assert_legacy_effect_digests(&repository, 9);
     let after_dry_run = legacy_evidence_snapshot(&repository, 9);
@@ -5311,7 +5642,7 @@ fn projection_rebuild_rejects_lifecycle_effect_tamper_without_repairing_projecti
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         prepare_first_mixed_release(&repository);
-        assert_storage_version(&repository, 11);
+        assert_storage_version(&repository, 12);
 
         let connection = repository.open_database().unwrap();
         let effect_query = format!(
@@ -6652,7 +6983,7 @@ fn agent_and_delegation_authority_is_exact_expiring_and_revocable() {
     .unwrap();
     assert_eq!(status.principal_id.to_string(), AGENT_PRINCIPAL_ID);
     assert_eq!(status.delegation_id.to_string(), DELEGATION_ID);
-    assert_eq!(status.storage_schema_version, 11);
+    assert_eq!(status.storage_schema_version, 12);
     assert_eq!(
         status.authorization_decision_digest,
         verify_delegation(&repository, valid_status.clone())
@@ -8813,6 +9144,7 @@ fn delegation_command(
 }
 
 fn downgrade_database_to_v10(repository: &LocalWorkspace) {
+    downgrade_database_to_v11(repository);
     let connection = repository.open_database().unwrap();
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -8848,6 +9180,37 @@ fn downgrade_database_to_v10(repository: &LocalWorkspace) {
              DELETE FROM schema_migrations WHERE version = 11;
              UPDATE workspace_metadata SET schema_version = 10 WHERE singleton = 1;
              PRAGMA user_version = 10;",
+        )
+        .unwrap();
+}
+
+fn downgrade_database_to_v11(repository: &LocalWorkspace) {
+    let connection = repository.open_database().unwrap();
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    if version == 11 {
+        return;
+    }
+    assert_eq!(version, 12);
+    connection
+        .execute_batch(
+            "DROP TABLE authenticated_operation_results_v1;
+             DROP TABLE presentation_consumptions_v1;
+             DROP TABLE authorization_decisions_v2;
+             DROP TABLE authenticated_actor_context_evidence_v1;
+             DROP TABLE delegation_revocations_v2;
+             DROP TABLE delegations_v2;
+             DROP TABLE principal_binding_revocations_v1;
+             DROP TABLE principal_status_v1;
+             DROP TABLE authenticated_subject_commitment_openings_v1;
+             DROP TABLE principal_bindings_v1;
+             DROP TABLE binding_enrollment_challenges;
+             DROP TABLE authority_records;
+             DROP TABLE workspace_authority_roots;
+             DELETE FROM schema_migrations WHERE version = 12;
+             UPDATE workspace_metadata SET schema_version = 11 WHERE singleton = 1;
+             PRAGMA user_version = 11;",
         )
         .unwrap();
 }
@@ -9101,6 +9464,17 @@ fn prepare_exact_pre_v11_fixture(repository: &LocalWorkspace, target_version: u3
     prepare_exact_legacy_fixture(repository, 9);
     rebuild_projections(repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
     downgrade_database_to_v10(repository);
+}
+
+fn prepare_exact_pre_v12_fixture(repository: &LocalWorkspace, target_version: u32) {
+    assert!((1..=11).contains(&target_version));
+    if target_version <= 10 {
+        prepare_exact_pre_v11_fixture(repository, target_version);
+        return;
+    }
+    prepare_exact_pre_v11_fixture(repository, 10);
+    rebuild_projections(repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+    downgrade_database_to_v11(repository);
 }
 
 fn downgrade_validated_database_to_v4(repository: &LocalWorkspace) {
@@ -9465,6 +9839,251 @@ fn snapshot_rows(connection: &rusqlite::Connection, query: &str) -> Vec<Vec<Stri
         .unwrap()
         .map(Result::unwrap)
         .collect()
+}
+
+type TableRowSnapshot = Vec<(String, Vec<Vec<String>>)>;
+
+#[derive(Debug, Eq, PartialEq)]
+struct StorageFingerprint {
+    versions: (u32, u32, u32),
+    schema: Vec<Vec<String>>,
+    tables: TableRowSnapshot,
+    foreign_key_enforcement: u32,
+    foreign_key_definitions: TableRowSnapshot,
+    foreign_key_violations: Vec<Vec<String>>,
+}
+
+fn storage_fingerprint(repository: &LocalWorkspace) -> StorageFingerprint {
+    let connection = repository.open_database().unwrap();
+    let versions = connection
+        .query_row(
+            "SELECT schema_version, (SELECT MAX(version) FROM schema_migrations),
+                    (SELECT user_version FROM pragma_user_version)
+             FROM workspace_metadata WHERE singleton = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    let foreign_key_enforcement = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+        .unwrap();
+    let table_names = sqlite_table_names(&connection);
+    let tables = table_row_snapshot(&connection, &table_names);
+    let foreign_key_definitions = table_names
+        .iter()
+        .map(|table| {
+            let literal = table.replace('\'', "''");
+            (
+                table.clone(),
+                snapshot_rows(
+                    &connection,
+                    &format!("SELECT * FROM pragma_foreign_key_list('{literal}') ORDER BY id, seq"),
+                ),
+            )
+        })
+        .collect();
+    let foreign_key_violations = snapshot_rows(&connection, "PRAGMA foreign_key_check");
+    StorageFingerprint {
+        versions,
+        schema: storage_schema_snapshot(repository),
+        tables,
+        foreign_key_enforcement,
+        foreign_key_definitions,
+        foreign_key_violations,
+    }
+}
+
+fn sqlite_table_names(connection: &rusqlite::Connection) -> Vec<String> {
+    connection
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+fn table_row_snapshot(
+    connection: &rusqlite::Connection,
+    table_names: &[String],
+) -> TableRowSnapshot {
+    table_names
+        .iter()
+        .map(|table| {
+            let identifier = table.replace('"', "\"\"");
+            (
+                table.clone(),
+                snapshot_rows(
+                    connection,
+                    &format!("SELECT * FROM \"{identifier}\" ORDER BY rowid"),
+                ),
+            )
+        })
+        .collect()
+}
+
+fn legacy_v1_release_byte_snapshot(
+    repository: &LocalWorkspace,
+    release_id: &str,
+) -> Vec<Vec<Vec<String>>> {
+    let connection = repository.open_database().unwrap();
+    let release_id = release_id.replace('\'', "''");
+    [
+        format!(
+            "SELECT release_id, release_sequence, workspace_id, environment_id,
+                    environment_config_version, edition_id, edition_digest, release_kind,
+                    rollback_target_release_id, previous_release_id, principal_id, delegation_id,
+                    policy_decision_digest, manifest_json, release_digest, released_at
+             FROM releases WHERE release_id = '{release_id}'"
+        ),
+        format!(
+            "SELECT decision_digest, environment_id, environment_config_version,
+                    environment_config_digest, edition_id, edition_digest, principal_id,
+                    allowed, decision_json
+             FROM release_policy_decisions
+             WHERE decision_digest = (
+                 SELECT policy_decision_digest FROM releases WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT proof_id, release_id, key_id, payload_type, statement_json,
+                    envelope_json, proof_digest, created_at
+             FROM release_proofs WHERE release_id = '{release_id}'"
+        ),
+        format!(
+            "SELECT key_id, algorithm, public_key, trust_profile, not_before,
+                    metadata_json, metadata_digest
+             FROM signing_keys WHERE key_id = (
+                 SELECT key_id FROM release_proofs WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT key_id, revoked_at, reason, revocation_json, revocation_digest
+             FROM signing_key_revocations WHERE key_id = (
+                 SELECT key_id FROM release_proofs WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT workspace_id, principal_id, operation_kind, idempotency_key,
+                    request_digest, release_id, proof_id
+             FROM release_operations WHERE release_id = '{release_id}'"
+        ),
+        format!(
+            "SELECT proof_id, release_id, created_at FROM release_proof_export_outbox
+             WHERE release_id = '{release_id}'"
+        ),
+        format!(
+            "SELECT environment_id, workspace_id, created_by_principal_id, created_at
+             FROM environments WHERE environment_id = (
+                 SELECT environment_id FROM releases WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT environment_id, config_version, target_kind, policy_profile,
+                    required_approval, policy_json, policy_digest, manifest_json,
+                    config_digest, created_by_principal_id, created_at
+             FROM environment_versions WHERE (environment_id, config_version) = (
+                 SELECT environment_id, environment_config_version
+                 FROM releases WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT workspace_id, principal_id, idempotency_key, request_digest,
+                    effect_digest, environment_id
+             FROM environment_create_operations WHERE environment_id = (
+                 SELECT environment_id FROM releases WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT edition_id, workspace_id, principal_id, authoritative_sequence,
+                    state_digest, schema_set_digest, object_set_digest, edition_digest,
+                    manifest_json, created_at
+             FROM editions WHERE edition_id = (
+                 SELECT edition_id FROM releases WHERE release_id = '{release_id}'
+             )"
+        ),
+        format!(
+            "SELECT workspace_id, principal_id, idempotency_key, requested_state_digest,
+                    edition_id, effect_digest
+             FROM edition_create_operations WHERE edition_id = (
+                 SELECT edition_id FROM releases WHERE release_id = '{release_id}'
+             )"
+        ),
+    ]
+    .iter()
+    .map(|query| snapshot_rows(&connection, query))
+    .collect()
+}
+
+fn release_history_byte_snapshot(repository: &LocalWorkspace) -> TableRowSnapshot {
+    const V12_TABLES: &[&str] = &[
+        "authenticated_actor_context_evidence_v1",
+        "authenticated_operation_results_v1",
+        "authenticated_subject_commitment_openings_v1",
+        "authority_records",
+        "authorization_decisions_v2",
+        "binding_enrollment_challenges",
+        "delegation_revocations_v2",
+        "delegations_v2",
+        "presentation_consumptions_v1",
+        "principal_binding_revocations_v1",
+        "principal_bindings_v1",
+        "principal_status_v1",
+        "workspace_authority_roots",
+    ];
+    let connection = repository.open_database().unwrap();
+    let names = sqlite_table_names(&connection)
+        .into_iter()
+        .filter(|name| {
+            name != "schema_migrations"
+                && name != "workspace_metadata"
+                && !V12_TABLES.contains(&name.as_str())
+        })
+        .collect::<Vec<_>>();
+    let mut snapshot = table_row_snapshot(&connection, &names);
+    snapshot.push((
+        "schema_migrations_before_v12".to_owned(),
+        snapshot_rows(
+            &connection,
+            "SELECT version, name FROM schema_migrations WHERE version < 12 ORDER BY version",
+        ),
+    ));
+    snapshot.push((
+        "workspace_metadata_without_version".to_owned(),
+        snapshot_rows(
+            &connection,
+            "SELECT singleton, workspace_id, bootstrap_principal_id
+             FROM workspace_metadata ORDER BY singleton",
+        ),
+    ));
+    snapshot
+}
+
+fn release_proof_artifact_bytes(root: &Path, proof_id: ProofId) -> Vec<u8> {
+    fs::read(
+        root.join(".proof")
+            .join("artifacts")
+            .join("release-proofs")
+            .join(format!("{proof_id}.dsse.json")),
+    )
+    .unwrap()
+}
+
+fn release_proof_artifact_snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
+    let directory = root.join(".proof").join("artifacts").join("release-proofs");
+    let mut artifacts = fs::read_dir(directory)
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".dsse.json"))
+        .map(|entry| {
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                fs::read(entry.path()).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    artifacts.sort_by(|left, right| left.0.cmp(&right.0));
+    artifacts
 }
 
 fn swap_idempotency_keys(
@@ -9852,7 +10471,7 @@ fn assert_latest_schema_and_foreign_keys(repository: &LocalWorkspace) {
         .unwrap();
     assert_eq!(
         (metadata_version, migration_version, pragma_version),
-        (11, 11, 11)
+        (12, 12, 12)
     );
     let v10_table_count: i64 = connection
         .query_row(
@@ -12868,6 +13487,18 @@ fn assert_private_permissions(repository: &LocalWorkspace) {
             .unwrap()
             .permissions()
             .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(
+            repository
+                .runtime_path()
+                .join("state/authority-signing.ed25519")
+        )
+        .unwrap()
+        .permissions()
+        .mode()
             & 0o777,
         0o600
     );

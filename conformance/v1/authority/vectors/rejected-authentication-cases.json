@@ -171,7 +171,7 @@
       "mutation": {
         "kind": "json_replace",
         "path": "/signatures/0/keyid",
-        "value": "ed25519:fefb48ca4397ebf79eeab32de62e915bddd2fbbd0bdd4105c5b14ac62737bd5b"
+        "value": "ed25519:247b9ffc395d19a551889705a93c7cb466a4b5aea9e315f974b7b46dbe7f9453"
       },
       "public_code": "proof.auth.denied",
       "audit_reason": "proof.auth.signature_invalid",
