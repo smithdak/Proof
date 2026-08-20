@@ -49,7 +49,7 @@ The roadmap is organized around complete capability loops rather than feature co
 - Stable MCP adapter with protocol negotiation.
 - Agent-security abuse cases and conformance tests.
 
-**Proposed P-0003 profile:** Milestone 2 uses distinct local per-Agent Ed25519
+**Ratified P-0003 profile:** Milestone 2 uses distinct local per-Agent Ed25519
 proof-of-possession credentials, adapter-derived authenticated actor context,
 single-use signed command presentations, one direct Human-to-Agent
 `DelegationV2`, and a separately rooted append-only authority log. CLI and both
@@ -58,11 +58,11 @@ selectors, never authority. P-0006 then defines and qualifies the portable
 `AuthorityEvidenceBundleV1`, including an independently pinned authority-head
 checkpoint when rollback or latest-history completeness must be detected. The
 local SQLite-plus-file-signer profile does not prevent restoration of a valid
-older authority prefix or fork. This profile is pending project-owner acceptance
-and is not an implementation-status claim. Its normative definition is the
+older authority prefix or fork. This profile is accepted architecture and is
+not an implementation-status claim. Its normative definition is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
-**Proposed P-0003 qualification boundary:** a process with the bootstrap Unix
+**Ratified P-0003 qualification boundary:** a process with the bootstrap Unix
 UID or private Workspace access remains inside Human/admin trust and can omit
 Agent authentication. Milestone 2 exit evidence must run the Agent under a
 distinct UID, container, or sandbox that denies repository, raw CLI, and private
@@ -124,12 +124,12 @@ content semantics inside delegated mutation.
   the operation's authority.
 - Ratified application contracts reserve `/v2` successors for
   `context.build`, `object.query_released`, all content-capable `changeset.*`
-  operations, `edition.create`, and `release.create`. P-0003's review candidate
+  operations, `edition.create`, and `release.create`. P-0003's ratified profile
   reconciles all 11 with the three retained v1 reads and freezes their exact
-  resource projections; this remains a decision candidate, not capability
-  advertisement.
+  resource projections; this remains architecture, not capability
+  advertisement, until P-0004 and P-0005 implement it.
 
-If accepted, P-0005 depends on both P-0007 and P-0004 and supplies authenticated
+P-0005 depends on both P-0007 and P-0004 and supplies authenticated
 Agent authority, adapter parity, and end-to-end delegated evidence. P-0006 then
 qualifies the complete north-star loop and portable verification. Until those
 items pass, the Milestone 2 exit condition remains unmet.
@@ -166,7 +166,7 @@ items pass, the Milestone 2 exit condition remains unmet.
 
 Milestone 4 evidence export covers enterprise retention, custody, discovery,
 legal-hold, and managed distribution. It does not defer the narrower portable
-authority closure required by the **Proposed P-0003 profile** for Milestone 2
+authority closure required by the **Ratified P-0003 profile** for Milestone 2
 independent verification.
 
 ## MVP definition

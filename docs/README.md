@@ -17,7 +17,7 @@ This documentation separates durable product and architectural decisions from ch
 3. [Domain model](architecture/domain-model.md)
 4. [Agent authority](architecture/agent-authority.md)
 5. [Ratified delegated content contract](architecture/delegated-content.md)
-6. [Proposed authenticated actor contract](architecture/authenticated-actor.md)
+6. [Ratified authenticated actor contract](architecture/authenticated-actor.md)
 7. [Proof model](architecture/proof-model.md)
 8. [Threat model](architecture/threat-model.md)
 9. [Testing strategy](architecture/testing.md)

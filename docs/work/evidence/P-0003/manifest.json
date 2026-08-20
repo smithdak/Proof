@@ -5,6 +5,7 @@
   "claim_commit": "5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b",
   "candidate_commit": "38999d01fdce81015179da3162b90f6c382e3eba",
   "item_work_commit": "38999d01fdce81015179da3162b90f6c382e3eba",
+  "acceptance_base_sha": "2d6f87301e75031f5c6f43e90dea525b27f167cf",
   "candidate_parent": "5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b",
   "p0007_supported_candidate": "47153144b4b834cfffab61b328e4551f09fe50cb",
   "prior_architecture_commit": "cf4e57d0ace70e80377d16b57e43b6099129e0d0",
@@ -15,11 +16,14 @@
   "decision_state": {
     "candidate_qualified": true,
     "p0007_reconciled": true,
-    "owner_accepted": false,
-    "target_status": "review",
-    "adr_0011_status": "Proposed",
-    "constitution_c4_changed": false,
-    "p0004_unblocked": false
+    "owner_accepted": true,
+    "accepted_by": "smithdak",
+    "accepted_at": "2026-08-20T19:52:12.756Z",
+    "target_status": "done",
+    "adr_0011_status": "Accepted",
+    "constitution_c4_changed": true,
+    "p0004_unblocked": true,
+    "successors_promoted": ["P-0004"]
   },
   "inventory": {
     "changed_paths": 23,
@@ -136,7 +140,7 @@
     "confidence": "high"
   },
   "limitations": [
-    "Project-owner acceptance has not occurred.",
+    "Project-owner acceptance does not itself implement an authenticated Agent operation.",
     "No authenticated Agent operation or runtime implementation is added by P-0003.",
     "The local profile does not contain mutually hostile same-UID processes or attest a process, executable, model, or runtime.",
     "Authority-prefix rollback and hidden forks require an independently pinned authority head.",

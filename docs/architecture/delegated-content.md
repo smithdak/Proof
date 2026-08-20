@@ -10,15 +10,15 @@
 
 This contract defines the smallest complete content-mutation profile required
 for the Milestone 2 north-star scenario. Project-owner acceptance of P-0002
-ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It does
-now has a Human-operated implementation through P-0007. It does not claim
-authenticated Agent authority; that remains P-0005 after P-0003/P-0004.
+ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It now
+has a Human-operated implementation through P-0007. It does not claim
+authenticated Agent authority; that remains P-0005 after P-0004.
 
 P-0007 implemented and proved the human-operated content foundation defined
-here. P-0005 may bind authenticated Agent authority to it only after P-0003 is
-accepted and P-0004 implements the authority kernel. P-0003's reconciled review
-candidate replaces its stale v1 write reservations with this contract's v2
-pairs and exact resource projections.
+here. P-0005 may bind authenticated Agent authority to it only after P-0004
+implements the authority kernel. P-0003's ratified profile replaces its stale
+v1 write reservations with this contract's v2 pairs and exact resource
+projections.
 
 ## Decision
 
@@ -78,8 +78,8 @@ The following requirements are normative.
   registry alias or likely-subtag normalization. `fr-CA` and `fr-ca` are not
   equivalent; the latter fails. A registry alias such as `iw` is accepted only
   as its literal syntactically valid identifier and remains distinct from
-  `he`. P-0003 MUST tighten its still-Proposed `DelegationV2` locale pattern to
-  the same grammar before owner review.
+  `he`. P-0003 ratified the same exact grammar for `DelegationV2`; P-0004 must
+  preserve it in runtime evaluation.
 - **L4 — Full target content.** Every Edit supplies a complete JSON object, not
   a patch. The target validates against the exact source Schema identifier and
   version and reproduces its RFC 8785 canonical bytes deterministically.
@@ -641,11 +641,9 @@ P-0005:
    rendition, Edit, repair, validation, ContextPack, Edition, Release, query,
    migration, and human-operated end-to-end conformance without Agent
    authority.
-2. **P-0003 review candidate:** reconcile the authenticated command operation
-   registry and exact resource projections with this accepted contract, then
-   obtain explicit owner acceptance before P-0004.
-3. **P-0004:** implement authenticated actor and direct-Delegation enforcement
-   only after that reconciliation is accepted.
+2. **P-0003 — accepted:** reconcile the authenticated command operation
+   registry and exact resource projections with this contract.
+3. **P-0004:** implement authenticated actor and direct-Delegation enforcement.
 4. **P-0005:** bind the proven P-0007 operations to authenticated Agent
    authority and demonstrate denial/transport parity.
 5. **P-0006:** export and independently verify the combined content, authority,

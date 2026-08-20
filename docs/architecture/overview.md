@@ -52,9 +52,10 @@ Dependencies point inward. The domain core has no dependency on CLI parsing, HTT
 
 No message is published before its authoritative transaction commits. External effects are delivered from the transactional outbox and are idempotent.
 
-### Proposed P-0003 profile — authenticated delegated path
+### Ratified P-0003 profile — authenticated delegated path
 
-Pending project-owner acceptance, an Agent operation uses this ordering:
+Under the ratified architecture, an Agent operation uses this ordering once
+P-0004 implements the path:
 The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 
 1. The adapter bounds and parses untrusted CLI or MCP input and authenticates
@@ -105,7 +106,7 @@ The authoritative history is an append-only sequence of domain facts grouped by 
 
 The local implementation may store these records in relational tables rather than an event-store product. “Event-sourced” describes the authority model, not a vendor dependency.
 
-**Proposed P-0003 profile:** authority-bearing records additionally commit the
+**Ratified P-0003 profile:** authority-bearing records additionally commit the
 requesting and operating Principals, exact `binding_id` plus its issuing
 authority sequence/record digest, and public
 `requesting_subject_commitment`,
@@ -149,7 +150,7 @@ Proof uses optimistic concurrency:
 - Local key provider suitable for development.
 - In-process projections and delivery server.
 
-**Proposed P-0003 profile:** the bootstrap Unix UID and private Workspace are
+**Ratified P-0003 profile:** the bootstrap Unix UID and private Workspace are
 inside the Human/administrator trust boundary. Any process with that access can
 use the direct-Human path without Agent authentication. Per-Agent Ed25519 proof
 of possession is a containment control only when the Agent workload is outside

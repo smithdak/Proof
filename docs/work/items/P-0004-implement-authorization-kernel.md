@@ -1,8 +1,8 @@
 ---
 id: P-0004
 title: Implement the authenticated authorization kernel
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: implementation
 blocked_by: [P-0003]
 claimed_by: null
@@ -24,29 +24,27 @@ context, binds it to the correct Principal, evaluates the ratified Delegation
 contract, and emits a canonical authorization decision. Request data and MCP
 session state cannot manufacture authority.
 
-## Promotion condition
+## Promotion condition — satisfied
 
-This outcome is durable, but its implementation details are provisional until
-P-0003 closes. Re-shape this item against the ratified identity and Delegation
-contracts before setting it to `ready`.
+P-0003 closed at project-owner acceptance on `2026-08-20T19:52:12.756Z`.
+This item is reshaped against the ratified identity, Delegation, operation
+registry, and constitutional retry contracts and is ready to claim.
 
-## Proposed P-0003 profile reshape
+## Ratified P-0003 profile reshape
 
-The following reshape is pending project-owner acceptance of P-0003. It does
-not make this item `ready` and does not claim any authenticated Agent path is
-implemented. The controlling proposal is the
-[authenticated actor contract](../../architecture/authenticated-actor.md).
+The following reshape is ratified by P-0003. It makes this item `ready` but does
+not claim any authenticated Agent path is implemented. The controlling contract
+is the [authenticated actor contract](../../architecture/authenticated-actor.md).
 P-0002 and P-0007 have settled and implemented the Human-path resource closure.
-P-0003's reconciled candidate now fixes the authority registry against it; this
-item remains blocked only on explicit P-0003 owner acceptance and exposes no
-write path.
+P-0003's accepted reconciliation fixes the authority registry against it. This
+item exposes no write path until implementation and its own evidence gate pass.
 
 ## Authorized scope
 
 - Implement the identity port, Unix local Human adapter, local per-Agent
   Ed25519 proof-of-possession adapter, deterministic fake adapter, and
   `PrincipalBindingV1` issuance, rotation, disablement, and recovery lifecycle
-  selected by the **Proposed P-0003 profile**.
+  selected by the **Ratified P-0003 profile**.
 - Make Principal disablement terminal for v1. Recovery creates a new Principal,
   binding, and `DelegationV2`; it cannot reactivate old authority.
 - Verify one bounded, single-use `AuthenticatedCommandV1` DSSE presentation per
@@ -141,7 +139,7 @@ write path.
 - Migrate existing workspaces atomically and preserve historical read/Release
   verification.
 - Keep CLI and both MCP eras on the same application contracts.
-- Under the **Proposed P-0003 profile**, classify authenticated Agent status and
+- Under the **Ratified P-0003 profile**, classify authenticated Agent status and
   query operations as `evidence_write` because they consume a presentation and
   append `AuthorizationDecisionV2`; remove MCP `readOnlyHint: true` from those
   tools while preserving nonmutation of governed content. Human ambient reads
@@ -159,7 +157,7 @@ write path.
 - No OIDC, HTTP/network/collaboration server, enterprise workload provider, or
   Windows support claim.
 - No session-scoped ambient authority.
-- Under the **Proposed P-0003 profile**, no chained Delegation,
+- Under the **Ratified P-0003 profile**, no chained Delegation,
   `AuthorityEvidenceBundleV1`, enterprise authority service, or portable-bundle
   verification; P-0006 owns the bundle contract and qualification.
 - No isolation of mutually hostile same-UID processes and no container/sandbox
@@ -190,7 +188,7 @@ write path.
       record sequence irrespective of timestamp.
 - [ ] Scope tests prove empty arrays grant none, unused dimensions are ignored,
       required empty dimensions deny, and no empty array becomes wildcard.
-- [ ] Under the **Proposed P-0003 profile**, invalid signature, missing or
+- [ ] Under the **Ratified P-0003 profile**, invalid signature, missing or
       inactive binding, actor mismatch, wrong
       Workspace/audience/operation/request digest, not-yet-valid or expired
       presentation, and
@@ -295,7 +293,9 @@ denial atomicity, adapter parity, test commands, and residual trust boundaries.
 
 ## Completion record
 
-Blocked by P-0003; implementation scope must be reshaped after that decision.
+Ready after project owner `smithdak` accepted P-0003 at
+`2026-08-20T19:52:12.756Z`. No P-0004 implementation is claimed by the
+acceptance transition.
 
 ## Residual risks and next-wave update
 

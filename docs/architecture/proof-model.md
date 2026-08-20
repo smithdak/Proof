@@ -3,9 +3,9 @@
 **Status:** Ratified architecture; P-0002 content ratified, P-0003 authority closure proposed
 **Baseline:** August 3, 2026
 
-> **Proposed P-0003 profile:** The authority additions below are pending
-> project-owner acceptance. They do not change existing Release Proof bytes or
-> claim that portable authority verification is implemented.
+> **Ratified P-0003 profile:** The authority additions below are normative
+> architecture. They do not change existing Release Proof bytes or claim that
+> portable authority verification is implemented.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 >
 > **Ratified P-0002 profile:** The localized-content and exact-delta additions
@@ -110,7 +110,7 @@ The final controlled HTTPS URI is ratified before the first public compatibility
 
 This example is illustrative. The released Schema and golden vectors become the contract.
 
-## Proposed P-0003 profile — authority commitments
+## Ratified P-0003 profile — authority commitments
 
 The next versioned Release predicate will distinguish the requesting Human from
 the authenticated operating Agent and commit the authority evidence needed to
@@ -149,8 +149,8 @@ verify that distinction. Its authority portion carries or references:
 }
 ```
 
-This shape is illustrative until P-0003 is accepted and its Schemas and golden
-vectors are reviewed. `DelegationV2` supports exactly one Human issuer and one
+This shape remains illustrative until P-0004 implements its ratified Schemas
+and golden vectors. `DelegationV2` supports exactly one Human issuer and one
 Agent recipient; it does not encode a chain. `AuthorizationDecisionV2` is a new
 contract. Existing `AuthorizationDecisionV1` remains legacy and is not assigned
 new semantics.
@@ -317,7 +317,7 @@ A verifier:
 9. Checks revocation and time-sensitive policy using recorded evidence.
 10. Returns a structured verification report.
 
-**Proposed P-0003 profile:** Full authority verification additionally validates
+**Ratified P-0003 profile:** Full authority verification additionally validates
 the future `AuthorityEvidenceBundleV1`, its authority-root authentication, the
 subject commitment and active binding at the recorded position, the single-use
 `AuthenticatedCommandV1`, direct `DelegationV2` issue and revocation records,
@@ -345,7 +345,7 @@ When evidence is restricted:
 
 Proof artifacts are independent of a running CMS instance. A standalone `proof verify` implementation must be able to validate an envelope and supplied subjects offline, provided the trust roots and required evidence are available.
 
-Under the **Proposed P-0003 profile**, raw provider subjects, private keys, and
+Under the **Ratified P-0003 profile**, raw provider subjects, private keys, and
 credential handles are never portable evidence. The public
 `requesting_subject_commitment` is portable; its private raw-subject and
 32-byte-blind opening is disclosed only under audit policy. If policy withholds

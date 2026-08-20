@@ -1,6 +1,6 @@
-# Proposed local authority conformance profile
+# Ratified local authority conformance profile
 
-Status: **P-0003 reconciliation candidate, pending project-owner review**.
+Status: **Ratified by P-0003; runtime implementation remains owned by P-0004**.
 These schemas and vectors freeze the smallest Milestone-2 local authentication
 and authority profile. The three v1 read operations are implemented; the 11
 localized v2 application contracts are implemented only through P-0007's Human

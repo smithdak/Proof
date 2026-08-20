@@ -29,8 +29,8 @@ Proposed global options:
 ```text
 --workspace <PATH|ID>     Select a Workspace
 --profile <NAME>          Select configuration and credentials
---principal <ID>          Proposed P-0003 profile: cross-check expected Principal
---delegation <ID>         Proposed P-0003 profile: select; never authenticates
+--principal <ID>          Ratified P-0003 profile: cross-check expected Principal
+--delegation <ID>         Ratified P-0003 profile: select; never authenticates
 --output <FORMAT>         table | text | json | ndjson | yaml
 --color <WHEN>            auto | always | never
 --quiet                   Suppress non-result output
@@ -93,10 +93,10 @@ The standalone offline verifier checks canonical DSSE/in-toto bytes, a caller-su
 
 The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP `2025-11-25` for capability discovery, delegated Workspace status, delegated released-Object query, and ContextPack build. Modern requests are independent and carry protocol version plus client capabilities in per-request `_meta`; they do not require `initialize`. The server implements `server/discover`, returns `resultType: "complete"` on modern results, and publishes public cache hints for discovery and the deterministic tool registry. Legacy clients retain the `initialize` / `notifications/initialized` path. Every authority-bearing tool call supplies its Principal and Delegation explicitly; MCP session state is not authority. This is a read/evidence slice, not a delegated mutation or collaboration server.
 
-### Proposed P-0003 profile — authenticated Agent invocation
+### Ratified P-0003 profile — authenticated Agent invocation
 
-This profile is pending project-owner acceptance and is not implemented by the
-current delegated read slice. The normative proposal is the
+This profile is accepted architecture and is not implemented by the current
+delegated read slice. The normative contract is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
 - `--profile` selects a protected local Agent credential handle. The profile
@@ -157,7 +157,7 @@ current delegated read slice. The normative proposal is the
 The authenticated local Human path remains adapter-derived from ADR-0009 and
 does not impersonate an Agent merely because both processes share one Unix user.
 
-That shared-UID case is not containment under the **Proposed P-0003 profile**.
+That shared-UID case is not containment under the **Ratified P-0003 profile**.
 A process with the bootstrap UID or private Workspace access is inside the
 Human/administrator trust boundary and can invoke the direct-Human CLI path
 without an Agent presentation. Bounded Agent authority therefore assumes a
@@ -213,7 +213,7 @@ profile uses `changeset.create/v2`, `changeset.add/v2`, `changeset.get/v2`,
 `changeset.diff/v2`, `changeset.validate/v2`, `changeset.submit/v2`,
 `changeset.commit/v2`, `edition.create/v2`, and `release.create/v2`; approval
 remains a separate Human operation. These are reservations, not advertised
-capabilities. P-0003's review candidate has reconciled the operation-version,
+capabilities. P-0003's ratified profile reconciles the operation-version,
 action, retry, and exact resource-projection registry; P-0005 still must wire
 that accepted registry before this profile can be exposed to an Agent.
 
@@ -562,7 +562,7 @@ Rules:
 - `warnings` never contain a condition that should have failed the command.
 - `meta` contains non-authoritative execution metadata.
 
-**Proposed P-0003 profile:** authority-bearing results add distinct requesting
+**Ratified P-0003 profile:** authority-bearing results add distinct requesting
 and operating Principal identifiers, exact `binding_id` plus its issuing
 authority sequence and record digest, semantic `CommandInputV1` digest,
 authenticated-command envelope digest, `DelegationV2` digest,
@@ -605,7 +605,7 @@ The key is scoped to Workspace, Principal, and operation. Proof stores a digest 
 - Same key and different input: return `proof.idempotency.key_reused`.
 - Unknown outcome after transport failure: retry with the same key.
 
-**Proposed P-0003 profile:** idempotency is evaluated only after a fresh
+**Ratified P-0003 profile:** idempotency is evaluated only after a fresh
 `AuthenticatedCommandV1` has been verified, consumed, bound to the operating
 Principal, and authorized under current authority. C5 authentication and C6
 authorization precede C4 disclosure of a stored result. Retrying an unknown
@@ -618,7 +618,7 @@ Principal or binding disablement, or policy denial also blocks the stored result
 `--explain` returns a bounded decision explanation including:
 
 - Evaluated Principal and Delegation chain.
-- **Proposed P-0003 profile:** distinct requesting Human, authenticated
+- **Ratified P-0003 profile:** distinct requesting Human, authenticated
   operating Agent, exact binding identifier and issuing authority
   sequence/record digest, direct `DelegationV2`, and
   authority-log position.

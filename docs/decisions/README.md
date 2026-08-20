@@ -24,7 +24,7 @@ Architecture decision records preserve the context and consequences of durable c
 | [0008](0008-mcp-adapter-version.md) | Target stable MCP 2025-11-25 first | Superseded by 0010 |
 | [0009](0009-local-bootstrap-principal.md) | Bind the local bootstrap Principal to the operating-system user | Accepted |
 | [0010](0010-dual-era-mcp.md) | Prefer stateless MCP 2026 while retaining legacy initialization | Accepted |
-| [0011](0011-local-agent-command-authentication.md) | Authenticate local Agent commands with bound Ed25519 credentials | Proposed |
+| [0011](0011-local-agent-command-authentication.md) | Authenticate local Agent commands with bound Ed25519 credentials | Accepted |
 | [0012](0012-localized-object-renditions.md) | Represent localization as subordinate Object renditions | Accepted |
 
 ## Template

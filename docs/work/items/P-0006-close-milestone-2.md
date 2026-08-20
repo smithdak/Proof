@@ -29,11 +29,11 @@ evidence without trusting the producing Workspace or Agent.
 Re-shape the exact exit fixture and offline-verification input contract after
 P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
 
-## Proposed P-0003 profile reshape
+## Ratified P-0003 profile reshape
 
-The following P-0003-dependent clauses are pending project-owner acceptance.
-They reshape future qualification only. This item remains blocked by P-0005.
-The controlling proposal is the
+The following P-0003-dependent clauses are ratified. They reshape future
+qualification only. This item remains blocked by P-0005. The controlling
+contract is the
 [authenticated actor contract](../../architecture/authenticated-actor.md).
 P-0002 and P-0007 have closed the Human-path write-resource contract, and
 P-0003's reconciled candidate binds its exact operation/projection registry.
@@ -78,7 +78,7 @@ That profile is still unaccepted until the project owner closes P-0003.
   reconstruction or serialization path.
 - Complete structured repair, budget, stale-context, prompt-injection, tool
   confusion, scope-probing, revocation, retry, restart, and tamper cases.
-- Under the **Proposed P-0003 profile**, add wrong-key, wrong-binding,
+- Under the **Ratified P-0003 profile**, add wrong-key, wrong-binding,
   wrong-issuer/recipient, command substitution, expired presentation, consumed
   `presentation_id`, authority-log rollback, unavailable authority root, and
   parent/subdelegation/chain rejection cases.
@@ -87,7 +87,7 @@ That profile is still unaccepted until the project owner closes P-0003.
   pre-compromise checkpoint.
 - Run the selected north-star scenario through application contracts, CLI,
   stateless MCP, and legacy MCP without ambient authority.
-- Under the **Proposed P-0003 profile**, run the Agent workload under a distinct
+- Under the **Ratified P-0003 profile**, run the Agent workload under a distinct
   UID, container, or sandbox that denies repository, raw CLI, bootstrap-UID, and
   private Workspace access and exposes only the Human-owned broker/adapter
   channel. Same-UID proof of possession is attribution/integrity evidence only
@@ -131,7 +131,7 @@ That profile is still unaccepted until the project owner closes P-0003.
       causal position and timestamp. Expiration or revocation effective
       afterward is not retroactive; revocation, disablement, or invalid chain
       state effective before the action makes the authority verdict invalid.
-- [ ] Under the **Proposed P-0003 profile**, verification proves the subject
+- [ ] Under the **Ratified P-0003 profile**, verification proves the subject
       commitment using the canonical 32-byte-blind hiding-commitment vectors,
       exact immutable `binding_id` plus its issuing authority sequence and
       record digest, single consumption of the signed
@@ -165,7 +165,7 @@ That profile is still unaccepted until the project owner closes P-0003.
 - [ ] C4 idempotent-result disclosure occurs only after fresh C5 authentication
       and current C6 authorization; revocation, Principal/binding disablement,
       or policy denial after the original effect blocks its result on retry.
-- [ ] Under the **Proposed P-0003 profile**, authenticated Agent status/query
+- [ ] Under the **Ratified P-0003 profile**, authenticated Agent status/query
       capabilities are `evidence_write` and omit MCP `readOnlyHint: true`, while
       conformance independently proves that governed content remains unchanged.
 - [ ] The north-star evidence records a distinct-UID/container/sandbox Agent

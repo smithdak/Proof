@@ -88,7 +88,7 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.delegation.scope_exceeded`
 - `proof.approval.required`
 
-**Proposed P-0003 profile** codes, pending project-owner acceptance:
+**Ratified P-0003 profile** codes, reserved until P-0004 implements them:
 
 The normative definitions are in the
 [authenticated actor contract](../architecture/authenticated-actor.md).
@@ -274,7 +274,7 @@ Examples:
 - Validation failure: not retryable until input changes.
 - Authorization denial: not retryable until authority or policy changes.
 
-Under the **Proposed P-0003 profile**, an expired or replayed
+Under the **Ratified P-0003 profile**, an expired or replayed
 `AuthenticatedCommandV1` is not retryable as that presentation. The logical
 operation may be attempted with a fresh signed presentation and the same
 idempotency key when its normalized input is unchanged. A disabled binding,
@@ -285,7 +285,7 @@ idempotent-result disclosure; an idempotency key is not a bearer capability.
 
 ## Information disclosure
 
-Problems returned to a caller contain only information the caller is authorized to observe. They never include stack traces, SQL, secret values, tokens, private keys, full policy internals, hidden Object content, or a raw requesting subject and its 32-byte commitment blind. Under the **Proposed P-0003 profile**, disclosure of that private opening is audit-policy controlled and never occurs through ordinary Problems.
+Problems returned to a caller contain only information the caller is authorized to observe. They never include stack traces, SQL, secret values, tokens, private keys, full policy internals, hidden Object content, or a raw requesting subject and its 32-byte commitment blind. Under the **Ratified P-0003 profile**, disclosure of that private opening is audit-policy controlled and never occurs through ordinary Problems.
 
 Restricted diagnostics are correlated through `operation_id` and available only to authorized operators.
 

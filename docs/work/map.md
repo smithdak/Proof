@@ -59,7 +59,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `review` | P-0001, P-0002 | Accept or reject the qualified authenticated-actor reconciliation candidate. |
+| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `ready` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
@@ -77,7 +77,6 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `blocked` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
 
@@ -87,11 +86,12 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | --- | --- | --- | --- |
 | [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `done` | P-0001 | Ratified exact-locale renditions, append-only repair, immutable resource intent, and causally closed Edition/Release semantics. |
+| [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `done` | P-0001, P-0002 | Ratified the bounded local authenticated-actor, direct Delegation, and current-authorization retry contract. |
 
 ## Decisions so far
 
-P-0001 closed baseline qualification. P-0002 is the first closed product and
-architecture decision item; later decision results accumulate here.
+P-0001 closed baseline qualification. P-0002 and P-0003 are closed product and
+architecture decisions; later decision results accumulate here.
 
 ### Ratified P-0002 profile
 
@@ -103,37 +103,37 @@ baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
 `DelegationV2` resource dimension is required. P-0007 implements and qualifies
 that foundation through the Human path. Agent authority remains unimplemented;
-P-0005 adds it only after P-0003 and P-0004 close.
+P-0005 adds it only after P-0004 closes.
 
-### Proposed P-0003 profile — review candidate
+### Ratified P-0003 profile
 
-P-0003 currently proposes local per-Agent Ed25519 proof of possession,
+P-0003 defines local per-Agent Ed25519 proof of possession,
 adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthenticatedCommandV1` DSSE presentations, direct Human-to-Agent
 `DelegationV2`, `AuthorizationDecisionV2`, a separately rooted authority log of
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
-both MCP eras would treat Principal and Delegation identifiers as cross-checks
-or selectors rather than authority. This is not a closed decision or an
-implementation-status claim; P-0003 is `review`, and P-0004/P-0006 remain
-blocked.
+both MCP eras treat Principal and Delegation identifiers as cross-checks or
+selectors rather than authority. This is accepted architecture, not an
+implementation-status claim; P-0004 is `ready`, and P-0006 remains blocked.
 
-Candidate `38999d0` is qualified and ready for project-owner review. It aligns
+Candidate `38999d0` was qualified and accepted by project owner `smithdak` at
+`2026-08-20T19:52:12.756Z`. It aligns
 the exact locale Schema, closes the 14-pair operation registry, freezes the
 localized resource and budget projections, and regenerates the affected
-conformance vectors. P-0004 exposes no write path until this proposal is
-accepted. The exact candidate and falsification record are bound by the
+conformance vectors. P-0004 exposes no write path until it implements this
+contract. The exact candidate, acceptance, and falsification record are bound
+by the
 [P-0003 receipt](evidence/P-0003/receipt.md).
 
-The controlling proposal is the
-[authenticated actor contract](../architecture/authenticated-actor.md); the
-project owner has not accepted it.
+The controlling contract is the
+[authenticated actor contract](../architecture/authenticated-actor.md).
 
 ## Fog — not yet specifiable as implementation
 
 - The collaboration-server decomposition: HTTP surface, PostgreSQL adapter,
   outbox, OIDC, SDKs, and human console. It sharpens only after P-0006.
 - Environment configuration update, disablement, and signing-key lifecycle.
-- The **Proposed P-0003 profile** names a future
+- The **Ratified P-0003 profile** names a future
   `AuthorityEvidenceBundleV1`; P-0006 still owns its exact container, supplied
   artifact layout, independent serialization path, disclosure behavior, and
   golden vectors after P-0005.

@@ -1,7 +1,7 @@
 ---
 id: P-0003
 title: Ratify authenticated actor and Delegation semantics
-status: review
+status: done
 wave: now
 kind: decision
 blocked_by: [P-0001, P-0002]
@@ -9,8 +9,8 @@ claimed_by: codex:/root:p-0003
 claimed_at: 2026-08-20T18:58:18Z
 base_sha: 8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-20T19:52:12.756Z
 ---
 
 # Ratify authenticated actor and Delegation semantics
@@ -49,9 +49,9 @@ identity instead of proving control of it.
 
 ## Proposed resolution
 
-The complete proposed contract is
+The complete ratified contract is
 [Authenticated actor](../../architecture/authenticated-actor.md), recorded by
-proposed [ADR-0011](../../decisions/0011-local-agent-command-authentication.md)
+accepted [ADR-0011](../../decisions/0011-local-agent-command-authentication.md)
 and the machine-readable
 [authority conformance profile](../../../conformance/v1/authority/README.md).
 
@@ -74,7 +74,7 @@ The recommendation is:
   application idempotency key.
 
 The bounded claim is credential control, not workload or model attestation.
-Same-UID key theft remains a proposed local residual. OIDC, SPIFFE, protected
+Same-UID key theft remains a ratified local residual. OIDC, SPIFFE, protected
 platform credentials, Windows identity, KMS/HSM, and a final portable evidence
 bundle remain adapter or successor work.
 
@@ -92,7 +92,7 @@ cycle/depth, revocation-closure, and issuer-authentication obligations without a
 demonstrated scenario. A future chain requires `DelegationV3` and a new ADR;
 v2 meaning will not drift.
 
-The proposal should be rejected if Milestone 2 must isolate mutually hostile
+The decision must be reopened if Milestone 2 must isolate mutually hostile
 same-UID processes, attest a binary/model/runtime, avoid every callable local
 Agent secret, or support Agent-to-Agent delegation.
 
@@ -137,7 +137,7 @@ Agent secret, or support Agent-to-Agent delegation.
 - [x] Canonical bytes, size/time bounds, errors, and conformance vectors are
       defined for every new contract.
 - [x] The strongest rejected design and residual trust boundary are recorded.
-- [x] ADR-0011 is explicitly Constitutional, proposes exact C4 replacement
+- [x] ADR-0011 is explicitly Constitutional, enacts the exact C4 replacement
       text, and records the behavioral compatibility boundary.
 - [x] `AuthorityOperationRegistryV1` retains only the three implemented v1
       reads, cross-links all 11 P-0007 v2 input Schemas, and freezes their
@@ -146,7 +146,7 @@ Agent secret, or support Agent-to-Agent delegation.
 - [x] `DelegationV2` and `AuthorizationDecisionV2` use P-0002's exact locale
       grammar; vectors accept lowercase variants and literal aliases and reject
       mixed-case variants.
-- [ ] The project owner explicitly accepts the decision before this item moves
+- [x] The project owner explicitly accepts the decision before this item moves
       from `review` to `done` or any implementation successor becomes `ready`.
 - [x] P-0004 and P-0006 are reshaped and promoted only if implementation scope
       is now decision-complete.
@@ -187,10 +187,13 @@ Reclaimed by `codex:/root:p-0003` at `2026-08-20T18:58:18Z` from
   axis.
 
 The refreshed [qualification receipt](../evidence/P-0003/receipt.md) records the
-exact candidate and validation results. ADR-0011 remains Proposed, C4 remains
-unchanged, P-0004 remains blocked, and the only unchecked acceptance criterion
-is explicit project-owner acceptance. The item is therefore in `review`; it
-does not move to `done` until that acceptance is recorded.
+exact candidate and validation results. The item entered `review` at commit
+`2d6f87301e75031f5c6f43e90dea525b27f167cf`.
+
+Project owner `smithdak` accepted the bounded decision at
+`2026-08-20T19:52:12.756Z`. ADR-0011 and its exact C4 replacement are ratified,
+P-0003 is `done`, and P-0004 is promoted to `ready`. Acceptance does not claim
+that an authenticated Agent path is implemented.
 
 ## Residual risks and next-wave update
 

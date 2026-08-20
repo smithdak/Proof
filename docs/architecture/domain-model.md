@@ -3,10 +3,10 @@
 **Status:** Ratified baseline  
 **Baseline:** August 3, 2026
 
-> **Proposed P-0003 profile:** The authenticated-actor and authority-evidence
-> additions below are pending project-owner acceptance. Existing records retain
-> their current meaning until a versioned migration is implemented.
-> The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+> **Ratified P-0003 profile:** The authenticated-actor and authority-evidence
+> additions below are normative architecture. Existing records retain their
+> current meaning until P-0004's versioned migration is implemented.
+> The normative contract is the [authenticated actor contract](authenticated-actor.md).
 >
 > **Ratified P-0002 profile:** Localized existing-Object mutation is modeled as
 > a subordinate append-only rendition, not a second Object or a mutable locale
@@ -31,7 +31,7 @@ Workspace
 
 This is a conceptual ownership map, not a single in-memory aggregate. Transaction boundaries remain narrow except where the ChangeSet intentionally coordinates multiple Objects.
 
-**Proposed P-0003 profile:** The Workspace also references a separately rooted,
+**Ratified P-0003 profile:** The Workspace also references a separately rooted,
 append-only authority log containing Principal bindings, Agent credential
 public-key references, Delegation issue/revocation facts, consumed command
 presentations, and authorization decisions. It does not place credential
@@ -137,7 +137,7 @@ Required fields:
 - optional ContextPack reference
 - required policy and validation profile
 
-**Proposed P-0003 profile:** A new version of every authority-bearing command
+**Ratified P-0003 profile:** A new version of every authority-bearing command
 and fact records distinct `requesting_principal_id` and
 `operating_principal_id`, `binding_id` plus its issuing authority
 sequence and record digest, direct
@@ -230,7 +230,7 @@ A Principal is an authenticated identity of type:
 
 Principal type informs policy but does not change available state transitions.
 
-## Proposed P-0003 profile — authenticated actor types
+## Ratified P-0003 profile — authenticated actor types
 
 An `AuthenticatedSubjectV1` is a provider-qualified result from a trusted
 identity adapter. It is not a Principal and is never accepted from an
@@ -278,7 +278,7 @@ and is not silently reinterpreted.
 
 A Delegation grants bounded authority from an issuer to a recipient Principal. It is immutable after issue; revocation creates a revocation fact. Evaluation follows the full chain, and no link may grant more than its parent.
 
-### Proposed P-0003 direct profile
+### Ratified P-0003 direct profile
 
 Milestone 2 narrows evaluation to one immutable Human-to-Agent `DelegationV2`.
 The independently authenticated Human must equal the issuer; the authenticated
@@ -328,7 +328,7 @@ complete-intent or staged released-query projections in
 `AuthorityOperationRegistryV1`; P-0005 may wire them but cannot reinterpret
 them.
 
-## Proposed P-0003 profile — portable authority closure
+## Ratified P-0003 profile — portable authority closure
 
 P-0006 will define `AuthorityEvidenceBundleV1`; it is not an implemented bundle
 contract in P-0003 or P-0004. The future bundle is rooted in the

@@ -1,10 +1,10 @@
 # ADR-0011: Authenticate local Agent commands with bound Ed25519 credentials
 
-**Status:** Proposed
+**Status:** Accepted
 
-**Constitutional:** Yes — proposes replacing C4
+**Constitutional:** Yes — replaces C4
 **Date:** 2026-08-17
-**Last revised:** 2026-08-20 — reconciled with ADR-0012 and P-0007
+**Last revised:** 2026-08-20 — accepted after reconciliation with ADR-0012 and P-0007
 
 ## Context
 
@@ -27,7 +27,7 @@ evidence-closure semantics without a demonstrated outcome.
 
 ## Decision
 
-The proposed local Agent authentication profile is defined by the
+The local Agent authentication profile is defined by the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
 - ADR-0009 remains the requesting-Human authentication path.
@@ -74,12 +74,12 @@ The proposed local Agent authentication profile is defined by the
 - OIDC, SPIFFE, Windows credentials, KMS/HSM, workload measurement, and the
   final portable evidence bundle remain deferred adapters or later work.
 
-## Proposed constitutional change
+## Constitutional change
 
 The current C4 unconditionally requires an equivalent completed retry to return
 its original result. That conflicts with C5/C6 when a binding, Principal,
-Delegation, or policy is invalidated after the first effect. This ADR proposes
-replacing C4 with:
+Delegation, or policy is invalidated after the first effect. This ADR replaces
+C4 with:
 
 > Every governed consequential application operation MUST accept or derive an
 > idempotency key. After the retry independently authenticates its Principal and
@@ -105,10 +105,10 @@ invalidation and classifies new P-0004 presentation/decision rows as
 per-attempt security evidence. The current authenticated-Agent path is not
 implemented, so no accepted Agent Proof changes meaning; existing local Human
 operations retain their result-replay behavior while the Human remains
-authenticated and authorized. Project-owner acceptance is required before the
-ratified constitution is replaced or P-0004 becomes ready.
+authenticated and authorized. Project-owner acceptance at
+`2026-08-20T19:52:12.756Z` ratified this replacement and made P-0004 ready.
 
-The exact proposed schemas, bounds, errors, evidence, migration boundary, and
+The exact ratified schemas, bounds, errors, evidence, migration boundary, and
 falsification vectors are part of the linked contract and
 [`conformance/v1/authority/`](../../conformance/v1/authority/README.md).
 
@@ -149,7 +149,7 @@ falsification vectors are part of the linked contract and
   semantic input. Reads use no application idempotency key. These classes are
   frozen in `AuthorityOperationRegistryV1` rather than inferred by adapters.
 - Provider churn is isolated behind authentication and signing ports.
-- P-0004 becomes implementation-ready only after project-owner acceptance.
+- P-0004 is implementation-ready after project-owner acceptance.
   P-0006 can be reshaped now but stays blocked by P-0005.
 
 ## Alternatives considered

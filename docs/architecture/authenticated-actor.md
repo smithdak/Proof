@@ -1,14 +1,14 @@
 # Authenticated actor contract
 
-**Status:** Proposed by P-0003
+**Status:** Ratified by P-0003
 
 **Version:** 0.2
 
 **As of:** August 20, 2026
 **Review gate:** Project owner
 
-This document is a proposal until
-[ADR-0011](../decisions/0011-local-agent-command-authentication.md) is accepted.
+This document is ratified by
+[ADR-0011](../decisions/0011-local-agent-command-authentication.md).
 It does not describe implemented behavior. The current implementation still
 authenticates only the local Unix Human and accepts caller-declared Agent and
 Delegation identifiers for delegated reads.
@@ -17,6 +17,7 @@ Delegation identifiers for delegated reads.
 | --- | --- | --- |
 | 0.1 | 2026-08-17 | Qualified local authentication and direct-Delegation candidate; localized resource closure still blocked on P-0002. |
 | 0.2 | 2026-08-20 | Reconciled the closed registry, exact resource projections, retry classes, and locale grammar with P-0007; pending owner acceptance. |
+| 1.0 | 2026-08-20 | Ratified by project-owner acceptance; implementation remains owned by P-0004. |
 
 ## Decision
 
@@ -44,7 +45,7 @@ The crux is whether proof of possession by a per-Agent key is enough to
 distinguish the operating Agent inside the local Unix trust boundary without a
 workload-identity control plane.
 
-The proposed guarantee is:
+The ratified guarantee is:
 
 > Proof authenticated control of an active Agent credential bound to the
 > recorded operating Principal, under the local requesting Human and exact
@@ -92,7 +93,7 @@ enrollment-envelope signer/key ID MUST all be byte-for-byte equivalent.
 
 ## Invariants
 
-The following requirements are normative if ADR-0011 is accepted.
+The following requirements are normative under ADR-0011.
 
 - **A1 — Derived actors.** Request bodies MUST NOT construct an authenticated
   subject or actor context. The application MUST accept actor context only from
@@ -239,7 +240,7 @@ one shared UID.
 
 Only public key material and canonical evidence are stored. The default local
 provider MAY use a permission-restricted file because key theft within the
-trusted Agent execution boundary is an accepted proposed residual; a future
+trusted Agent execution boundary is a ratified residual; a future
 protected-key provider fits the same port. File permissions do not isolate an
 Agent from the ambient Human path when both share the bootstrap UID.
 The challenge is valid for at most 300 seconds and is consumed once. Challenge
@@ -634,7 +635,7 @@ The local profile separates signing from Workspace execution:
    boundary, alone opens SQLite and authority keys, verifies the invocation, and
    calls the application operation.
 
-The proposed CLI surfaces are `proof auth sign --command - --credential
+The ratified CLI surfaces are `proof auth sign --command - --credential
 <handle>` on the Agent side and fixed `proof auth execute --invocation -` as a
 one-shot broker. A trusted supervisor connects one size-bounded framed stream or
 already-open file descriptor across a distinct UID, container, or equivalent
@@ -642,7 +643,7 @@ sandbox; a shell pipeline running both under the same UID is only an attribution
 test. No Agent-controlled path or argument may cause the privileged broker to
 open a file. Any path mode is Human-only and outside the Agent transport. The
 direct ambient Workspace CLI remains a Human/admin interface and is not an Agent
-execution path. These spellings are part of the P-0004 proposed grammar, not
+execution path. These spellings are part of the P-0004 ratified grammar, not
 implemented commands.
 
 The signer MUST NOT accept `--principal` as an authority selector. A retained
@@ -746,7 +747,7 @@ wording.
 
 ## Implementation boundary for P-0004
 
-P-0004 is decision-complete only if this proposal is accepted. It then owns:
+P-0004 is decision-complete and owns:
 
 - domain IDs and types for subjects, bindings, actor context, authority records,
   command presentation, and v2 decisions;
@@ -775,7 +776,7 @@ evidence bundle.
 
 ## Conformance and falsification
 
-The proposed machine contracts and vectors live under
+The ratified machine contracts and vectors live under
 [`conformance/v1/authority/`](../../conformance/v1/authority/README.md). Acceptance of
 P-0004 requires at least:
 
@@ -817,20 +818,20 @@ P-0004 requires at least:
 - The final portable bundle is deferred to P-0006 so the Release evidence shape
   is not guessed before P-0005.
 
-## Open-decision register
+## Decision record
 
-| Decision | Default if not accepted | Owner | Decision point | Consequence |
-| --- | --- | --- | --- | --- |
-| Accept the bounded local Human-to-Agent profile and ADR-0011's C4 replacement | Keep ADR-0011 Proposed, leave P-0004 blocked, and expose no authenticated Agent operation | Project owner | P-0003 review | Acceptance unblocks P-0004; rejection pivots to a protected broker/workload identity or a revised Milestone 2 boundary. |
+| Decision | Accepted by | Accepted at | Consequence |
+| --- | --- | --- | --- |
+| Bounded local Human-to-Agent profile and ADR-0011's C4 replacement | `smithdak` | `2026-08-20T19:52:12.756Z` | P-0004 is ready; a protected workload identity remains a future adapter or reopen trigger. |
 
 No operation-version, locale, resource-axis, retry-class, or projection question
-remains open inside this candidate. A newly required source-locale grant,
+remains open inside this ratified profile. A newly required source-locale grant,
 field/path grant, hostile same-UID containment, or Agent-to-Agent chain is a
 reopen trigger, not an implementation choice for P-0004.
 
 ## Kill and pivot triggers
 
-Reject or reopen this proposal before P-0004 if any of the following becomes a
+Reopen this decision during P-0004 if any of the following becomes a
 Milestone 2 requirement:
 
 - mutually hostile processes sharing one Unix UID must be isolated;

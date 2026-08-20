@@ -77,7 +77,7 @@ content contracts are unimplemented.
 - [ ] Wrong recipient, action, resource, locale, Environment, budget, expired or
       revoked Delegation, stale ContextPack/base state, replay mismatch, and
       approval bypass all fail structurally and atomically.
-- [ ] Under the proposed P-0003 profile, revocation, Principal/binding
+- [ ] Under the ratified P-0003 profile, revocation, Principal/binding
       disablement, direct-Delegation invalidation, or applicable
       policy/configuration change between submission and consequence is detected
       by re-authorization; parent or subdelegation input is rejected as

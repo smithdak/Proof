@@ -3,11 +3,11 @@
 **Status:** Ratified direction; P-0002 additions ratified, P-0003 proposed
 **Baseline:** August 16, 2026
 
-> **Proposed P-0003 profile:** Every section carrying this label is pending
-> project-owner acceptance. It does not describe implemented authentication and
-> does not replace the ratified direction until P-0003 is accepted.
+> **Ratified P-0003 profile:** Every section carrying this label is normative
+> architecture. It does not claim that authenticated Agent operations are
+> implemented; P-0004 owns implementation.
 >
-> The complete proposal is the [authenticated actor contract](authenticated-actor.md);
+> The complete contract is the [authenticated actor contract](authenticated-actor.md);
 > this document summarizes its consequences for Agent authority.
 >
 > **Ratified P-0002 profile:** The localized-content resource closure below is
@@ -33,7 +33,7 @@ An agent execution has at least three distinct identities:
 
 These identities MUST NOT be collapsed into one shared service account. Model metadata is not itself authority.
 
-## Proposed P-0003 profile — authenticated actor contract
+## Ratified P-0003 profile — authenticated actor contract
 
 The local Milestone 2 profile separates five typed concepts:
 
@@ -311,7 +311,7 @@ Schema or action vocabulary. Its chain-shaped fields do not apply to v2.
 - Evaluate every link permitted by the selected Delegation version. A
   chain-capable version evaluates its complete chain and intersects permissions
   at every link; it never unions authority into expansion.
-- Under the **Proposed P-0003 profile**, `DelegationV2` permits exactly one
+- Under the **Ratified P-0003 profile**, `DelegationV2` permits exactly one
   Human-to-Agent link. Any parent, subdelegation, multi-link, or other
   chain-shaped input is rejected rather than evaluated.
 - Check revocation and time bounds at execution.
@@ -361,7 +361,7 @@ Agents should discover typed capabilities rather than infer commands from prose.
 
 The same capability registry drives CLI help, SDK generation, HTTP operation descriptions, and MCP tool definitions.
 
-**Proposed P-0003 profile:** An authenticated Agent `status` or query leaves
+**Ratified P-0003 profile:** An authenticated Agent `status` or query leaves
 governed content unchanged but atomically consumes its presentation and appends
 `AuthorizationDecisionV2` authority evidence. Its capability side-effect class
 is therefore `evidence_write`, not read-only, and MCP MUST NOT advertise
@@ -425,7 +425,7 @@ As of August 16, 2026:
 - Every MCP tool has the same input Schema, idempotency behavior, and error semantics as its underlying operation.
 - Destructive or consequential tools are annotated and policy-gated.
 
-**Proposed P-0003 profile:** Principal and Delegation tool arguments are
+**Ratified P-0003 profile:** Principal and Delegation tool arguments are
 expected-value cross-checks and selectors only. Every authority-bearing modern
 or legacy MCP call carries a fresh signed command presentation in
 `params._meta["dev.proof/authentication"]`. Neither the stdio process, legacy
@@ -446,7 +446,7 @@ Agent-generated ChangeSets and resulting Proofs record:
 
 Model prompts and hidden reasoning are not required evidence. Storing them by default creates privacy, security, portability, and reproducibility problems. The evidence model records declared inputs, structured outputs, and consequential decisions.
 
-**Proposed P-0003 profile:** Consequential evidence additionally commits the
+**Ratified P-0003 profile:** Consequential evidence additionally commits the
 exact Principal `binding_id` and issuing authority sequence/record digest,
 public `requesting_subject_commitment`, raw-UID-free
 `AuthenticatedActorContextEvidenceV1`, semantic `CommandInputV1` digest,

@@ -3,9 +3,9 @@
 **Status:** Initial baseline  
 **Baseline:** August 3, 2026
 
-> **Proposed P-0003 profile:** The local authentication, replay, authority-log,
-> and portable-authority controls labeled below are pending project-owner
-> acceptance and are not implementation claims.
+> **Ratified P-0003 profile:** The local authentication, replay, authority-log,
+> and portable-authority controls labeled below are normative architecture but
+> are not implementation claims.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
 
 This threat model defines the security boundaries that shape Proof's architecture. It is updated when a new interface, trust relationship, or deployment mode is introduced.
@@ -57,7 +57,7 @@ Delivery, event, webhook, and external integration boundaries
 
 Every boundary validates type, size, identity, authority, and version appropriate to its role.
 
-### Proposed P-0003 profile — local authentication boundary
+### Ratified P-0003 profile — local authentication boundary
 
 For an Agent operation, the interface boundary verifies a single-use Ed25519
 `AuthenticatedCommandV1` DSSE presentation and resolves a validly issued
@@ -116,7 +116,7 @@ trust epoch/re-anchor rather than ordinary rotation.
 
 **Controls:** OIDC under current OAuth security BCP, short-lived workload identity, distinct Principal IDs, signature verification, audience and resource binding, no shared “agent” account, revocation checks.
 
-**Proposed P-0003 profile (local Milestone 2):** distinct per-Agent Ed25519
+**Ratified P-0003 profile (local Milestone 2):** distinct per-Agent Ed25519
 proof-of-possession credentials, protected private-key handles, adapter-derived
 subjects, immutable causally positioned Principal bindings, explicit audience
 and Workspace
@@ -158,7 +158,7 @@ unknown credentials and invalid signatures have equivalent public behavior.
 
 **Controls:** canonical ChangeSet digest, atomic transaction, optimistic concurrency, approval bound to digest, idempotency record committed with effects, append-only authoritative facts.
 
-### Proposed P-0003 profile — presentation replay and substitution
+### Ratified P-0003 profile — presentation replay and substitution
 
 **Threats:** replaying a captured signed request, substituting a Delegation or
 operation beneath a valid signature, reusing an idempotency key with different
@@ -181,7 +181,7 @@ denial blocks disclosure of an earlier successful result.
 
 **Controls:** immutable artifacts, algorithm-qualified digests, domain separation, DSSE typed envelope, in-toto subjects, explicit trust policy, independent golden-vector verification, retention controls.
 
-**Proposed P-0003 profile:** P-0006 portable verification receives the future
+**Ratified P-0003 profile:** P-0006 portable verification receives the future
 `AuthorityEvidenceBundleV1` and every required binding, `DelegationV2`,
 revocation, authenticated-command, and authorization-decision artifact. Trust
 comes from caller-supplied authority and
@@ -229,20 +229,20 @@ The conformance and red-team suite includes:
 - Multiple agents create cascading changes based on uncommitted assumptions.
 - Agent retries after a timeout with a new idempotency key.
 - Agent treats a cryptographically valid but untrusted Proof as authorized.
-- **Proposed P-0003 profile:** Agent presents another Principal's identifier with
+- **Ratified P-0003 profile:** Agent presents another Principal's identifier with
   its own credential, replays a consumed presentation, signs one operation and
   requests another, uses a disabled binding, or presents a parent/chain when
   only direct Human-to-Agent Delegation is supported.
-- **Proposed P-0003 profile:** Revocation and consequence execute concurrently;
+- **Ratified P-0003 profile:** Revocation and consequence execute concurrently;
   the authority-log/transaction ordering must make exactly one outcome valid.
-- **Proposed P-0003 profile:** Agent selects one authorized Edit from a
+- **Ratified P-0003 profile:** Agent selects one authorized Edit from a
   ChangeSet whose immutable intent contains an ungranted target; complete-intent
   projection must deny the operation rather than authorize only the immediate
   Edit or filter later reads.
-- **Proposed P-0003 profile:** Agent uses a released v2 query whose Object and
+- **Ratified P-0003 profile:** Agent uses a released v2 query whose Object and
   locale are granted but whose resolved current-Edition Schema is not; staged
   evaluation must deny before content or Schema identity is disclosed.
-- **Proposed P-0003 profile:** Agent substitutes a resource-intent digest,
+- **Ratified P-0003 profile:** Agent substitutes a resource-intent digest,
   ContextPack digest, ChangeSet, Edition, Release, or superseded v1 write
   operation after signing; registry, command, transitive-artifact, and selector
   bindings must fail closed.
@@ -262,7 +262,7 @@ A milestone cannot ship until:
 
 Detailed deployment threats for multi-region operation, tenant isolation, browser sessions, plugin sandboxing, and managed key custody are completed before their respective milestones. They are not assumed safe by this initial model.
 
-The **Proposed P-0003 profile** is intentionally local and Unix-qualified. It
+The **Ratified P-0003 profile** is intentionally local and Unix-qualified. It
 does not qualify Windows identity, enterprise OIDC/SPIFFE, remote attestation,
 managed KMS/HSM custody, server sessions, or multi-tenant authority storage.
 It also does not isolate mutually hostile processes under the same Unix UID;

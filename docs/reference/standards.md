@@ -55,8 +55,8 @@ The reconciled P-0003 candidate applies this exact pattern to both
 `DelegationV2.scope.locales` and
 `AuthorizationDecisionV2.requested_resources.locales`. Its vectors accept
 lowercase variants and literal aliases and reject mixed-case variants. The
-decision remains Proposed until project-owner acceptance, but there is no
-longer a grammar mismatch between the content and authority Schemas.
+decision is accepted, and there is no grammar mismatch between the content and
+authority Schemas.
 
 ## MCP version position
 
@@ -74,9 +74,9 @@ Proof will:
 
 This position supersedes [ADR-0008](../decisions/0008-mcp-adapter-version.md) through [ADR-0010](../decisions/0010-dual-era-mcp.md).
 
-## Proposed P-0003 profile — local Agent command authentication
+## Ratified P-0003 profile — local Agent command authentication
 
-Pending project-owner acceptance, local Agent proof of possession composes the
+Under the accepted profile, local Agent proof of possession composes the
 existing standards rather than introducing a bearer-token format. The exact
 profile is the [authenticated actor contract](../architecture/authenticated-actor.md):
 

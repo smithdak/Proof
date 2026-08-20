@@ -1,22 +1,22 @@
-# P-0003 reconciliation qualification receipt
+# P-0003 reconciliation decision and acceptance receipt
 
 ## Outcome
 
-P-0003 now has a qualified reconciliation candidate for project-owner review.
-The exact candidate is
+P-0003 produced a qualified reconciliation candidate and project owner
+`smithdak` accepted its bounded decision at `2026-08-20T19:52:12.756Z`. The
+exact substantive candidate is
 `38999d01fdce81015179da3162b90f6c382e3eba`, produced from claim commit
 `5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b` and clean `main` base
 `8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8`.
 
-The candidate reconciles the previously qualified authenticated-actor profile
+The accepted candidate reconciles the previously qualified authenticated-actor profile
 with P-0007's supported localized-content candidate
-`47153144b4b834cfffab61b328e4551f09fe50cb`. It remains a proposed decision:
-ADR-0011 is still Proposed, ratified C4 is unchanged, P-0004 remains blocked,
-and no authenticated Agent write path exists. Project-owner acceptance is the
-only remaining P-0003 acceptance criterion.
+`47153144b4b834cfffab61b328e4551f09fe50cb`. ADR-0011 and its exact C4
+replacement are ratified, P-0003 is `done`, and P-0004 is promoted to `ready`.
+No authenticated Agent operation is implemented by the acceptance transition.
 
-Nothing was pushed, tagged, released, deployed, or accepted. Live remote state
-was not queried.
+Nothing was pushed, tagged, released, deployed, or implemented by the
+acceptance transition. Live remote state was not queried.
 
 ## Revision and inventory
 
@@ -29,6 +29,9 @@ was not queried.
 | Claim commit | `5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b` |
 | Reconciliation candidate | `38999d01fdce81015179da3162b90f6c382e3eba` |
 | Candidate parent | `5d8ac4f4e386f8313e9256da4fbeef0143e1fa9b` |
+| Acceptance base | `2d6f87301e75031f5c6f43e90dea525b27f167cf` |
+| Accepted by | `smithdak` |
+| Accepted at | `2026-08-20T19:52:12.756Z` |
 | Candidate delta | 23 paths; 1,690 insertions; 148 deletions |
 | Qualified at | `2026-08-20T19:39:00.6713118Z` |
 
@@ -101,8 +104,8 @@ then proves:
 - rejected cases for each missing localized grant axis and a superseded v1
   write pair.
 
-Confidence is **high** that the candidate is decision-complete for its bounded
-local profile. Evidence that would reverse that judgment is a required
+Confidence is **high** that the accepted decision is complete for its bounded
+local profile. A future requirement that would reopen that judgment is a required
 localized grant dimension not expressible by the five axes, an Agent-mutable
 resource intent, a P-0007 operation/input mismatch, or a Milestone 2 requirement
 for hostile same-UID containment or Agent-to-Agent delegation.

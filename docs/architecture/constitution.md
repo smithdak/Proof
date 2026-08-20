@@ -21,18 +21,23 @@ A ChangeSet MUST identify its declared intent and expected base state. An operat
 
 ### C4. Retries are safe
 
-Every consequential application operation MUST accept or derive an idempotency key. Repeating a completed request with the same key and equivalent input MUST return the original result without duplicating effects. Reusing a key with different input MUST fail.
-
-> **Proposed P-0003 constitutional replacement — not ratified:**
-> [ADR-0011](../decisions/0011-local-agent-command-authentication.md) proposes
-> making current authentication and authorization a precondition to result
-> replay, with the stable requester, operator, direct Delegation, Workspace,
-> operation/version, and normalized input forming semantic equivalence while a
-> fresh presentation or rotated same-Principal binding does not. Per-attempt
-> authentication evidence is not a duplicate governed effect. A revoked actor
-> would be denied the prior result without duplicating or changing the completed
-> effect. The existing C4 above remains normative until explicit project-owner
-> acceptance.
+Every governed consequential application operation MUST accept or derive an
+idempotency key. After the retry independently authenticates its Principal and
+satisfies current authorization, repeating a completed request with the same
+key and the same Workspace, operation/version, normalized input, derived
+requesting Principal, derived operating Principal, and direct Delegation MUST
+return the original result without duplicating the governed effect. A changed
+member of that semantic tuple under the key MUST fail. Authentication
+presentation identity, signature, time, and binding instance are excluded from
+equivalence so a fresh presentation or same-Principal key rotation can retry.
+Failed current authentication or authorization MUST deny disclosure of the
+original result without changing or duplicating the completed effect. An
+idempotency record is not a bearer capability. Single-use presentation
+consumption and its authorization decision are distinct bounded security
+evidence for each authenticated attempt, not duplicate governed effects; an
+otherwise read-only operation MAY use a null application idempotency key and
+return a newly authorized current result while mutating no governed content or
+projection. See [ADR-0011](../decisions/0011-local-agent-command-authentication.md).
 
 ## Authority invariants
 
