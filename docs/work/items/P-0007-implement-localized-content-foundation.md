@@ -1,7 +1,7 @@
 ---
 id: P-0007
 title: Implement the localized content foundation
-status: review
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0002]
@@ -166,6 +166,14 @@ Engineering qualified exact candidate
 and GitHub Actions run `32380862459` completed every required step successfully
 at the same SHA. The receipt, manifest, portable Git-blob inventory, and
 traceability table bind that candidate and move the item to `review`.
+
+Proof Assurance reviewed that exact candidate at
+`2026-08-20T15:24:51.377Z` and recorded an `unsupported` verdict. G4 reproduced
+a v2 Release predecessor cycle that stack-aborted the public verifier before
+its chronology guard, and G11 reproduced an exact ChangeSet-create replay that
+returned the later committed aggregate instead of the original empty draft.
+The item therefore returned to `claimed` for Engineering repair; the c4
+qualification and its evidence remain historical records and are not relabeled.
 
 The item is not accepted or done until `proof-assurance` records a supported
 independent G1-G14 verdict. An unsupported or indeterminate row returns the
