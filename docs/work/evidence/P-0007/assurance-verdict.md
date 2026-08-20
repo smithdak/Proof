@@ -1,189 +1,307 @@
 ---
 item_id: P-0007
 review_gate: proof-assurance
-verdict: unsupported
-candidate_sha: c4b312d6f493936e15c2cc658277953ea18777f7
-engineering_evidence_commit: 404d427670177f40570916dfa7d32aaae18926a4
+verdict: supported
+candidate_sha: 47153144b4b834cfffab61b328e4551f09fe50cb
+engineering_evidence_commit: 8308ebfb9090270982fcfb06c8247ab423fcb51d
 reviewed_by: proof-assurance
-reviewed_at: 2026-08-20T15:24:51.377Z
+reviewed_at: 2026-08-20T18:40:20.012Z
 ---
 
-# P-0007 Assurance verdict
+# P-0007 independent Assurance verdict
 
 ## Verdict
 
-The bounded P-0007 claim is **unsupported** at candidate
-`c4b312d6f493936e15c2cc658277953ea18777f7`. G4 and G11 each produced
-reproducible, candidate-attributable contrary evidence on the exact candidate.
-One unsupported row is dispositive under the ratified gate; the passing rows
-cannot average either failure away.
+`supported` for the bounded P-0007 claim at exact candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb` in the tested environments. Every
+entry condition and G1-G14 row passed after Engineering evidence commit
+`8308ebfb9090270982fcfb06c8247ab423fcb51d` entered the candidate into review.
 
-This verdict records the failed candidate before Engineering attempts a new
-candidate. It does not relabel historical candidate
-`fede487547c3e2bb27f5cb8fb168f5b5312a5f23`, which remains independently
-unsupported.
+This verdict does not relabel historical unsupported candidates
+`fede487547c3e2bb27f5cb8fb168f5b5312a5f23` or
+`c4b312d6f493936e15c2cc658277953ea18777f7`. Their findings remain historical
+evidence. Candidate `4715314...` was reviewed as a new immutable candidate.
 
-## Bound claim and execution context
+The supported claim is only:
+
+> P-0007 satisfies its authorized scope and acceptance criteria at candidate
+> `47153144b4b834cfffab61b328e4551f09fe50cb` in the tested environments.
+
+It grants no tag, release, deployment, production, customer, translation
+quality, legal, cultural, delegated Agent-authority, or general Windows-runtime
+claim.
+
+## Bound revision and evidence packet
 
 | Field | Exact value |
 | --- | --- |
-| Claim | P-0007 satisfies its authorized localized-content scope and all acceptance criteria at the named SHA |
-| Candidate | `c4b312d6f493936e15c2cc658277953ea18777f7` |
-| Candidate parent | `2c4335c6ba307523ecbc6965adfeeddc4dcca9f9` |
 | Original P-0007 base | `a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566` |
 | Engineering revalidation base | `a95ee484b7038358c0d4e30167862dbed85728c0` |
-| Engineering evidence commit | `404d427670177f40570916dfa7d32aaae18926a4` |
-| Engineering branch | `proof-engineering/p-0007-finalization` |
+| Candidate parent | `cc6f8777dbbec5af819b670662757fda2ae6d191` |
+| Candidate | `47153144b4b834cfffab61b328e4551f09fe50cb` |
+| Engineering evidence commit | `8308ebfb9090270982fcfb06c8247ab423fcb51d` |
+| Branch | `proof-engineering/p-0007-finalization` |
 | Temporary CI ref | `refs/heads/proof-assurance/p-0007-candidate` |
-| Exact detached checkout | `D:\github\Proof\target\assurance-p0007-c4b312d` |
-| Linux environment | Ubuntu 24.04.4 LTS under WSL2; kernel `5.15.167.4-microsoft-standard-WSL2`; Rust/Cargo 1.97.1; Node v22.23.1 |
-| GitHub runner | `ubuntu-24.04` |
+| Exact-candidate checkout | `D:\github\Proof\target\assurance-p0007-4715314` |
+| GitHub Actions run | [`32391142771`](https://github.com/smithdak/Proof/actions/runs/32391142771) |
+| GitHub Actions job | [`96497271205`](https://github.com/smithdak/Proof/actions/runs/32391142771/job/96497271205) |
+| Review completed | `2026-08-20T18:40:20.012Z` |
 
-The detached candidate and evidence worktrees were clean. Assurance executed
-the post-entry checks only after independently matching the candidate, packet,
-and evidence-control topology.
+The evidence commit is the candidate's direct child. Its delta is exactly these
+six record paths:
 
-## Engineering packet and exact-SHA CI
+- `docs/work/evidence/P-0007/candidate-paths.sha256`;
+- `docs/work/evidence/P-0007/manifest.json`;
+- `docs/work/evidence/P-0007/receipt.md`;
+- `docs/work/evidence/P-0007/traceability.md`;
+- `docs/work/items/P-0007-implement-localized-content-foundation.md`; and
+- `docs/work/map.md`.
 
-Evidence commit `404d427...` is a direct child of the candidate and changes
-exactly the four P-0007 packet files plus the authorized item/map review-state
-pair. Independent packet validation matched 34 of 34 candidate-path Git-blob
-hashes, 18 of 18 manifest artifact hashes, all ten candidate-parent delta
-paths, and the reported `4091` insertions / `273` deletions.
+The evidence packet Git-blob SHA-256 values at `8308ebf...` are:
 
-| Packet artifact | SHA-256 over Git blob bytes |
+| Path | SHA-256 |
 | --- | --- |
-| `receipt.md` | `2d9a559a3ce96322de55841ccc7cebedc37ca10dff6b9d5b8076fa6bfabafba6` |
-| `manifest.json` | `f264d6ac7d0d7d550a30ca1126d46a9611bbe59a55e1e05cfa4c5ad7cc9ffe86` |
-| `traceability.md` | `59bf2393be5e24588bb5400c0d62aa572992600398ad8165fd20cd95870e9f7c` |
-| `candidate-paths.sha256` | `daba75185c41c346da5acaecde9eecbc458807140582d5f13b0f2cabc4ad2f52` |
+| `receipt.md` | `f58f32623658ccbab99b5ae47ecd1f0a9576e2269fcf00d7f2afbb9be38cfd88` |
+| `manifest.json` | `d691bbb553e209c979e936463ab54f0c2eb804221335c0e3d67f7e0eeab32f88` |
+| `traceability.md` | `71bf2235b5dbd97abb1162b8c662f204b56696cfe7a73fc5843fc95fa83ccd79` |
+| `candidate-paths.sha256` | `6cb81e087ac57db4edbd94c33813c69f5d1f38cd9dd25594da05a0623345d7a3` |
 
-GitHub Actions run
-[`32380862459`](https://github.com/smithdak/Proof/actions/runs/32380862459),
-job
-[`96463454459`](https://github.com/smithdak/Proof/actions/runs/32380862459/job/96463454459),
-completed successfully at exact head SHA `c4b312d...` on
-2026-08-20T14:36:06Z. All nine required steps succeeded. That supports G1; it
-does not rebut path-specific contrary evidence found after entry.
+Assurance recomputed the 35-path original-base inventory from Git objects:
+`35/35` paths and hashes matched. All `18/18` manifest artifact digests matched
+candidate Git blobs. The candidate-parent delta is exactly two paths, 419
+insertions and 18 deletions. Candidate, evidence, and historical worktrees were
+clean at their stated revisions.
 
-## G1-G14 results
+## Environments and quality gate
 
-| Gate | Verdict | Direct evidence |
+- Ubuntu 24.04.4 LTS under WSL2 kernel
+  `5.15.167.4-microsoft-standard-WSL2`;
+- GitHub-hosted `ubuntu-24.04`;
+- `rustc 1.97.1 (8bab26f4f 2026-07-14)`;
+- `cargo 1.97.1 (c980f4866 2026-06-30)`;
+- Node `v22.23.1`; and
+- Windows Git `2.43.0.windows.1` for topology and binary-safe Git-object
+  reconciliation.
+
+The exact-candidate local quality gate passed formatting, strict
+workspace/all-target/all-feature Clippy, 353 Rust tests, documentation tests,
+159 documentation links, and seven work-control records. The 353 tests were 5
+application, 11 attestation, 14 canonical, 1 architecture, 28 CLI, 14 domain,
+126 local integration, 1 localized conformance, 133 G10/G13 integration-binary,
+3 G6/G7/G9 retained, 9 MCP unit, and 8 MCP protocol tests.
+
+GitHub Actions checked out exact candidate `4715314...`; run `32391142771`, job
+`96497271205`, completed at `2026-08-20T16:19:35Z`. Setup, checkout, pinned
+toolchain installation and verification, formatting, Clippy, all tests,
+documentation tests, documentation links, work-control validation, checkout
+cleanup, and job completion all concluded `success`.
+
+For the evidence/control-plane bytes, `git diff --check`, 159-link validation,
+seven-item work-control validation, and `markdownlint-cli2 0.23.2` over 52
+Markdown files all passed; Markdown lint reported zero issues.
+
+## G1-G14 disposition
+
+| Gate | Verdict | Independent and retained evidence |
 | --- | --- | --- |
-| G1 | supported | Exact-candidate local gate: formatting, strict workspace/all-target/all-feature Clippy, 345 Rust tests, doc tests, 159 links, and seven work items; exact-SHA GitHub run `32380862459` passed. |
-| G2 | supported | `localized_conformance_schemas_and_golden_artifacts_are_closed`; `localized_portable_artifacts_and_operation_instances_are_closed`; independent Draft 2020-12 validation plus RFC 8785/BLAKE3 recomputation matched 12 of 12 artifacts, rejected 12 substituted expected digests, and rejected widened/wrong-version Schema instances. |
-| G3 | supported | Exact-candidate `localized_` focused run passed 7/7. Resource-operation, Context-operation, and Context-reconstruction matrices produced 128 expected failures, 19 exact-equality checks, and unchanged 13-table snapshots across missing, duplicate, substituted, key-only, digest, cross-link, resource-byte, manifest, row-metadata, and policy mutations. |
-| G4 | **unsupported** | The public localized Release verifier stack-aborted on a self-referential v2 predecessor instead of returning a typed Integrity Problem. Eight preceding malformed-record cases rejected without changing the 23-table snapshot. Mechanism is `verify_localized_release` -> `load_localized_release` -> `load_release_selection` -> `verify_v2_release_record` -> `load_localized_release`; the sequence/environment guard occurs only after recursion at `crates/proof-local/src/localized.rs:7612-7619`. |
-| G5 | supported | Exact ContextPack closure reconstruction, historical query, `max_bytes`, key-only, cross-link, missing/duplicate, exact-locale, and absent-locale cases passed. The independent lifecycle used exact `es-ES`/`fr-FR` targets and rejected `de-DE` without fallback. |
-| G6 | supported | Independent application and Human CLI lifecycles reproduced two locale targets, three retained edits, two effective heads, two validation attempts, two committed renditions, signed Release verification, and exact query results. The external CLI transcript completed 48 commands: 31 successes and 17 expected Problems. |
-| G7 | supported | `p0007_g7_separate_context_edit_and_validation_budgets_are_atomic` and `p0007_g7_raw_lineage_deletion_reorder_substitution_and_cycle_are_detected_read_only` passed. Object/byte/Edit/validation limits and deletion/reorder/substitution/cycle mutations returned stable errors with identical before/after domain-separated BLAKE3 snapshots. |
-| G8 | supported | Independent exact-delta/pointer reconstruction passed. Missing target, extra same-scope row, wrong ChangeSet, ambient state change, and moved pointer all denied before Release attribution; Release tables and pointer snapshots were unchanged. Exact post-entry delta was `blake3:92ef0293479a2dcb303ca262669ad8be15d5a3d50c00ba0dd9e6ec998999a022`. |
-| G9 | supported | Every source storage version v1-v10 rolled back after an injected migration failure, retained the legacy fingerprint, and converged on one retry to `11/11/11` with zero localized rows and one v1 Known-State artifact. Migration-history BLAKE3: `a5646ff029c832c071d24a76aadbffa564578ef4460072e95dd4cd1f97d2e166`. |
-| G10 | supported | Four retained `p0007_assurance_g10_*` cases independently reconstructed locale revisions, Known State, and Environment pointer; repeated dry runs were deterministic/no-write, derived repair converged, and authoritative tamper failed closed. |
-| G11 | **unsupported** | After create/add/validate/submit/approve/commit, an exact replay of the original `CreateLocalizedChangeSetCommand` returned the current committed aggregate, not the original empty draft required by the operation Schema and G11. Before/after logical-state BLAKE3 remained equal at `943c637ea686ce62eb463f3f338a87894c596a5ab1fb1af923e028660f23afb5`, so denial atomicity held but result equality failed. Source mechanism: replay loads and returns the mutable aggregate at `crates/proof-local/src/localized.rs:3222-3244`; the creation effect hard-codes draft while omitting mutable fields at `3328-3345`. |
-| G12 | supported | Independent enumeration invoked all 17 localized trait surfaces through an Agent-mapped bootstrap identity; every surface failed closed before domain action and the logical snapshot remained `0db8c0c9b6b1356132916fa79cc61c6e6a99cadeb84c462ace0bdab3b00f54fa`. Disabled-Human issuance also failed closed with snapshot `731aca643f61a3d484db40fead56d3bcb9387a65438d2389153f6932d9d054d7`. No delegated mutation interface exists in P-0007. |
-| G13 | supported | Three retained cases covered pre-write SQLite abort, mid-transaction abort after prior derived writes, and post-commit Release-proof export/replay recovery. Each rollback or retry converged exactly once. Scope is SQLite transaction/export failure, not power loss or SIGKILL. |
-| G14 | supported | Independent Git-object reconciliation matched 34/34 candidate paths and the six-path evidence delta, found zero credential-shaped content, and confirmed no runtime database/key path or unrelated candidate-parent path. Checkout-materialization CRLF differences were excluded by the explicit Git-blob byte domain. |
+| G1 | `supported` | Exact candidate passed the complete pinned local Linux gate and exact-SHA GitHub job; the six-path evidence delta passed all record checks. |
+| G2 | `supported` | Two Schemas, 14 artifact instances/branches, 11 operation contracts, and 22 operation members validated independently. Twelve canonical artifact digests were independently reconstructed; version and substituted-digest challenges diverged in all 12 cases. |
+| G3 | `supported` | Eleven focused local-adapter cases exercised operation/effect uniqueness, reconstructed authority, cross-links, incomplete records, and direct-read parity with no read repair. |
+| G4 | `supported` | Four integration tests passed. The external verifier matrix completed all nine focused cases with typed rejection and unchanged snapshots; the former ancestry-cycle process abort did not recur. |
+| G5 | `supported` | The 11-case localized subset and one exact immutable-history/query case passed; complete request closure and exact-locale behavior matched independently derived application/CLI results. |
+| G6 | `supported` | The Human CLI transcript completed 48 commands: 31 success and 17 expected Problems. Application parity performed six reads, matched four load-bearing digests, returned two exact renditions, and verified the Release with zero findings. |
+| G7 | `supported` | Three retained G7/G9 tests passed. Separate Context object/byte, Edit, and validation budgets were atomic; deletion, reorder, substitution, and cycle lineage cases returned stable Problems without changing the challenged state. |
+| G8 | `supported` | Five pre-promotion causality scenarios preserved paired Release-table and pointer hashes. All 13 digest-graph checks were true; no scenario attributed a Release or moved the pointer. |
+| G9 | `supported` | Every source storage version v1-v10 preserved its source state after an injected migration failure, then converged to `11/11/11` on one retry with zero localized rows and stable legacy hashes. |
+| G10 | `supported` | Seven combined G10/G13 tests passed; all three localized derived families rebuilt independently, repeated dry-runs were stable/no-write, and authoritative-history challenges failed closed. |
+| G11 | `supported` | Three retained/external replay checks passed. Pointer-advanced replay returned originals; exact ChangeSet-create replay after commit returned the original empty Draft and identical before/after logical-state hashes. |
+| G12 | `supported` | The independent all-surface test covered all 17 localized repository surfaces through non-Human and disabled-Human identities; every call failed before domain action and both logical snapshots stayed unchanged. No delegated authority is claimed. |
+| G13 | `supported` | Pre-write, mid-transaction-after-prior-writes, and post-commit/pre-export cases followed the documented atomic/durable rule and converged once on retry. No power-loss claim is made. |
+| G14 | `supported` | Candidate inventory `35/35`, artifact digests `18/18`, exact two-path candidate delta, exact six-path evidence delta, clean checkouts, packet hashes, scope reconciliation, and credential/personal-path scan all matched. |
 
-## Commands and quantitative results
+## Canonical and Schema reconstruction
 
-The load-bearing commands completed as follows:
-
-```text
-cargo fmt --all -- --check
-  exit 0
-cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-  exit 0
-cargo test --locked --workspace --all-targets --all-features
-  exit 0; 345 passed, 0 failed, 0 ignored
-cargo test --locked --doc --workspace --all-features
-  exit 0; six crate targets, 0 failures
-node scripts/check-doc-links.mjs
-  exit 0; 159 links
-node scripts/check-work-items.mjs
-  exit 0; seven items
-npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2
-  exit 0; 51 files, 0 issues
-cargo test --locked -p proof-local --test initialize localized_ -- --nocapture
-  exit 0; 7 passed, 0 failed
-```
-
-The disposable exact-candidate G4 harness invoked:
+The independent Schema harness reported:
 
 ```text
-CARGO_TARGET_DIR=.../g4-target CARGO_NET_OFFLINE=true TMPDIR=/tmp \
-cargo test --offline --manifest-path .../g4-harness/Cargo.toml \
-assurance_g4_localized_verifier_rejects_mutations_without_read_repair \
--- --exact --nocapture
+schema_meta_valid=2
+artifact_instances_valid=14
+artifact_branches_covered=14
+artifact_wrong_version_rejected=14
+artifact_widened_rejected=14
+operation_contracts_unique=11
+operation_members_valid=22
+operation_members_widened_rejected=22
+operation_wrong_version_rejected=11
 ```
 
-The first eight mutations returned errors and unchanged snapshots. The ninth
-set both `releases.previous_release_id` and
-`localized_release_metadata.base_release_id` to the subject Release. The test
-process terminated with `stack overflow`, signal 6 (`SIGABRT`). The transient
-harness source SHA-256 was
-`445419de61c7cf95370104cf939d1471cbbf4b6710a528080684cca11ebbd5d8`.
+JSON Schema is the syntactic layer: it accepts format-valid digest replacement
+and one semantically ordered-array reorder. The independent canonical layer
+recomputed RFC 8785 bytes with artifact-specific BLAKE3 contexts, compared the
+computed digest to the supplied expectation, and rejected substituted
+expectations. All 12 version changes changed the digest. Stable digests were:
 
-The exact-candidate G11 harness invoked:
+| Artifact | BLAKE3 digest |
+| --- | --- |
+| `ContentResourceIntentV1` | `77af41be20404fcc7b90b0b230197f6a3a8ae1610dd8299fc776d58fb5593a6c` |
+| `PolicyBundleV1` | `048bbbdd221157876a9a512b4826eac8ee9d89c120ba2e1297f79edc3e21b812` |
+| `ContextPackV2` | `b1e223666200760fe60eb28128ba79a5989132e9d47c0209961feb6cf1dbad17` |
+| `EditV2` | `9704874cf53605356343835655bcd68f35ea502d05931c8f9fb943eb50b26c9a` |
+| `EditBatchV2` | `23b627fc1d93121f393f6902626e71f0269bf5c6692928cf442d42be554b1203` |
+| `ChangeSetV2` | `1a0e8a2c33f382c0bec575052f2ee56826d36daa72929261e0d2bb3f781deb91` |
+| `ValidationResultsV2` | `1ce591d36859c933fd65708875ec37553a94c3232dc9df7fb01363c44faa0378` |
+| `ObjectLocaleRevisionV1` | `292bab632a1a7215ff0ca5e4423dbe39b00032af3e3edfd9dc8b7a8cd2eee449` |
+| `ObjectSetV2` | `7af57fbd475ec2c401055e1d9d182c46d76ecc5aa091d423199ce4af70f92cd9` |
+| `KnownStateV2` | `818fe03b3a279e17f798c3c3fcdaf1a30a96c7a3b3128a17187feec3c6f253ee` |
+| `EditionV2` | `cdd3346f8697a380554ab4bf37fb6969cf24bd9effd9df6c94c144d527736a47` |
+| `ReleaseV2` | `80dde63545c7185a6243f9d531025f2186d326e44d5a47b4735841b8ae96713c` |
 
-```text
-TMPDIR=/tmp CARGO_TARGET_DIR=.../assurance-g10-g14-c4b \
-cargo test --locked --offline \
-assurance_g11_create_replay_returns_mutated_aggregate_after_commit \
--- --nocapture --test-threads=1
-```
+Restricted locale syntax/casing, literal alias behavior, pointer order and
+escaping, overlap, array traversal, missing paths, non-string leaves, and
+changes outside declared pointers remain covered by the exact candidate's
+canonical and localized conformance suites.
 
-The defect-asserting test passed 1/1 and reported original `draft`, zero edits,
-null proposal/seal versus replayed `committed`, one edit, proposal
-`blake3:86142afb3ed1cadc6166b65296a17998717baaaa97031c30931d309c559eec62`,
-and seal
-`blake3:d75916857fec1105034b03bf8383812e60e37b2500fb7c44c156be8dfd7c0d42`.
-Its containing transient harness source SHA-256 was
-`102676368bdf963b2d35eb8fa58ed280083f57094ead54671683809bab929e9d`.
+## Direct reads, ContextPack, and verifier evidence
 
-## Supporting evidence, contrary evidence, and exclusions
+The post-entry exact-candidate localized subset passed `11/11`; the independent
+immutable-history/query test passed `1/1`. The matrices cover resource-intent
+and Context operation uniqueness/effects, reconstructed ContextPack policy and
+resource closure, fixed object/byte limits, Edit-through-Release ancestry,
+missing or duplicate operation evidence, key-only changes, row swaps,
+cross-links, wrong target/locale/casing, stale source, unrelated scope, absent
+locale, and v1/v2 history. Read attempts returned stable domain Problems and
+did not repair governed records.
 
-Supporting evidence is substantial: the complete quality gate, independent
-canonical recomputation, full Human application/CLI lifecycle, budget and raw
-lineage matrices, exact delta/pointer denials, every-version migration
-rollback/retry, independent derived-family rebuild, Human-only authentication,
-SQLite recovery, and complete Git-object provenance all passed.
+The external Release verifier matrix passed these nine cases, each with typed
+rejection and an unchanged 23-table logical snapshot:
 
-Contrary evidence is nonetheless decisive:
+1. proof-envelope bytes;
+2. matching but incorrect Release delta and digest;
+3. incomplete metadata ancestry;
+4. wrong proof subject statement;
+5. unsupported proof version;
+6. stale signing time;
+7. mismatched Edition reference;
+8. key-only operation-record change; and
+9. a one-node v2 predecessor cycle.
 
-1. a persisted v2 Release predecessor cycle terminates the verifier process
-   before its existing chronology guard can run; and
-2. exact ChangeSet-create replay returns later mutable state rather than the
-   original operation result.
+The retained candidate tests additionally cover self-v2 rollback-target,
+self-v2 predecessor, and two-node-v2 predecessor cycles plus a valid mixed
+v1/v2 promotion/rollback chain. Invalid references are rejected before
+recursive loading; no stack overflow, signal, or process abort occurred in the
+post-entry run. The external G4 log SHA-256 is
+`579ea1620d18e654cee79a1942f28c34692aaa1c80445064ffc257d9ffb13770`.
 
-No Windows product-runtime claim, non-SQLite adapter, network/provider path,
-SIGKILL or power-loss durability, delegated Agent authority, locale deletion,
-fallback, relationship traversal, or production/customer surface was
-exercised or inferred. Repeating six human CLI commands with the same visible
-flags also regenerates request-bound IDs/timestamps; this is a CLI retry
-usability residual and is not represented as exact normalized-input replay.
+## Human lifecycle, causality, and application parity
 
-## Falsification posture
+The exact-candidate CLI transcript exercised two target locales, three retained
+Edits, two effective heads, two validation attempts, two committed renditions,
+two exact queried renditions, rollback to v1, and restoration to the exact v2
+Release. It completed 48 commands: 31 successful operations and 17 expected
+Problem envelopes. The exact-delta SHA-256 was
+`2e98b8d757cba17723fe1ef31f7123e01eec46437988914a9674837379eaec8d`.
 
-The strongest counterargument is that operation-created Releases cannot form
-the invalid graph and that ChangeSet creation may reasonably return the
-resource's current representation. It is rejected. G4 explicitly requires a
-fork/cycle verifier challenge, and a public verifier must fail closed on
-invalid persisted ancestry rather than abort. G11 explicitly requires the
-original result after lifecycle movement, while the ratified create-output
-Schema fixes status to `draft`.
+The independent application adapter performed six reads. Intent, ContextPack,
+proposal, and effective-leaf digests matched the CLI values exactly; the
+Release verified with zero findings. Five independently prepared G8 scenarios
+preserved paired pre/post Release-table and Environment-pointer hashes. All 13
+digest-graph checks were true.
 
-The crux is integrity parity on externally reachable reads and replays. Either
-one of these paths behaving differently from its ratified contract invalidates
-the bounded claim.
+Execution artifact SHA-256 values were:
 
-Observable falsifiers are exact-candidate reruns in which the same cyclic
-Release returns a typed Integrity Problem without process termination and the
-same post-commit create replay equals the original empty draft without a write.
-Candidate c4 does neither. **Confidence: high**; both full call paths were
-located and both failures were dynamically reproduced against exact c4 with
-no compensating control.
+| Artifact | SHA-256 |
+| --- | --- |
+| CLI summary | `a979a9b76f8d85827ddfd5fb17bb9ee001563536735c21f7dde6194e0400a3ec` |
+| CLI transcript | `a5734f7ff453dd4e30100b881c6494543c47aca597aca4429419f2c58cfa31e7` |
+| Application parity | `3dce924d94af9403d8e07c49b1de413578ed0043866a16ae2119dc8fde970eb8` |
 
-This verdict applies only to bounded P-0007 at the named SHA. It grants no tag,
-release, deployment, production, delegated-authority, customer, or commercial
-claim.
+G11's exact external create replay returned `draft`, zero Edits, no proposal,
+and no seal both originally and after the ChangeSet had advanced through
+commit. Its logical state was
+`b98fa21ae40cea68c08b6afc748179b2b1fdbb4a382b420d61a02b86526f33ce`
+before and after replay. The log SHA-256 was
+`e24c72e816bf955f5c17be9f66d96a96bea8ceb9e75635195b42df63c49b8c03`.
+
+## Budgets, lineage, migration, rebuild, and recovery
+
+The retained G7/G9 binary passed `3/3`. Context object/byte, Edit-attempt, and
+validation-attempt limits each returned the required stable Problem with
+identical before/after domain-separated BLAKE3 state fingerprints. The four
+lineage-order cases changed the challenged input fingerprint, returned an
+integrity Problem on read, and left that challenged fingerprint unchanged.
+
+Each storage source v1-v10 preserved source `user_version`, Schema, migration
+history, and legacy fingerprint after its failure point. One retry reached
+`11/11/11`, retained zero localized rows and one v1 Known State artifact, and a
+second retry was stable. The migration-history BLAKE3 was
+`a5646ff029c832c071d24a76aadbffa564578ef4460072e95dd4cd1f97d2e166`.
+The G7/G9 execution log SHA-256 was
+`341620dbd7fcbda2a989d28d14b12d9113425d0f8fa7e1ad8ec3f0ee03a41541`.
+
+The combined G10/G13 binary passed `7/7`. Locale revision, Known State, and
+Environment-pointer projections were checked independently. Repeated dry-runs
+were equal and no-write; repair reproduced the independently expected rows and
+the second dry-run reported no drift. Authoritative-history cases failed closed
+without rewriting it. Pre-write and mid-transaction faults rolled back; the
+post-commit/pre-export case retained durable evidence and replay materialized
+the export exactly once. The execution log SHA-256 was
+`5839a2fea5a0d077e61404fb7647e60815661c27eb9dc288cc7e2cdbdce2da8e`.
+
+G12's all-surface run retained state hashes
+`0db8c0c9b6b1356132916fa79cc61c6e6a99cadeb84c462ace0bdab3b00f54fa`
+and `731aca643f61a3d484db40fead56d3bcb9387a65438d2389153f6932d9d054d7`
+for the non-Human and disabled-Human scenarios respectively. The log SHA-256
+was `131bfbe3fafb1e2385e98a86e82f4a33ef920fbc7a7bc38580bd46b1e124e8cb`.
+
+## Contrary evidence, residuals, and falsifier
+
+The strongest counterargument is that retained tests and implementation can
+share the same mistaken helper, so a fully green candidate suite may still be
+circular evidence. Assurance rejected that shortcut: it independently
+validated Schemas and canonical digests, reconstructed application/CLI digest
+parity, exercised the public Release verifier through a disposable harness,
+checked ChangeSet replay through an external harness, compared direct logical
+state hashes, and reconciled Git objects rather than checkout bytes. This
+independent layer is what changes the result from Engineering qualification to
+a supportable verdict.
+
+No candidate-attributable contrary evidence remained after entry. The two
+previous candidate findings were specifically re-exercised: the former Release
+cycle now returns a typed error without process termination, and exact
+ChangeSet-create replay now returns the original immutable result without a
+write.
+
+Residual boundaries remain:
+
+- The local SQLite store has no external cryptographic anchor for a wholly
+  self-consistent rewrite of every unsigned row and dependent digest. Partial,
+  key-only, swapped, missing, cross-linked, and changed-effect cases are covered;
+  total database forgery is not.
+- G11 covers identical normalized typed application inputs. Six Human CLI
+  operations and Edition creation generate required identities or times that
+  are not repeatable from the same visible flags. Same-visible-command CLI
+  retry is a UX/API residual and is not claimed.
+- Valid v2 Release history remains recursive after the strict-decrease guard.
+  The bounded lifecycle and cycle cases are supported; higher-cardinality
+  acyclic history has no depth/stack-safety claim and remains outside P-0007.
+- The G13 mid-transaction case proves SQLite transactional atomicity after
+  earlier writes. It is not a power-loss, kernel-kill, or storage-controller
+  qualification.
+- Linux is the qualified runtime identity surface. Windows compilation passed
+  strict all-target Clippy, but live Windows identity execution was not run.
+- The Human path is supported. No Agent credential, DelegationV2 decision, or
+  P-0004/P-0005 delegated mutation authority is implemented or inferred.
+
+Observable falsifier: any exact-`4715314...` reproduction that returns success
+for an invalid authoritative record, changes governed state on a denial/read,
+diverges on identical typed-operation replay, moves a pointer before complete
+Release attribution, changes a legacy fingerprint, fabricates localized rows,
+fails a required pinned quality step, or contradicts the 35-path Git-object
+inventory changes this verdict to `unsupported`. Evidence unavailability or
+conflict changes it to `indeterminate`.
+
+Confidence is high. The load-bearing basis is exact-SHA local and remote
+quality success, post-entry independent execution of every G1-G14 row, direct
+closure of both historical defects, unchanged-state proofs, and exact Git
+provenance. The confidence does not extend beyond the residual boundaries
+listed above.
