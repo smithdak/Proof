@@ -3,20 +3,24 @@
   "item_id": "P-0007",
   "base_sha": "a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566",
   "engineering_revalidation_base_sha": "a95ee484b7038358c0d4e30167862dbed85728c0",
-  "historical_unsupported_candidate_sha": "fede487547c3e2bb27f5cb8fb168f5b5312a5f23",
-  "candidate_parent_sha": "2c4335c6ba307523ecbc6965adfeeddc4dcca9f9",
-  "item_work_commit": "c4b312d6f493936e15c2cc658277953ea18777f7",
+  "historical_unsupported_candidate_shas": [
+    "fede487547c3e2bb27f5cb8fb168f5b5312a5f23",
+    "c4b312d6f493936e15c2cc658277953ea18777f7"
+  ],
+  "candidate_parent_sha": "cc6f8777dbbec5af819b670662757fda2ae6d191",
+  "item_work_commit": "47153144b4b834cfffab61b328e4551f09fe50cb",
   "branch": "proof-engineering/p-0007-finalization",
   "temporary_ci_ref": "refs/heads/proof-assurance/p-0007-candidate",
-  "engineering_evidence_commit_identity": "the Git commit containing this manifest; bound by assurance-verdict.md",
-  "qualified_at": "2026-08-20T14:40:59.249Z",
+  "engineering_evidence_commit_identity": "the Git commit containing this manifest; not self-referenced and not bound by the historical c4b312d Assurance verdict",
+  "qualified_at": "2026-08-20T16:19:35Z",
   "inventory": {
     "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
-    "candidate_paths_from_original_base": 34,
-    "candidate_paths_from_parent": 10,
-    "candidate_parent_insertions": 4091,
-    "candidate_parent_deletions": 273,
-    "test_only_dependency_packages_added": [
+    "candidate_paths_from_original_base": 35,
+    "candidate_paths_from_parent": 2,
+    "candidate_parent_insertions": 419,
+    "candidate_parent_deletions": 18,
+    "test_only_dependency_packages_added": [],
+    "inherited_test_only_dependency_packages_from_original_base": [
       "blake3",
       "serde_json_canonicalizer"
     ],
@@ -24,16 +28,8 @@
     "unrelated_paths": [],
     "hash_inventory": "docs/work/evidence/P-0007/candidate-paths.sha256",
     "candidate_parent_paths": [
-      "Cargo.lock",
-      "conformance/v2/localized-content/schemas/operations.schema.json",
-      "conformance/v2/localized-content/vectors/operation-instances.valid.json",
-      "conformance/v2/localized-content/vectors/portable-artifacts.valid.json",
-      "crates/proof-local/Cargo.toml",
       "crates/proof-local/src/localized.rs",
-      "crates/proof-local/tests/initialize.rs",
-      "crates/proof-local/tests/localized_conformance.rs",
-      "crates/proof-local/tests/p0007_assurance_g10_g13.rs",
-      "crates/proof-local/tests/p0007_assurance_g6_g9.rs"
+      "crates/proof-local/tests/initialize.rs"
     ]
   },
   "environment": {
@@ -44,20 +40,20 @@
       "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
       "cargo": "1.97.1 (c980f4866 2026-06-30)",
       "node": "v22.23.1",
-      "fresh_checkout": "D:\\github\\Proof\\target\\assurance-p0007-c4b312d",
-      "cargo_target_dir": "D:\\github\\Proof\\target\\assurance-c4b-build"
+      "fresh_checkout": "D:\\github\\Proof\\target\\assurance-p0007-4715314",
+      "cargo_target_dir": "D:\\github\\Proof\\target\\assurance-4715314-build"
     },
     "github_actions": {
       "runner": "ubuntu-24.04",
       "workflow": "Linux quality gate",
-      "run_id": 32380862459,
-      "job_id": 96463454459,
-      "head_sha": "c4b312d6f493936e15c2cc658277953ea18777f7",
+      "run_id": 32391142771,
+      "job_id": 96497271205,
+      "head_sha": "47153144b4b834cfffab61b328e4551f09fe50cb",
       "status": "completed",
       "conclusion": "success",
-      "completed_at": "2026-08-20T14:36:06Z",
-      "run_url": "https://github.com/smithdak/Proof/actions/runs/32380862459",
-      "job_url": "https://github.com/smithdak/Proof/actions/runs/32380862459/job/96463454459",
+      "completed_at": "2026-08-20T16:19:35Z",
+      "run_url": "https://github.com/smithdak/Proof/actions/runs/32391142771",
+      "job_url": "https://github.com/smithdak/Proof/actions/runs/32391142771/job/96497271205",
       "required_steps": 9,
       "skipped_cancelled_neutral_or_failed_required_steps": 0
     },
@@ -69,9 +65,9 @@
   "commands": [
     {
       "surface": "windows-git",
-      "command": "git -c safe.directory=D:/github/Proof/target/assurance-p0007-c4b312d -C D:/github/Proof/target/assurance-p0007-c4b312d rev-parse HEAD; git -c safe.directory=D:/github/Proof/target/assurance-p0007-c4b312d -C D:/github/Proof/target/assurance-p0007-c4b312d status --porcelain",
+      "command": "git -c safe.directory=D:/github/Proof/target/assurance-p0007-4715314 -C D:/github/Proof/target/assurance-p0007-4715314 rev-parse HEAD; git -c safe.directory=D:/github/Proof/target/assurance-p0007-4715314 -C D:/github/Proof/target/assurance-p0007-4715314 status --porcelain",
       "exit_code": 0,
-      "result": "HEAD c4b312d6f493936e15c2cc658277953ea18777f7; clean before and after qualification"
+      "result": "HEAD 47153144b4b834cfffab61b328e4551f09fe50cb; clean before and after qualification"
     },
     {
       "surface": "ubuntu-24.04-wsl2",
@@ -89,7 +85,7 @@
       "surface": "ubuntu-24.04-wsl2",
       "command": "cargo test --locked --workspace --all-targets --all-features",
       "exit_code": 0,
-      "result": "345 passed, 0 failed, 0 ignored"
+      "result": "353 passed, 0 failed, 0 ignored"
     },
     {
       "surface": "ubuntu-24.04-wsl2",
@@ -111,7 +107,7 @@
     },
     {
       "surface": "github-actions",
-      "command": "Linux quality gate, run 32380862459, job 96463454459",
+      "command": "Linux quality gate, run 32391142771, job 96497271205",
       "exit_code": 0,
       "result": "exact candidate success; every required step successful"
     },
@@ -131,13 +127,13 @@
       "surface": "windows",
       "command": "node scripts/check-work-items.mjs",
       "exit_code": 0,
-      "result": "review transition and evidence contracts passed"
+      "result": "replacement-candidate review transition and evidence contracts passed"
     },
     {
       "surface": "windows",
       "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
       "exit_code": 0,
-      "result": "repository Markdown passed with the evidence packet"
+      "result": "repository Markdown passed with the replacement evidence packet"
     }
   ],
   "required_evidence_matrices": {
@@ -167,7 +163,7 @@
     "replay": {
       "consequential_operations": 7,
       "families": ["issue intent", "build ContextPack", "create ChangeSet", "add Edits", "commit", "promote", "rollback"],
-      "lifecycle_shift": "identical replay returns original after Environment pointer movement",
+      "lifecycle_shift": "identical replay returns the original operation result after mutable lifecycle or Environment pointer movement; ChangeSet create replay returns its original empty Draft snapshot after commit",
       "changed_inputs": "IdempotencyKeyReused or stable domain Problem without writes"
     },
     "migration": {
@@ -184,6 +180,12 @@
       "authoritative_tamper_modes": ["dry run", "repair"],
       "fault_points": ["pre-write", "mid-transaction after prior writes", "post-commit/pre-export", "replay"],
       "result": "deterministic no-write dry run; derived-only repair; atomic rollback or documented durable convergence"
+    },
+    "release_ancestry": {
+      "pre_recursion_guards": ["same workspace and Environment", "strictly lower release_sequence", "non-later released_at"],
+      "cycle_regressions": ["self-v2 rollback target", "self-v2 predecessor", "two-node-v2 predecessor"],
+      "valid_chain": "mixed v1/v2 predecessor and rollback-target chain remains verifiable",
+      "result": "invalid recursive ancestry fails closed before recursive loading; governed snapshots remain unchanged"
     }
   },
   "artifact_digests": [
@@ -200,8 +202,8 @@
     {"path": "crates/proof-canonical/src/lib.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "70eaf6dac255b3c16c30d89741860eb4eade62f2e36ff2d770f11ae9680aedab"},
     {"path": "crates/proof-cli/src/localized_cli.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "bf5015600ccf270a0206f606250d6a06e65a1c057e2b84028d1077c34645150f"},
     {"path": "crates/proof-domain/src/lib.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "1a37ff3f0325dda1e8502f33638051223673a332ea0f6a8780c18f1adfd6f685"},
-    {"path": "crates/proof-local/src/localized.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "69ea16c64cac73ac14784553c21868f2611d9e61814f54af48147a07355a75a7"},
-    {"path": "crates/proof-local/tests/initialize.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "0d99b3d114d87d2ccfce533b1d62073692929340747613290555680779d58b88"},
+    {"path": "crates/proof-local/src/localized.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "c7b50a03fd757f4ba7c86b123b29fc6cff395bb0990d504eb5d163b843328181"},
+    {"path": "crates/proof-local/tests/initialize.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "a7ccbd1f3cf3b13ea3e736fcb55bf1e9e5b791f3325a4d0b84bb313d24663301"},
     {"path": "crates/proof-local/tests/localized_conformance.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "0b6e4cf6bd331defed8ee0c489af1f1b588c2bfb62de744f673c0538ff9b0ce7"},
     {"path": "crates/proof-local/tests/p0007_assurance_g10_g13.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "b0a433ae6b9c1ad01295e381bfd5376ef609bc147354790a65943e93ba9b8a01"},
     {"path": "crates/proof-local/tests/p0007_assurance_g6_g9.rs", "byte_domain": "git_blob", "algorithm": "sha256", "digest": "0ad67319a4f83727f54a879d8b35714c2e4838b624c2d926af6dddca3dbf74a2"}
@@ -212,6 +214,12 @@
     "docs/work/evidence/P-0007/traceability.md",
     "docs/work/evidence/P-0007/candidate-paths.sha256"
   ],
+  "historical_assurance_verdict": {
+    "path": "docs/work/evidence/P-0007/assurance-verdict.md",
+    "candidate_sha": "c4b312d6f493936e15c2cc658277953ea18777f7",
+    "verdict": "unsupported",
+    "applies_to_item_work_commit": false
+  },
   "gate_state": {
     "engineering_local_qualification": "supported",
     "github_exact_sha_ci": "supported",
@@ -230,6 +238,8 @@
     "deployed": false,
     "production_mutated": false,
     "customer_proven": false,
-    "delegated_agent_authority_claimed": false
+    "delegated_agent_authority_claimed": false,
+    "same_visible_cli_command_retry_claimed": false,
+    "high_cardinality_release_history_claimed": false
   }
 }

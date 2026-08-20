@@ -1,7 +1,7 @@
 ---
 id: P-0007
 title: Implement the localized content foundation
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0002]
@@ -174,6 +174,28 @@ its chronology guard, and G11 reproduced an exact ChangeSet-create replay that
 returned the later committed aggregate instead of the original empty draft.
 The item therefore returned to `claimed` for Engineering repair; the c4
 qualification and its evidence remain historical records and are not relabeled.
+
+Engineering qualified replacement candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb`, whose parent is the c4 verdict
+record `cc6f8777dbbec5af819b670662757fda2ae6d191`. Its exact two-path delta is 419
+insertions and 18 deletions: ChangeSet-create exact replay now returns the
+immutable original empty Draft after later commit, and v2 Release ancestry is
+shallow-validated for identity, strict sequence decrease, and non-later time
+before recursive loading. Retained tests cover replay/no-write behavior,
+self-v2 and two-node-v2 cycle denials, and the valid mixed v1/v2 chain.
+
+The clean exact-SHA local gate passed 353 Rust tests, and GitHub Actions run
+`32391142771`, job `96497271205`, completed every required step successfully at
+the same replacement candidate. The receipt, manifest, 35-path portable
+Git-blob inventory, and traceability table move the item to `review` for a new
+independent G1-G14 run. Assurance for `4715314...` is `indeterminate`; the
+existing `assurance-verdict.md` remains the historical c4 verdict and cannot
+adjudicate the replacement.
+
+Both `fede487547c3e2bb27f5cb8fb168f5b5312a5f23` and
+`c4b312d6f493936e15c2cc658277953ea18777f7` remain historical unsupported
+candidates. Neither is promoted, restored, or relabeled by replacement
+qualification.
 
 The item is not accepted or done until `proof-assurance` records a supported
 independent G1-G14 verdict. An unsupported or indeterminate row returns the

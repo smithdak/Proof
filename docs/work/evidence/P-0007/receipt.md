@@ -2,22 +2,25 @@
 
 ## Outcome
 
-Engineering qualified item-work candidate
-`c4b312d6f493936e15c2cc658277953ea18777f7` from a clean detached checkout.
+Engineering qualified replacement item-work candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb` from a clean detached checkout.
 The pinned Ubuntu gate passed locally and in GitHub Actions at that exact SHA.
 The local gate comprised formatting, strict workspace/all-target/all-feature
-Clippy, 345 Rust tests, documentation tests, 159 internal documentation links,
+Clippy, 353 Rust tests, documentation tests, 159 internal documentation links,
 and all seven work-control records. GitHub Actions run
-[`32380862459`](https://github.com/smithdak/Proof/actions/runs/32380862459)
+[`32391142771`](https://github.com/smithdak/Proof/actions/runs/32391142771)
 completed every required step successfully; no required step was skipped,
 cancelled, neutral, or failing.
 
-This candidate supersedes, but does not relabel, historical candidate
-`fede487547c3e2bb27f5cb8fb168f5b5312a5f23`. Assurance found that the historical
-candidate did not reconstruct all ContextPack authority and returned mutable
-precondition failures instead of original results for three lifecycle-advanced
-replays. Candidate `c4b312d...` repairs those defects and retains focused
-falsification tests for their failure mechanisms.
+Candidates `fede487547c3e2bb27f5cb8fb168f5b5312a5f23` and
+`c4b312d6f493936e15c2cc658277953ea18777f7` remain historical unsupported
+candidates; this packet does not relabel either one. The retained
+`assurance-verdict.md` applies only to `c4b312d...`: its G4 verifier challenge
+found recursive v2 ancestry could stack-abort before chronology checks, and
+its G11 challenge found exact ChangeSet-create replay returned the later
+committed aggregate instead of the original empty Draft result. Replacement
+candidate `4715314...` repairs those two mechanisms and retains their focused
+regressions.
 
 This receipt is Engineering evidence, not an Assurance verdict. At this
 commit, P-0007 is in `review`, Assurance remains `indeterminate`, and the
@@ -30,44 +33,43 @@ customer claim follows from qualification.
 | --- | --- |
 | Original P-0007 base | `a0f1df8d4e7b9b9a4da05681bfd23d1ef619e566` |
 | Engineering revalidation base | `a95ee484b7038358c0d4e30167862dbed85728c0` |
-| Historical unsupported candidate | `fede487547c3e2bb27f5cb8fb168f5b5312a5f23` |
-| Candidate parent | `2c4335c6ba307523ecbc6965adfeeddc4dcca9f9` |
-| Candidate SHA | `c4b312d6f493936e15c2cc658277953ea18777f7` |
+| Historical unsupported candidates | `fede487547c3e2bb27f5cb8fb168f5b5312a5f23`; `c4b312d6f493936e15c2cc658277953ea18777f7` |
+| Candidate parent | `cc6f8777dbbec5af819b670662757fda2ae6d191` |
+| Candidate SHA | `47153144b4b834cfffab61b328e4551f09fe50cb` |
 | Engineering branch | `proof-engineering/p-0007-finalization` |
 | Temporary CI ref | `refs/heads/proof-assurance/p-0007-candidate` |
-| Fresh Assurance checkout | `D:\github\Proof\target\assurance-p0007-c4b312d` |
-| Evidence commit | The Git commit containing this packet; bound by the Assurance verdict rather than self-referenced here |
+| Fresh exact-candidate checkout | `D:\github\Proof\target\assurance-p0007-4715314` |
+| Evidence commit | The Git commit containing this packet; not self-referenced and not bound by the historical c4 verdict |
 | Main at qualification time | `a95ee484b7038358c0d4e30167862dbed85728c0` |
 
 The candidate is reachable from the reviewed branch and the temporary CI ref.
 Its fresh checkout printed the exact SHA before execution and remained clean
-after execution. `candidate-paths.sha256` inventories all 34 paths changed from
+after execution. `candidate-paths.sha256` inventories all 35 paths changed from
 the original P-0007 base using SHA-256 over Git blob bytes at the candidate.
-This byte domain is independent of CRLF/LF checkout materialization. The ten
+This byte domain is independent of CRLF/LF checkout materialization. The two
 paths changed from the candidate parent are separately identified in
 `manifest.json`.
 
 ## Candidate repair scope
 
-The candidate-parent delta contains ten paths:
+The candidate-parent delta contains exactly two paths and 419 insertions / 18
+deletions:
 
-- `Cargo.lock` and `crates/proof-local/Cargo.toml` add only the existing
-  workspace `blake3` and `serde_json_canonicalizer` packages as test-only
-  dependencies;
-- `conformance/v2/localized-content/schemas/operations.schema.json` fixes the
-  canonical artifact Schema reference;
-- `operation-instances.valid.json` supplies valid input/output instances for
-  all 11 localized operation contracts;
-- `portable-artifacts.valid.json` adds independently checked Edition delta and
-  Release proof-predicate vectors;
-- `crates/proof-local/src/localized.rs` verifies unique, effect-bound resource
-  intent and ContextPack operations, reconstructs exact ContextPack closure and
-  budget constraints on read, and performs replay lookup before mutable
-  lifecycle preconditions;
-- `initialize.rs` and `localized_conformance.rs` retain the repaired replay,
-  integrity, canonicalization, Schema, and mutation cases; and
-- `p0007_assurance_g6_g9.rs` plus `p0007_assurance_g10_g13.rs` retain budget,
-  lineage, migration, projection, and recovery matrices.
+- `crates/proof-local/src/localized.rs` reconstructs and effect-checks the
+  immutable ChangeSet creation snapshot on exact replay, returning the original
+  empty Draft after later lifecycle transitions. It also shallow-checks each v2
+  predecessor and rollback target for workspace/Environment identity, strictly
+  lower release sequence, and non-later release time before recursion; and
+- `crates/proof-local/tests/initialize.rs` retains the post-commit exact-create
+  replay/no-write regression, self-v2 predecessor and rollback-target cycle
+  denials, a two-node-v2 predecessor-cycle denial, and the valid mixed v1/v2
+  chain.
+
+The strict-decrease ancestry contract excludes cycles without an arbitrary
+depth cap. The original-base inventory still contains the already-qualified
+localized-content implementation, conformance corpus, and test-only `blake3`
+and `serde_json_canonicalizer` dependency exposure; this replacement delta adds
+no dependency.
 
 No Agent credential, delegated authorization, network service, provider,
 translation system, UI, locale fallback, rendition deletion, relationship
@@ -88,29 +90,29 @@ traversal, or production integration was added.
 ### Local exact-SHA gate
 
 All commands ran with `--locked`; Rust build output was isolated under
-`D:\github\Proof\target\assurance-c4b-build`.
+`D:\github\Proof\target\assurance-4715314-build`.
 
 | Check | Result |
 | --- | --- |
 | `cargo fmt --all -- --check` | exit 0 |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | exit 0 |
-| `cargo test --locked --workspace --all-targets --all-features` | 345 passed, 0 failed, 0 ignored |
+| `cargo test --locked --workspace --all-targets --all-features` | 353 passed, 0 failed, 0 ignored |
 | `cargo test --locked --doc --workspace --all-features` | six crate targets, 0 failures |
 | `node scripts/check-doc-links.mjs` | 159 links passed |
 | `node scripts/check-work-items.mjs` | seven items passed |
 
-The 345 Rust tests comprise 5 application, 11 attestation, 14 canonical, 1
-architecture, 28 CLI, 14 domain, 122 local integration, 1 localized
-conformance, 129 G10/G13 integration-binary tests, 3 G6/G7/G9 retained tests,
+The 353 Rust tests comprise 5 application, 11 attestation, 14 canonical, 1
+architecture, 28 CLI, 14 domain, 126 local integration, 1 localized
+conformance, 133 G10/G13 integration-binary tests, 3 G6/G7/G9 retained tests,
 9 MCP unit, and 8 MCP protocol tests. The G10/G13 binary deliberately includes
-the 122 local integration cases plus seven focused cases, so 122 cases execute
+the 126 local integration cases plus seven focused cases, so 126 cases execute
 twice in the workspace total.
 
 ### GitHub exact-SHA gate
 
-Run `32380862459`, job `96463454459`, checked out candidate
-`c4b312d6f493936e15c2cc658277953ea18777f7` and completed on
-2026-08-20 at 14:36:06 UTC. Setup, checkout, pinned-toolchain installation and
+Run `32391142771`, job `96497271205`, checked out candidate
+`47153144b4b834cfffab61b328e4551f09fe50cb` and completed on
+2026-08-20 at 16:19:35 UTC. Setup, checkout, pinned-toolchain installation and
 verification, formatting, Clippy, all tests, documentation tests,
 documentation-link validation, work-control validation, checkout cleanup, and
 job completion all concluded `success`.
@@ -142,6 +144,11 @@ The application and CLI lifecycle tests both pass at the exact candidate. The
 direct adapter and CLI expose the same identifiers, digests, transitions,
 Problems, and normalized result shapes for equivalent operations.
 
+Historical verification shallow-checks each v2 predecessor and rollback target
+before recursive loading. Self-v2 predecessor and rollback-target references
+and a two-node-v2 predecessor cycle now fail closed with unchanged governed
+snapshots; the valid mixed v1/v2 chain still verifies.
+
 ### Denial, lineage, and budget matrix
 
 Retained cases reject stale source and target references, wrong
@@ -159,10 +166,12 @@ unchanged, and never repairs authoritative history.
 Exact replay and changed-input/key reuse are retained for all seven
 consequential localized operations: issue intent, build ContextPack, create
 ChangeSet, add Edits, commit, promote, and rollback. Identical replay returns
-the original result after later Environment pointer movement. Changed input,
-target, malformed freshness/target values, key aliasing, missing operation
-evidence, two-row key swaps, and lifecycle-position reuse fail without
-duplicate facts, pointer movement, or overwritten evidence.
+the original result after later lifecycle and Environment pointer movement. In
+particular, exact ChangeSet-create replay after commit returns the original
+Draft with empty Edits and no proposal or seal, not the current committed
+aggregate. Changed input, target, malformed freshness/target values, key
+aliasing, missing operation evidence, two-row key swaps, and lifecycle-position
+reuse fail without duplicate facts, pointer movement, or overwritten evidence.
 
 ### Migration matrix
 
@@ -206,6 +215,17 @@ The tested runtime identity surface is Linux and the authenticated local Human
 adapter. Windows compilation passed through strict all-target Clippy, but live
 Windows identity execution was not qualified. No delegated Agent authority is
 implemented or claimed.
+
+G11 covers exact replay of the seven typed application operation inputs. The
+Human CLI supplies required operation identities and timestamps that are not
+repeatable from the same visible flags for six operations and Edition creation;
+same-visible-command CLI retry is therefore an adapter UX residual, not a
+qualified replay claim.
+
+Valid v2 history verification remains recursive after the new strict-decrease
+guard. The bounded lifecycle and cycle cases are qualified, but a
+higher-cardinality acyclic Release chain has not been depth-stress-tested and
+has no stack-safety claim. Higher-cardinality scale remains outside P-0007.
 
 ## Evidence paths
 
