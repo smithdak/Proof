@@ -608,7 +608,7 @@ fn load_localized_environment(
     Ok(environment)
 }
 
-fn localized_from_local_port(error: LocalPortError) -> LocalizedContentError {
+pub(super) fn localized_from_local_port(error: LocalPortError) -> LocalizedContentError {
     match error {
         LocalPortError::Unauthenticated => LocalizedContentError::Unauthenticated,
         LocalPortError::UnsupportedVersion => LocalizedContentError::UnsupportedVersion,
@@ -1226,8 +1226,8 @@ fn edition_object_ids(
 }
 
 #[allow(clippy::too_many_lines)]
-fn load_resource_intent(
-    transaction: &Transaction<'_>,
+pub(super) fn load_resource_intent(
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     intent_id: ContentResourceIntentId,
 ) -> Result<ContentResourceIntent, LocalPortError> {
@@ -1374,7 +1374,7 @@ fn load_resource_intent(
 }
 
 fn verify_content_resource_intent_operation(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     intent: &ContentResourceIntent,
 ) -> Result<(), LocalPortError> {
     let mut statement = transaction
@@ -1490,53 +1490,18 @@ fn required_string(
     clippy::too_many_lines,
     reason = "ContextPack construction binds and persists the complete exact source closure"
 )]
-fn build_context(
+pub(super) fn build_context(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
     command: &BuildLocalizedContextCommand,
 ) -> Result<LocalizedContextPack, LocalPortError> {
-    let rules = normalized_policy_rules(&command.policy_rules);
-    let persisted = transaction
-        .query_row(
-            "SELECT request_digest, context_pack_id FROM localized_context_build_operations
-             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
-            (
-                workspace_id.to_string(),
-                principal_id.to_string(),
-                command.idempotency_key.to_string(),
-            ),
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()
-        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    if let Some((persisted_request, context_pack_id)) = persisted {
-        let context_pack_id = context_pack_id
-            .parse::<ContextPackId>()
-            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let context = load_context(transaction, workspace_id, context_pack_id)?;
-        let rules = rules.map_err(|_| LocalPortError::IdempotencyKeyReused)?;
-        if command.expires_at <= command.created_at {
-            return Err(LocalPortError::IdempotencyKeyReused);
-        }
-        let policy = policy_manifest(&rules)?;
-        let policy_digest = digest(proof_application::ArtifactKind::PolicyBundleV1, &policy);
-        let request_digest = localized_context_request_digest(
-            command.context_pack_id,
-            command.created_at,
-            command.expires_at,
-            command.idempotency_key,
-            command.limits,
-            policy_digest,
-            command.resource_intent_id,
-            command.resource_intent_digest,
-        )?;
-        if persisted_request != request_digest.to_string() {
-            return Err(LocalPortError::IdempotencyKeyReused);
-        }
-        return Ok(context);
+    match load_exact_context_replay(transaction, workspace_id, principal_id, command) {
+        Ok(context) => return Ok(context),
+        Err(LocalPortError::NotFound) => {}
+        Err(error) => return Err(error),
     }
-    let rules = rules?;
+    let rules = normalized_policy_rules(&command.policy_rules)?;
     if command.expires_at <= command.created_at {
         return Err(LocalPortError::Invalid);
     }
@@ -1639,6 +1604,68 @@ fn build_context(
         )
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
     load_context(transaction, workspace_id, command.context_pack_id)
+}
+
+pub(super) fn load_exact_context_replay(
+    connection: &Connection,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    command: &BuildLocalizedContextCommand,
+) -> Result<LocalizedContextPack, LocalPortError> {
+    let persisted = connection
+        .query_row(
+            "SELECT request_digest, context_pack_id FROM localized_context_build_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                command.idempotency_key.to_string(),
+            ),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let Some((persisted_request, context_pack_id)) = persisted else {
+        return Err(LocalPortError::NotFound);
+    };
+    let context_pack_id = context_pack_id
+        .parse::<ContextPackId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let context = load_context(connection, workspace_id, context_pack_id)?;
+    let rules = normalized_policy_rules(&command.policy_rules)
+        .map_err(|_| LocalPortError::IdempotencyKeyReused)?;
+    if command.expires_at <= command.created_at {
+        return Err(LocalPortError::IdempotencyKeyReused);
+    }
+    let policy = policy_manifest(&rules)?;
+    let policy_digest = digest(proof_application::ArtifactKind::PolicyBundleV1, &policy);
+    let request_digest = localized_context_request_digest(
+        command.context_pack_id,
+        command.created_at,
+        command.expires_at,
+        command.idempotency_key,
+        command.limits,
+        policy_digest,
+        command.resource_intent_id,
+        command.resource_intent_digest,
+    )?;
+    if persisted_request != request_digest.to_string()
+        || context.context_pack_id != command.context_pack_id
+    {
+        return Err(LocalPortError::IdempotencyKeyReused);
+    }
+    Ok(context)
+}
+
+/// Replays one exact Human-built localized `ContextPack` without permitting the
+/// authenticated Agent path to originate Human-owned policy or resource closure.
+pub(super) fn replay_existing_context(
+    transaction: &Transaction<'_>,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    command: &BuildLocalizedContextCommand,
+) -> Result<LocalizedContextPack, LocalPortError> {
+    load_exact_context_replay(transaction, workspace_id, principal_id, command)
 }
 
 fn verify_baseline_is_current(
@@ -1906,7 +1933,7 @@ fn limits_value(limits: LocalizedContextLimits) -> Value {
 }
 
 fn context_resources(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     intent: &ContentResourceIntent,
     rules: &[LocalizedPolicyRule],
 ) -> Result<Vec<Value>, LocalPortError> {
@@ -1977,6 +2004,104 @@ fn context_resources(
     Ok(resources)
 }
 
+/// Reports whether every rendition precondition captured by a persisted
+/// `ContextPack` still describes the current localized target state.
+///
+/// Known State may advance for unrelated resources without invalidating the
+/// pack. Only the exact Object+locale targets selected by its immutable intent
+/// participate in this freshness check.
+pub(super) fn context_resource_closure_is_current(
+    connection: &Connection,
+    context: &LocalizedContextPack,
+    lifecycle_changeset_id: Option<proof_application::ChangeSetId>,
+    replay_release_id: Option<ReleaseId>,
+) -> Result<bool, LocalPortError> {
+    let intent =
+        load_resource_intent(connection, context.workspace_id, context.resource_intent_id)?;
+    if intent.intent_digest != context.resource_intent_digest || intent.base != context.base {
+        return Err(LocalPortError::Integrity(
+            "ContextPack resource intent does not reproduce".to_owned(),
+        ));
+    }
+    let current_state = current_state_reference(connection, context.workspace_id)?;
+    if current_state.authoritative_sequence < intent.base.known_state.authoritative_sequence {
+        return Err(LocalPortError::Integrity(
+            "current Known State precedes the ContextPack baseline".to_owned(),
+        ));
+    }
+    let current_release_id = connection
+        .query_row(
+            "SELECT release_id FROM environment_current_releases WHERE environment_id = ?1",
+            [intent.environment_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?
+        .ok_or_else(|| {
+            LocalPortError::Integrity("localized Environment has no current Release".to_owned())
+        })?
+        .parse::<ReleaseId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if current_release_id != intent.base.release.release_id
+        && Some(current_release_id) != replay_release_id
+    {
+        return Ok(false);
+    }
+    let lifecycle_commit = lifecycle_changeset_id
+        .map(|changeset_id| load_localized_commit(connection, context.workspace_id, changeset_id))
+        .transpose();
+    let lifecycle_commit = match lifecycle_commit {
+        Ok(commit) => commit,
+        Err(LocalPortError::NotFound) => None,
+        Err(error) => return Err(error),
+    };
+    for target in &intent.targets {
+        let bound = load_rendition_at(
+            connection,
+            target.object_id,
+            &target.locale,
+            intent.base.known_state.authoritative_sequence,
+        )?;
+        let current = load_rendition_at(
+            connection,
+            target.object_id,
+            &target.locale,
+            current_state.authoritative_sequence,
+        )?;
+        let unchanged = match (bound, current) {
+            (None, None) => true,
+            (Some(bound), Some(current)) => {
+                (bound.revision == current.revision
+                    && bound.digest == current.digest
+                    && bound.manifest == current.manifest)
+                    || lifecycle_commit.as_ref().is_some_and(|commit| {
+                        commit.renditions.iter().any(|rendition| {
+                            rendition.object_id == target.object_id
+                                && rendition.locale == target.locale
+                                && rendition.changeset_id == current.changeset_id
+                                && rendition.revision.get() == current.revision
+                                && rendition.rendition_digest == current.digest
+                        })
+                    })
+            }
+            (None, Some(current)) => lifecycle_commit.as_ref().is_some_and(|commit| {
+                commit.renditions.iter().any(|rendition| {
+                    rendition.object_id == target.object_id
+                        && rendition.locale == target.locale
+                        && rendition.changeset_id == current.changeset_id
+                        && rendition.revision.get() == current.revision
+                        && rendition.rendition_digest == current.digest
+                })
+            }),
+            (Some(_), None) => false,
+        };
+        if !unchanged {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 struct LocalizableSchema {
     schema_id: SchemaId,
     schema_version: proof_application::SchemaVersion,
@@ -1986,7 +2111,7 @@ struct LocalizableSchema {
 }
 
 fn load_localizable_schema(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     schema_id: &SchemaId,
     schema_version: proof_application::SchemaVersion,
 ) -> Result<LocalizableSchema, LocalPortError> {
@@ -2086,6 +2211,7 @@ struct RenditionAtState {
     revision: u32,
     digest: ContentDigest,
     manifest: Value,
+    changeset_id: proof_application::ChangeSetId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2715,14 +2841,14 @@ pub(super) fn insert_locale_projections(
 }
 
 fn load_rendition_at(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     object_id: ObjectId,
     locale: &proof_application::LocaleId,
     sequence: u64,
 ) -> Result<Option<RenditionAtState>, LocalPortError> {
-    let row: Option<(i64, String, String)> = transaction
+    let row: Option<(i64, String, String, String)> = transaction
         .query_row(
-            "SELECT revision, rendition_digest, manifest_json
+            "SELECT revision, rendition_digest, manifest_json, changeset_id
              FROM object_locale_revisions
              WHERE object_id = ?1 AND locale = ?2 AND authoritative_sequence <= ?3
              ORDER BY revision DESC LIMIT 1",
@@ -2733,11 +2859,11 @@ fn load_rendition_at(
                     LocalPortError::Integrity("state sequence exceeds SQLite range".to_owned())
                 })?,
             ),
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    row.map(|(revision, raw_digest, manifest)| {
+    row.map(|(revision, raw_digest, manifest, raw_changeset_id)| {
         let canonical = strict_canonical(&manifest, "locale rendition")?;
         let rendition_digest = raw_digest
             .parse::<ContentDigest>()
@@ -2757,14 +2883,19 @@ fn load_rendition_at(
             digest: rendition_digest,
             manifest: parse_strict(manifest.as_bytes())
                 .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+            changeset_id: raw_changeset_id.parse().map_err(
+                |error: proof_application::IdentifierError| {
+                    LocalPortError::Integrity(error.to_string())
+                },
+            )?,
         })
     })
     .transpose()
 }
 
 #[allow(clippy::too_many_lines)]
-fn load_context(
-    transaction: &Transaction<'_>,
+pub(super) fn load_context(
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     context_pack_id: ContextPackId,
 ) -> Result<LocalizedContextPack, LocalPortError> {
@@ -2934,7 +3065,7 @@ fn load_context(
 }
 
 fn verify_localized_context_build_operation(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     context: &LocalizedContextPack,
 ) -> Result<(), LocalPortError> {
     let mut statement = transaction
@@ -3182,7 +3313,7 @@ fn verify_state_artifact_reference(
 }
 
 fn verify_v2_release_record(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     release_id: ReleaseId,
 ) -> Result<(), LocalPortError> {
@@ -3191,7 +3322,7 @@ fn verify_v2_release_record(
 }
 
 fn verify_v2_edition_record(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     edition_id: EditionId,
 ) -> Result<(), LocalPortError> {
@@ -3200,7 +3331,7 @@ fn verify_v2_edition_record(
 }
 
 #[allow(clippy::too_many_lines)]
-fn create_changeset(
+pub(super) fn create_changeset(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -3380,6 +3511,51 @@ fn changeset_creation_effect(
     ))
 }
 
+pub(super) fn verify_changeset_creation_effect(
+    connection: &Connection,
+    workspace_id: proof_application::WorkspaceId,
+    changeset_id: ChangeSetId,
+) -> Result<ContentDigest, LocalPortError> {
+    let changeset = load_changeset(connection, workspace_id, changeset_id)?;
+    let (idempotency_key, stored_effect): (String, String) = connection
+        .query_row(
+            "SELECT idempotency_key, effect_digest
+             FROM localized_changesets WHERE changeset_id = ?1",
+            [changeset_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let request = canonicalize(&json!({
+        "api_version": "proof.dev/operation/changeset.create/v2",
+        "changeset_id": changeset.changeset_id.to_string(),
+        "context_pack_digest": changeset.context_pack_digest.to_string(),
+        "context_pack_id": changeset.context_pack_id.to_string(),
+        "created_at": changeset.created_at.to_string(),
+        "idempotency_key": idempotency_key,
+        "intent": changeset.intent.as_str(),
+        "resource_intent_digest": changeset.resource_intent_digest.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let original = LocalizedChangeSet {
+        status: ChangeSetStatus::Draft,
+        edits: Vec::new(),
+        proposal_digest: None,
+        sealed_changeset_digest: None,
+        ..changeset
+    };
+    let effect = changeset_creation_effect(
+        digest(proof_application::ArtifactKind::OperationEffectV1, &request),
+        &original,
+    )?;
+    if stored_effect != effect.to_string() {
+        return Err(LocalPortError::Integrity(
+            "localized ChangeSet creation effect does not reproduce".to_owned(),
+        ));
+    }
+    Ok(effect)
+}
+
 fn state_reference_value(state: &KnownStateArtifactReference) -> Value {
     json!({
         "api_version": state.api_version,
@@ -3389,8 +3565,8 @@ fn state_reference_value(state: &KnownStateArtifactReference) -> Value {
 }
 
 #[allow(clippy::too_many_lines)]
-fn load_changeset(
-    transaction: &Transaction<'_>,
+pub(super) fn load_changeset(
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     changeset_id: ChangeSetId,
 ) -> Result<LocalizedChangeSet, LocalPortError> {
@@ -3586,7 +3762,7 @@ fn parse_optional_digest(value: Option<&str>) -> Result<Option<ContentDigest>, L
 
 #[allow(clippy::too_many_lines)]
 fn load_edits(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     changeset_id: ChangeSetId,
 ) -> Result<Vec<proof_application::LocalizedEdit>, LocalPortError> {
     type EditRow = (
@@ -3884,10 +4060,13 @@ fn proposal(
     ))
 }
 
-fn changeset_diff(
+pub(super) fn changeset_diff(
     changeset: &LocalizedChangeSet,
 ) -> Result<LocalizedChangeSetDiff, LocalPortError> {
     let (proposal_digest, effective_leaf_digest, effective_edits) = proposal(changeset)?;
+    if effective_edits.is_empty() {
+        return Err(LocalPortError::EvidenceMissing);
+    }
     Ok(LocalizedChangeSetDiff {
         changeset_id: changeset.changeset_id,
         proposal_digest,
@@ -3897,7 +4076,7 @@ fn changeset_diff(
 }
 
 #[allow(clippy::too_many_lines)]
-fn add_edits(
+pub(super) fn add_edits(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -4203,6 +4382,89 @@ fn add_effect(
     ))
 }
 
+pub(super) fn verify_add_effect(
+    connection: &Connection,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    idempotency_key: &str,
+) -> Result<ContentDigest, LocalPortError> {
+    type AddRow = (String, String, String, i64, i64, i64);
+    let row: AddRow = connection
+        .query_row(
+            "SELECT changeset_id, request_digest, effect_digest,
+                    first_ordinal, added_count, total_edit_count
+             FROM localized_add_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                idempotency_key,
+            ),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let changeset_id = row
+        .0
+        .parse::<ChangeSetId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let first_ordinal = u32::try_from(row.3)
+        .map_err(|_| LocalPortError::Integrity("invalid Add first ordinal".to_owned()))?;
+    let added_count = u32::try_from(row.4)
+        .map_err(|_| LocalPortError::Integrity("invalid Add count".to_owned()))?;
+    let total_edit_count = u32::try_from(row.5)
+        .map_err(|_| LocalPortError::Integrity("invalid Add total count".to_owned()))?;
+    let final_ordinal = first_ordinal
+        .checked_add(added_count)
+        .and_then(|value| value.checked_sub(1))
+        .ok_or_else(|| LocalPortError::Integrity("invalid Add ordinal range".to_owned()))?;
+    let changeset = load_changeset(connection, workspace_id, changeset_id)?;
+    let edits = changeset
+        .edits
+        .iter()
+        .filter(|edit| edit.ordinal >= first_ordinal && edit.ordinal <= final_ordinal)
+        .collect::<Vec<_>>();
+    if edits.len() != usize::try_from(added_count).unwrap_or(usize::MAX) {
+        return Err(LocalPortError::Integrity(
+            "localized Add Edit range is incomplete".to_owned(),
+        ));
+    }
+    let semantic_values = edits
+        .iter()
+        .map(|edit| semantic_edit_value(&edit.input))
+        .collect::<Result<Vec<_>, _>>()?;
+    let request = canonicalize(&json!({
+        "api_version": "proof.dev/operation/changeset.add/v2",
+        "changeset_id": changeset_id.to_string(),
+        "edits": semantic_values,
+        "idempotency_key": idempotency_key,
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let request_digest = digest(proof_application::ArtifactKind::OperationEffectV1, &request);
+    let edit_ids = edits.iter().map(|edit| edit.edit_id).collect::<Vec<_>>();
+    let effect = add_effect(
+        request_digest,
+        changeset_id,
+        first_ordinal,
+        total_edit_count,
+        &edit_ids,
+    )?;
+    if row.1 != request_digest.to_string() || row.2 != effect.to_string() {
+        return Err(LocalPortError::Integrity(
+            "localized Add operation effect does not reproduce".to_owned(),
+        ));
+    }
+    Ok(effect)
+}
+
 fn operation_edit_ids(
     transaction: &Transaction<'_>,
     changeset_id: ChangeSetId,
@@ -4395,7 +4657,7 @@ fn set_string_at_pointer(
 }
 
 fn verify_repair_evidence(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     changeset_id: ChangeSetId,
     superseded_edit_id: proof_application::EditId,
     object_id: ObjectId,
@@ -4477,7 +4739,7 @@ fn verify_repair_evidence(
 }
 
 fn verify_all_repair_edges(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     changeset: &LocalizedChangeSet,
 ) -> Result<(), LocalPortError> {
     for (index, edit) in changeset.edits.iter().enumerate() {
@@ -4506,7 +4768,7 @@ fn verify_all_repair_edges(
     Ok(())
 }
 
-fn submit_changeset(
+pub(super) fn submit_changeset(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -4684,7 +4946,7 @@ fn localized_lifecycle_effect(
 }
 
 fn sealed_validation_head(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     changeset: &LocalizedChangeSet,
 ) -> Result<proof_application::LocalizedValidation, LocalPortError> {
     let validation = load_validation_chain(transaction, changeset)?
@@ -4709,8 +4971,8 @@ fn sealed_validation_head(
     Ok(validation)
 }
 
-fn load_localized_submission(
-    transaction: &Transaction<'_>,
+pub(super) fn load_localized_submission(
+    transaction: &Connection,
     changeset: &LocalizedChangeSet,
 ) -> Result<Option<SubmittedLocalizedChangeSet>, LocalPortError> {
     type SubmissionRow = (String, String, String, String, String);
@@ -4776,15 +5038,19 @@ fn load_localized_submission(
 }
 
 fn load_localized_approval(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     changeset: &LocalizedChangeSet,
 ) -> Result<Option<ApprovedLocalizedChangeSet>, LocalPortError> {
-    type ApprovalRow = (String, String, String, String, String, String);
+    type ApprovalRow = (String, String, String, String, String, String, String);
     let row: Option<ApprovalRow> = transaction
         .query_row(
             "SELECT approval_name, sealed_changeset_digest, validation_results_digest,
-                    principal_id, approved_at, effect_digest
-             FROM localized_approvals WHERE changeset_id = ?1",
+                    approval.principal_id, approved_at, effect_digest,
+                    principal.principal_type
+             FROM localized_approvals AS approval
+             JOIN principals AS principal
+               ON principal.principal_id = approval.principal_id
+             WHERE changeset_id = ?1",
             [changeset.changeset_id.to_string()],
             |row| {
                 Ok((
@@ -4794,15 +5060,29 @@ fn load_localized_approval(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
         .optional()
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    let Some((raw_approval, raw_sealed, raw_validation, raw_principal, raw_at, raw_effect)) = row
+    let Some((
+        raw_approval,
+        raw_sealed,
+        raw_validation,
+        raw_principal,
+        raw_at,
+        raw_effect,
+        principal_type,
+    )) = row
     else {
         return Ok(None);
     };
+    if principal_type != "human" {
+        return Err(LocalPortError::Integrity(
+            "localized approval principal is not a Human".to_owned(),
+        ));
+    }
     let approval = ApprovalName::new(raw_approval.clone())
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     let sealed = raw_sealed
@@ -4852,7 +5132,7 @@ fn load_localized_approval(
 }
 
 #[allow(clippy::too_many_lines)]
-fn commit_changeset(
+pub(super) fn commit_changeset(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -5559,8 +5839,8 @@ fn load_object_locale_revision(
 }
 
 #[allow(clippy::too_many_lines)]
-fn load_localized_commit(
-    transaction: &Transaction<'_>,
+pub(super) fn load_localized_commit(
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     changeset_id: ChangeSetId,
 ) -> Result<CommittedLocalizedChangeSet, LocalPortError> {
@@ -5764,7 +6044,7 @@ fn load_localized_commit(
 }
 
 #[allow(clippy::too_many_lines)]
-fn create_localized_edition(
+pub(super) fn create_localized_edition(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -6080,8 +6360,8 @@ fn localized_edition_effect(
 }
 
 #[allow(clippy::too_many_lines)]
-fn load_localized_edition(
-    transaction: &Transaction<'_>,
+pub(super) fn load_localized_edition(
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     edition_id: EditionId,
 ) -> Result<LocalizedEdition, LocalPortError> {
@@ -6308,7 +6588,7 @@ fn load_localized_edition(
 }
 
 fn verify_edition_artifact_reference(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     reference: &EditionArtifactReference,
 ) -> Result<(), LocalPortError> {
@@ -6414,7 +6694,7 @@ struct VersionedEditionView {
 }
 
 fn load_versioned_edition_view(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     edition_id: EditionId,
 ) -> Result<VersionedEditionView, LocalPortError> {
@@ -6694,7 +6974,7 @@ struct VersionedReleaseSelection {
 }
 
 fn verify_earlier_release_reference(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     release_id: ReleaseId,
     environment_id: &proof_application::EnvironmentId,
@@ -6733,7 +7013,7 @@ fn verify_earlier_release_reference(
 }
 
 fn load_release_selection(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     release_id: ReleaseId,
 ) -> Result<VersionedReleaseSelection, LocalPortError> {
@@ -6848,6 +7128,78 @@ fn localized_release_request_digest(
         proof_application::ArtifactKind::OperationEffectV1,
         &canonical,
     ))
+}
+
+/// Executes the P-0007 promotion consequence inside an authority-owned
+/// transaction. This is deliberately narrower than the Human repository
+/// surface: delegated execution cannot select the rollback path and does not
+/// re-open or nest a transaction.
+pub(super) fn promote_localized_release_transaction(
+    transaction: &Transaction<'_>,
+    workspace_id: proof_application::WorkspaceId,
+    requesting_principal_id: proof_application::PrincipalId,
+    command: &PromoteLocalizedReleaseCommand,
+    artifact_preflight: impl FnOnce() -> Result<(), LocalPortError>,
+    signer_factory: impl FnOnce() -> Result<super::Ed25519SigningProvider, LocalPortError>,
+) -> Result<LocalizedRelease, LocalPortError> {
+    create_localized_release(
+        transaction,
+        workspace_id,
+        requesting_principal_id,
+        LocalizedReleaseRequest::Promotion(command),
+        artifact_preflight,
+        signer_factory,
+    )
+}
+
+pub(super) fn load_exact_localized_release_replay(
+    connection: &Connection,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    command: &PromoteLocalizedReleaseCommand,
+) -> Result<Option<LocalizedRelease>, LocalPortError> {
+    let request = LocalizedReleaseRequest::Promotion(command);
+    let request_digest = localized_release_request_digest(workspace_id, principal_id, request)?;
+    let persisted = connection
+        .query_row(
+            "SELECT request_digest, release_id, proof_id
+             FROM localized_release_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2
+                   AND operation_kind = ?3 AND idempotency_key = ?4",
+            (
+                workspace_id.to_string(),
+                principal_id.to_string(),
+                request.operation_kind(),
+                request.idempotency_key().to_string(),
+            ),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let Some((persisted_request, raw_release_id, raw_proof_id)) = persisted else {
+        return Ok(None);
+    };
+    let release_id = raw_release_id
+        .parse::<ReleaseId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let proof_id = raw_proof_id
+        .parse::<proof_application::ProofId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let release = load_localized_release(connection, workspace_id, release_id)?;
+    if persisted_request != request_digest.to_string()
+        || release_id != command.release_id
+        || proof_id != command.proof_id
+        || release.proof_id != proof_id
+    {
+        return Ok(None);
+    }
+    Ok(Some(release))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -7459,7 +7811,7 @@ fn localized_release_metadata(
 }
 
 fn localized_release_content_evidence(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     intent: &ContentResourceIntent,
     changeset: &LocalizedChangeSet,
     commit: &CommittedLocalizedChangeSet,
@@ -7506,8 +7858,8 @@ fn localized_release_content_evidence(
 }
 
 #[allow(clippy::too_many_lines)]
-fn load_localized_release(
-    transaction: &Transaction<'_>,
+pub(super) fn load_localized_release(
+    transaction: &Connection,
     workspace_id: proof_application::WorkspaceId,
     release_id: ReleaseId,
 ) -> Result<LocalizedRelease, LocalPortError> {
@@ -8016,7 +8368,7 @@ pub(super) fn load_localized_release_chain_node(
 }
 
 fn verify_localized_release_operation(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     principal_id: proof_application::PrincipalId,
     release: &LocalizedRelease,
 ) -> Result<(), LocalPortError> {
@@ -8087,7 +8439,7 @@ fn verify_localized_release_operation(
     Ok(())
 }
 
-fn materialize_localized_release_proof(
+pub(super) fn materialize_localized_release_proof(
     workspace: &LocalWorkspace,
     release: &LocalizedRelease,
 ) -> Result<(), LocalPortError> {
@@ -8140,7 +8492,82 @@ fn materialize_localized_release_proof(
     workspace.acknowledge_release_proof_export(release.proof_id)
 }
 
-fn query_released_renditions(
+/// Disclosure-safe metadata resolved only after the signed Environment,
+/// Object, locale, and nonempty-Schema grant passes stage one. The resolver
+/// never loads localized rendition content; the authorized consequence does
+/// that only after every resolved source Schema is also covered.
+pub(super) struct ReleasedAuthorizationProjectionV1 {
+    pub release_id: Option<ReleaseId>,
+    pub edition_id: Option<EditionId>,
+    pub schema_ids: Vec<SchemaId>,
+}
+
+pub(super) fn resolve_released_authorization_projection(
+    transaction: &Transaction<'_>,
+    workspace_id: proof_application::WorkspaceId,
+    command: &QueryReleasedRenditionsCommand,
+) -> Result<ReleasedAuthorizationProjectionV1, LocalPortError> {
+    if command.targets.is_empty()
+        || command.targets.len() > MAX_LOCALIZED_TARGETS
+        || !command.targets.is_sorted()
+        || command.targets.windows(2).any(|pair| pair[0] == pair[1])
+    {
+        return Err(LocalPortError::Invalid);
+    }
+    let environment =
+        match load_localized_environment(transaction, workspace_id, command.environment_id.clone())
+        {
+            Ok(environment) => environment,
+            Err(LocalPortError::NotFound) => {
+                return Ok(ReleasedAuthorizationProjectionV1 {
+                    release_id: None,
+                    edition_id: None,
+                    schema_ids: Vec::new(),
+                });
+            }
+            Err(error) => return Err(error),
+        };
+    let Some(release_id) = environment.current_release_id else {
+        return Ok(ReleasedAuthorizationProjectionV1 {
+            release_id: None,
+            edition_id: None,
+            schema_ids: Vec::new(),
+        });
+    };
+    let selection = match load_release_selection(transaction, workspace_id, release_id) {
+        Ok(selection) => selection,
+        Err(LocalPortError::NotFound) => {
+            return Ok(ReleasedAuthorizationProjectionV1 {
+                release_id: Some(release_id),
+                edition_id: None,
+                schema_ids: Vec::new(),
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    let edition =
+        load_versioned_edition_view(transaction, workspace_id, selection.edition.edition_id)?;
+    let requested_objects = command
+        .targets
+        .iter()
+        .map(|target| target.object_id)
+        .collect::<BTreeSet<_>>();
+    let schema_ids = edition
+        .objects
+        .iter()
+        .filter(|object| requested_objects.contains(&object.object_id))
+        .map(|object| object.schema_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    Ok(ReleasedAuthorizationProjectionV1 {
+        release_id: Some(release_id),
+        edition_id: Some(selection.edition.edition_id),
+        schema_ids,
+    })
+}
+
+pub(super) fn query_released_renditions(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     command: &QueryReleasedRenditionsCommand,
@@ -8216,7 +8643,7 @@ fn query_released_renditions(
     clippy::too_many_lines,
     reason = "validation persists a complete deterministic attempt and exact lineage transition"
 )]
-fn validate_changeset(
+pub(super) fn validate_changeset(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -8379,6 +8806,27 @@ fn validate_changeset(
     Ok(result)
 }
 
+pub(super) fn replay_validation_for_authenticated_operation(
+    transaction: &Transaction<'_>,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    changeset_id: ChangeSetId,
+    validation_results_digest: ContentDigest,
+) -> Result<proof_application::LocalizedValidation, LocalPortError> {
+    let changeset = load_changeset(transaction, workspace_id, changeset_id)?;
+    if changeset.principal_id != principal_id {
+        return Err(LocalPortError::NotFound);
+    }
+    load_validation_chain(transaction, &changeset)?
+        .into_iter()
+        .find(|validation| validation.validation_results_digest == validation_results_digest)
+        .ok_or_else(|| {
+            LocalPortError::Integrity(
+                "authenticated validation replay lost its exact result".to_owned(),
+            )
+        })
+}
+
 fn load_policy_rules(
     transaction: &Transaction<'_>,
     context_pack_id: ContextPackId,
@@ -8503,7 +8951,7 @@ fn seal_digest(
 
 #[allow(clippy::too_many_lines)]
 fn load_validation_chain(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     changeset: &LocalizedChangeSet,
 ) -> Result<Vec<proof_application::LocalizedValidation>, LocalPortError> {
     type ValidationRow = (
@@ -8714,4 +9162,40 @@ fn parse_findings(text: &str) -> Result<Vec<proof_application::LocalizedFinding>
         });
     }
     Ok(findings)
+}
+
+#[cfg(test)]
+mod tests {
+    use proof_application::{
+        ChangeSetIntent, ChangeSetStatus, KnownStateArtifactReference, LocalizedChangeSet,
+    };
+
+    use super::{LocalPortError, changeset_diff};
+
+    #[test]
+    fn empty_draft_has_no_schema_conformant_diff_evidence() {
+        let digest = format!("blake3:{}", "1".repeat(64)).parse().unwrap();
+        let draft = LocalizedChangeSet {
+            changeset_id: "019c0000-0000-7000-8000-000000000101".parse().unwrap(),
+            workspace_id: "019c0000-0000-7000-8000-000000000102".parse().unwrap(),
+            principal_id: "019c0000-0000-7000-8000-000000000103".parse().unwrap(),
+            intent: ChangeSetIntent::new("Empty draft must not claim a diff").unwrap(),
+            resource_intent_id: "019c0000-0000-7000-8000-000000000104".parse().unwrap(),
+            resource_intent_digest: digest,
+            context_pack_id: "019c0000-0000-7000-8000-000000000105".parse().unwrap(),
+            context_pack_digest: digest,
+            base_state: KnownStateArtifactReference {
+                api_version: "proof.dev/known-state/v2".to_owned(),
+                authoritative_sequence: 0,
+                digest,
+            },
+            created_at: "2026-08-21T12:00:00Z".parse().unwrap(),
+            status: ChangeSetStatus::Draft,
+            edits: Vec::new(),
+            proposal_digest: None,
+            sealed_changeset_digest: None,
+        };
+
+        assert_eq!(changeset_diff(&draft), Err(LocalPortError::EvidenceMissing));
+    }
 }

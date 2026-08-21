@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 base64.workspace = true
+proof-canonical = { path = "../proof-canonical" }
 proof-domain = { path = "../proof-domain" }
 serde.workspace = true
 serde_json.workspace = true

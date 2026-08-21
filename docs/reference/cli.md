@@ -1,8 +1,8 @@
 # CLI contract
 
-**Status:** Milestone 1 implemented; Milestone 2 read-authority slice implemented
+**Status:** Milestone 1 implemented; Milestone 2 bounded local authenticated mutation implemented
 
-**Baseline:** August 16, 2026
+**Baseline:** August 21, 2026
 
 The `proof` executable is the first complete interface to the product. It is designed for interactive human use, shell composition, and reliable agent invocation.
 
@@ -100,20 +100,21 @@ A ContextPack is a bounded, immutable package assembled from exact released Obje
 The standalone offline verifier checks canonical DSSE/in-toto bytes, a caller-supplied expected envelope digest, and the Ed25519 signature against a caller-supplied trusted key ID. It does not verify Workspace policy or persisted Release evidence. `release verify` is the operation that verifies the persisted local Release, Proof subjects, evidence, and configured trust.
 
 The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP
-`2025-11-25` for capability discovery, authenticated Workspace status,
-released-Object query, and ContextPack build. Modern requests are independent
+`2025-11-25` for capability discovery and all 14 enabled authenticated
+operations: the three retained `/v1` reads and 11 localized `/v2` operations.
+Modern requests are independent
 and carry protocol version plus client capabilities in per-request `_meta`;
 they do not require `initialize`. Legacy clients retain the `initialize` /
 `notifications/initialized` path. Both eras carry the exact authenticated DSSE
 string in `params._meta["dev.proof/authentication"]` and enter the same
 application executor. Session state and request identifiers are not authority.
-This is an authenticated read/evidence slice, not delegated mutation or a
-collaboration server.
+This is a bounded local delegated-mutation surface, not a collaboration server,
+portable evidence bundle, containment proof, or publication claim.
 
-### Implemented P-0004 profile — authenticated Agent invocation
+### Implemented P-0004/P-0005 profile — authenticated Agent invocation
 
-The bounded local profile is implemented for status, released-Object query, and
-ContextPack build. The normative contract is the
+The bounded local profile is implemented for the fixed 14-row operation
+registry. The normative contract is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
 - `auth sign --credential <HANDLE>` selects a separator-free file name under
@@ -130,9 +131,9 @@ ContextPack build. The normative contract is the
 - The profile reserves the exact application action tokens
   `changeset:create`, `changeset:add`, `changeset:get`, `changeset:diff`,
   `changeset:validate`, `changeset:submit`, `changeset:commit`,
-  `edition:create`, and `release:create` for downstream P-0002/P-0005 work.
-  P-0004 implements the generic exact-set evaluator but exposes only the current
-  status, released-query, and ContextPack operations. The exact 14
+  `edition:create`, and `release:create` for the localized v2 lifecycle.
+  P-0004 implements the generic exact-set evaluator; P-0005 exposes all 11
+  localized rows alongside the three retained v1 reads. The exact 14
   operation-version entries and 12 action tokens are normative in the
   [authenticated actor contract](../architecture/authenticated-actor.md) and
   [`conformance/v1/authority/`](../../conformance/v1/authority/README.md); adapters reject
@@ -172,6 +173,21 @@ ContextPack build. The normative contract is the
   per-attempt security evidence is not a duplicate governed effect under the
   ratified C4 replacement: governed content and projections remain unchanged.
   ContextPack build remains idempotent under its existing operation contract.
+- The localized Agent path can select and replay only a pre-existing
+  Human-issued resource intent and Human-built ContextPack. Approval is not an
+  authenticated Agent operation and remains Human-only.
+- Every fresh presentation, including an exact application retry, re-evaluates
+  current Principal and binding state, Delegation and revocation, intent,
+  ContextPack, approval, and content/Environment closure before disclosing a
+  stored result. An old idempotency key is not a bearer capability.
+- Each localized Allow signs the exact result contract, success/failure kind,
+  canonical result digest, and application-consequence digest. Storage schema
+  v13 records one per-presentation consequence and reserves successful
+  application keys Workspace-wide; a failure consequence does not reserve the
+  key.
+- CLI, modern MCP, and legacy MCP use the same application normalizer, result
+  contract, Problem projection, and 14-row registry. Transport aliases and
+  session state cannot change operation semantics.
 
 On Unix, the current file provider resolves `<HANDLE>` only as
 `$XDG_DATA_HOME/proof/credentials/<HANDLE>.json`, falling back to
@@ -226,11 +242,11 @@ eligibility, signed artifacts, an SBOM, provenance, reproducibility, or public
 distribution. Windows builds and local test runs do not constitute live
 Windows runtime qualification or published Windows support.
 
-### Implemented P-0007 Human profile — exact-locale content mutation
+### Implemented P-0007/P-0005 profile — exact-locale content mutation
 
 P-0007 implements the exact-locale content foundation for the authenticated
-Human path. Its versioned localized `/v2` contracts and append-only repair
-history are authoritative; P-0005 still owns Agent enablement.
+Human path. P-0005 exposes those same versioned localized `/v2` contracts to an
+authenticated Agent without changing their append-only repair history.
 
 The command grammar does not add direct Object mutation. Localized writes still
 enter through `changeset add`. Ratified application contracts reserve `/v2`
@@ -239,10 +255,10 @@ successors for `context.build`, `object.query_released`, all content-capable
 profile uses `changeset.create/v2`, `changeset.add/v2`, `changeset.get/v2`,
 `changeset.diff/v2`, `changeset.validate/v2`, `changeset.submit/v2`,
 `changeset.commit/v2`, `edition.create/v2`, and `release.create/v2`; approval
-remains a separate Human operation. These are reservations, not advertised
-capabilities. P-0003's ratified profile reconciles the operation-version,
-action, retry, and exact resource-projection registry; P-0005 still must wire
-that accepted registry before this profile can be exposed to an Agent.
+remains a separate Human operation. These are advertised through `auth sign`,
+`auth execute`, and both MCP protocol eras. P-0003's ratified profile fixes the
+operation-version, action, retry, and exact resource-projection registry;
+P-0005 wires that registry to the P-0007 application contracts.
 
 The one new content Edit is a complete localized-rendition put:
 
@@ -340,9 +356,12 @@ intent and, for delegated execution, `DelegationV2`. A generated ChangeSet,
 Edition, or Release identifier is evidence and a later selector, not an
 authority scope axis.
 
-`context.build/v2` accepts only the persisted intent identifier and digest as
-its resource selector and commits the complete intent bytes into the resulting
-pack. `changeset.create/v2` then binds both immutable records:
+The Human path first builds and persists the localized ContextPack from the
+intent. Agent `context.build/v2` signs the exact original Human build input:
+ContextPack ID, intent ID/digest, timestamps, idempotency key, limits, and
+policy rules. The executor proves that exact Human-path operation already
+exists and returns its artifact; it cannot perform first creation.
+`changeset.create/v2` then binds both immutable records:
 
 ```json
 {

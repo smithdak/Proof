@@ -1,11 +1,11 @@
 # Ratified local authority conformance profile
 
-Status: **Ratified by P-0003; bounded local read runtime implemented by P-0004**.
+Status: **Ratified by P-0003; bounded local runtime implemented through P-0005**.
 These schemas and vectors freeze the smallest Milestone-2 local authentication
-and authority profile. The three v1 read operations are implemented; the 11
-localized v2 application contracts are implemented only through P-0007's Human
-path and remain unavailable to an Agent until P-0005. This profile binds their
-authority vocabulary so P-0005 cannot invent adapter-local mutation semantics.
+and authority profile. The three retained v1 reads and all 11 localized v2
+operations are enabled. P-0005 binds P-0007's Human-path contracts to the
+P-0004 kernel without inventing adapter-local mutation semantics. The Agent
+cannot issue or replace intent/ContextPack closure or approve.
 
 No file in this directory contains an Agent key, Workspace-authority key, blind,
 or other secret. Public keys, exact signatures, canonical payload bytes, DSSE
@@ -221,7 +221,7 @@ normalization. Literal syntactic aliases such as `iw` remain distinct from
 | `workspace.status` / `proof.dev/operation/workspace.status/v1` | `workspace:status` | null | Workspace; authority evidence only |
 | `object.query_released` / `proof.dev/operation/object.query_released/v1` | `object:query_released` | null | Workspace, Environment, exact Objects; authority evidence only |
 | `context.build` / `proof.dev/operation/context.build/v1` | `context:build` | required UUIDv7 | Workspace, Environment, exact Objects; immutable v1 ContextPack |
-| `context.build` / `proof.dev/operation/context.build/v2` | `context:build` | required UUIDv7 | Complete verified localized intent; immutable localized ContextPack |
+| `context.build` / `proof.dev/operation/context.build/v2` | `context:build` | required UUIDv7 | Complete verified localized intent; exact replay of Human-built localized ContextPack |
 | `changeset.create` / `proof.dev/operation/changeset.create/v2` | `changeset:create` | required UUIDv7 | Complete selected intent; draft ChangeSet |
 | `changeset.add` / `proof.dev/operation/changeset.add/v2` | `changeset:add` | required UUIDv7 | Complete bound intent plus member Edit targets; Edit batch |
 | `changeset.get` / `proof.dev/operation/changeset.get/v2` | `changeset:get` | null | Complete bound intent; unfiltered read |
@@ -246,8 +246,8 @@ Five budget profiles separately freeze whether effective constraints come from
 the Delegation alone, requested Object count, normalized v1/v2 context limits,
 or a verified bound ContextPack. The v2 ContextPack validation-attempt limit is
 application policy, not an invented Delegation constraint.
-P-0004 implements the evaluator and three v1 reads without exposing the
-localized rows; P-0005 performs that wiring without changing the registry.
+P-0004 implements the evaluator and three retained v1 reads; P-0005 performs
+the localized wiring without changing the registry.
 
 ## Authority log, roots, and offline evidence
 
@@ -260,6 +260,13 @@ also explicitly equals that root and signer. Its
 `evaluated_authority_head` equals the immediate predecessor. Presentation
 consumption, decision consequence, and signed decision append are atomic.
 Runtime/model metadata is never an identity or authority selector.
+
+For a localized v2 Allow, `AuthorizationDecisionV2` also requires the exact
+result contract, success/failure kind, canonical result digest, and application-
+consequence digest. Storage v13 cross-links that signed commitment to one
+per-presentation consequence and, for success, one Workspace-global
+application-key entry. Fresh authentication and current-state authorization
+precede exact replay disclosure.
 
 The initial root and authority-head checkpoint are caller-trusted out of band.
 A planned rotation activates only as the next causal record and is signed by

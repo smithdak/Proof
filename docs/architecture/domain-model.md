@@ -1,11 +1,12 @@
 # Domain model
 
 **Status:** Ratified baseline  
-**Baseline:** August 3, 2026
+**Baseline:** August 21, 2026
 
-> **Implemented P-0004 profile:** The authenticated-actor and authority-evidence
-> additions below are normative architecture and are persisted by storage
-> schema v12. The migration preserves the meaning and bytes of historical
+> **Implemented P-0004/P-0005 profile:** The authenticated-actor, localized
+> consequence, and authority-evidence additions below are normative
+> architecture and are persisted by storage schema v13. The migration preserves
+> the meaning and bytes of historical
 > Release evidence.
 > The normative contract is the [authenticated actor contract](authenticated-actor.md).
 >
@@ -147,6 +148,11 @@ envelope digest,
 `authorization_decision_digest`, and authority-log position. The legacy
 `principal_id` field is not silently reinterpreted.
 
+The bounded P-0005 composition keeps those Agent fields in the separate
+authority decision and v13 localized consequence rather than rewriting P-0007
+content artifacts. `ReleaseV2.principal_id` and its
+`authorization_decision_digest` retain their Human release-policy meanings.
+
 Lifecycle:
 
 ```text
@@ -276,6 +282,16 @@ and decision time. It never contains a private credential or bearer secret.
 Existing `AuthorizationDecisionV1` retains its legacy read-authority meaning
 and is not silently reinterpreted.
 
+A localized v2 Allow additionally carries one
+`LocalizedConsequenceCommitmentV1`: exact result kind, result contract and
+digest, and application-consequence digest. The corresponding v13 consequence
+row cross-links the signed decision to the immutable intent/ContextPack,
+policy, validator, approval, application result, and raw P-0007 effect used for
+that presentation. A separate Workspace-global ledger reserves only successful
+localized application keys and stores their stable command/result/effect
+identity. These records support exact replay without allowing an idempotency
+key to bypass fresh authentication or current-state authorization.
+
 ## Delegation
 
 A Delegation grants bounded authority from an issuer to a recipient Principal. It is immutable after issue; revocation creates a revocation fact. Evaluation follows the full chain, and no link may grant more than its parent.
@@ -324,16 +340,17 @@ dimensions and add no new action or grant axis.
 
 Generated ChangeSet, Edit, Edition, Release, and Proof identifiers are outcome
 selectors and evidence, not authority. P-0007 implements this content
-foundation for a Human path before P-0005 binds it to authenticated Agent
-authority. P-0003's reconciled candidate freezes the 11 v2 pairs and their
+foundation for the Human path, and P-0005 binds it to authenticated Agent
+authority. P-0003's reconciled registry freezes the 11 v2 pairs and their
 complete-intent or staged released-query projections in
-`AuthorityOperationRegistryV1`; P-0005 may wire them but cannot reinterpret
-them.
+`AuthorityOperationRegistryV1`; the implemented binding does not reinterpret
+them. The Agent cannot issue or replace the resource intent or ContextPack and
+cannot approve a ChangeSet.
 
 ## Ratified P-0003 profile — portable authority closure
 
 P-0006 will define `AuthorityEvidenceBundleV1`; it is not an implemented bundle
-contract in P-0003 or P-0004. The future bundle is rooted in the
+contract in P-0003, P-0004, or P-0005. The future bundle is rooted in the
 separate authority trust domain and carries the exact `binding_id`, binding-issue
 authority sequence and record digest, subject commitment, direct `DelegationV2`
 and applicable revocation records, consumed

@@ -1,7 +1,7 @@
 # Error model
 
-**Status:** Initial stable design  
-**Baseline:** August 3, 2026
+**Status:** Stable local contract
+**Baseline:** August 21, 2026
 
 Proof uses one conceptual error model across CLI, HTTP, SDK, and MCP adapters. HTTP serialization follows RFC 9457 Problem Details.
 
@@ -88,7 +88,7 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.delegation.scope_exceeded`
 - `proof.approval.required`
 
-**Implemented P-0004 profile** codes:
+**Implemented P-0004/P-0005 profile** codes:
 
 The normative definitions are in the
 [authenticated actor contract](../architecture/authenticated-actor.md).
@@ -189,11 +189,11 @@ idempotent.
 - `proof.schema.type_mismatch`
 - `proof.relationship.invalid_target`
 
-#### Ratified P-0002 localized-content taxonomy
+#### Implemented localized-content taxonomy
 
-The following codes are reserved by the accepted P-0002 contract. They are not
-implemented and do not alter current v1 Problems. Their semantics are stable
-within the v2 operation contracts.
+The following codes are implemented by P-0007 for the Human path and exposed
+through authenticated Agent `/v2` operations by P-0005. They do not alter v1
+Problems.
 
 Operation-level Problems:
 
@@ -238,6 +238,15 @@ or a superseding same-target Edit, but never a scope expansion, fallback,
 source mutation, or policy bypass. Possessing policy or ContextPack evidence
 does not grant authority.
 
+For an authenticated localized application failure, the public Problem is also
+the canonical signed result preimage under
+`proof.dev/result/localized-operation-problem/v1`. Its stable operation, code,
+title, retry class, and findings determine the result digest; transport-only
+detail does not. The signed Allow means the application operation was
+authorized and produced that failure result, not that content mutation
+succeeded. The failure consequence commits atomically but does not reserve a
+Workspace-global application idempotency key.
+
 ### State and concurrency
 
 - `proof.resource.not_found`
@@ -265,7 +274,8 @@ does not grant authority.
 - `proof.operation.cancelled`
 - `proof.internal`
 
-The final registry lives as versioned machine-readable data once implementation begins.
+The operation and Problem mappings are versioned machine-readable application
+contracts and are projected identically by CLI and both MCP protocol eras.
 
 ## Retry guidance
 

@@ -2,23 +2,28 @@
 
 **Status:** Ratified by P-0002 and ADR-0012
 
-**Version:** 0.2
+**Version:** 0.3
 
-**As of:** August 20, 2026
+**As of:** August 21, 2026
 
 **Review gate:** Project owner
 
 This contract defines the smallest complete content-mutation profile required
 for the Milestone 2 north-star scenario. Project-owner acceptance of P-0002
-ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It now
-has a Human-operated implementation through P-0007. It does not claim
-authenticated Agent authority; that remains P-0005 after P-0004.
+ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It has a
+Human-operated implementation through P-0007 and a bounded authenticated Agent
+composition through P-0005.
 
 P-0007 implemented and proved the human-operated content foundation defined
-here. P-0005 may bind authenticated Agent authority to it only after P-0004
-implements the authority kernel. P-0003's ratified profile replaces its stale
-v1 write reservations with this contract's v2 pairs and exact resource
-projections.
+here. P-0004 implemented the authority kernel, and P-0005 binds it to these
+exact v2 operations without changing their content semantics. P-0003's
+ratified profile replaces its stale v1 write reservations with this contract's
+v2 pairs and exact resource projections.
+
+| Revision | Date | Decision state |
+| --- | --- | --- |
+| 0.2 | 2026-08-20 | Ratified localized content contract with Human-path P-0007 implementation. |
+| 0.3 | 2026-08-21 | Implemented the bounded P-0005 Agent binding, signed result/consequence closure, and v13 local persistence. |
 
 ## Decision
 
@@ -78,7 +83,7 @@ The following requirements are normative.
   registry alias or likely-subtag normalization. `fr-CA` and `fr-ca` are not
   equivalent; the latter fails. A registry alias such as `iw` is accepted only
   as its literal syntactically valid identifier and remains distinct from
-  `he`. P-0003 ratified the same exact grammar for `DelegationV2`; P-0004 must
+  `he`. P-0003 ratified the same exact grammar for `DelegationV2`; P-0004/P-0005
   preserve it in runtime evaluation.
 - **L4 — Full target content.** Every Edit supplies a complete JSON object, not
   a patch. The target validates against the exact source Schema identifier and
@@ -470,7 +475,7 @@ implied.
 
 The affected application operations use the existing reserved actions:
 
-| Operation version proposed for P-0007/P-0005 | Action | Required closure |
+| Enabled localized operation version | Action | Required closure |
 | --- | --- | --- |
 | `context.build` / `proof.dev/operation/context.build/v2` | `context:build` | Complete intent and target set |
 | `changeset.create` / `proof.dev/operation/changeset.create/v2` | `changeset:create` | Complete immutable intent |
@@ -486,8 +491,8 @@ The affected application operations use the existing reserved actions:
 
 The canonical operation identifiers use the existing
 `proof.dev/operation/<name>/v2` form. P-0003's
-`AuthorityOperationRegistryV1` now freezes these 11 pairs, the three retained
-v1 reads, and their exact projection/retry classes for owner review. Generated
+`AuthorityOperationRegistryV1` freezes and enables these 11 pairs alongside the
+three retained v1 reads with their exact projection/retry classes. Generated
 ChangeSet, Edit, Edition, Release, and Proof identifiers are selectors and
 evidence after creation, not additional grant axes.
 
@@ -496,6 +501,23 @@ authority head. A caller authorized for only a subset receives a denial, never
 a filtered ChangeSet, diff, validation report, Edition, or Release. This avoids
 turning partial reads into a resource-existence oracle and prevents a broad
 ChangeSet from being committed through a narrow grant.
+
+Every localized Agent attempt also uses a fresh single-use authenticated
+presentation. Before a prior idempotent result can be returned, Proof
+re-evaluates current Principal and binding activity, Delegation and revocation,
+the immutable resource intent and ContextPack, approval when required, and the
+current content/Environment closure. Approval is a Human operation; the Agent
+surface cannot create an approval or issue or replace resource intent or
+ContextPack closure.
+
+Each localized Allow carries a signed
+`localized_consequence_commitment`: the exact success Schema or stable failure
+contract, result kind, canonical result digest, and complete application-
+consequence digest. Storage schema v13 atomically records that decision and one
+per-presentation consequence. Successful application idempotency keys are
+Workspace-global across the localized profile; an application failure records
+its signed consequence but does not reserve the key, so corrected input can
+retry safely.
 
 ## Commit, Edition, and Release causality
 
@@ -634,7 +656,7 @@ reject an unsupported cross-version combination rather than coerce it.
 
 ## Implementation sequence
 
-The selected path is a named foundation prerequisite, not direct expansion of
+The selected path used a named foundation prerequisite before composing
 P-0005:
 
 1. **P-0007 — localized content foundation (complete):** implement versioned
@@ -643,13 +665,14 @@ P-0005:
    authority.
 2. **P-0003 — accepted:** reconcile the authenticated command operation
    registry and exact resource projections with this contract.
-3. **P-0004:** implement authenticated actor and direct-Delegation enforcement.
-4. **P-0005:** bind the proven P-0007 operations to authenticated Agent
-   authority and demonstrate denial/transport parity.
+3. **P-0004 — complete:** implement authenticated actor and direct-Delegation
+   enforcement.
+4. **P-0005 — implemented local profile:** bind the proven P-0007 operations to
+   authenticated Agent authority and demonstrate denial/transport parity.
 5. **P-0006:** export and independently verify the combined content, authority,
    Edition, Release, and Proof closure.
 
-P-0007 prevents P-0005 from simultaneously inventing content semantics and
+P-0007 prevented P-0005 from simultaneously inventing content semantics and
 debugging Agent authorization. It also yields a human-path oracle against which
 Agent behavior can be compared.
 
@@ -659,8 +682,8 @@ and Human-path behavior. Reopened P-0003 owns the closed
 operation-version-to-action/resource-projection registry and authority
 conformance against P-0002's normative operation identifiers, fields, and
 resource projections. P-0004 implements the generic
-authentication/authorization kernel but exposes no content write. P-0007 has
-registered the exact content Schema identifiers and digests. P-0005 binds
+authentication/authorization kernel. P-0007 has registered the exact content
+Schema identifiers and digests. P-0005 binds
 those registered Schemas to the accepted
 authority registry through adapters and may not redefine either contract.
 
@@ -689,7 +712,7 @@ at least:
 - v1 byte/digest reproduction before and after migration, with zero fabricated
   renditions;
 - exact-locale query and deliberate no-fallback behavior; and
-- CLI, modern MCP, and legacy MCP normalized-input parity when P-0005 binds the
+- CLI, modern MCP, and legacy MCP normalized-input parity on the implemented
   Agent path.
 
 The critical falsification case is an authorized Agent attempting to change a

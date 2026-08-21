@@ -16,7 +16,7 @@ const STATUS_COMMAND: &str =
     include_str!("../../../conformance/v1/authority/vectors/semantic-command.valid.json");
 
 #[test]
-fn capability_list_reports_stable_evidence_write_in_text_and_json() {
+fn capability_list_renders_the_exact_application_registry_in_text_and_json() {
     let text = Command::new(env!("CARGO_BIN_EXE_proof"))
         .args(["capability", "list", "--output", "text"])
         .output()
@@ -24,8 +24,26 @@ fn capability_list_reports_stable_evidence_write_in_text_and_json() {
     assert!(text.status.success());
     assert!(text.stderr.is_empty());
     let text = String::from_utf8(text.stdout).unwrap();
-    assert_eq!(text.matches("side effect: evidence_write").count(), 3);
-    assert!(!text.contains("EvidenceWrite"));
+    for capability in proof_application::capabilities() {
+        assert!(
+            text.contains(&format!("{} {}", capability.operation, capability.version)),
+            "missing exact capability identity for {} {}",
+            capability.operation,
+            capability.version
+        );
+        assert!(
+            text.contains(&format!("side effect: {}", capability.side_effect)),
+            "missing side-effect classification for {} {}",
+            capability.operation,
+            capability.version
+        );
+        assert!(
+            text.contains(&format!("required action: {}", capability.required_action)),
+            "missing required action for {} {}",
+            capability.operation,
+            capability.version
+        );
+    }
 
     let json = Command::new(env!("CARGO_BIN_EXE_proof"))
         .args(["capability", "list", "--output", "json"])
@@ -34,12 +52,9 @@ fn capability_list_reports_stable_evidence_write_in_text_and_json() {
     assert!(json.status.success());
     assert!(json.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
-    let capabilities = json["data"]["capabilities"].as_array().unwrap();
-    assert_eq!(capabilities.len(), 3);
-    assert!(
-        capabilities
-            .iter()
-            .all(|capability| capability["side_effect"] == "evidence_write")
+    assert_eq!(
+        json["data"]["capabilities"],
+        serde_json::to_value(proof_application::capabilities()).unwrap()
     );
 }
 

@@ -1,18 +1,19 @@
 # Authenticated actor contract
 
-**Status:** Ratified by P-0003; bounded local read profile implemented by P-0004
+**Status:** Ratified by P-0003; bounded local profile implemented through P-0005
 
-**Version:** 1.1
+**Version:** 1.2
 
-**As of:** August 20, 2026
+**As of:** August 21, 2026
 **Review gate:** Project owner
 
 This document is ratified by
 [ADR-0011](../decisions/0011-local-agent-command-authentication.md).
-P-0004 implements this contract for the bounded local Human-to-Agent profile and
-the three enabled v1 reads. The 11 localized v2 operation contracts remain
-disabled for Agents until P-0005, and P-0006 still owns portable authority
-bundles and the Milestone 2 containment qualification.
+P-0004 implements the authenticated Human-to-Agent kernel and three retained
+v1 reads. P-0005 binds the 11 localized v2 operation contracts to P-0007's
+Human-issued intent, ContextPack, and content lifecycle without granting Agents
+closure issuance or approval. P-0006 still owns portable authority bundles and
+the Milestone 2 containment and publication qualification.
 
 | Revision | Date | Decision state |
 | --- | --- | --- |
@@ -20,6 +21,7 @@ bundles and the Milestone 2 containment qualification.
 | 0.2 | 2026-08-20 | Reconciled the closed registry, exact resource projections, retry classes, and locale grammar with P-0007; pending owner acceptance. |
 | 1.0 | 2026-08-20 | Ratified by project-owner acceptance; implementation remains owned by P-0004. |
 | 1.1 | 2026-08-20 | Implemented the bounded local read profile through P-0004; delegated mutation and portable bundles remain downstream. |
+| 1.2 | 2026-08-21 | Implemented all 14 fixed registry rows through P-0005; added signed localized result/consequence commitment and v13 local evidence/global-key persistence. |
 
 ## Decision
 
@@ -66,7 +68,8 @@ Human-owned broker or adapter channel carrying the signed presentation. Running
 the Agent under the bootstrap UID provides attribution and integrity for a
 cooperating caller, not containment. It cannot by itself satisfy the Milestone
 2 exit condition. If Proof must contain mutually hostile same-UID processes,
-P-0004 must not implement this profile as the final boundary.
+the implemented local profile must not be represented as the final containment
+boundary.
 
 ## Identity vocabulary
 
@@ -450,10 +453,11 @@ identifiers are preallocated signed inputs where required for deterministic
 replay, but never widen the grant.
 
 The Human-issued intent narrows the dimension-wise Delegation product to exact
-target tuples. An Agent cannot issue, replace, narrow, or widen it. P-0004 may
-implement the generic evaluator and the three existing v1 reads but MUST NOT
-expose the localized operations. P-0005 binds those v2 operations to P-0007's
-implemented application contracts. Any future requirement for a grant axis
+target tuples. An Agent cannot issue, replace, narrow, or widen it. P-0004
+implemented the generic evaluator and three retained v1 reads without exposing
+localized operations. P-0005 now binds those v2 operations to P-0007's
+implemented application contracts without altering the registry. Any future
+requirement for a grant axis
 outside Workspace, Environment, Object, Schema, or locale requires a new
 Delegation version; transport aliases cannot change this registry.
 
@@ -533,7 +537,7 @@ The evaluator denies by default. It requires issuer/requester and
 recipient/operator equality, then intersects the one grant with the immutable
 `proof.local/authority/direct/v1` policy profile, requested action/resources,
 budgets, Principal state, binding state, and revocation state at the exact
-authority head. Direct/v1 admits only the three enabled registry operations and
+authority head. Direct/v1 admits only the 14 enabled registry operations and
 has no mutable runtime policy-denial state. `proof.authorization.policy_denied`
 remains a reserved wire value for a future versioned policy profile; P-0004 does
 not fabricate an unreachable provider merely to emit it. The evaluator
@@ -603,8 +607,8 @@ The chain detects mutation, insertion, deletion, and reordering only relative
 to a caller-trusted later authority head. A validly signed older prefix is still
 a valid prefix; a file-backed authority signer and the authority log in the same
 mutable Workspace cannot by themselves distinguish database truncation or a
-fork restored from backup. Live P-0004 guarantees therefore remain inside the
-local Workspace storage trust boundary. Offline or cross-system verification
+fork restored from backup. Live P-0004/P-0005 guarantees therefore remain
+inside the local Workspace storage trust boundary. Offline or cross-system verification
 of history completeness MUST pin an independently retained expected authority
 head or a later checkpoint that commits it. A stateful external signer or
 transparency service is a compatible future strengthening, not a P-0003 claim.
@@ -630,6 +634,17 @@ records:
 - injected evaluation timestamp; and
 - `allow` or a stable denial code.
 
+For each localized v2 Allow, the additive
+`localized_consequence_commitment` is required and signs the result kind,
+operation-specific success Schema or stable failure-result contract, canonical
+result digest, and complete application-consequence digest. Localized Denies
+and all retained P-0004 decisions omit that member, preserving their canonical
+bytes. The application consequence additionally binds the normalized command,
+actors and Delegation, selectors, semantic timestamp, exact intent, ContextPack,
+policy, validator and approval closure, result, and raw P-0007 effect. The
+decision, presentation consumption, consequence, and successful global
+application-key entry commit atomically under storage schema v13.
+
 Runtime/model metadata, prompts, MCP client capabilities, session identity, and
 raw local OS subjects are excluded. They may be separate evidence linked by
 digest, but changing them cannot change authority.
@@ -654,8 +669,8 @@ sandbox; a shell pipeline running both under the same UID is only an attribution
 test. No Agent-controlled path or argument may cause the privileged broker to
 open a file. Any path mode is Human-only and outside the Agent transport. The
 direct ambient Workspace CLI remains a Human/admin interface and is not an Agent
-execution path. These spellings are part of the P-0004 ratified grammar, not
-implemented commands.
+execution path. These spellings are the implemented bounded local broker
+surfaces.
 
 The signer MUST NOT accept `--principal` as an authority selector. A retained
 expected-Principal field is only a signed mismatch guard. The direct Delegation
@@ -669,11 +684,12 @@ The tool input may carry the Delegation selector and optional expected operating
 Principal, but the backend MUST derive the operating Principal from the verified
 binding and reject a mismatch. Tool discovery never grants authority.
 
-An authenticated Agent read consumes a presentation and appends a signed
-authorization decision. Its capability side effect is therefore
-`evidence_write`, and MCP MUST NOT advertise `readOnlyHint: true`, even though it
-does not mutate governed content or projections. An ambient authenticated-Human
-read without an Agent presentation may remain read-only.
+Every authenticated Agent operation consumes a presentation and appends a
+signed authorization decision. Agent reads therefore have an `evidence_write`
+side effect, and MCP MUST NOT advertise `readOnlyHint: true` for them even when
+governed content and projections do not change. Localized mutations advertise
+their exact registered consequence class. An ambient authenticated-Human read
+without an Agent presentation may remain read-only.
 
 An MCP implementation that cannot preserve the exact authentication `_meta`
 bytes must use an authenticated adapter wrapper. It MUST NOT fall back to a
@@ -681,9 +697,10 @@ caller-supplied Principal identifier.
 
 ## Portable authority evidence
 
-P-0004 persists canonical authority facts and decisions. P-0006 defines the
-`AuthorityEvidenceBundleV1` transport after the delegated mutation and Release
-shape is known. A complete bundle for one consequential Agent action must carry
+P-0004/P-0005 persist canonical authority facts, decisions, localized
+consequences, and successful application-key history. P-0006 defines the
+`AuthorityEvidenceBundleV1` transport and independent verifier. A complete
+bundle for one consequential Agent action must carry
 or resolve:
 
 - the exact signed authenticated command and normalized command input;
@@ -698,7 +715,9 @@ or resolve:
   needs rollback or truncation detection;
 - `AuthorizationDecisionV2`;
 - Workspace authority public roots and transitions;
-- the Release Proof binding the decision digest; and
+- the exact P7 Release Proof and its Human release-policy decision, plus the P5
+  consequence cross-link from Agent decision to operation result and raw P7
+  effect; and
 - explicit caller trust policy and roots.
 
 The independent verifier reports command signature, actor binding, authority
@@ -714,8 +733,8 @@ producer supplied the latest or complete history.
 
 ## Error contract
 
-P-0004 must map failures to stable Problems without leaking protected resource
-existence before authentication and scope checks.
+The local authenticated profile must map failures to stable Problems without
+leaking protected resource existence before authentication and scope checks.
 
 The public Problem boundary is thresholded. Structurally invalid input returns
 `proof.auth.malformed`. Until a signature verifies under a known historical
@@ -756,7 +775,7 @@ authenticated denial may reserve the presentation and append a bounded decision
 without content mutation. Errors before authentication use disclosure-neutral
 wording.
 
-## Implementation boundary for P-0004
+## Implemented local boundary through P-0005
 
 P-0004 is decision-complete and owns:
 
@@ -785,11 +804,30 @@ P-0004 does not own delegated content mutation, chained Delegation, OIDC,
 SPIFFE, Windows identity, KMS/HSM, a network/collaboration server, or the final
 evidence bundle.
 
+P-0005 owns the bounded composition only:
+
+- enable exactly the 11 registered localized v2 operations without changing
+  their action, Schema, projection, budget, retry, selector, or P-0007 content
+  contracts;
+- replay/select a pre-existing Human-built localized ContextPack and require an
+  authenticated Human for resource-intent issuance and ChangeSet approval;
+- execute the localized ChangeSet, Edition, Release, and released-query path
+  through the same application executor used by CLI and both MCP eras;
+- sign each localized Allow's exact application result and consequence;
+- persist and verify one v13 consequence per localized Allow plus a
+  Workspace-global successful application-key ledger; and
+- require fresh authentication and current-state authorization before exact
+  replay disclosure.
+
+It does not define portable bundle containment, independent publication
+verification, chained Delegation, new grant axes, or a broader content model;
+those remain P-0006 or later work.
+
 ## Conformance and falsification
 
 The ratified machine contracts and vectors live under
-[`conformance/v1/authority/`](../../conformance/v1/authority/README.md). Acceptance of
-P-0004 requires at least:
+[`conformance/v1/authority/`](../../conformance/v1/authority/README.md). The
+implemented P-0004/P-0005 profile requires at least:
 
 - exact canonical payload, DSSE PAE, public key, key ID, signature, envelope,
   and digest reproduction by an independent implementation;
@@ -811,6 +849,10 @@ P-0004 requires at least:
   wrong region case, and missing Environment/Object/Schema/locale grant cases;
 - authority-root separation and root-transition failure;
 - CLI, modern MCP, and legacy MCP producing the same command digest and decision;
+- localized success and failure result-digest substitution, consequence-row
+  deletion/tamper/swap, global-key collision, and stale replay tests;
+- proof that Agent execution cannot issue/replace resource intent or
+  ContextPack closure and cannot approve a ChangeSet;
 - denial atomicity and disclosure-neutral errors; and
 - no private key, raw OS subject, bearer credential, prompt, or runtime metadata
   in persisted or ordinary public authority artifacts; only the explicit
@@ -826,8 +868,8 @@ P-0004 requires at least:
   v1 profile; a cryptographic change creates a new profile.
 - Direct Delegation is `DelegationV2`; future chaining cannot silently change
   its meaning.
-- The final portable bundle is deferred to P-0006 so the Release evidence shape
-  is not guessed before P-0005.
+- The final portable bundle, containment proof, and publication qualification
+  remain deferred to P-0006; P-0005 provides the local evidence inputs only.
 
 ## Decision record
 
@@ -842,7 +884,7 @@ reopen trigger, not an implementation choice for P-0004.
 
 ## Kill and pivot triggers
 
-Reopen this decision during P-0004 if any of the following becomes a
+Reopen this local profile if any of the following becomes a
 Milestone 2 requirement:
 
 - mutually hostile processes sharing one Unix UID must be isolated;
@@ -854,9 +896,9 @@ Milestone 2 requirement:
 
 Database-prefix rollback resistance is not part of the local file-backed
 profile. If protection against an attacker who can restore both SQLite and its
-local authority state becomes a Milestone 2 requirement, P-0004 must add a
-stateful external signer, monotonic checkpoint, or transparency boundary and
-reopen this decision.
+local authority state becomes a Milestone 2 requirement, P-0006 must add or
+qualify a stateful external signer, monotonic checkpoint, or transparency
+boundary and reopen this decision.
 
 The first three triggers point to a daemon or SPIFFE-style workload-attestation
 boundary with protected keys. The fourth requires a bounded `DelegationV3`.
@@ -928,16 +970,16 @@ semantic idempotency key.
 
 ## Current-source and standards basis
 
-This revision was checked against the P-0007 supported candidate
-`47153144b4b834cfffab61b328e4551f09fe50cb` and its completed integration on
-`main` at `8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8`. Current Agent registration stores
-no credential, current Delegation verification compares the recipient only to a
-caller-supplied Principal, and CLI/MCP expose that selector. Existing
-`proof-canonical` RFC 8785 parsing/digests and `proof-attestation` Ed25519 key
-provider and strict verification primitives can be reused after a generic typed
-message API is separated from the Release Statement profile.
+This revision is grounded in the fixed 14-row registry and localized result
+contracts in `proof-application`, the v13 authority/consequence persistence and
+verification in `proof-local`, and the shared CLI and dual-era MCP adapters.
+Agent registration binds a per-Agent Ed25519 credential; request Principal IDs
+remain expected-value cross-checks rather than authority selectors. The local
+implementation reuses `proof-canonical` RFC 8785 parsing/digests and
+`proof-attestation` typed Ed25519 DSSE verification while keeping Release and
+authority signing roles separate.
 
-Standards grounding as of August 20, 2026:
+Standards grounding as of August 21, 2026:
 
 - [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) defines Ed25519.
 - [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) defines JSON Canonicalization

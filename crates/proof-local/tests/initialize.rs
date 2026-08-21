@@ -245,7 +245,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 12);
+    assert_eq!(schema_version, 13);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -385,7 +385,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 12);
+    assert_eq!(status.storage_schema_version, 13);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -2194,17 +2194,18 @@ fn delayed_changeset_retries_return_original_results_after_commit() {
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9 through v12 storage"
+    reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9 through v13 storage"
 )]
 fn lifecycle_chronology_rejects_invalid_first_writes_but_replays_original_results() {
-    for schema_version in [9, 10, 11, 12] {
+    for schema_version in [9, 10, 11, 12, 13] {
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         match schema_version {
             9 => downgrade_database_to_v9(&repository),
             10 => downgrade_database_to_v10(&repository),
             11 => downgrade_database_to_v11(&repository),
-            12 => {}
+            12 => downgrade_database_to_v12(&repository),
+            13 => {}
             _ => unreachable!(),
         }
         assert_storage_version(&repository, schema_version);
@@ -4611,12 +4612,12 @@ fn p0004_each_v1_to_v11_v12_failure_rolls_back_exactly_and_retry_is_stable() {
             .unwrap();
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 12);
+        assert_storage_version(&repository, 13);
         assert_foreign_keys_clean(&repository.open_database().unwrap());
         let after_retry = storage_fingerprint(&repository);
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 12);
+        assert_storage_version(&repository, 13);
         assert_eq!(
             storage_fingerprint(&repository),
             after_retry,
@@ -4626,11 +4627,63 @@ fn p0004_each_v1_to_v11_v12_failure_rolls_back_exactly_and_retry_is_stable() {
 }
 
 #[test]
+fn p0005_each_v1_to_v12_v13_failure_rolls_back_exactly_and_retry_is_stable() {
+    for source_version in 1..=12 {
+        let directory = TestDirectory::new();
+        let repository = initialized_repository(&directory);
+        prepare_exact_pre_v13_fixture(&repository, source_version);
+        assert_storage_version(&repository, source_version);
+        repository
+            .open_database()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER reject_p0005_v13_migration
+                 BEFORE INSERT ON schema_migrations
+                 WHEN NEW.version = 13
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected P-0005 v13 migration failure');
+                 END;",
+            )
+            .unwrap();
+        let before_failure = storage_fingerprint(&repository);
+
+        assert!(matches!(
+            rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }),
+            Err(RebuildProjectionsError::Storage(_))
+        ));
+        assert_eq!(
+            storage_fingerprint(&repository),
+            before_failure,
+            "v{source_version} injected-v13 failure changed typed storage, Schema, or foreign keys"
+        );
+        repository
+            .open_database()
+            .unwrap()
+            .execute("DROP TRIGGER reject_p0005_v13_migration", [])
+            .unwrap();
+
+        rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+        assert_storage_version(&repository, 13);
+        assert_foreign_keys_clean(&repository.open_database().unwrap());
+        assert_no_v13_authenticated_rows(&repository);
+        let after_retry = storage_fingerprint(&repository);
+
+        rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+        assert_storage_version(&repository, 13);
+        assert_eq!(
+            storage_fingerprint(&repository),
+            after_retry,
+            "v{source_version} second v13 retry changed converged storage"
+        );
+    }
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "one causal migration fixture retains the complete v1/v2/rollback byte history and keyless verification"
 )]
-fn p0004_v12_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
+fn p0005_v13_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
     const LOCALIZED_EDIT_ID: &str = "019c0000-0000-7000-8000-0000000002f0";
     const LOCALIZED_ADD_KEY: &str = "019c0000-0000-7000-8000-0000000002f1";
     const LOCALIZED_COMMIT_KEY: &str = "019c0000-0000-7000-8000-0000000002f2";
@@ -4663,7 +4716,7 @@ fn p0004_v12_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
         release_proof_artifact_bytes(directory.path(), baseline_release.proof_id);
 
     rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-    assert_storage_version(&repository, 12);
+    assert_storage_version(&repository, 13);
     assert_eq!(
         legacy_v1_release_byte_snapshot(&repository, FIRST_RELEASE_ID),
         baseline_v10_bytes,
@@ -4811,12 +4864,67 @@ fn p0004_v12_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
         .unwrap();
 
     rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-    assert_storage_version(&repository, 12);
+    assert_storage_version(&repository, 13);
     assert_eq!(release_history_byte_snapshot(&repository), history_before);
     assert_eq!(
         release_proof_artifact_snapshot(directory.path()),
         artifacts_before
     );
+
+    // Exercise the P-0005 migration against the real public-API history above. The v13 failure
+    // must retain every pre-existing fact, Known State, localized lifecycle row, Release, Proof,
+    // typed SQLite value, Schema object, and foreign-key property at the exact v12 source bytes.
+    downgrade_database_to_v12(&repository);
+    assert_storage_version(&repository, 12);
+    let v12_history_before = release_history_byte_snapshot(&repository);
+    repository
+        .open_database()
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER reject_p0005_release_history_v13_migration
+             BEFORE INSERT ON schema_migrations
+             WHEN NEW.version = 13
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected P-0005 Release-history v13 failure');
+             END;",
+        )
+        .unwrap();
+    let v12_storage_before_failure = storage_fingerprint(&repository);
+
+    assert!(matches!(
+        rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }),
+        Err(RebuildProjectionsError::Storage(_))
+    ));
+    assert_storage_version(&repository, 12);
+    assert_eq!(storage_fingerprint(&repository), v12_storage_before_failure);
+    assert_eq!(
+        release_history_byte_snapshot(&repository),
+        v12_history_before
+    );
+    assert_eq!(
+        release_proof_artifact_snapshot(directory.path()),
+        artifacts_before
+    );
+    repository
+        .open_database()
+        .unwrap()
+        .execute(
+            "DROP TRIGGER reject_p0005_release_history_v13_migration",
+            [],
+        )
+        .unwrap();
+
+    rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+    assert_storage_version(&repository, 13);
+    assert_eq!(
+        release_history_byte_snapshot(&repository),
+        v12_history_before
+    );
+    assert_eq!(
+        release_proof_artifact_snapshot(directory.path()),
+        artifacts_before
+    );
+    assert_no_v13_authenticated_rows(&repository);
 
     let release_key_path = directory
         .path()
@@ -5485,7 +5593,7 @@ fn legacy_projection_rebuild_migrates_v8_then_repairs_schema_and_known_state() {
     assert_eq!(dry_run.schema_count, 1);
     assert_eq!(dry_run.object_count, 0);
     assert_eq!(dry_run.environment_pointer_count, 0);
-    assert_storage_version(&repository, 12);
+    assert_storage_version(&repository, 13);
     assert_operation_effect_columns(&repository);
     assert_legacy_effect_digests(&repository, 8);
     let after_dry_run = legacy_evidence_snapshot(&repository, 8);
@@ -5577,7 +5685,7 @@ fn legacy_projection_rebuild_migrates_v9_then_repairs_object_and_known_state() {
     assert_eq!(dry_run.schema_count, 1);
     assert_eq!(dry_run.object_count, 1);
     assert_eq!(dry_run.environment_pointer_count, 0);
-    assert_storage_version(&repository, 12);
+    assert_storage_version(&repository, 13);
     assert_operation_effect_columns(&repository);
     assert_legacy_effect_digests(&repository, 9);
     let after_dry_run = legacy_evidence_snapshot(&repository, 9);
@@ -5642,7 +5750,7 @@ fn projection_rebuild_rejects_lifecycle_effect_tamper_without_repairing_projecti
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         prepare_first_mixed_release(&repository);
-        assert_storage_version(&repository, 12);
+        assert_storage_version(&repository, 13);
 
         let connection = repository.open_database().unwrap();
         let effect_query = format!(
@@ -6983,7 +7091,7 @@ fn agent_and_delegation_authority_is_exact_expiring_and_revocable() {
     .unwrap();
     assert_eq!(status.principal_id.to_string(), AGENT_PRINCIPAL_ID);
     assert_eq!(status.delegation_id.to_string(), DELEGATION_ID);
-    assert_eq!(status.storage_schema_version, 12);
+    assert_eq!(status.storage_schema_version, 13);
     assert_eq!(
         status.authorization_decision_digest,
         verify_delegation(&repository, valid_status.clone())
@@ -9185,6 +9293,7 @@ fn downgrade_database_to_v10(repository: &LocalWorkspace) {
 }
 
 fn downgrade_database_to_v11(repository: &LocalWorkspace) {
+    downgrade_database_to_v12(repository);
     let connection = repository.open_database().unwrap();
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -9211,6 +9320,26 @@ fn downgrade_database_to_v11(repository: &LocalWorkspace) {
              DELETE FROM schema_migrations WHERE version = 12;
              UPDATE workspace_metadata SET schema_version = 11 WHERE singleton = 1;
              PRAGMA user_version = 11;",
+        )
+        .unwrap();
+}
+
+fn downgrade_database_to_v12(repository: &LocalWorkspace) {
+    let connection = repository.open_database().unwrap();
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    if version == 12 {
+        return;
+    }
+    assert_eq!(version, 13);
+    connection
+        .execute_batch(
+            "DROP TABLE authenticated_localized_consequences_v1;
+             DROP TABLE authenticated_application_idempotency_v1;
+             DELETE FROM schema_migrations WHERE version = 13;
+             UPDATE workspace_metadata SET schema_version = 12 WHERE singleton = 1;
+             PRAGMA user_version = 12;",
         )
         .unwrap();
 }
@@ -9475,6 +9604,17 @@ fn prepare_exact_pre_v12_fixture(repository: &LocalWorkspace, target_version: u3
     prepare_exact_pre_v11_fixture(repository, 10);
     rebuild_projections(repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
     downgrade_database_to_v11(repository);
+}
+
+fn prepare_exact_pre_v13_fixture(repository: &LocalWorkspace, target_version: u32) {
+    assert!((1..=12).contains(&target_version));
+    if target_version <= 11 {
+        prepare_exact_pre_v12_fixture(repository, target_version);
+        return;
+    }
+    prepare_exact_pre_v12_fixture(repository, 11);
+    rebuild_projections(repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
+    downgrade_database_to_v12(repository);
 }
 
 fn downgrade_validated_database_to_v4(repository: &LocalWorkspace) {
@@ -10031,6 +10171,10 @@ fn release_history_byte_snapshot(repository: &LocalWorkspace) -> TableRowSnapsho
         "principal_status_v1",
         "workspace_authority_roots",
     ];
+    const V13_TABLES: &[&str] = &[
+        "authenticated_application_idempotency_v1",
+        "authenticated_localized_consequences_v1",
+    ];
     let connection = repository.open_database().unwrap();
     let names = sqlite_table_names(&connection)
         .into_iter()
@@ -10038,6 +10182,7 @@ fn release_history_byte_snapshot(repository: &LocalWorkspace) -> TableRowSnapsho
             name != "schema_migrations"
                 && name != "workspace_metadata"
                 && !V12_TABLES.contains(&name.as_str())
+                && !V13_TABLES.contains(&name.as_str())
         })
         .collect::<Vec<_>>();
     let mut snapshot = table_row_snapshot(&connection, &names);
@@ -10471,7 +10616,7 @@ fn assert_latest_schema_and_foreign_keys(repository: &LocalWorkspace) {
         .unwrap();
     assert_eq!(
         (metadata_version, migration_version, pragma_version),
-        (12, 12, 12)
+        (13, 13, 13)
     );
     let v10_table_count: i64 = connection
         .query_row(
@@ -10511,6 +10656,18 @@ fn assert_latest_schema_and_foreign_keys(repository: &LocalWorkspace) {
         )
         .unwrap();
     assert_eq!(v11_table_count, 17);
+    let v13_table_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema
+             WHERE type = 'table' AND name IN (
+                 'authenticated_application_idempotency_v1',
+                 'authenticated_localized_consequences_v1'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(v13_table_count, 2);
     let foreign_key_violations = {
         let mut statement = connection.prepare("PRAGMA foreign_key_check").unwrap();
         statement
@@ -10558,6 +10715,21 @@ fn assert_no_v11_localized_rows(repository: &LocalWorkspace) {
     assert_eq!(artifacts[0][0], "text:proof.dev/known-state/v1");
     assert_eq!(artifacts[0][3], "null");
     assert_eq!(artifacts[0][4], "null");
+}
+
+fn assert_no_v13_authenticated_rows(repository: &LocalWorkspace) {
+    let connection = repository.open_database().unwrap();
+    for table in [
+        "authenticated_application_idempotency_v1",
+        "authenticated_localized_consequences_v1",
+    ] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "migration fabricated governed rows in {table}");
+    }
 }
 
 fn test_changeset_digest(changeset: &InspectedChangeSet) -> ContentDigest {

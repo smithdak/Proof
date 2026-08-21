@@ -11,7 +11,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use proof_application::ArtifactKind;
@@ -71,7 +71,7 @@ const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
 const RELEASE_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/release-signing.ed25519";
-const LATEST_DATABASE_SCHEMA_VERSION: u32 = 12;
+const LATEST_DATABASE_SCHEMA_VERSION: u32 = 13;
 const OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const LOCAL_RELEASE_TARGET: &str = "proof.local/released-state/v1";
 const LOCAL_RELEASE_POLICY: &str = "proof.local/release-policy/v1";
@@ -2342,7 +2342,17 @@ impl DelegationRepository for LocalWorkspace {
         let has_resource_action = actions.iter().any(|action| {
             matches!(
                 action,
-                DelegatedAction::ObjectQueryReleased | DelegatedAction::ContextBuild
+                DelegatedAction::ChangesetAdd
+                    | DelegatedAction::ChangesetCommit
+                    | DelegatedAction::ChangesetCreate
+                    | DelegatedAction::ChangesetDiff
+                    | DelegatedAction::ChangesetGet
+                    | DelegatedAction::ChangesetSubmit
+                    | DelegatedAction::ChangesetValidate
+                    | DelegatedAction::ObjectQueryReleased
+                    | DelegatedAction::ContextBuild
+                    | DelegatedAction::EditionCreate
+                    | DelegatedAction::ReleaseCreate
             )
         });
         if (has_resource_action && (environment_ids.is_empty() || object_ids.is_empty()))
@@ -3125,6 +3135,7 @@ fn initialize_database(
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     localized::migrate_schema_v11(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::migrate_schema_v12(&transaction).map_err(WorkspaceInitializationError::Storage)?;
+    authority::migrate_schema_v13(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::bootstrap_authority(
         &transaction,
         workspace_id
@@ -3157,6 +3168,9 @@ fn current_local_timestamp() -> Result<Timestamp, WorkspaceInitializationError> 
 
 fn open_database_at(path: &Path) -> Result<Connection, WorkspaceInitializationError> {
     let connection = Connection::open(path)
+        .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
+    connection
+        .busy_timeout(Duration::from_secs(10))
         .map_err(|error| WorkspaceInitializationError::Storage(error.to_string()))?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
@@ -4246,6 +4260,10 @@ fn ensure_latest_schema(
     if version == 11 {
         authority::migrate_schema_v12(transaction).map_err(LatestSchemaError::Storage)?;
         version = 12;
+    }
+    if version == 12 {
+        authority::migrate_schema_v13(transaction).map_err(LatestSchemaError::Storage)?;
+        version = 13;
     }
     if version == LATEST_DATABASE_SCHEMA_VERSION {
         Ok(())
@@ -7280,7 +7298,17 @@ fn load_delegation(
     let has_resource_action = actions.iter().any(|action| {
         matches!(
             action,
-            DelegatedAction::ObjectQueryReleased | DelegatedAction::ContextBuild
+            DelegatedAction::ChangesetAdd
+                | DelegatedAction::ChangesetCommit
+                | DelegatedAction::ChangesetCreate
+                | DelegatedAction::ChangesetDiff
+                | DelegatedAction::ChangesetGet
+                | DelegatedAction::ChangesetSubmit
+                | DelegatedAction::ChangesetValidate
+                | DelegatedAction::ObjectQueryReleased
+                | DelegatedAction::ContextBuild
+                | DelegatedAction::EditionCreate
+                | DelegatedAction::ReleaseCreate
         )
     });
     if (has_resource_action && (environment_ids.is_empty() || object_ids.is_empty()))
@@ -7444,7 +7472,17 @@ fn verify_delegation_record(
         DelegatedAction::WorkspaceStatus => {
             command.environment_id.is_none() && command.object_ids.is_empty()
         }
-        DelegatedAction::ObjectQueryReleased | DelegatedAction::ContextBuild => {
+        DelegatedAction::ChangesetAdd
+        | DelegatedAction::ChangesetCommit
+        | DelegatedAction::ChangesetCreate
+        | DelegatedAction::ChangesetDiff
+        | DelegatedAction::ChangesetGet
+        | DelegatedAction::ChangesetSubmit
+        | DelegatedAction::ChangesetValidate
+        | DelegatedAction::ObjectQueryReleased
+        | DelegatedAction::ContextBuild
+        | DelegatedAction::EditionCreate
+        | DelegatedAction::ReleaseCreate => {
             command.environment_id.is_some()
                 && !command.object_ids.is_empty()
                 && !command.object_ids.windows(2).any(|pair| pair[0] >= pair[1])

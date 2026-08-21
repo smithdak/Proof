@@ -34,6 +34,7 @@ fn inward_dependency_boundaries_are_enforced() {
         application,
         BTreeSet::from([
             "base64".to_owned(),
+            "proof-canonical".to_owned(),
             "proof-domain".to_owned(),
             "serde".to_owned(),
             "serde_json".to_owned(),

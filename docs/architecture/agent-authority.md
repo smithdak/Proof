@@ -1,20 +1,21 @@
 # Agent authority and ContextPacks
 
-**Status:** Ratified architecture; bounded local read profile implemented
-**Baseline:** August 20, 2026
+**Status:** Ratified architecture; bounded local authenticated mutation implemented
+**Baseline:** August 21, 2026
 
-> **Implemented P-0004 profile:** Every section carrying the P-0003 label is
-> normative architecture. P-0004 implements the bounded local profile for the
-> three enabled v1 reads. P-0005 owns delegated mutation and P-0006 owns the
-> portable evidence bundle and containment qualification.
+> **Implemented P-0004/P-0005 profile:** Every section carrying the P-0003
+> label is normative architecture. P-0004 implements the bounded local kernel
+> and three retained v1 reads; P-0005 enables the 11 localized v2 operations.
+> P-0006 owns the portable evidence bundle, containment, and publication
+> qualification.
 >
 > The complete contract is the [authenticated actor contract](authenticated-actor.md);
 > this document summarizes its consequences for Agent authority.
 >
 > **Ratified P-0002 profile:** The localized-content resource closure below is
 > project-owner accepted. Its normative definition is the
-> [delegated localized-content contract](delegated-content.md). It introduces no
-> implemented Agent write capability.
+> [delegated localized-content contract](delegated-content.md). P-0005 composes
+> that contract with authenticated Agent authority without changing it.
 
 ## Principle
 
@@ -204,9 +205,9 @@ reserves the Milestone 2 `changeset:create`, `changeset:add`, `changeset:get`,
 `changeset:diff`, `changeset:validate`, `changeset:submit`,
 `changeset:commit`, `edition:create`, and `release:create` tokens. P-0003 fixes
 their exact operation/action identities and, after P-0007, their complete
-content, Edit, Edition, and Release resource projections. P-0004 exposes only
-the current status/query/context v1 operations; P-0005 enables the localized v2
-rows without changing their authority meaning. Transport or implementation
+content, Edit, Edition, and Release resource projections. P-0004 exposes the
+status/query/context v1 operations; P-0005 enables the localized v2 rows without
+changing their authority meaning. Transport or implementation
 aliases never silently change the vocabulary.
 
 Every `DelegationV2` scope array is exact-set semantics: an empty array grants
@@ -233,12 +234,14 @@ wildcard.
 
 The independently authenticated requesting Human issues that intent as an
 immutable content-addressed control artifact before delegated execution and
-MUST equal the direct
-Delegation issuer. An Agent may select its identifier and digest but cannot
-create, replace, narrow, or widen it. `context.build/v2` derives the pack from
-that record, and `changeset.create/v2` binds both record and pack digests. Its
-issuance does not advance the authoritative content sequence, change Known
-State, enter an Edition delta, or move an Environment pointer.
+MUST equal the direct Delegation issuer. An Agent may select its identifier and
+digest but cannot
+create, replace, narrow, or widen it. Under the bounded local profile,
+`context.build/v2` exactly selects and replays a pre-existing Human-built pack;
+it does not create the first pack. `changeset.create/v2` binds both record and
+pack digests. Intent issuance does not advance the authoritative content
+sequence, change Known State, enter an Edition delta, or move an Environment
+pointer.
 
 Those dimension arrays describe a permission product. The Human-issued target
 tuples narrow the product to this task and cannot be changed by the Agent. A campaign,
@@ -268,15 +271,15 @@ dimensions. Edition and Release authorization additionally proves that the
 Environment baseline is unchanged and that the state delta is exactly the one
 bound ChangeSet, not merely a subset of the broad Delegation product.
 
-P-0003's reconciled candidate retains the three implemented v1 read pairs,
-replaces the unimplemented reserved v1 write pairs with all 11 P-0007 localized
-v2 pairs, and freezes four exact resource-projection profiles in
+P-0003's reconciled registry retains the three implemented v1 read pairs,
+replaces the superseded v1 write reservations with all 11 P-0007 localized v2
+pairs, and freezes four exact resource-projection profiles in
 [`AuthorityOperationRegistryV1`](../../conformance/v1/authority/vectors/authority-operation-registry.valid.json).
 The complete intent is evaluated for every localized lifecycle operation; the
 released v2 query authorizes Object/locale selectors before internally
 resolving and authorizing Schemas from the current Edition. P-0007 proves the
-same content path under an authenticated Human before P-0005 enables it for an
-Agent.
+same content path under an authenticated Human; P-0005 enables that exact path
+for an Agent.
 
 ## Delegation
 
@@ -460,3 +463,9 @@ is deferred to P-0006 as `AuthorityEvidenceBundleV1`; it must supply those
 canonical artifacts under an explicit caller-trusted authority root and, when
 history completeness is claimed, an independently pinned expected authority
 head. Identifiers or producer self-consistency alone do not establish trust.
+
+For localized v2 Allows, local evidence also includes the signed result kind,
+result contract and digest, application-consequence digest, the v13
+per-presentation consequence row, and the successful Workspace-global
+application-key row when one exists. That local cross-link is an input to
+P-0006; it is not itself a portable evidence bundle or containment proof.

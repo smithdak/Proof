@@ -8,8 +8,8 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 ## Project status
 
-**Milestone 1 — local proof loop complete. Milestone 2 — authenticated read
-authority implemented; delegated mutation remains.**
+**Milestone 1 — local proof loop complete. Milestone 2 — bounded local
+authenticated Agent mutation implemented; portable qualification remains.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -19,9 +19,14 @@ Release verification, offline verification against explicit caller trust, and
 projection rebuild. The authority kernel adds per-Agent Ed25519 bindings,
 single-use authenticated commands, direct bounded Delegations, canonical
 authorization evidence, ContextPacks, capability discovery, and equivalent CLI
-and dual-era MCP broker paths for authenticated status, released-Object query,
-and ContextPack build. Delegated content mutation, portable authority bundles,
-the collaboration server, and a public release remain.
+and dual-era MCP broker paths for all 14 enabled authenticated operations. The
+11 localized `/v2` operations bind Agent execution to immutable Human-issued
+resource intent and ContextPack closure; approval and closure issuance remain
+Human-only. Their signed decisions commit the exact application result and
+consequence, while storage schema v13 preserves per-presentation evidence and
+Workspace-global successful idempotency. Portable authority bundles,
+hostile-process containment qualification, the collaboration server, and a
+public release remain.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -35,7 +40,7 @@ qualification or a published Windows support claim.
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
-| Rust implementation | Milestone 1 complete; Milestone 2 authenticated read kernel complete |
+| Rust implementation | Milestone 1 complete; Milestone 2 bounded local authenticated mutation implemented |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 
@@ -145,7 +150,16 @@ proof projection rebuild
 proof verify --file release.dsse.json --trusted-key-id ed25519:<64-hex> --expected-envelope-digest blake3:<64-hex>
 ```
 
-`release verify` evaluates the complete persisted local Release evidence. The standalone `verify` command checks canonical envelope bytes, the expected digest, and an Ed25519 signature against caller-supplied trust; it does not claim to verify Workspace policy or persisted evidence. Use `proof --help` for the exact implemented grammar. The broader compatibility target remains in the [CLI reference](docs/reference/cli.md).
+`auth sign` and `auth execute` carry the three retained `/v1` reads and all 11
+localized `/v2` operations through one normalized application contract. The
+localized path reauthorizes every fresh presentation against current Principal,
+binding, Delegation, intent, ContextPack, approval, and state closure before it
+returns a prior result or commits a new consequence. `release verify` evaluates
+the complete persisted local Release evidence. The standalone `verify` command
+checks canonical envelope bytes, the expected digest, and an Ed25519 signature
+against caller-supplied trust; it does not claim to verify Workspace policy or
+persisted evidence. Use `proof --help` for the exact implemented grammar. The
+broader compatibility target remains in the [CLI reference](docs/reference/cli.md).
 
 ## Architecture direction
 
@@ -228,7 +242,11 @@ The planned first release is one complete local vertical slice:
 
 ## Contributing and security
 
-Proof has completed its local proof-loop implementation and is building the bounded agent-authority layer. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Report vulnerabilities according to [SECURITY.md](SECURITY.md); do not open public security issues.
+Proof has completed its local proof-loop implementation and the bounded local
+authenticated Agent mutation profile. Portable evidence, containment, and
+publication qualification remain. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+before proposing a change. Report vulnerabilities according to
+[SECURITY.md](SECURITY.md); do not open public security issues.
 
 ## License
 

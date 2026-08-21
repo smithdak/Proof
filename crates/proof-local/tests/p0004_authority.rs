@@ -755,6 +755,7 @@ fn maximum_typed_authority_records_fit_the_signed_profile_and_max_plus_one_rejec
         },
         policy_profile: DirectAuthorityProfileV1::Direct,
         policy_bundle_digest: boundary_digest,
+        localized_consequence_commitment: None,
         evaluated_at: base_time,
         decision: AuthorizationDecisionOutcome::Allow,
         reason_code: None,

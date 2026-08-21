@@ -913,6 +913,7 @@ name = "proof-application"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "proof-canonical",
  "proof-domain",
  "serde",
  "serde_json",
@@ -999,6 +1000,7 @@ name = "proof-mcp"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "jsonschema",
  "proof-application",
  "proof-attestation",
  "proof-local",

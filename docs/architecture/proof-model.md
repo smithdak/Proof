@@ -1,10 +1,11 @@
 # Proof model
 
-**Status:** Ratified architecture; P-0007 content and P-0004 authority foundations implemented
-**Baseline:** August 20, 2026
+**Status:** Ratified architecture; P-0007 content and P-0004/P-0005 local authority path implemented
+**Baseline:** August 21, 2026
 
-> **Implemented P-0004 profile:** The authority additions below are normative
-> architecture and the local authority records are implemented. They do not
+> **Implemented P-0004/P-0005 profile:** The authority additions below are
+> normative architecture; local authority records and localized consequence
+> cross-links are implemented. They do not
 > change existing Release Proof bytes or claim that the future portable
 > `AuthorityEvidenceBundleV1` is implemented.
 > The normative proposal is the [authenticated actor contract](authenticated-actor.md).
@@ -156,6 +157,14 @@ supports exactly one Human issuer and one Agent recipient; it does not encode a
 chain. Existing `AuthorizationDecisionV1` remains legacy and is not assigned new
 semantics.
 
+The bounded P-0005 implementation does not rewrite P-0007 Release or Release
+Proof identity. `ReleaseV2.principal_id` remains the requesting Human, and its
+`authorization_decision_digest` remains the P-0007 Human release-policy
+decision. Agent identity, authority decision, result commitment, and raw P-0007
+effect are cross-linked in the separate v13 localized consequence. P-0006 must
+carry and verify both closures; the illustrative embedded Agent authority block
+above is not a claim about current Release Proof bytes.
+
 `requesting_subject_commitment` is a hiding commitment formed with a 32-byte
 blind, not a checksum of a raw UID. The actor-context digest uses only that
 public commitment and never the raw `os/unix` subject or blind. Audit policy
@@ -164,11 +173,14 @@ semantics and vectors live in the
 [authenticated actor contract](authenticated-actor.md) and
 [`conformance/v1/authority/`](../../conformance/v1/authority/README.md).
 
-P-0004 records canonical `PrincipalBindingV1`, `AuthenticatedCommandV1`,
+P-0004/P-0005 record canonical `PrincipalBindingV1`, `AuthenticatedCommandV1`,
 `AuthenticatedActorContextEvidenceV1`, `DelegationV2`,
 `AuthorizationDecisionV2`, and `AuthorityRecordV1` artifacts in
-the separately rooted authority log. It does not claim to produce a portable
-bundle.
+the separately rooted authority log. A localized Allow also signs its exact
+result contract, result kind and digest, and application-consequence digest;
+storage v13 cross-links that decision to one per-presentation consequence and,
+for success, a Workspace-global application-key record. This local closure does
+not claim to be a portable bundle.
 
 Here `command_digest` is the semantic `CommandInputV1` digest. It is not an
 additional signed-payload digest; the authenticated-command envelope digest
@@ -236,10 +248,11 @@ supported only by a named validator or approval whose artifact digest is in the
 closure.
 
 The portable authority closure proposed by P-0003 remains separate. P-0005
-binds its `AuthorizationDecisionV2` to the content operation and exact resource
-intent. P-0006 then verifies both closures under explicit caller-supplied trust
-roots and reports content integrity, validation, authority, Release signature,
-and evidence completeness as separate verdict dimensions.
+binds `AuthorizationDecisionV2` to the content operation, exact resource intent,
+application result, and effect closure. P-0006 then verifies both closures under
+explicit caller-supplied trust roots and reports content integrity, validation,
+authority, Release signature, and evidence completeness as separate verdict
+dimensions.
 
 Existing `ReleaseV1`, its predicate, `EditionV1`, `ChangeSetV1`,
 `ObjectRevisionV1`, and their digest contexts are never reserialized or

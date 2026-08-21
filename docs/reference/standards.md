@@ -1,7 +1,7 @@
 # Standards profile
 
 **Status:** Ratified baseline  
-**As of:** August 16, 2026
+**As of:** August 21, 2026
 
 Proof uses established standards where they provide stable semantics or interoperability. Referencing a standard does not imply implementing every optional feature.
 
@@ -124,7 +124,7 @@ profile is the [authenticated actor contract](../architecture/authenticated-acto
 - The future P-0006 `AuthorityEvidenceBundleV1` authenticates its authority
   closure under an explicit authority trust root separate from the
   Release-signing root. Its exact container and golden vectors remain a P-0006
-  contract and are not implemented by P-0003 or P-0004.
+  contract and are not implemented by P-0003, P-0004, or P-0005.
 
 OAuth/OIDC, SPIFFE, JOSE access tokens, platform attestation, and KMS/HSM-backed
 credentials remain future identity-adapter choices. They do not alter the

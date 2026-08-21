@@ -1,7 +1,7 @@
 # Scope and non-goals
 
 **Status:** Ratified  
-**Baseline:** August 3, 2026
+**Baseline:** August 21, 2026
 
 ## Product boundary
 
@@ -20,8 +20,8 @@ The CMS boundary contains the capabilities required to define, govern, publish, 
 - Query and content-delivery contracts.
 - Complete history and reproducible state.
 
-**Ratified P-0002 Milestone 2 slice:** accepted but not yet implemented,
-Milestone 2 supports one deliberately narrower localization profile. An
+**Implemented P-0002/P-0007/P-0005 Milestone 2 slice:** Milestone 2 supports
+one deliberately narrower localization profile. An
 existing locale-neutral Object revision is the source; each target
 is an append-only localized rendition keyed by an exact `(object_id, locale)`
 pair. The operation permits create or exact-revision replacement of that
@@ -59,12 +59,13 @@ broader locale, variant, and fallback scope above remains later product scope.
 - Idempotent consequential commands.
 - CLI, API, SDK, and MCP adapters over the same application contracts.
 
-The **Ratified P-0002** sequence adds P-0007 as a named content-foundation
-prerequisite. P-0007 first implements the localized-rendition, repair,
-query, Edition, Release, and migration contracts on the authenticated Human
-path. Delegated write enablement then composes those proven content semantics
-with the authorization kernel; it does not invent a separate Agent
-content model.
+The **Ratified P-0002** sequence uses P-0007 as a named content-foundation
+prerequisite. P-0007 implements the localized-rendition, repair, query,
+Edition, Release, and migration contracts on the authenticated Human path.
+P-0005 composes those proven content semantics with the P-0004 authorization
+kernel; it does not invent a separate Agent content model. The composition is
+bounded: the Human issues intent and ContextPack closure and approves, while
+the Agent executes only the 11 fixed localized v2 operations.
 
 ### Enterprise operation
 

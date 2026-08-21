@@ -502,6 +502,45 @@ fn authority_registry_reconciles_the_localized_contract_without_widening_delegat
     decision["requested_resources"]["locales"] = json!(["sl-ROZAJ"]);
     assert!(!decision_validator.is_valid(&decision));
 
+    let legacy_decision = parse(include_bytes!(
+        "../../../conformance/v1/authority/vectors/authorization-decision-v2.valid.json"
+    ));
+    assert!(decision_validator.is_valid(&legacy_decision));
+    let mut p4_with_commitment = legacy_decision.clone();
+    p4_with_commitment["localized_consequence_commitment"] = json!({
+        "application_consequence_digest": format!("blake3:{}", "b".repeat(64)),
+        "result_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/contextBuildOutput",
+        "result_digest": format!("blake3:{}", "a".repeat(64)),
+        "result_kind": "success"
+    });
+    assert!(!decision_validator.is_valid(&p4_with_commitment));
+
+    let mut localized_allow = legacy_decision.clone();
+    localized_allow["operation"] = json!({
+        "name": "context.build",
+        "version": "proof.dev/operation/context.build/v2"
+    });
+    localized_allow["requested_action"] = json!("context:build");
+    assert!(!decision_validator.is_valid(&localized_allow));
+    localized_allow["localized_consequence_commitment"] = json!({
+        "application_consequence_digest": format!("blake3:{}", "b".repeat(64)),
+        "result_contract": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/contextBuildOutput",
+        "result_digest": format!("blake3:{}", "a".repeat(64)),
+        "result_kind": "success"
+    });
+    assert!(decision_validator.is_valid(&localized_allow));
+    localized_allow["localized_consequence_commitment"]["result_contract"] = json!(
+        "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCreateOutput"
+    );
+    assert!(!decision_validator.is_valid(&localized_allow));
+    localized_allow["localized_consequence_commitment"]["result_kind"] = json!("failure");
+    localized_allow["localized_consequence_commitment"]["result_contract"] =
+        json!("proof.dev/result/localized-operation-problem/v1");
+    assert!(decision_validator.is_valid(&localized_allow));
+    localized_allow["decision"] = json!("deny");
+    localized_allow["reason_code"] = json!("proof.authorization.policy_denied");
+    assert!(!decision_validator.is_valid(&localized_allow));
+
     let rejected_cases = parse(include_bytes!(
         "../../../conformance/v1/authority/vectors/rejected-authorization-cases.json"
     ));

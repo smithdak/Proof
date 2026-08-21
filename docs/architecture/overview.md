@@ -1,7 +1,7 @@
 # Architecture overview
 
 **Status:** Ratified direction  
-**Baseline:** August 3, 2026
+**Baseline:** August 21, 2026
 
 ## Architectural style
 
@@ -52,11 +52,11 @@ Dependencies point inward. The domain core has no dependency on CLI parsing, HTT
 
 No message is published before its authoritative transaction commits. External effects are delivered from the transactional outbox and are idempotent.
 
-### Implemented P-0004 profile — authenticated delegated reads
+### Implemented P-0004/P-0005 profile — authenticated delegated execution
 
-The three enabled authenticated Agent reads use this ordering. The normative
-contract is the [authenticated actor contract](authenticated-actor.md); P-0005
-reuses the same kernel when it enables delegated mutation.
+All 14 enabled authenticated Agent operations use this ordering: the three
+retained `/v1` reads and the 11 localized `/v2` operations. The normative
+contract is the [authenticated actor contract](authenticated-actor.md).
 
 1. The adapter bounds and parses untrusted CLI or MCP input and authenticates
    the requesting Human through ADR-0009's Unix binding.
@@ -78,14 +78,25 @@ reuses the same kernel when it enables delegated mutation.
    and commits the governed consequence without a revocation check-then-act
    gap. A valid denial may consume the presentation and record a bounded
    decision but cannot move governed state or projections.
-7. A retry uses a fresh presentation with the same idempotency key and
+7. A localized Allow signs the exact result contract, success/failure kind,
+   canonical result digest, and complete application-consequence digest.
+   Storage v13 records the per-presentation consequence and a Workspace-global
+   successful application-key entry; a failure consequence does not reserve
+   that application key.
+8. A retry uses a fresh presentation with the same idempotency key and
    equivalent normalized input. Fresh C5 authentication and current C6
    authorization must succeed before C4 may return a prior result; revocation
    or disablement blocks disclosure. A future mutable authority-policy profile
    must preserve the same rule.
 
-The CLI broker and both MCP protocol eras enter this same executor. This does
-not claim that the 11 localized mutation contracts are Agent-enabled.
+For localized operations, authorization cannot create task scope. An
+authenticated Human must already have issued the immutable
+`ContentResourceIntentV1` and built the localized ContextPack; an Agent cannot
+create or replace either closure and cannot approve. Every operation, including
+an exact application replay, re-evaluates the current Principal, binding,
+Delegation, intent, ContextPack, approval, and state closure before disclosing a
+stored result. The CLI broker and both MCP protocol eras enter this same
+executor and expose equivalent normalized contracts for all 14 rows.
 
 ## Read path
 
@@ -125,6 +136,11 @@ of the private opening. The authority hash chain detects mutation and reordering
 only relative to a trusted later head. A local SQLite store plus file-backed
 signer does not detect restoration of a valid older prefix or fork; that claim
 requires an independently pinned authority-head checkpoint.
+
+P-0005 cross-links Agent identity, decision, result, and raw P-0007 effect in
+the v13 localized consequence. It does not reinterpret P-0007 Release identity
+or its Human release-policy decision; P-0006 must carry both closures for
+portable verification.
 
 ## Transaction boundaries
 

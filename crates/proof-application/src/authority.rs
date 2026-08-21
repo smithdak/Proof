@@ -8,20 +8,39 @@
 use std::{fmt, str::FromStr};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use proof_canonical::{canonicalize, digest};
 use proof_domain::{
-    AuthorityRootTransitionId, BindingId, ChangeSetId, ChangeSetIntent, ContentDigest,
-    DelegationId, EditionId, EnrollmentChallengeId, EnvironmentId, IdempotencyKey, LocaleId,
-    ObjectId, PresentationId, PrincipalId, ReleaseId, RevocationId, SchemaId, Timestamp,
-    WorkspaceId,
+    ArtifactKind, AuthorityRootTransitionId, BindingId, ChangeSetId, ChangeSetIntent,
+    ChangeSetStatus, ContentDigest, ContentResourceIntentId, ContextPackId, DelegationId, EditId,
+    EditionId, EnrollmentChallengeId, EnvironmentId, IdempotencyKey, LocaleId, LocaleRevision,
+    ObjectId, ObjectRevision, PresentationId, PrincipalId, ProofId, ReleaseId, ReleaseKind,
+    RevocationId, SchemaId, SchemaVersion, Timestamp, WorkspaceId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use thiserror::Error;
 
-use super::{ContextPack, MAX_CONTEXT_TASK_ID_BYTES, MAX_DELEGATION_OBJECTS, ReleasedObjectQuery};
+use super::{
+    AddedLocalizedEdits, BuildLocalizedContextCommand, CommitLocalizedChangeSetCommand,
+    CommittedLocalizedChangeSet, ContextPack, CreateLocalizedChangeSetCommand,
+    CreateLocalizedEditionCommand, ExpectedLocalizedSource, ExpectedLocalizedTarget,
+    LocalizedChangeSet, LocalizedChangeSetDiff, LocalizedContentError, LocalizedContextLimits,
+    LocalizedContextPack, LocalizedEdit, LocalizedEdition, LocalizedFinding, LocalizedPolicyRule,
+    LocalizedRelease, LocalizedValidation, MAX_CONTEXT_TASK_ID_BYTES, MAX_DELEGATION_OBJECTS,
+    MAX_LOCALIZED_CONTEXT_BYTES, MAX_LOCALIZED_EDITS, MAX_LOCALIZED_TARGETS,
+    MAX_LOCALIZED_VALIDATION_ATTEMPTS, ObjectLocalePutInput, PromoteLocalizedReleaseCommand,
+    QueryReleasedRenditionsCommand, ReleasedLocaleTarget, ReleasedObjectQuery,
+    ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
+};
 
 /// Ratified direct Human-to-Agent policy profile.
 pub const DIRECT_AUTHORITY_POLICY_PROFILE_V1: &str = "proof.local/authority/direct/v1";
+/// Stable result-contract identifier for caller-safe localized operation Problems.
+///
+/// This is a typed profile identifier, not a claim that a resolvable JSON Schema
+/// exists at an invented URL.
+pub const LOCALIZED_PUBLIC_PROBLEM_RESULT_CONTRACT_V1: &str =
+    "proof.dev/result/localized-operation-problem/v1";
 /// Maximum canonical authenticated-command or enrollment payload bytes.
 pub const MAX_AUTHENTICATED_PAYLOAD_BYTES: usize = 4_096;
 /// Maximum canonical authenticated-command or enrollment envelope bytes.
@@ -194,6 +213,51 @@ api_version!(
     WorkspaceAuthorityRootTransitionApiVersion,
     "proof.dev/workspace-authority-root-transition/v1"
 );
+api_version!(
+    LocalizedContextBuildInputApiVersion,
+    "proof.dev/operation/context.build/v2"
+);
+api_version!(
+    LocalizedChangeSetCreateInputApiVersion,
+    "proof.dev/operation/changeset.create/v2"
+);
+api_version!(
+    LocalizedChangeSetAddInputApiVersion,
+    "proof.dev/operation/changeset.add/v2"
+);
+api_version!(LocalizedEditInputApiVersion, "proof.dev/edit/v2");
+api_version!(
+    LocalizedChangeSetGetInputApiVersion,
+    "proof.dev/operation/changeset.get/v2"
+);
+api_version!(
+    LocalizedChangeSetDiffInputApiVersion,
+    "proof.dev/operation/changeset.diff/v2"
+);
+api_version!(
+    LocalizedChangeSetValidateInputApiVersion,
+    "proof.dev/operation/changeset.validate/v2"
+);
+api_version!(
+    LocalizedChangeSetSubmitInputApiVersion,
+    "proof.dev/operation/changeset.submit/v2"
+);
+api_version!(
+    LocalizedChangeSetCommitInputApiVersion,
+    "proof.dev/operation/changeset.commit/v2"
+);
+api_version!(
+    LocalizedEditionCreateInputApiVersion,
+    "proof.dev/operation/edition.create/v2"
+);
+api_version!(
+    LocalizedReleaseCreateInputApiVersion,
+    "proof.dev/operation/release.create/v2"
+);
+api_version!(
+    LocalizedObjectQueryReleasedInputApiVersion,
+    "proof.dev/operation/object.query_released/v2"
+);
 
 /// One of the 14 exact operation/version pairs registered for Milestone 2.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -361,14 +425,14 @@ impl FromStr for AuthorityAction {
     }
 }
 
-/// P-0004 execution side-effect classification.
+/// Authenticated execution side-effect classification.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthorityExecutionClass {
     /// Consumes a presentation and appends durable authority evidence.
     EvidenceWrite,
 }
 
-/// Whether an operation is exposed by P-0004 or reserved for P-0005.
+/// Rollout provenance for an enabled authenticated operation.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AuthorityOperationAvailability {
     #[serde(rename = "implemented-v1-read")]
@@ -649,12 +713,13 @@ pub struct AuthorityOperationEntry {
 }
 
 impl AuthorityOperationEntry {
-    /// Whether P-0004 exposes this operation to authenticated Agents.
+    /// Whether the completed P-0004/P-0005 profile exposes this operation.
     #[must_use]
     pub const fn is_enabled(self) -> bool {
         matches!(
             self.availability,
             AuthorityOperationAvailability::ImplementedV1Read
+                | AuthorityOperationAvailability::P0005DelegatedLocalized
         )
     }
 }
@@ -947,7 +1012,7 @@ impl AuthorityOperationRegistryV1 {
         &AUTHORITY_RESOURCE_PROJECTION_PROFILES_V1
     }
 
-    /// Returns the exact 14 operation rows, including the P-0005-reserved rows.
+    /// Returns the exact 14 operation rows enabled across P-0004 and P-0005.
     #[must_use]
     pub const fn operations(self) -> &'static [AuthorityOperationEntry; 14] {
         &AUTHORITY_OPERATION_REGISTRY_V1
@@ -959,7 +1024,7 @@ impl AuthorityOperationRegistryV1 {
         authority_operation_entry(operation)
     }
 
-    /// Iterates only the three rows exposed by P-0004.
+    /// Iterates all rows exposed by the completed P-0004/P-0005 profile.
     pub fn enabled(self) -> impl Iterator<Item = &'static AuthorityOperationEntry> {
         enabled_authority_operations()
     }
@@ -980,7 +1045,7 @@ pub fn authority_operation_entry(
         .expect("every AuthorityOperation variant has one registry row")
 }
 
-/// Iterates only the three P-0004-enabled v1 Agent operations.
+/// Iterates all 14 authenticated operations enabled through P-0004/P-0005.
 pub fn enabled_authority_operations() -> impl Iterator<Item = &'static AuthorityOperationEntry> {
     AUTHORITY_OPERATION_REGISTRY_V1
         .iter()
@@ -1605,12 +1670,592 @@ pub struct ContextBuildInputV1 {
     pub expires_at: Timestamp,
 }
 
-/// Validated canonical input for exactly one P-0004-enabled operation.
+/// Exact bounded localized Context limits carried by `context.build/v2`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedContextLimitsInputV2 {
+    pub max_bytes: u64,
+    pub max_edits: u32,
+    pub max_objects: u32,
+    pub max_validation_attempts: u32,
+}
+
+impl LocalizedContextLimitsInputV2 {
+    fn validate(self) -> Result<(), AuthorityContractError> {
+        if (1..=MAX_LOCALIZED_CONTEXT_BYTES).contains(&self.max_bytes)
+            && (1..=MAX_LOCALIZED_EDITS).contains(&self.max_edits)
+            && (1..=u32::try_from(MAX_LOCALIZED_TARGETS).unwrap_or(u32::MAX))
+                .contains(&self.max_objects)
+            && (1..=MAX_LOCALIZED_VALIDATION_ATTEMPTS).contains(&self.max_validation_attempts)
+        {
+            Ok(())
+        } else {
+            Err(AuthorityContractError::InvalidValue(
+                "localized Context limits",
+            ))
+        }
+    }
+
+    /// Converts the strict operation contract to P-0007's application value.
+    #[must_use]
+    pub const fn into_application(self) -> LocalizedContextLimits {
+        LocalizedContextLimits {
+            max_objects: self.max_objects,
+            max_edits: self.max_edits,
+            max_validation_attempts: self.max_validation_attempts,
+            max_bytes: self.max_bytes,
+        }
+    }
+}
+
+/// One normalized deterministic policy rule carried by `context.build/v2`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedPolicyRuleInputV2 {
+    pub disallowed_values: Vec<String>,
+    #[serde(with = "display_string")]
+    pub locale: LocaleId,
+    pub pointer: String,
+}
+
+impl Ord for LocalizedPolicyRuleInputV2 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.locale, &self.pointer, &self.disallowed_values).cmp(&(
+            &other.locale,
+            &other.pointer,
+            &other.disallowed_values,
+        ))
+    }
+}
+
+impl PartialOrd for LocalizedPolicyRuleInputV2 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl LocalizedPolicyRuleInputV2 {
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        if self.disallowed_values.is_empty() || !is_canonical_json_pointer(&self.pointer) {
+            return Err(AuthorityContractError::InvalidValue(
+                "localized policy rule",
+            ));
+        }
+        self.disallowed_values.sort();
+        if self
+            .disallowed_values
+            .windows(2)
+            .any(|pair| pair[0] == pair[1])
+        {
+            return Err(AuthorityContractError::InvalidValue(
+                "localized policy rule",
+            ));
+        }
+        Ok(())
+    }
+
+    fn into_application(self) -> LocalizedPolicyRule {
+        LocalizedPolicyRule {
+            locale: self.locale,
+            pointer: self.pointer,
+            disallowed_values: self.disallowed_values,
+        }
+    }
+}
+
+fn is_canonical_json_pointer(value: &str) -> bool {
+    if !value.starts_with('/') {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'~' {
+            let Some(escaped) = bytes.get(index + 1) else {
+                return false;
+            };
+            if !matches!(escaped, b'0' | b'1') {
+                return false;
+            }
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
+    true
+}
+
+/// Strict normalized input for `context.build/v2`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedContextBuildInputV2 {
+    pub api_version: LocalizedContextBuildInputApiVersion,
+    #[serde(with = "display_string")]
+    pub context_pack_id: ContextPackId,
+    #[serde(with = "display_string")]
+    pub created_at: Timestamp,
+    #[serde(with = "display_string")]
+    pub expires_at: Timestamp,
+    #[serde(with = "display_string")]
+    pub idempotency_key: IdempotencyKey,
+    pub limits: LocalizedContextLimitsInputV2,
+    pub policy_rules: Vec<LocalizedPolicyRuleInputV2>,
+    #[serde(with = "display_string")]
+    pub resource_intent_digest: ContentDigest,
+    #[serde(with = "display_string")]
+    pub resource_intent_id: ContentResourceIntentId,
+}
+
+impl LocalizedContextBuildInputV2 {
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        self.limits.validate()?;
+        if self.expires_at <= self.created_at {
+            return Err(AuthorityContractError::InvalidValue(
+                "localized Context lifetime",
+            ));
+        }
+        for rule in &mut self.policy_rules {
+            rule.normalize()?;
+        }
+        self.policy_rules.sort();
+        if self
+            .policy_rules
+            .windows(2)
+            .any(|pair| pair[0].locale == pair[1].locale && pair[0].pointer == pair[1].pointer)
+        {
+            return Err(AuthorityContractError::InvalidValue(
+                "localized policy rules",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Converts exact replay material to P-0007's existing Human-path command shape.
+    ///
+    /// An authenticated Agent executor must first prove that the Human-path build
+    /// operation already exists with this exact input; it must never use this
+    /// conversion to originate or replace a `ContextPack`.
+    #[must_use]
+    pub fn into_application_command(self) -> BuildLocalizedContextCommand {
+        BuildLocalizedContextCommand {
+            context_pack_id: self.context_pack_id,
+            resource_intent_id: self.resource_intent_id,
+            resource_intent_digest: self.resource_intent_digest,
+            policy_rules: self
+                .policy_rules
+                .into_iter()
+                .map(LocalizedPolicyRuleInputV2::into_application)
+                .collect(),
+            limits: self.limits.into_application(),
+            idempotency_key: self.idempotency_key,
+            created_at: self.created_at,
+            expires_at: self.expires_at,
+        }
+    }
+}
+
+/// Strict normalized input for `changeset.create/v2`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedChangeSetCreateInputV2 {
+    pub api_version: LocalizedChangeSetCreateInputApiVersion,
+    #[serde(with = "display_string")]
+    pub changeset_id: ChangeSetId,
+    #[serde(with = "display_string")]
+    pub context_pack_digest: ContentDigest,
+    #[serde(with = "display_string")]
+    pub context_pack_id: ContextPackId,
+    #[serde(with = "display_string")]
+    pub created_at: Timestamp,
+    #[serde(with = "display_string")]
+    pub idempotency_key: IdempotencyKey,
+    #[serde(with = "change_set_intent_string")]
+    pub intent: ChangeSetIntent,
+    #[serde(with = "display_string")]
+    pub resource_intent_digest: ContentDigest,
+    #[serde(with = "display_string")]
+    pub resource_intent_id: ContentResourceIntentId,
+}
+
+impl LocalizedChangeSetCreateInputV2 {
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        if self.intent.as_str().chars().count() <= 500 {
+            Ok(())
+        } else {
+            Err(AuthorityContractError::InvalidValue(
+                "localized ChangeSet intent",
+            ))
+        }
+    }
+
+    /// Converts the normalized input to the existing P-0007 command.
+    #[must_use]
+    pub fn into_application_command(self) -> CreateLocalizedChangeSetCommand {
+        CreateLocalizedChangeSetCommand {
+            changeset_id: self.changeset_id,
+            intent: self.intent,
+            resource_intent_id: self.resource_intent_id,
+            resource_intent_digest: self.resource_intent_digest,
+            context_pack_id: self.context_pack_id,
+            context_pack_digest: self.context_pack_digest,
+            idempotency_key: self.idempotency_key,
+            created_at: self.created_at,
+        }
+    }
+}
+
+/// Exact source precondition in one normalized `object.locale.put` input.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedExpectedSourceInputV2 {
+    #[serde(with = "display_string")]
+    pub digest: ContentDigest,
+    pub revision: u32,
+    #[serde(with = "display_string")]
+    pub schema_id: SchemaId,
+    pub schema_version: u32,
+}
+
+/// Exact target precondition in one normalized `object.locale.put` input.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedExpectedTargetInputV2 {
+    #[serde(with = "display_string")]
+    pub digest: ContentDigest,
+    pub revision: u32,
+}
+
+/// Sole semantic Edit kind admitted by the localized v2 profile.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub enum LocalizedEditKindV2 {
+    #[default]
+    #[serde(rename = "object.locale.put")]
+    ObjectLocalePut,
+}
+
+/// One strict semantic Edit before Proof assigns its trusted `edit_id`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedSemanticEditInputV2 {
+    pub api_version: LocalizedEditInputApiVersion,
+    pub content: Map<String, Value>,
+    pub expected_source: LocalizedExpectedSourceInputV2,
+    pub expected_target: Option<LocalizedExpectedTargetInputV2>,
+    pub kind: LocalizedEditKindV2,
+    #[serde(with = "display_string")]
+    pub locale: LocaleId,
+    #[serde(with = "display_string")]
+    pub object_id: ObjectId,
+    #[serde(with = "optional_display_string")]
+    pub repair_of_validation_result_digest: Option<ContentDigest>,
+    #[serde(with = "optional_display_string")]
+    pub supersedes_edit_id: Option<EditId>,
+}
+
+impl LocalizedSemanticEditInputV2 {
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        if self.expected_source.revision == 0
+            || self.expected_source.schema_version == 0
+            || self
+                .expected_target
+                .as_ref()
+                .is_some_and(|target| target.revision == 0)
+            || self.supersedes_edit_id.is_some()
+                != self.repair_of_validation_result_digest.is_some()
+        {
+            return Err(AuthorityContractError::InvalidValue(
+                "localized semantic Edit",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the semantic JSON content that Local canonicalizes through RFC 8785.
+    #[must_use]
+    pub const fn content(&self) -> &Map<String, Value> {
+        &self.content
+    }
+
+    /// Converts the semantic input after Local supplies its verified RFC 8785 bytes.
+    pub fn into_application_input(
+        self,
+        canonical_content: String,
+    ) -> Result<ObjectLocalePutInput, AuthorityContractError> {
+        let parsed: Value = serde_json::from_str(&canonical_content)
+            .map_err(|_| AuthorityContractError::InvalidValue("localized Edit content"))?;
+        if parsed != Value::Object(self.content) {
+            return Err(AuthorityContractError::InvalidValue(
+                "localized Edit canonical content",
+            ));
+        }
+        Ok(ObjectLocalePutInput {
+            object_id: self.object_id,
+            locale: self.locale,
+            expected_source: ExpectedLocalizedSource {
+                revision: ObjectRevision::new(self.expected_source.revision)
+                    .map_err(|_| AuthorityContractError::InvalidValue("source revision"))?,
+                digest: self.expected_source.digest,
+                schema_id: self.expected_source.schema_id,
+                schema_version: SchemaVersion::new(self.expected_source.schema_version)
+                    .map_err(|_| AuthorityContractError::InvalidValue("Schema version"))?,
+            },
+            expected_target: self
+                .expected_target
+                .map(|target| {
+                    Ok(ExpectedLocalizedTarget {
+                        revision: LocaleRevision::new(target.revision)
+                            .map_err(|_| AuthorityContractError::InvalidValue("target revision"))?,
+                        digest: target.digest,
+                    })
+                })
+                .transpose()?,
+            canonical_content,
+            supersedes_edit_id: self.supersedes_edit_id,
+            repair_of_validation_result_digest: self.repair_of_validation_result_digest,
+        })
+    }
+}
+
+/// Strict normalized input for `changeset.add/v2`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedChangeSetAddInputV2 {
+    pub api_version: LocalizedChangeSetAddInputApiVersion,
+    #[serde(with = "display_string")]
+    pub changeset_id: ChangeSetId,
+    pub edits: Vec<LocalizedSemanticEditInputV2>,
+    #[serde(with = "display_string")]
+    pub idempotency_key: IdempotencyKey,
+}
+
+impl LocalizedChangeSetAddInputV2 {
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        if self.edits.is_empty()
+            || self.edits.len() > usize::try_from(MAX_LOCALIZED_EDITS).unwrap_or(usize::MAX)
+        {
+            return Err(AuthorityContractError::InvalidValue("localized Edit batch"));
+        }
+        for edit in &mut self.edits {
+            edit.normalize()?;
+        }
+        Ok(())
+    }
+}
+
+macro_rules! localized_changeset_selector_input {
+    ($name:ident, $api:ty) => {
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct $name {
+            pub api_version: $api,
+            #[serde(with = "display_string")]
+            pub changeset_id: ChangeSetId,
+        }
+    };
+}
+
+localized_changeset_selector_input!(
+    LocalizedChangeSetGetInputV2,
+    LocalizedChangeSetGetInputApiVersion
+);
+localized_changeset_selector_input!(
+    LocalizedChangeSetDiffInputV2,
+    LocalizedChangeSetDiffInputApiVersion
+);
+localized_changeset_selector_input!(
+    LocalizedChangeSetValidateInputV2,
+    LocalizedChangeSetValidateInputApiVersion
+);
+
+/// Strict normalized input for `changeset.submit/v2`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedChangeSetSubmitInputV2 {
+    pub api_version: LocalizedChangeSetSubmitInputApiVersion,
+    #[serde(with = "display_string")]
+    pub changeset_id: ChangeSetId,
+    #[serde(with = "display_string")]
+    pub submitted_at: Timestamp,
+}
+
+/// Strict normalized input for `changeset.commit/v2`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedChangeSetCommitInputV2 {
+    pub api_version: LocalizedChangeSetCommitInputApiVersion,
+    #[serde(with = "display_string")]
+    pub changeset_id: ChangeSetId,
+    #[serde(with = "display_string")]
+    pub committed_at: Timestamp,
+    #[serde(with = "display_string")]
+    pub idempotency_key: IdempotencyKey,
+}
+
+impl LocalizedChangeSetCommitInputV2 {
+    /// Converts the normalized input to the existing P-0007 command.
+    #[must_use]
+    pub const fn into_application_command(self) -> CommitLocalizedChangeSetCommand {
+        CommitLocalizedChangeSetCommand {
+            changeset_id: self.changeset_id,
+            idempotency_key: self.idempotency_key,
+            committed_at: self.committed_at,
+        }
+    }
+}
+
+/// Strict normalized input for `edition.create/v2`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedEditionCreateInputV2 {
+    pub api_version: LocalizedEditionCreateInputApiVersion,
+    #[serde(with = "display_string")]
+    pub changeset_id: ChangeSetId,
+    #[serde(with = "display_string")]
+    pub created_at: Timestamp,
+    #[serde(with = "display_string")]
+    pub edition_id: EditionId,
+    #[serde(with = "display_string")]
+    pub idempotency_key: IdempotencyKey,
+    #[serde(with = "display_string")]
+    pub resulting_state_digest: ContentDigest,
+}
+
+impl LocalizedEditionCreateInputV2 {
+    /// Converts the normalized input to the existing P-0007 command.
+    #[must_use]
+    pub const fn into_application_command(self) -> CreateLocalizedEditionCommand {
+        CreateLocalizedEditionCommand {
+            edition_id: self.edition_id,
+            changeset_id: self.changeset_id,
+            resulting_state_digest: self.resulting_state_digest,
+            idempotency_key: self.idempotency_key,
+            created_at: self.created_at,
+        }
+    }
+}
+
+/// Strict normalized input for `release.create/v2`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedReleaseCreateInputV2 {
+    pub api_version: LocalizedReleaseCreateInputApiVersion,
+    #[serde(with = "display_string")]
+    pub edition_id: EditionId,
+    #[serde(with = "display_string")]
+    pub environment_id: EnvironmentId,
+    #[serde(with = "display_string")]
+    pub expected_base_release_id: ReleaseId,
+    #[serde(with = "display_string")]
+    pub idempotency_key: IdempotencyKey,
+    #[serde(with = "display_string")]
+    pub proof_id: ProofId,
+    #[serde(with = "display_string")]
+    pub release_id: ReleaseId,
+    #[serde(with = "display_string")]
+    pub released_at: Timestamp,
+}
+
+impl LocalizedReleaseCreateInputV2 {
+    /// Converts the normalized input to P-0007's promotion command.
+    #[must_use]
+    pub fn into_application_command(self) -> PromoteLocalizedReleaseCommand {
+        PromoteLocalizedReleaseCommand {
+            release_id: self.release_id,
+            proof_id: self.proof_id,
+            environment_id: self.environment_id,
+            edition_id: self.edition_id,
+            expected_base_release_id: self.expected_base_release_id,
+            idempotency_key: self.idempotency_key,
+            released_at: self.released_at,
+        }
+    }
+}
+
+/// One strict sorted released-rendition target.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedReleasedTargetInputV2 {
+    #[serde(with = "display_string")]
+    pub locale: LocaleId,
+    #[serde(with = "display_string")]
+    pub object_id: ObjectId,
+}
+
+impl Ord for LocalizedReleasedTargetInputV2 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.object_id, &self.locale).cmp(&(&other.object_id, &other.locale))
+    }
+}
+
+impl PartialOrd for LocalizedReleasedTargetInputV2 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Strict normalized input for `object.query_released/v2`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedObjectQueryReleasedInputV2 {
+    pub api_version: LocalizedObjectQueryReleasedInputApiVersion,
+    #[serde(with = "display_string")]
+    pub environment_id: EnvironmentId,
+    #[serde(with = "display_string")]
+    pub evaluated_at: Timestamp,
+    pub targets: Vec<LocalizedReleasedTargetInputV2>,
+}
+
+impl LocalizedObjectQueryReleasedInputV2 {
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        if self.targets.is_empty() || self.targets.len() > MAX_LOCALIZED_TARGETS {
+            return Err(AuthorityContractError::InvalidValue(
+                "released-rendition targets",
+            ));
+        }
+        self.targets.sort();
+        if self.targets.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(AuthorityContractError::InvalidValue(
+                "released-rendition targets",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Converts the normalized input to the existing P-0007 query command.
+    #[must_use]
+    pub fn into_application_command(self) -> QueryReleasedRenditionsCommand {
+        QueryReleasedRenditionsCommand {
+            environment_id: self.environment_id,
+            targets: self
+                .targets
+                .into_iter()
+                .map(|target| ReleasedLocaleTarget {
+                    object_id: target.object_id,
+                    locale: target.locale,
+                })
+                .collect(),
+            evaluated_at: self.evaluated_at,
+        }
+    }
+}
+
+/// Validated canonical input for one enabled authenticated operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EnabledOperationInputV1 {
     WorkspaceStatus(WorkspaceStatusInputV1),
     ObjectQueryReleased(ObjectQueryReleasedInputV1),
     ContextBuild(ContextBuildInputV1),
+    LocalizedContextBuild(LocalizedContextBuildInputV2),
+    LocalizedChangeSetCreate(LocalizedChangeSetCreateInputV2),
+    LocalizedChangeSetAdd(LocalizedChangeSetAddInputV2),
+    LocalizedChangeSetGet(LocalizedChangeSetGetInputV2),
+    LocalizedChangeSetDiff(LocalizedChangeSetDiffInputV2),
+    LocalizedChangeSetValidate(LocalizedChangeSetValidateInputV2),
+    LocalizedChangeSetSubmit(LocalizedChangeSetSubmitInputV2),
+    LocalizedChangeSetCommit(LocalizedChangeSetCommitInputV2),
+    LocalizedEditionCreate(LocalizedEditionCreateInputV2),
+    LocalizedReleaseCreate(LocalizedReleaseCreateInputV2),
+    LocalizedObjectQueryReleased(LocalizedObjectQueryReleasedInputV2),
 }
 
 impl EnabledOperationInputV1 {
@@ -1621,6 +2266,61 @@ impl EnabledOperationInputV1 {
             Self::WorkspaceStatus(_) => AuthorityOperation::WorkspaceStatusV1,
             Self::ObjectQueryReleased(_) => AuthorityOperation::ObjectQueryReleasedV1,
             Self::ContextBuild(_) => AuthorityOperation::ContextBuildV1,
+            Self::LocalizedContextBuild(_) => AuthorityOperation::ContextBuildV2,
+            Self::LocalizedChangeSetCreate(_) => AuthorityOperation::ChangesetCreateV2,
+            Self::LocalizedChangeSetAdd(_) => AuthorityOperation::ChangesetAddV2,
+            Self::LocalizedChangeSetGet(_) => AuthorityOperation::ChangesetGetV2,
+            Self::LocalizedChangeSetDiff(_) => AuthorityOperation::ChangesetDiffV2,
+            Self::LocalizedChangeSetValidate(_) => AuthorityOperation::ChangesetValidateV2,
+            Self::LocalizedChangeSetSubmit(_) => AuthorityOperation::ChangesetSubmitV2,
+            Self::LocalizedChangeSetCommit(_) => AuthorityOperation::ChangesetCommitV2,
+            Self::LocalizedEditionCreate(_) => AuthorityOperation::EditionCreateV2,
+            Self::LocalizedReleaseCreate(_) => AuthorityOperation::ReleaseCreateV2,
+            Self::LocalizedObjectQueryReleased(_) => AuthorityOperation::ObjectQueryReleasedV2,
+        }
+    }
+
+    /// Returns the caller-visible idempotency key embedded by the operation, if any.
+    #[must_use]
+    pub const fn application_idempotency_key(&self) -> Option<IdempotencyKey> {
+        match self {
+            Self::ContextBuild(input) => Some(input.idempotency_key),
+            Self::LocalizedContextBuild(input) => Some(input.idempotency_key),
+            Self::LocalizedChangeSetCreate(input) => Some(input.idempotency_key),
+            Self::LocalizedChangeSetAdd(input) => Some(input.idempotency_key),
+            Self::LocalizedChangeSetCommit(input) => Some(input.idempotency_key),
+            Self::LocalizedEditionCreate(input) => Some(input.idempotency_key),
+            Self::LocalizedReleaseCreate(input) => Some(input.idempotency_key),
+            Self::WorkspaceStatus(_)
+            | Self::ObjectQueryReleased(_)
+            | Self::LocalizedChangeSetGet(_)
+            | Self::LocalizedChangeSetDiff(_)
+            | Self::LocalizedChangeSetValidate(_)
+            | Self::LocalizedChangeSetSubmit(_)
+            | Self::LocalizedObjectQueryReleased(_) => None,
+        }
+    }
+
+    /// Returns the signed semantic operation timestamp as evidence metadata.
+    ///
+    /// Authority evaluation time is independently injected and is not required to equal it.
+    #[must_use]
+    pub const fn semantic_timestamp(&self) -> Option<Timestamp> {
+        match self {
+            Self::LocalizedContextBuild(input) => Some(input.created_at),
+            Self::LocalizedChangeSetCreate(input) => Some(input.created_at),
+            Self::LocalizedChangeSetSubmit(input) => Some(input.submitted_at),
+            Self::LocalizedChangeSetCommit(input) => Some(input.committed_at),
+            Self::LocalizedEditionCreate(input) => Some(input.created_at),
+            Self::LocalizedReleaseCreate(input) => Some(input.released_at),
+            Self::LocalizedObjectQueryReleased(input) => Some(input.evaluated_at),
+            Self::WorkspaceStatus(_)
+            | Self::ObjectQueryReleased(_)
+            | Self::ContextBuild(_)
+            | Self::LocalizedChangeSetAdd(_)
+            | Self::LocalizedChangeSetGet(_)
+            | Self::LocalizedChangeSetDiff(_)
+            | Self::LocalizedChangeSetValidate(_) => None,
         }
     }
 
@@ -1630,6 +2330,17 @@ impl EnabledOperationInputV1 {
             Self::WorkspaceStatus(value) => normalized_input_map(value),
             Self::ObjectQueryReleased(value) => normalized_input_map(value),
             Self::ContextBuild(value) => normalized_input_map(value),
+            Self::LocalizedContextBuild(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetCreate(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetAdd(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetGet(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetDiff(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetValidate(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetSubmit(value) => normalized_input_map(value),
+            Self::LocalizedChangeSetCommit(value) => normalized_input_map(value),
+            Self::LocalizedEditionCreate(value) => normalized_input_map(value),
+            Self::LocalizedReleaseCreate(value) => normalized_input_map(value),
+            Self::LocalizedObjectQueryReleased(value) => normalized_input_map(value),
         }
     }
 
@@ -1674,9 +2385,51 @@ impl EnabledOperationInputV1 {
                 input.validate_repeated_fields(command)?;
                 Ok(Self::ContextBuild(input))
             }
-            _ => Err(AuthorityContractError::InvalidValue(
-                "P-0005-reserved authority operation",
+            AuthorityOperation::ContextBuildV2 => {
+                let mut input: LocalizedContextBuildInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Ok(Self::LocalizedContextBuild(input))
+            }
+            AuthorityOperation::ChangesetCreateV2 => {
+                let mut input: LocalizedChangeSetCreateInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Ok(Self::LocalizedChangeSetCreate(input))
+            }
+            AuthorityOperation::ChangesetAddV2 => {
+                let mut input: LocalizedChangeSetAddInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Ok(Self::LocalizedChangeSetAdd(input))
+            }
+            AuthorityOperation::ChangesetGetV2 => Ok(Self::LocalizedChangeSetGet(
+                deserialize_normalized_input(&command.normalized_input)?,
             )),
+            AuthorityOperation::ChangesetDiffV2 => Ok(Self::LocalizedChangeSetDiff(
+                deserialize_normalized_input(&command.normalized_input)?,
+            )),
+            AuthorityOperation::ChangesetValidateV2 => Ok(Self::LocalizedChangeSetValidate(
+                deserialize_normalized_input(&command.normalized_input)?,
+            )),
+            AuthorityOperation::ChangesetSubmitV2 => Ok(Self::LocalizedChangeSetSubmit(
+                deserialize_normalized_input(&command.normalized_input)?,
+            )),
+            AuthorityOperation::ChangesetCommitV2 => Ok(Self::LocalizedChangeSetCommit(
+                deserialize_normalized_input(&command.normalized_input)?,
+            )),
+            AuthorityOperation::EditionCreateV2 => Ok(Self::LocalizedEditionCreate(
+                deserialize_normalized_input(&command.normalized_input)?,
+            )),
+            AuthorityOperation::ReleaseCreateV2 => Ok(Self::LocalizedReleaseCreate(
+                deserialize_normalized_input(&command.normalized_input)?,
+            )),
+            AuthorityOperation::ObjectQueryReleasedV2 => {
+                let mut input: LocalizedObjectQueryReleasedInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Ok(Self::LocalizedObjectQueryReleased(input))
+            }
         }
     }
 
@@ -1697,10 +2450,50 @@ impl EnabledOperationInputV1 {
                 input.validate_repeated_fields(command)?;
                 Self::ContextBuild(input)
             }
-            _ => {
-                return Err(AuthorityContractError::InvalidValue(
-                    "P-0005-reserved authority operation",
-                ));
+            AuthorityOperation::ContextBuildV2 => {
+                let mut input: LocalizedContextBuildInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Self::LocalizedContextBuild(input)
+            }
+            AuthorityOperation::ChangesetCreateV2 => {
+                let mut input: LocalizedChangeSetCreateInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Self::LocalizedChangeSetCreate(input)
+            }
+            AuthorityOperation::ChangesetAddV2 => {
+                let mut input: LocalizedChangeSetAddInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Self::LocalizedChangeSetAdd(input)
+            }
+            AuthorityOperation::ChangesetGetV2 => Self::LocalizedChangeSetGet(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::ChangesetDiffV2 => Self::LocalizedChangeSetDiff(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::ChangesetValidateV2 => Self::LocalizedChangeSetValidate(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::ChangesetSubmitV2 => Self::LocalizedChangeSetSubmit(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::ChangesetCommitV2 => Self::LocalizedChangeSetCommit(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::EditionCreateV2 => Self::LocalizedEditionCreate(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::ReleaseCreateV2 => Self::LocalizedReleaseCreate(
+                deserialize_normalized_input(&command.normalized_input)?,
+            ),
+            AuthorityOperation::ObjectQueryReleasedV2 => {
+                let mut input: LocalizedObjectQueryReleasedInputV2 =
+                    deserialize_normalized_input(&command.normalized_input)?;
+                input.normalize()?;
+                Self::LocalizedObjectQueryReleased(input)
             }
         };
         if input.normalized_input()? == command.normalized_input {
@@ -1827,16 +2620,13 @@ impl CommandInputV1 {
         &self,
     ) -> Result<&'static AuthorityOperationEntry, AuthorityContractError> {
         let entry = authority_operation_entry(self.operation);
-        if !entry.is_enabled() {
-            return Err(AuthorityContractError::InvalidValue(
-                "P-0005-reserved authority operation",
-            ));
-        }
         let idempotency_matches = match entry.application_idempotency {
             ApplicationIdempotency::RequiredUuidV7 => self.idempotency_key.is_some(),
             ApplicationIdempotency::None => self.idempotency_key.is_none(),
             ApplicationIdempotency::DerivedChangeset
-            | ApplicationIdempotency::DerivedProposalPolicyValidator => false,
+            | ApplicationIdempotency::DerivedProposalPolicyValidator => {
+                self.idempotency_key.is_none()
+            }
         };
         if idempotency_matches {
             Ok(entry)
@@ -1856,6 +2646,11 @@ impl CommandInputV1 {
     ) -> Result<EnabledOperationInputV1, AuthorityContractError> {
         self.validate_registry_and_idempotency()?;
         let input = EnabledOperationInputV1::normalize(self)?;
+        if input.application_idempotency_key() != self.idempotency_key {
+            return Err(AuthorityContractError::InvalidValue(
+                "operation idempotency cross-check",
+            ));
+        }
         self.normalized_input = input.normalized_input()?;
         Ok(input)
     }
@@ -1865,7 +2660,14 @@ impl CommandInputV1 {
         &self,
     ) -> Result<EnabledOperationInputV1, AuthorityContractError> {
         self.validate_registry_and_idempotency()?;
-        EnabledOperationInputV1::from_canonical(self)
+        let input = EnabledOperationInputV1::from_canonical(self)?;
+        if input.application_idempotency_key() == self.idempotency_key {
+            Ok(input)
+        } else {
+            Err(AuthorityContractError::InvalidValue(
+                "operation idempotency cross-check",
+            ))
+        }
     }
 
     /// Validates the P-0004 exposure and exact signed application-idempotency shape.
@@ -2556,6 +3358,118 @@ pub enum AuthorizationDenialReason {
     IdempotencyKeyReused,
 }
 
+/// Closed result classification committed by a signed localized Allow decision.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalizedConsequenceResultKindV1 {
+    Success,
+    Failure,
+}
+
+/// Exact localized application result and effect committed by the signed decision.
+///
+/// The consequence-evidence digest is deliberately excluded: that evidence
+/// includes the authorization-decision digest and would create a circular hash.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedConsequenceCommitmentV1 {
+    pub result_kind: LocalizedConsequenceResultKindV1,
+    pub result_contract: String,
+    #[serde(with = "display_string")]
+    pub result_digest: ContentDigest,
+    #[serde(with = "display_string")]
+    pub application_consequence_digest: ContentDigest,
+}
+
+impl LocalizedConsequenceCommitmentV1 {
+    /// Constructs the exact contract commitment for one localized v2 result.
+    pub fn new(
+        operation: AuthorityOperation,
+        result_kind: LocalizedConsequenceResultKindV1,
+        result_digest: ContentDigest,
+        application_consequence_digest: ContentDigest,
+    ) -> Result<Self, AuthorityContractError> {
+        let result_contract = match result_kind {
+            LocalizedConsequenceResultKindV1::Success => localized_operation_output_schema_uri(
+                operation,
+            )
+            .ok_or(AuthorityContractError::InvalidValue(
+                "localized consequence commitment operation",
+            ))?,
+            LocalizedConsequenceResultKindV1::Failure => {
+                if authority_operation_entry(operation)
+                    .localized_contract
+                    .is_none()
+                {
+                    return Err(AuthorityContractError::InvalidValue(
+                        "localized consequence commitment operation",
+                    ));
+                }
+                LOCALIZED_PUBLIC_PROBLEM_RESULT_CONTRACT_V1
+            }
+        };
+        Ok(Self {
+            result_kind,
+            result_contract: result_contract.to_owned(),
+            result_digest,
+            application_consequence_digest,
+        })
+    }
+
+    /// Verifies that the committed result contract belongs to the signed operation.
+    pub fn validate_for_operation(
+        &self,
+        operation: AuthorityOperation,
+    ) -> Result<(), AuthorityContractError> {
+        let expected = match self.result_kind {
+            LocalizedConsequenceResultKindV1::Success => {
+                localized_operation_output_schema_uri(operation)
+            }
+            LocalizedConsequenceResultKindV1::Failure => authority_operation_entry(operation)
+                .localized_contract
+                .map(|_| LOCALIZED_PUBLIC_PROBLEM_RESULT_CONTRACT_V1),
+        };
+        if expected == Some(self.result_contract.as_str()) {
+            Ok(())
+        } else {
+            Err(AuthorityContractError::InvalidValue(
+                "localized consequence commitment",
+            ))
+        }
+    }
+
+    /// Cross-links the committed result classification and contract to a typed result.
+    #[must_use]
+    pub fn matches_result_kind_and_contract(
+        &self,
+        result: &AuthenticatedOperationResultV1,
+    ) -> bool {
+        match result {
+            AuthenticatedOperationResultV1::LocalizedSuccess(success) => {
+                self.result_kind == LocalizedConsequenceResultKindV1::Success
+                    && self.result_contract == success.output_schema_uri()
+            }
+            AuthenticatedOperationResultV1::LocalizedFailure(_) => {
+                self.result_kind == LocalizedConsequenceResultKindV1::Failure
+                    && self.result_contract == LOCALIZED_PUBLIC_PROBLEM_RESULT_CONTRACT_V1
+            }
+            AuthenticatedOperationResultV1::WorkspaceStatus(_)
+            | AuthenticatedOperationResultV1::ReleasedObjectQuery(_)
+            | AuthenticatedOperationResultV1::ContextPack(_)
+            | AuthenticatedOperationResultV1::Failure(_) => false,
+        }
+    }
+
+    /// Cross-links the classification, contract, and canonical result digest.
+    #[must_use]
+    pub fn matches_result(&self, result: &AuthenticatedOperationResultV1) -> bool {
+        self.matches_result_kind_and_contract(result)
+            && result
+                .localized_result_digest()
+                .is_ok_and(|digest| digest == Some(self.result_digest))
+    }
+}
+
 /// Signed durable presentation-consumption and authorization record.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -2594,6 +3508,8 @@ pub struct AuthorizationDecisionV2 {
     pub policy_profile: DirectAuthorityProfileV1,
     #[serde(with = "display_string")]
     pub policy_bundle_digest: ContentDigest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub localized_consequence_commitment: Option<LocalizedConsequenceCommitmentV1>,
     #[serde(with = "display_string")]
     pub evaluated_at: Timestamp,
     pub decision: AuthorizationDecisionOutcome,
@@ -2635,11 +3551,24 @@ impl AuthorizationDecisionV2 {
         } else {
             true
         };
+        let localized_commitment_matches = match (
+            self.decision,
+            registry.localized_contract,
+            self.localized_consequence_commitment.as_ref(),
+        ) {
+            (AuthorizationDecisionOutcome::Allow, Some(_), Some(commitment)) => {
+                commitment.validate_for_operation(self.operation).is_ok()
+            }
+            (AuthorizationDecisionOutcome::Allow, None, None)
+            | (AuthorizationDecisionOutcome::Deny, _, None) => true,
+            _ => false,
+        };
         if workspace_matches
             && head_matches
             && binding_matches
             && decision_matches
             && unavailable_matches
+            && localized_commitment_matches
             && registry.requested_action == self.requested_action
         {
             Ok(())
@@ -2875,9 +3804,29 @@ impl AuthenticatedExecutionV1 {
             (input, AuthenticatedOperationResultV1::Failure(failure)) => {
                 failure.operation() == input.operation()
             }
+            (input, AuthenticatedOperationResultV1::LocalizedSuccess(success)) => {
+                success.matches_input(
+                    input,
+                    self.command_input.workspace_id,
+                    self.command_input.requesting_principal_id,
+                ) && success.output_value().is_ok()
+            }
+            (input, AuthenticatedOperationResultV1::LocalizedFailure(failure)) => {
+                failure.operation == input.operation()
+            }
             _ => false,
         };
-        if common_matches && result_matches {
+        let commitment_matches = match self.decision.localized_consequence_commitment.as_ref() {
+            Some(commitment) => commitment.matches_result(&self.result),
+            None => matches!(
+                &self.result,
+                AuthenticatedOperationResultV1::WorkspaceStatus(_)
+                    | AuthenticatedOperationResultV1::ReleasedObjectQuery(_)
+                    | AuthenticatedOperationResultV1::ContextPack(_)
+                    | AuthenticatedOperationResultV1::Failure(_)
+            ),
+        };
+        if common_matches && result_matches && commitment_matches {
             Ok(())
         } else {
             Err(AuthorityContractError::InvalidValue(
@@ -2905,6 +3854,801 @@ pub struct AuthenticatedWorkspaceStatusV1 {
     pub state_digest: ContentDigest,
     #[serde(with = "display_string")]
     pub authorization_decision_digest: ContentDigest,
+}
+
+/// Returns the exact checked-in output Schema fragment for a localized v2 operation.
+#[must_use]
+pub const fn localized_operation_output_schema_uri(
+    operation: AuthorityOperation,
+) -> Option<&'static str> {
+    match operation {
+        AuthorityOperation::ContextBuildV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "contextBuildOutput"
+        )),
+        AuthorityOperation::ChangesetCreateV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetCreateOutput"
+        )),
+        AuthorityOperation::ChangesetAddV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetAddOutput"
+        )),
+        AuthorityOperation::ChangesetGetV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetGetOutput"
+        )),
+        AuthorityOperation::ChangesetDiffV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetDiffOutput"
+        )),
+        AuthorityOperation::ChangesetValidateV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetValidateOutput"
+        )),
+        AuthorityOperation::ChangesetSubmitV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetSubmitOutput"
+        )),
+        AuthorityOperation::ChangesetCommitV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "changeSetCommitOutput"
+        )),
+        AuthorityOperation::EditionCreateV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "editionCreateOutput"
+        )),
+        AuthorityOperation::ReleaseCreateV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "releaseCreateOutput"
+        )),
+        AuthorityOperation::ObjectQueryReleasedV2 => Some(concat!(
+            "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+            "objectQueryReleasedOutput"
+        )),
+        AuthorityOperation::WorkspaceStatusV1
+        | AuthorityOperation::ObjectQueryReleasedV1
+        | AuthorityOperation::ContextBuildV1 => None,
+    }
+}
+
+/// Complete P-0007 `ChangeSet` read plus the effective projection digest required by its Schema.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalizedChangeSetReadV1 {
+    pub changeset: LocalizedChangeSet,
+    pub effective_leaf_digest: ContentDigest,
+}
+
+/// Closed success union for the 11 authenticated localized v2 operations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LocalizedOperationSuccessV1 {
+    ContextBuilt(LocalizedContextPack),
+    ChangeSetCreated(LocalizedChangeSet),
+    EditsAdded(AddedLocalizedEdits),
+    ChangeSetRead(LocalizedChangeSetReadV1),
+    ChangeSetDiffed(LocalizedChangeSetDiff),
+    ChangeSetValidated(LocalizedValidation),
+    ChangeSetSubmitted(SubmittedLocalizedChangeSet),
+    ChangeSetCommitted(CommittedLocalizedChangeSet),
+    EditionCreated(LocalizedEdition),
+    ReleaseCreated(LocalizedRelease),
+    ReleasedRenditionsQueried(ReleasedRenditionQuery),
+}
+
+impl LocalizedOperationSuccessV1 {
+    /// Returns the exact operation whose result this variant can carry.
+    #[must_use]
+    pub const fn operation(&self) -> AuthorityOperation {
+        match self {
+            Self::ContextBuilt(_) => AuthorityOperation::ContextBuildV2,
+            Self::ChangeSetCreated(_) => AuthorityOperation::ChangesetCreateV2,
+            Self::EditsAdded(_) => AuthorityOperation::ChangesetAddV2,
+            Self::ChangeSetRead(_) => AuthorityOperation::ChangesetGetV2,
+            Self::ChangeSetDiffed(_) => AuthorityOperation::ChangesetDiffV2,
+            Self::ChangeSetValidated(_) => AuthorityOperation::ChangesetValidateV2,
+            Self::ChangeSetSubmitted(_) => AuthorityOperation::ChangesetSubmitV2,
+            Self::ChangeSetCommitted(_) => AuthorityOperation::ChangesetCommitV2,
+            Self::EditionCreated(_) => AuthorityOperation::EditionCreateV2,
+            Self::ReleaseCreated(_) => AuthorityOperation::ReleaseCreateV2,
+            Self::ReleasedRenditionsQueried(_) => AuthorityOperation::ObjectQueryReleasedV2,
+        }
+    }
+
+    /// Returns the immutable checked-in output-Schema fragment for this exact result.
+    #[must_use]
+    pub const fn output_schema_uri(&self) -> &'static str {
+        match self {
+            Self::ContextBuilt(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "contextBuildOutput"
+            ),
+            Self::ChangeSetCreated(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetCreateOutput"
+            ),
+            Self::EditsAdded(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetAddOutput"
+            ),
+            Self::ChangeSetRead(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetGetOutput"
+            ),
+            Self::ChangeSetDiffed(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetDiffOutput"
+            ),
+            Self::ChangeSetValidated(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetValidateOutput"
+            ),
+            Self::ChangeSetSubmitted(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetSubmitOutput"
+            ),
+            Self::ChangeSetCommitted(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "changeSetCommitOutput"
+            ),
+            Self::EditionCreated(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "editionCreateOutput"
+            ),
+            Self::ReleaseCreated(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "releaseCreateOutput"
+            ),
+            Self::ReleasedRenditionsQueried(_) => concat!(
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/",
+                "objectQueryReleasedOutput"
+            ),
+        }
+    }
+
+    /// Builds the exact schema-shaped result value without changing P-0007 domain structs.
+    pub fn output_value(&self) -> Result<Value, AuthorityContractError> {
+        match self {
+            Self::ContextBuilt(result) => Ok(json!({
+                "context_pack_digest": result.context_pack_digest.to_string(),
+                "context_pack_id": result.context_pack_id.to_string(),
+                "manifest": parsed_result_object(&result.manifest_json)?,
+                "resource_intent_digest": result.resource_intent_digest.to_string(),
+                "resource_intent_id": result.resource_intent_id.to_string(),
+            })),
+            Self::ChangeSetCreated(result) => Ok(json!({
+                "base_state": state_reference_value(&result.base_state),
+                "changeset_id": result.changeset_id.to_string(),
+                "context_pack_digest": result.context_pack_digest.to_string(),
+                "context_pack_id": result.context_pack_id.to_string(),
+                "resource_intent_digest": result.resource_intent_digest.to_string(),
+                "resource_intent_id": result.resource_intent_id.to_string(),
+                "status": result.status.to_string(),
+            })),
+            Self::EditsAdded(result) => Ok(json!({
+                "changeset_id": result.changeset_id.to_string(),
+                "edit_ids": result.edit_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "first_ordinal": result.first_ordinal,
+                "total_edit_count": result.total_edit_count,
+            })),
+            Self::ChangeSetRead(result) => localized_changeset_read_value(result),
+            Self::ChangeSetDiffed(result) => {
+                if result.effective_edits.is_empty() {
+                    return Err(AuthorityContractError::InvalidValue(
+                        "localized ChangeSet diff output",
+                    ));
+                }
+                Ok(json!({
+                    "changeset_id": result.changeset_id.to_string(),
+                    "effective_edits": result.effective_edits.iter().map(localized_edit_value).collect::<Result<Vec<_>, _>>()?,
+                    "effective_leaf_digest": result.effective_leaf_digest.to_string(),
+                    "proposal_digest": result.proposal_digest.to_string(),
+                }))
+            }
+            Self::ChangeSetValidated(result) => Ok(json!({
+                "attempt": result.attempt,
+                "changeset_id": result.changeset_id.to_string(),
+                "effective_leaf_digest": result.effective_leaf_digest.to_string(),
+                "findings": result.findings.iter().map(localized_finding_value).collect::<Vec<_>>(),
+                "previous_validation_result_digest": result.previous_validation_result_digest.map(|value| value.to_string()),
+                "proposal_digest": result.proposal_digest.to_string(),
+                "sealed_changeset_digest": result.sealed_changeset_digest.map(|value| value.to_string()),
+                "status": result.status.to_string(),
+                "valid": result.valid,
+                "validation_results_digest": result.validation_results_digest.to_string(),
+            })),
+            Self::ChangeSetSubmitted(result) => Ok(json!({
+                "changeset_id": result.changeset_id.to_string(),
+                "sealed_changeset_digest": result.sealed_changeset_digest.to_string(),
+                "status": result.status.to_string(),
+                "submitted_at": result.submitted_at.to_string(),
+                "validation_results_digest": result.validation_results_digest.to_string(),
+            })),
+            Self::ChangeSetCommitted(result) => Ok(json!({
+                "changeset_id": result.changeset_id.to_string(),
+                "committed_at": result.committed_at.to_string(),
+                "previous_state": state_reference_value(&result.previous_state),
+                "renditions": result.renditions.iter().map(|rendition| parsed_result_object(&rendition.manifest_json)).collect::<Result<Vec<_>, _>>()?,
+                "resulting_state": state_reference_value(&result.resulting_state),
+                "sealed_changeset_digest": result.sealed_changeset_digest.to_string(),
+                "status": result.status.to_string(),
+                "validation_results_digest": result.validation_results_digest.to_string(),
+            })),
+            Self::EditionCreated(result) => Ok(json!({
+                "edition_digest": result.edition_digest.to_string(),
+                "edition_id": result.edition_id.to_string(),
+                "manifest": parsed_result_object(&result.manifest_json)?,
+                "state": state_reference_value(&result.state),
+            })),
+            Self::ReleaseCreated(result) => Ok(json!({
+                "proof_envelope_digest": result.proof_envelope_digest.to_string(),
+                "proof_id": result.proof_id.to_string(),
+                "release_digest": result.release_digest.to_string(),
+                "release_id": result.release_id.to_string(),
+                "release_manifest": parsed_result_object(&result.manifest_json)?,
+            })),
+            Self::ReleasedRenditionsQueried(result) => Ok(json!({
+                "edition": edition_reference_value(&result.edition),
+                "environment_id": result.environment_id.to_string(),
+                "release_id": result.release_id.to_string(),
+                "renditions": result.renditions.iter().map(|rendition| Ok(json!({
+                    "content": parsed_result_object(&rendition.canonical_content)?,
+                    "locale": rendition.locale.to_string(),
+                    "object_id": rendition.object_id.to_string(),
+                    "rendition_digest": rendition.rendition_digest.to_string(),
+                    "rendition_revision": rendition.rendition_revision.get(),
+                    "schema_id": rendition.schema_id.to_string(),
+                    "schema_version": rendition.schema_version.get(),
+                    "source_digest": rendition.source_digest.to_string(),
+                    "source_revision": rendition.source_revision.get(),
+                }))).collect::<Result<Vec<_>, AuthorityContractError>>()?,
+                "workspace_id": result.workspace_id.to_string(),
+            })),
+        }
+    }
+
+    /// Verifies that this operation-distinct result is the consequence of the normalized input.
+    #[must_use]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the closed match cross-links every localized result without substitutable shared arms"
+    )]
+    pub fn matches_input(
+        &self,
+        input: &EnabledOperationInputV1,
+        workspace_id: WorkspaceId,
+        requesting_principal_id: PrincipalId,
+    ) -> bool {
+        match (input, self) {
+            (EnabledOperationInputV1::LocalizedContextBuild(input), Self::ContextBuilt(result)) => {
+                result.context_pack_id == input.context_pack_id
+                    && result.workspace_id == workspace_id
+                    && result.resource_intent_id == input.resource_intent_id
+                    && result.resource_intent_digest == input.resource_intent_digest
+                    && result.principal_id == requesting_principal_id
+                    && result.limits == input.limits.into_application()
+                    && result.created_at == input.created_at
+                    && result.expires_at == input.expires_at
+                    && localized_context_manifest_matches(
+                        result,
+                        input,
+                        workspace_id,
+                        requesting_principal_id,
+                    )
+            }
+            (
+                EnabledOperationInputV1::LocalizedChangeSetCreate(input),
+                Self::ChangeSetCreated(result),
+            ) => {
+                result.changeset_id == input.changeset_id
+                    && result.workspace_id == workspace_id
+                    && result.context_pack_id == input.context_pack_id
+                    && result.context_pack_digest == input.context_pack_digest
+                    && result.resource_intent_id == input.resource_intent_id
+                    && result.resource_intent_digest == input.resource_intent_digest
+                    && result.intent == input.intent
+                    && result.created_at == input.created_at
+                    && result.principal_id == requesting_principal_id
+                    && result.status == ChangeSetStatus::Draft
+                    && result.edits.is_empty()
+                    && result.proposal_digest.is_none()
+                    && result.sealed_changeset_digest.is_none()
+            }
+            (EnabledOperationInputV1::LocalizedChangeSetAdd(input), Self::EditsAdded(result)) => {
+                result.changeset_id == input.changeset_id
+                    && result.edit_ids.len() == input.edits.len()
+                    && result.first_ordinal > 0
+                    && result.total_edit_count
+                        == result
+                            .first_ordinal
+                            .saturating_add(
+                                u32::try_from(result.edit_ids.len()).unwrap_or(u32::MAX),
+                            )
+                            .saturating_sub(1)
+                    && result
+                        .edit_ids
+                        .iter()
+                        .enumerate()
+                        .all(|(index, edit_id)| !result.edit_ids[..index].contains(edit_id))
+            }
+            (
+                EnabledOperationInputV1::LocalizedChangeSetGet(input),
+                Self::ChangeSetRead(result),
+            ) => {
+                result.changeset.changeset_id == input.changeset_id
+                    && result.changeset.workspace_id == workspace_id
+                    && result.changeset.principal_id == requesting_principal_id
+            }
+            (
+                EnabledOperationInputV1::LocalizedChangeSetDiff(input),
+                Self::ChangeSetDiffed(result),
+            ) => result.changeset_id == input.changeset_id && !result.effective_edits.is_empty(),
+            (
+                EnabledOperationInputV1::LocalizedChangeSetValidate(input),
+                Self::ChangeSetValidated(result),
+            ) => {
+                result.changeset_id == input.changeset_id
+                    && result.attempt > 0
+                    && (result.attempt == 1) == result.previous_validation_result_digest.is_none()
+                    && if result.valid {
+                        result.status == ChangeSetStatus::Ready
+                            && result.sealed_changeset_digest.is_some()
+                            && result
+                                .findings
+                                .iter()
+                                .all(|finding| finding.severity != crate::Severity::Error)
+                    } else {
+                        result.status == ChangeSetStatus::Draft
+                            && result.sealed_changeset_digest.is_none()
+                            && result
+                                .findings
+                                .iter()
+                                .any(|finding| finding.severity == crate::Severity::Error)
+                    }
+            }
+            (
+                EnabledOperationInputV1::LocalizedChangeSetSubmit(input),
+                Self::ChangeSetSubmitted(result),
+            ) => {
+                result.changeset_id == input.changeset_id
+                    && result.submitted_at == input.submitted_at
+                    && result.status == ChangeSetStatus::Submitted
+            }
+            (
+                EnabledOperationInputV1::LocalizedChangeSetCommit(input),
+                Self::ChangeSetCommitted(result),
+            ) => {
+                result.changeset_id == input.changeset_id
+                    && result.committed_at == input.committed_at
+                    && result.status == ChangeSetStatus::Committed
+                    && !result.renditions.is_empty()
+                    && u64::try_from(result.renditions.len())
+                        .ok()
+                        .and_then(|count| {
+                            result
+                                .previous_state
+                                .authoritative_sequence
+                                .checked_add(count)
+                        })
+                        == Some(result.resulting_state.authoritative_sequence)
+                    && result
+                        .renditions
+                        .iter()
+                        .enumerate()
+                        .all(|(index, rendition)| {
+                            let expected_sequence = u64::try_from(index)
+                                .ok()
+                                .and_then(|offset| offset.checked_add(1))
+                                .and_then(|offset| {
+                                    result
+                                        .previous_state
+                                        .authoritative_sequence
+                                        .checked_add(offset)
+                                });
+                            rendition.workspace_id == workspace_id
+                                && rendition.changeset_id == input.changeset_id
+                                && expected_sequence == Some(rendition.authoritative_sequence)
+                        })
+            }
+            (
+                EnabledOperationInputV1::LocalizedEditionCreate(input),
+                Self::EditionCreated(result),
+            ) => {
+                result.edition_id == input.edition_id
+                    && result.workspace_id == workspace_id
+                    && result.changeset_id == input.changeset_id
+                    && result.state.digest == input.resulting_state_digest
+                    && result.created_at == input.created_at
+                    && result.principal_id == requesting_principal_id
+            }
+            (
+                EnabledOperationInputV1::LocalizedReleaseCreate(input),
+                Self::ReleaseCreated(result),
+            ) => {
+                result.release_id == input.release_id
+                    && result.workspace_id == workspace_id
+                    && result.proof_id == input.proof_id
+                    && result.environment_id == input.environment_id
+                    && result.edition.edition_id == input.edition_id
+                    && result.previous_release_id == Some(input.expected_base_release_id)
+                    && result.released_at == input.released_at
+                    && result.kind == ReleaseKind::Promotion
+                    && release_manifest_principal(result) == Some(requesting_principal_id)
+            }
+            (
+                EnabledOperationInputV1::LocalizedObjectQueryReleased(input),
+                Self::ReleasedRenditionsQueried(result),
+            ) => {
+                result.environment_id == input.environment_id
+                    && result.workspace_id == workspace_id
+                    && result
+                        .renditions
+                        .iter()
+                        .map(|rendition| (&rendition.object_id, &rendition.locale))
+                        .eq(input
+                            .targets
+                            .iter()
+                            .map(|target| (&target.object_id, &target.locale)))
+            }
+            _ => false,
+        }
+    }
+}
+
+fn localized_context_manifest_matches(
+    result: &LocalizedContextPack,
+    input: &LocalizedContextBuildInputV2,
+    workspace_id: WorkspaceId,
+    requesting_principal_id: PrincipalId,
+) -> bool {
+    let Ok(manifest) = serde_json::from_str::<Value>(&result.manifest_json) else {
+        return false;
+    };
+    let expected_limits = json!({
+        "max_bytes": input.limits.max_bytes,
+        "max_edits": input.limits.max_edits,
+        "max_objects": input.limits.max_objects,
+        "max_validation_attempts": input.limits.max_validation_attempts,
+    });
+    let expected_policy = json!({
+        "api_version": "proof.dev/localized-content-policy/v1",
+        "rules": input.policy_rules,
+    });
+    manifest.get("api_version").and_then(Value::as_str) == Some("proof.dev/context-pack/v2")
+        && manifest.get("context_pack_id").and_then(Value::as_str)
+            == Some(result.context_pack_id.to_string().as_str())
+        && manifest.get("workspace_id").and_then(Value::as_str)
+            == Some(workspace_id.to_string().as_str())
+        && manifest.get("principal_id").and_then(Value::as_str)
+            == Some(requesting_principal_id.to_string().as_str())
+        && manifest
+            .get("resource_intent_digest")
+            .and_then(Value::as_str)
+            == Some(input.resource_intent_digest.to_string().as_str())
+        && manifest
+            .get("resource_intent")
+            .and_then(|intent| intent.get("intent_id"))
+            .and_then(Value::as_str)
+            == Some(input.resource_intent_id.to_string().as_str())
+        && manifest.get("created_at").and_then(Value::as_str)
+            == Some(input.created_at.to_string().as_str())
+        && manifest.get("expires_at").and_then(Value::as_str)
+            == Some(input.expires_at.to_string().as_str())
+        && manifest.get("limits") == Some(&expected_limits)
+        && manifest.get("policy") == Some(&expected_policy)
+        && manifest.get("policy_digest").and_then(Value::as_str)
+            == Some(result.policy_digest.to_string().as_str())
+}
+
+fn parsed_result_object(value: &str) -> Result<Value, AuthorityContractError> {
+    let parsed: Value = serde_json::from_str(value)
+        .map_err(|_| AuthorityContractError::InvalidValue("localized result JSON"))?;
+    if parsed.is_object() {
+        Ok(parsed)
+    } else {
+        Err(AuthorityContractError::InvalidValue(
+            "localized result object",
+        ))
+    }
+}
+
+fn state_reference_value(value: &super::KnownStateArtifactReference) -> Value {
+    json!({
+        "api_version": value.api_version,
+        "authoritative_sequence": value.authoritative_sequence,
+        "digest": value.digest.to_string(),
+    })
+}
+
+fn edition_reference_value(value: &super::EditionArtifactReference) -> Value {
+    json!({
+        "api_version": value.api_version,
+        "digest": value.digest.to_string(),
+        "edition_id": value.edition_id.to_string(),
+    })
+}
+
+fn localized_edit_value(edit: &LocalizedEdit) -> Result<Value, AuthorityContractError> {
+    Ok(json!({
+        "api_version": "proof.dev/edit/v2",
+        "content": parsed_result_object(&edit.input.canonical_content)?,
+        "edit_id": edit.edit_id.to_string(),
+        "expected_source": {
+            "digest": edit.input.expected_source.digest.to_string(),
+            "revision": edit.input.expected_source.revision.get(),
+            "schema_id": edit.input.expected_source.schema_id.to_string(),
+            "schema_version": edit.input.expected_source.schema_version.get(),
+        },
+        "expected_target": edit.input.expected_target.as_ref().map(|target| json!({
+            "digest": target.digest.to_string(),
+            "revision": target.revision.get(),
+        })),
+        "kind": "object.locale.put",
+        "locale": edit.input.locale.to_string(),
+        "object_id": edit.input.object_id.to_string(),
+        "repair_of_validation_result_digest": edit.input.repair_of_validation_result_digest.map(|value| value.to_string()),
+        "supersedes_edit_id": edit.input.supersedes_edit_id.map(|value| value.to_string()),
+    }))
+}
+
+fn localized_finding_value(finding: &LocalizedFinding) -> Value {
+    let severity = match finding.severity {
+        crate::Severity::Info => "info",
+        crate::Severity::Warning => "warning",
+        crate::Severity::Error => "error",
+    };
+    json!({
+        "code": finding.code,
+        "edit_id": finding.edit_id.to_string(),
+        "locale": finding.locale.to_string(),
+        "object_id": finding.object_id.to_string(),
+        "pointer": finding.pointer,
+        "policy_digest": finding.policy_digest.to_string(),
+        "severity": severity,
+        "validator": finding.validator,
+    })
+}
+
+fn localized_changeset_read_value(
+    result: &LocalizedChangeSetReadV1,
+) -> Result<Value, AuthorityContractError> {
+    let changeset = &result.changeset;
+    let effective = changeset
+        .edits
+        .iter()
+        .filter(|edit| edit.effective)
+        .collect::<Vec<_>>();
+    if changeset.edits.is_empty() || effective.is_empty() {
+        return Err(AuthorityContractError::InvalidValue(
+            "localized ChangeSet read output",
+        ));
+    }
+    Ok(json!({
+        "api_version": "proof.dev/changeset/v2",
+        "base_state": state_reference_value(&changeset.base_state),
+        "changeset_id": changeset.changeset_id.to_string(),
+        "context_pack_digest": changeset.context_pack_digest.to_string(),
+        "context_pack_id": changeset.context_pack_id.to_string(),
+        "created_at": changeset.created_at.to_string(),
+        "edits": changeset.edits.iter().map(localized_edit_value).collect::<Result<Vec<_>, _>>()?,
+        "effective_leaf_digest": result.effective_leaf_digest.to_string(),
+        "effective_leaves": effective.iter().map(|edit| json!({
+            "edit_digest": edit.edit_digest.to_string(),
+            "edit_id": edit.edit_id.to_string(),
+            "locale": edit.input.locale.to_string(),
+            "object_id": edit.input.object_id.to_string(),
+        })).collect::<Vec<_>>(),
+        "intent": changeset.intent.to_string(),
+        "principal_id": changeset.principal_id.to_string(),
+        "resource_intent_digest": changeset.resource_intent_digest.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+        "workspace_id": changeset.workspace_id.to_string(),
+    }))
+}
+
+fn release_manifest_principal(result: &LocalizedRelease) -> Option<PrincipalId> {
+    serde_json::from_str::<Value>(&result.manifest_json)
+        .ok()?
+        .get("principal_id")?
+        .as_str()?
+        .parse()
+        .ok()
+}
+
+/// Caller-safe P-0007 application failure kinds admitted after authorization allows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalizedOperationFailureKindV1 {
+    NotFound,
+    UnsupportedVersion,
+    InvalidInput,
+    IntentMismatch,
+    SourceConflict,
+    TargetConflict,
+    StateConflict,
+    DuplicateActiveTarget,
+    InvalidSupersession,
+    InvalidRepairEvidence,
+    NotDraft,
+    NotReady,
+    NotSubmitted,
+    NotApproved,
+    EvidenceMissing,
+    LimitExceeded,
+    PolicyDenied,
+}
+
+impl LocalizedOperationFailureKindV1 {
+    /// Maps only caller-safe application failures; integrity/storage/signing abort instead.
+    #[must_use]
+    pub const fn from_application_error(error: &LocalizedContentError) -> Option<Self> {
+        match error {
+            LocalizedContentError::NotFound => Some(Self::NotFound),
+            LocalizedContentError::UnsupportedVersion => Some(Self::UnsupportedVersion),
+            LocalizedContentError::InvalidInput => Some(Self::InvalidInput),
+            LocalizedContentError::IntentMismatch => Some(Self::IntentMismatch),
+            LocalizedContentError::SourceConflict => Some(Self::SourceConflict),
+            LocalizedContentError::TargetConflict => Some(Self::TargetConflict),
+            LocalizedContentError::StateConflict => Some(Self::StateConflict),
+            LocalizedContentError::DuplicateActiveTarget => Some(Self::DuplicateActiveTarget),
+            LocalizedContentError::InvalidSupersession => Some(Self::InvalidSupersession),
+            LocalizedContentError::InvalidRepairEvidence => Some(Self::InvalidRepairEvidence),
+            LocalizedContentError::NotDraft => Some(Self::NotDraft),
+            LocalizedContentError::NotReady => Some(Self::NotReady),
+            LocalizedContentError::NotSubmitted => Some(Self::NotSubmitted),
+            LocalizedContentError::NotApproved => Some(Self::NotApproved),
+            LocalizedContentError::EvidenceMissing => Some(Self::EvidenceMissing),
+            LocalizedContentError::LimitExceeded => Some(Self::LimitExceeded),
+            LocalizedContentError::PolicyDenied => Some(Self::PolicyDenied),
+            LocalizedContentError::Unauthenticated
+            | LocalizedContentError::IdempotencyKeyReused
+            | LocalizedContentError::Signing(_)
+            | LocalizedContentError::Integrity(_)
+            | LocalizedContentError::Storage(_) => None,
+        }
+    }
+
+    /// Stable caller-visible Problem code.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::NotFound => "proof.resource.not_found",
+            Self::UnsupportedVersion => "proof.input.unsupported_version",
+            Self::InvalidInput => "proof.input.schema_mismatch",
+            Self::IntentMismatch => "proof.input.intent_mismatch",
+            Self::SourceConflict => "proof.state.source_conflict",
+            Self::TargetConflict => "proof.state.target_conflict",
+            Self::StateConflict => "proof.state.conflict",
+            Self::DuplicateActiveTarget => "proof.changeset.duplicate_target",
+            Self::InvalidSupersession => "proof.changeset.invalid_supersession",
+            Self::InvalidRepairEvidence => "proof.validation.repair_evidence_invalid",
+            Self::NotDraft => "proof.changeset.not_draft",
+            Self::NotReady => "proof.changeset.not_ready",
+            Self::NotSubmitted => "proof.changeset.not_submitted",
+            Self::NotApproved => "proof.changeset.not_approved",
+            Self::EvidenceMissing => "proof.evidence.incomplete",
+            Self::LimitExceeded => "proof.input.limit_exceeded",
+            Self::PolicyDenied => "proof.policy.denied",
+        }
+    }
+
+    /// Central caller-safe Problem projection shared by every adapter.
+    #[must_use]
+    pub const fn public_problem(self) -> PublicAuthorityProblem {
+        let (problem_type, title) = match self {
+            Self::NotFound => (
+                "urn:proof:problem:resource-not-found",
+                "The exact localized-content resource was not found",
+            ),
+            Self::UnsupportedVersion => (
+                "urn:proof:problem:unsupported-version",
+                "The operation is unsupported for the current artifact version",
+            ),
+            Self::InvalidInput => (
+                "urn:proof:problem:input-schema-mismatch",
+                "The localized-content input violates its closed contract",
+            ),
+            Self::IntentMismatch => (
+                "urn:proof:problem:intent-mismatch",
+                "The operation differs from the immutable resource intent",
+            ),
+            Self::SourceConflict => (
+                "urn:proof:problem:state-conflict",
+                "The locale-neutral source precondition changed",
+            ),
+            Self::TargetConflict => (
+                "urn:proof:problem:state-conflict",
+                "The exact target rendition precondition changed",
+            ),
+            Self::StateConflict => (
+                "urn:proof:problem:state-conflict",
+                "The localized-content baseline changed concurrently",
+            ),
+            Self::DuplicateActiveTarget => (
+                "urn:proof:problem:state-conflict",
+                "The ChangeSet already has an active Edit for this target",
+            ),
+            Self::InvalidSupersession => (
+                "urn:proof:problem:state-conflict",
+                "The requested Edit supersession edge is invalid",
+            ),
+            Self::InvalidRepairEvidence => (
+                "urn:proof:problem:repair-evidence-invalid",
+                "The repair evidence does not match the latest invalid result",
+            ),
+            Self::NotDraft => (
+                "urn:proof:problem:changeset-lifecycle",
+                "Localized Edits require a Draft ChangeSet",
+            ),
+            Self::NotReady => (
+                "urn:proof:problem:changeset-lifecycle",
+                "The localized ChangeSet is not Ready",
+            ),
+            Self::NotSubmitted => (
+                "urn:proof:problem:changeset-lifecycle",
+                "The localized ChangeSet is not Submitted",
+            ),
+            Self::NotApproved => (
+                "urn:proof:problem:changeset-lifecycle",
+                "The localized ChangeSet is not Approved",
+            ),
+            Self::EvidenceMissing => (
+                "urn:proof:problem:evidence-incomplete",
+                "Localized-content evidence is incomplete",
+            ),
+            Self::LimitExceeded => (
+                "urn:proof:problem:input-limit-exceeded",
+                "The localized-content operation exceeds its committed budget",
+            ),
+            Self::PolicyDenied => (
+                "urn:proof:problem:policy-denied",
+                "Policy denied the exact localized-content operation",
+            ),
+        };
+        PublicAuthorityProblem {
+            problem_type,
+            title,
+            code: self.code(),
+            detail: None,
+            retryable: false,
+        }
+    }
+}
+
+/// One typed caller-safe localized application failure bound to its operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalizedOperationFailureV1 {
+    pub operation: AuthorityOperation,
+    pub kind: LocalizedOperationFailureKindV1,
+}
+
+impl LocalizedOperationFailureV1 {
+    /// Constructs a failure only for one of the 11 localized v2 operations.
+    pub fn new(
+        operation: AuthorityOperation,
+        kind: LocalizedOperationFailureKindV1,
+    ) -> Result<Self, AuthorityContractError> {
+        if authority_operation_entry(operation)
+            .localized_contract
+            .is_some()
+        {
+            Ok(Self { operation, kind })
+        } else {
+            Err(AuthorityContractError::InvalidValue(
+                "localized failure operation",
+            ))
+        }
+    }
+
+    /// Stable caller-visible Problem code.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        self.kind.code()
+    }
+
+    /// Central caller-safe Problem projection shared by every adapter.
+    #[must_use]
+    pub const fn public_problem(self) -> PublicAuthorityProblem {
+        self.kind.public_problem()
+    }
 }
 
 /// Stable application failure after authentication and authorization succeeded.
@@ -2953,13 +4697,77 @@ impl AuthenticatedOperationFailureV1 {
     }
 }
 
-/// Closed result union for the three P-0004-enabled v1 operations.
+/// Closed result union for every authenticated operation enabled by the fixed registry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuthenticatedOperationResultV1 {
     WorkspaceStatus(AuthenticatedWorkspaceStatusV1),
     ReleasedObjectQuery(ReleasedObjectQuery),
     ContextPack(ContextPack),
     Failure(AuthenticatedOperationFailureV1),
+    LocalizedSuccess(LocalizedOperationSuccessV1),
+    LocalizedFailure(LocalizedOperationFailureV1),
+}
+
+impl AuthenticatedOperationResultV1 {
+    /// Returns exact schema-shaped localized result data, when this is a localized success.
+    pub fn localized_output_value(&self) -> Result<Option<Value>, AuthorityContractError> {
+        match self {
+            Self::LocalizedSuccess(success) => success.output_value().map(Some),
+            Self::WorkspaceStatus(_)
+            | Self::ReleasedObjectQuery(_)
+            | Self::ContextPack(_)
+            | Self::Failure(_)
+            | Self::LocalizedFailure(_) => Ok(None),
+        }
+    }
+
+    /// Returns the exact application-owned value committed by one localized result.
+    ///
+    /// Successes use the immutable operation output Schema. Failures use the
+    /// stable caller-safe Problem profile without transport-only decision detail.
+    pub fn localized_result_value(&self) -> Result<Option<Value>, AuthorityContractError> {
+        match self {
+            Self::LocalizedSuccess(success) => success.output_value().map(Some),
+            Self::LocalizedFailure(failure) => {
+                let problem = failure.public_problem();
+                Ok(Some(json!({
+                    "code": problem.code,
+                    "detail": problem.detail,
+                    "retryable": problem.retryable,
+                    "title": problem.title,
+                    "type": problem.problem_type,
+                })))
+            }
+            Self::WorkspaceStatus(_)
+            | Self::ReleasedObjectQuery(_)
+            | Self::ContextPack(_)
+            | Self::Failure(_) => Ok(None),
+        }
+    }
+
+    /// Derives the exact signed localized result digest from the application-owned value.
+    pub fn localized_result_digest(&self) -> Result<Option<ContentDigest>, AuthorityContractError> {
+        self.localized_result_value()?
+            .map(|value| {
+                canonicalize(&value)
+                    .map(|canonical| digest(ArtifactKind::OperationEffectV1, &canonical))
+                    .map_err(|_| AuthorityContractError::InvalidValue("localized result value"))
+            })
+            .transpose()
+    }
+
+    /// Returns the centralized caller-safe Problem for a localized failure.
+    #[must_use]
+    pub const fn localized_public_problem(&self) -> Option<PublicAuthorityProblem> {
+        match self {
+            Self::LocalizedFailure(failure) => Some(failure.public_problem()),
+            Self::WorkspaceStatus(_)
+            | Self::ReleasedObjectQuery(_)
+            | Self::ContextPack(_)
+            | Self::Failure(_)
+            | Self::LocalizedSuccess(_) => None,
+        }
+    }
 }
 
 /// Persisted canonical enrollment challenge and its domain-separated digest.
@@ -3420,26 +5228,56 @@ mod tests {
     }
 
     #[test]
-    fn only_three_v1_rows_are_enabled_as_evidence_writes() {
+    fn all_fourteen_fixed_rows_are_enabled_with_frozen_consequence_classes() {
         let enabled = enabled_authority_operations().collect::<Vec<_>>();
 
-        assert_eq!(enabled.len(), 3);
+        assert_eq!(enabled.len(), 14);
         assert_eq!(
             enabled
                 .iter()
                 .map(|entry| entry.operation)
                 .collect::<Vec<_>>(),
-            [
-                AuthorityOperation::ContextBuildV1,
-                AuthorityOperation::ObjectQueryReleasedV1,
-                AuthorityOperation::WorkspaceStatusV1,
-            ]
+            AUTHORITY_OPERATION_REGISTRY_V1
+                .iter()
+                .map(|entry| entry.operation)
+                .collect::<Vec<_>>()
         );
         assert!(
             enabled
                 .iter()
                 .all(|entry| entry.execution_class == AuthorityExecutionClass::EvidenceWrite)
         );
+        assert_eq!(
+            enabled
+                .iter()
+                .filter(|entry| entry.consequence == AuthorityConsequence::AuthorityEvidenceOnly)
+                .count(),
+            5
+        );
+        assert_eq!(
+            enabled
+                .iter()
+                .filter(|entry| entry.consequence == AuthorityConsequence::ImmutableContextPack)
+                .count(),
+            2
+        );
+        for consequence in [
+            AuthorityConsequence::DraftLocalizedChangeset,
+            AuthorityConsequence::ImmutableLocalizedEdition,
+            AuthorityConsequence::LocalizedEditBatch,
+            AuthorityConsequence::LocalizedReleasePointerAndProof,
+            AuthorityConsequence::LocalizedRenditionCommit,
+            AuthorityConsequence::LocalizedSubmission,
+            AuthorityConsequence::LocalizedValidationAttempt,
+        ] {
+            assert_eq!(
+                enabled
+                    .iter()
+                    .filter(|entry| entry.consequence == consequence)
+                    .count(),
+                1
+            );
+        }
     }
 
     #[test]
@@ -3496,6 +5334,82 @@ mod tests {
         let persisted = serde_json::to_value(evidence).unwrap();
         assert!(persisted.get("requesting_subject").is_none());
         assert!(persisted.to_string().find("uid:").is_none());
+    }
+
+    #[test]
+    fn localized_consequence_commitment_is_additive_without_changing_p4_payloads() {
+        let vector: Value = serde_json::from_str(include_str!(
+            "../../../conformance/v1/authority/vectors/authorization-decision-v2.valid.json"
+        ))
+        .unwrap();
+        let legacy: AuthorizationDecisionV2 = serde_json::from_value(vector.clone()).unwrap();
+        assert_eq!(legacy.localized_consequence_commitment, None);
+        assert_eq!(serde_json::to_value(&legacy).unwrap(), vector);
+        legacy.validate().unwrap();
+
+        let result_digest = format!("blake3:{}", "a".repeat(64)).parse().unwrap();
+        let application_consequence_digest = format!("blake3:{}", "b".repeat(64)).parse().unwrap();
+        assert!(
+            LocalizedConsequenceCommitmentV1::new(
+                AuthorityOperation::WorkspaceStatusV1,
+                LocalizedConsequenceResultKindV1::Success,
+                result_digest,
+                application_consequence_digest,
+            )
+            .is_err()
+        );
+
+        let mut localized = legacy.clone();
+        localized.operation = AuthorityOperation::ContextBuildV2;
+        localized.requested_action = AuthorityAction::ContextBuild;
+        assert!(localized.validate().is_err());
+        localized.localized_consequence_commitment = Some(
+            LocalizedConsequenceCommitmentV1::new(
+                localized.operation,
+                LocalizedConsequenceResultKindV1::Success,
+                result_digest,
+                application_consequence_digest,
+            )
+            .unwrap(),
+        );
+        localized.validate().unwrap();
+        let encoded = serde_json::to_value(&localized).unwrap();
+        let decoded: AuthorizationDecisionV2 = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded, localized);
+
+        let mut wrong_contract = localized.clone();
+        wrong_contract
+            .localized_consequence_commitment
+            .as_mut()
+            .unwrap()
+            .result_contract = LOCALIZED_PUBLIC_PROBLEM_RESULT_CONTRACT_V1.to_owned();
+        assert!(wrong_contract.validate().is_err());
+
+        let mut wrong_operation = localized.clone();
+        wrong_operation.operation = AuthorityOperation::ChangesetCreateV2;
+        wrong_operation.requested_action = AuthorityAction::ChangesetCreate;
+        assert!(wrong_operation.validate().is_err());
+
+        let mut denied = localized;
+        denied.decision = AuthorizationDecisionOutcome::Deny;
+        denied.reason_code = Some(AuthorizationDenialReason::PolicyDenied);
+        assert!(denied.validate().is_err());
+
+        let mut p4_with_commitment = legacy;
+        p4_with_commitment.localized_consequence_commitment = Some(
+            LocalizedConsequenceCommitmentV1::new(
+                AuthorityOperation::ContextBuildV2,
+                LocalizedConsequenceResultKindV1::Failure,
+                result_digest,
+                application_consequence_digest,
+            )
+            .unwrap(),
+        );
+        assert!(p4_with_commitment.validate().is_err());
+
+        let mut unknown_commitment = encoded;
+        unknown_commitment["localized_consequence_commitment"]["unexpected"] = Value::Bool(true);
+        assert!(serde_json::from_value::<AuthorizationDecisionV2>(unknown_commitment).is_err());
     }
 
     #[test]
@@ -3900,6 +5814,553 @@ mod tests {
         .unwrap()
         .validate()
         .unwrap();
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the exact normalization regression covers pointer, Edit, and released-target ordering contracts together"
+    )]
+    fn localized_input_normalization_is_exact_and_rejects_invalid_pointer_escapes() {
+        let context_value = |pointer: &str| {
+            json!({
+                "api_version": "proof.dev/operation/context.build/v2",
+                "context_pack_id": "019c0000-0000-7000-8000-000000000010",
+                "created_at": "2026-08-21T10:00:00Z",
+                "expires_at": "2026-08-21T11:00:00Z",
+                "idempotency_key": "019c0000-0000-7000-8000-000000000011",
+                "limits": {
+                    "max_bytes": 1_048_576,
+                    "max_edits": 100,
+                    "max_objects": 100,
+                    "max_validation_attempts": 100
+                },
+                "policy_rules": [{
+                    "disallowed_values": ["z", "a"],
+                    "locale": "fr-FR",
+                    "pointer": pointer
+                }],
+                "resource_intent_digest": format!("blake3:{}", "1".repeat(64)),
+                "resource_intent_id": "019c0000-0000-7000-8000-000000000012"
+            })
+        };
+        for pointer in ["/legal", "/~0", "/a~1b"] {
+            let mut input: LocalizedContextBuildInputV2 =
+                serde_json::from_value(context_value(pointer)).unwrap();
+            input.normalize().unwrap();
+            assert_eq!(input.policy_rules[0].disallowed_values, ["a", "z"]);
+        }
+        for pointer in ["/~2", "/a~", ""] {
+            let mut input: LocalizedContextBuildInputV2 =
+                serde_json::from_value(context_value(pointer)).unwrap();
+            assert!(input.normalize().is_err());
+        }
+
+        let mut context_command: CommandInputV1 = serde_json::from_str(include_str!(
+            "../../../conformance/v1/authority/vectors/semantic-command.valid.json"
+        ))
+        .unwrap();
+        let mut multi_rule_context = context_value("/legal");
+        multi_rule_context["policy_rules"] = json!([
+            {
+                "disallowed_values": ["a"],
+                "locale": "fr-FR",
+                "pointer": "/legal"
+            },
+            {
+                "disallowed_values": ["z"],
+                "locale": "de-DE",
+                "pointer": "/legal"
+            }
+        ]);
+        context_command.operation = AuthorityOperation::ContextBuildV2;
+        context_command.idempotency_key = Some(
+            multi_rule_context["idempotency_key"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap(),
+        );
+        context_command.normalized_input = multi_rule_context.as_object().unwrap().clone();
+        assert!(
+            context_command
+                .validate_for_authenticated_execution()
+                .is_err()
+        );
+        let normalized = context_command
+            .normalize_for_authenticated_execution()
+            .unwrap();
+        let EnabledOperationInputV1::LocalizedContextBuild(normalized) = normalized else {
+            panic!("localized Context build must return its typed v2 input")
+        };
+        assert_eq!(
+            normalized
+                .policy_rules
+                .iter()
+                .map(|rule| rule.locale.to_string())
+                .collect::<Vec<_>>(),
+            ["de-DE", "fr-FR"]
+        );
+        context_command
+            .validate_for_authenticated_execution()
+            .unwrap();
+
+        let mut edit_batch: LocalizedChangeSetAddInputV2 = serde_json::from_value(json!({
+            "api_version": "proof.dev/operation/changeset.add/v2",
+            "changeset_id": "019c0000-0000-7000-8000-000000000013",
+            "edits": [{
+                "api_version": "proof.dev/edit/v2",
+                "content": { "title": "Bonjour" },
+                "expected_source": {
+                    "digest": format!("blake3:{}", "2".repeat(64)),
+                    "revision": 7,
+                    "schema_id": "article",
+                    "schema_version": 3
+                },
+                "expected_target": null,
+                "kind": "object.locale.put",
+                "locale": "fr-FR",
+                "object_id": "019c0000-0000-7000-8000-000000000014",
+                "repair_of_validation_result_digest": null,
+                "supersedes_edit_id": null
+            }],
+            "idempotency_key": "019c0000-0000-7000-8000-000000000015"
+        }))
+        .unwrap();
+        edit_batch.normalize().unwrap();
+        assert_eq!(edit_batch.edits[0].expected_source.revision, 7);
+
+        let mut released_query: CommandInputV1 = serde_json::from_str(include_str!(
+            "../../../conformance/v1/authority/vectors/semantic-command.valid.json"
+        ))
+        .unwrap();
+        released_query.operation = AuthorityOperation::ObjectQueryReleasedV2;
+        released_query.idempotency_key = None;
+        released_query.normalized_input = json!({
+            "api_version": "proof.dev/operation/object.query_released/v2",
+            "environment_id": "preview",
+            "evaluated_at": "2026-08-21T10:00:00Z",
+            "targets": [
+                {
+                    "locale": "de-DE",
+                    "object_id": "019c0000-0000-7000-8000-000000000032"
+                },
+                {
+                    "locale": "fr-FR",
+                    "object_id": "019c0000-0000-7000-8000-000000000031"
+                }
+            ]
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        assert!(
+            released_query
+                .validate_for_authenticated_execution()
+                .is_err()
+        );
+        let normalized = released_query
+            .normalize_for_authenticated_execution()
+            .unwrap();
+        let EnabledOperationInputV1::LocalizedObjectQueryReleased(normalized) = normalized else {
+            panic!("released rendition query must return its typed v2 input")
+        };
+        assert_eq!(
+            normalized
+                .targets
+                .iter()
+                .map(|target| (target.object_id.to_string(), target.locale.to_string()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "019c0000-0000-7000-8000-000000000031".to_owned(),
+                    "fr-FR".to_owned(),
+                ),
+                (
+                    "019c0000-0000-7000-8000-000000000032".to_owned(),
+                    "de-DE".to_owned(),
+                ),
+            ]
+        );
+        released_query
+            .validate_for_authenticated_execution()
+            .unwrap();
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the regression cross-links pristine results and signed commitment substitution in one fixture"
+    )]
+    fn localized_success_cross_links_reject_substituted_and_non_pristine_results() {
+        let workspace_id = "019c0000-0000-7000-8000-000000000001"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let requesting_principal_id = "019c0000-0000-7000-8000-000000000002"
+            .parse::<PrincipalId>()
+            .unwrap();
+        let operating_principal_id = "019c0000-0000-7000-8000-000000000003"
+            .parse::<PrincipalId>()
+            .unwrap();
+        let mut input: LocalizedChangeSetCreateInputV2 = serde_json::from_value(json!({
+            "api_version": "proof.dev/operation/changeset.create/v2",
+            "changeset_id": "019c0000-0000-7000-8000-000000000020",
+            "context_pack_digest": format!("blake3:{}", "3".repeat(64)),
+            "context_pack_id": "019c0000-0000-7000-8000-000000000021",
+            "created_at": "2026-08-21T10:00:00Z",
+            "idempotency_key": "019c0000-0000-7000-8000-000000000022",
+            "intent": "Localize the preview",
+            "resource_intent_digest": format!("blake3:{}", "4".repeat(64)),
+            "resource_intent_id": "019c0000-0000-7000-8000-000000000023"
+        }))
+        .unwrap();
+        input.normalize().unwrap();
+        let enabled_input = EnabledOperationInputV1::LocalizedChangeSetCreate(input.clone());
+        let base_state = super::super::KnownStateArtifactReference {
+            api_version: "proof.dev/known-state/v2".to_owned(),
+            authoritative_sequence: 1,
+            digest: format!("blake3:{}", "5".repeat(64)).parse().unwrap(),
+        };
+        let mut changeset = LocalizedChangeSet {
+            changeset_id: input.changeset_id,
+            workspace_id,
+            principal_id: requesting_principal_id,
+            intent: input.intent.clone(),
+            resource_intent_id: input.resource_intent_id,
+            resource_intent_digest: input.resource_intent_digest,
+            context_pack_id: input.context_pack_id,
+            context_pack_digest: input.context_pack_digest,
+            base_state,
+            created_at: input.created_at,
+            status: ChangeSetStatus::Draft,
+            edits: Vec::new(),
+            proposal_digest: None,
+            sealed_changeset_digest: None,
+        };
+        let success = LocalizedOperationSuccessV1::ChangeSetCreated(changeset.clone());
+        assert!(success.matches_input(&enabled_input, workspace_id, requesting_principal_id));
+        let result_digest = format!("blake3:{}", "6".repeat(64)).parse().unwrap();
+        let consequence_digest = format!("blake3:{}", "7".repeat(64)).parse().unwrap();
+        let success_commitment = LocalizedConsequenceCommitmentV1::new(
+            AuthorityOperation::ChangesetCreateV2,
+            LocalizedConsequenceResultKindV1::Success,
+            result_digest,
+            consequence_digest,
+        )
+        .unwrap();
+        let typed_success = AuthenticatedOperationResultV1::LocalizedSuccess(success.clone());
+        assert!(success_commitment.matches_result_kind_and_contract(&typed_success));
+        let failure = LocalizedOperationFailureV1::new(
+            AuthorityOperation::ChangesetCreateV2,
+            LocalizedOperationFailureKindV1::NotFound,
+        )
+        .unwrap();
+        let typed_failure = AuthenticatedOperationResultV1::LocalizedFailure(failure);
+        assert!(!success_commitment.matches_result_kind_and_contract(&typed_failure));
+        let failure_commitment = LocalizedConsequenceCommitmentV1::new(
+            AuthorityOperation::ChangesetCreateV2,
+            LocalizedConsequenceResultKindV1::Failure,
+            result_digest,
+            consequence_digest,
+        )
+        .unwrap();
+        assert!(failure_commitment.matches_result_kind_and_contract(&typed_failure));
+        assert!(!failure_commitment.matches_result_kind_and_contract(&typed_success));
+        let get_input =
+            EnabledOperationInputV1::LocalizedChangeSetGet(LocalizedChangeSetGetInputV2 {
+                api_version: LocalizedChangeSetGetInputApiVersion::default(),
+                changeset_id: input.changeset_id,
+            });
+        assert!(!success.matches_input(&get_input, workspace_id, requesting_principal_id));
+
+        changeset.status = ChangeSetStatus::Ready;
+        assert!(
+            !LocalizedOperationSuccessV1::ChangeSetCreated(changeset.clone()).matches_input(
+                &enabled_input,
+                workspace_id,
+                requesting_principal_id
+            )
+        );
+        changeset.status = ChangeSetStatus::Draft;
+        changeset.principal_id = operating_principal_id;
+        assert!(
+            !LocalizedOperationSuccessV1::ChangeSetCreated(changeset).matches_input(
+                &enabled_input,
+                workspace_id,
+                requesting_principal_id
+            )
+        );
+        assert_eq!(
+            LocalizedOperationFailureKindV1::from_application_error(
+                &LocalizedContentError::IdempotencyKeyReused
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn localized_commit_cross_link_accepts_contiguous_multi_rendition_sequences_only() {
+        let workspace_id = "019c0000-0000-7000-8000-000000000001"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let changeset_id = "019c0000-0000-7000-8000-000000000020"
+            .parse::<ChangeSetId>()
+            .unwrap();
+        let committed_at = "2026-08-21T10:00:00Z".parse().unwrap();
+        let input =
+            EnabledOperationInputV1::LocalizedChangeSetCommit(LocalizedChangeSetCommitInputV2 {
+                api_version: LocalizedChangeSetCommitInputApiVersion::default(),
+                changeset_id,
+                committed_at,
+                idempotency_key: "019c0000-0000-7000-8000-000000000021".parse().unwrap(),
+            });
+        let state = |sequence, digit: char| super::super::KnownStateArtifactReference {
+            api_version: "proof.dev/known-state/v2".to_owned(),
+            authoritative_sequence: sequence,
+            digest: format!("blake3:{}", digit.to_string().repeat(64))
+                .parse()
+                .unwrap(),
+        };
+        let rendition = |object: &str, locale: &str, edit: &str, sequence, digit: char| {
+            super::super::ObjectLocaleRevision {
+                workspace_id,
+                object_id: object.parse().unwrap(),
+                locale: locale.parse().unwrap(),
+                revision: LocaleRevision::new(1).unwrap(),
+                previous_revision_digest: None,
+                source_object_revision: ObjectRevision::INITIAL,
+                source_object_digest: format!("blake3:{}", digit.to_string().repeat(64))
+                    .parse()
+                    .unwrap(),
+                schema_id: SchemaId::new("campaign").unwrap(),
+                schema_version: SchemaVersion::new(1).unwrap(),
+                canonical_content: "{}".to_owned(),
+                changeset_id,
+                edit_id: edit.parse().unwrap(),
+                authoritative_sequence: sequence,
+                manifest_json: "{}".to_owned(),
+                rendition_digest: format!(
+                    "blake3:{}",
+                    char::from_u32(u32::from(digit) + 2)
+                        .unwrap()
+                        .to_string()
+                        .repeat(64)
+                )
+                .parse()
+                .unwrap(),
+            }
+        };
+        let mut committed = CommittedLocalizedChangeSet {
+            changeset_id,
+            sealed_changeset_digest: format!("blake3:{}", "1".repeat(64)).parse().unwrap(),
+            validation_results_digest: format!("blake3:{}", "2".repeat(64)).parse().unwrap(),
+            previous_state: state(10, '3'),
+            resulting_state: state(12, '4'),
+            renditions: vec![
+                rendition(
+                    "019c0000-0000-7000-8000-000000000030",
+                    "de-DE",
+                    "019c0000-0000-7000-8000-000000000040",
+                    11,
+                    '5',
+                ),
+                rendition(
+                    "019c0000-0000-7000-8000-000000000031",
+                    "fr-FR",
+                    "019c0000-0000-7000-8000-000000000041",
+                    12,
+                    '6',
+                ),
+            ],
+            committed_at,
+            status: ChangeSetStatus::Committed,
+        };
+        let matches = |value: &CommittedLocalizedChangeSet| {
+            LocalizedOperationSuccessV1::ChangeSetCommitted(value.clone()).matches_input(
+                &input,
+                workspace_id,
+                "019c0000-0000-7000-8000-000000000002".parse().unwrap(),
+            )
+        };
+        assert!(matches(&committed));
+
+        committed.resulting_state.authoritative_sequence = 13;
+        assert!(!matches(&committed));
+        committed.resulting_state.authoritative_sequence = 12;
+        committed.renditions[1].authoritative_sequence = 13;
+        assert!(!matches(&committed));
+        committed.renditions[1].authoritative_sequence = 12;
+        committed.renditions.swap(0, 1);
+        assert!(!matches(&committed));
+    }
+
+    #[test]
+    fn localized_diff_contract_rejects_an_empty_effective_projection() {
+        let changeset_id = "019c0000-0000-7000-8000-000000000020"
+            .parse::<ChangeSetId>()
+            .unwrap();
+        let input =
+            EnabledOperationInputV1::LocalizedChangeSetDiff(LocalizedChangeSetDiffInputV2 {
+                api_version: LocalizedChangeSetDiffInputApiVersion::default(),
+                changeset_id,
+            });
+        let success = LocalizedOperationSuccessV1::ChangeSetDiffed(LocalizedChangeSetDiff {
+            changeset_id,
+            proposal_digest: format!("blake3:{}", "1".repeat(64)).parse().unwrap(),
+            effective_leaf_digest: format!("blake3:{}", "2".repeat(64)).parse().unwrap(),
+            effective_edits: Vec::new(),
+        });
+        assert!(success.output_value().is_err());
+        assert!(!success.matches_input(
+            &input,
+            "019c0000-0000-7000-8000-000000000001".parse().unwrap(),
+            "019c0000-0000-7000-8000-000000000002".parse().unwrap(),
+        ));
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the digest substitution regression constructs a complete valid authenticated execution before mutating only result bytes"
+    )]
+    fn authenticated_execution_rejects_localized_result_digest_substitution() {
+        let mut command_input: CommandInputV1 = serde_json::from_str(include_str!(
+            "../../../conformance/v1/authority/vectors/semantic-command.valid.json"
+        ))
+        .unwrap();
+        let changeset_id = "019c0000-0000-7000-8000-000000000020"
+            .parse::<ChangeSetId>()
+            .unwrap();
+        command_input.operation = AuthorityOperation::ChangesetGetV2;
+        command_input.idempotency_key = None;
+        command_input.normalized_input = json!({
+            "api_version": "proof.dev/operation/changeset.get/v2",
+            "changeset_id": changeset_id.to_string(),
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        command_input
+            .validate_for_authenticated_execution()
+            .unwrap();
+
+        let mut actor_context: AuthenticatedActorContextV1 = serde_json::from_str(include_str!(
+            "../../../conformance/v1/authority/vectors/authenticated-actor-context.valid.json"
+        ))
+        .unwrap();
+        actor_context.operation = AuthorityOperation::ChangesetGetV2;
+        let actor_context_evidence = AuthenticatedActorContextEvidenceV1::from(&actor_context);
+        let mut decision: AuthorizationDecisionV2 = serde_json::from_str(include_str!(
+            "../../../conformance/v1/authority/vectors/authorization-decision-v2.valid.json"
+        ))
+        .unwrap();
+        decision.operation = AuthorityOperation::ChangesetGetV2;
+        decision.requested_action = AuthorityAction::ChangesetGet;
+
+        let edit = LocalizedEdit {
+            ordinal: 1,
+            edit_id: "019c0000-0000-7000-8000-000000000023".parse().unwrap(),
+            input: ObjectLocalePutInput {
+                object_id: "019c0000-0000-7000-8000-000000000024".parse().unwrap(),
+                locale: "fr-FR".parse().unwrap(),
+                expected_source: ExpectedLocalizedSource {
+                    revision: ObjectRevision::INITIAL,
+                    digest: format!("blake3:{}", "7".repeat(64)).parse().unwrap(),
+                    schema_id: SchemaId::new("campaign").unwrap(),
+                    schema_version: SchemaVersion::new(1).unwrap(),
+                },
+                expected_target: None,
+                canonical_content: "{}".to_owned(),
+                supersedes_edit_id: None,
+                repair_of_validation_result_digest: None,
+            },
+            effective: true,
+            canonical_json: "{}".to_owned(),
+            edit_digest: format!("blake3:{}", "8".repeat(64)).parse().unwrap(),
+        };
+        let changeset = LocalizedChangeSet {
+            changeset_id,
+            workspace_id: command_input.workspace_id,
+            principal_id: command_input.requesting_principal_id,
+            intent: ChangeSetIntent::new("Read one localized proposal").unwrap(),
+            resource_intent_id: "019c0000-0000-7000-8000-000000000021".parse().unwrap(),
+            resource_intent_digest: format!("blake3:{}", "1".repeat(64)).parse().unwrap(),
+            context_pack_id: "019c0000-0000-7000-8000-000000000022".parse().unwrap(),
+            context_pack_digest: format!("blake3:{}", "2".repeat(64)).parse().unwrap(),
+            base_state: super::super::KnownStateArtifactReference {
+                api_version: "proof.dev/known-state/v2".to_owned(),
+                authoritative_sequence: 10,
+                digest: format!("blake3:{}", "3".repeat(64)).parse().unwrap(),
+            },
+            created_at: "2026-08-21T09:00:00Z".parse().unwrap(),
+            status: ChangeSetStatus::Draft,
+            edits: vec![edit],
+            proposal_digest: Some(format!("blake3:{}", "9".repeat(64)).parse().unwrap()),
+            sealed_changeset_digest: None,
+        };
+        let success = LocalizedOperationSuccessV1::ChangeSetRead(LocalizedChangeSetReadV1 {
+            changeset,
+            effective_leaf_digest: format!("blake3:{}", "4".repeat(64)).parse().unwrap(),
+        });
+        let result = AuthenticatedOperationResultV1::LocalizedSuccess(success);
+        let result_digest = result.localized_result_digest().unwrap().unwrap();
+        decision.localized_consequence_commitment = Some(
+            LocalizedConsequenceCommitmentV1::new(
+                AuthorityOperation::ChangesetGetV2,
+                LocalizedConsequenceResultKindV1::Success,
+                result_digest,
+                format!("blake3:{}", "5".repeat(64)).parse().unwrap(),
+            )
+            .unwrap(),
+        );
+        let decision_record_digest = decision.previous_authority_record_digest;
+        let mut execution = AuthenticatedExecutionV1 {
+            command_input,
+            actor_context,
+            actor_context_evidence,
+            actor_context_digest: decision.actor_context_digest,
+            decision,
+            decision_record_digest,
+            decision_envelope_digest: decision_record_digest,
+            result,
+        };
+        execution.validate().unwrap();
+        let AuthenticatedOperationResultV1::LocalizedSuccess(
+            LocalizedOperationSuccessV1::ChangeSetRead(read),
+        ) = &mut execution.result
+        else {
+            unreachable!()
+        };
+        read.effective_leaf_digest = format!("blake3:{}", "6".repeat(64)).parse().unwrap();
+        assert!(execution.validate().is_err());
+    }
+
+    #[test]
+    fn localized_failure_result_value_is_the_stable_problem_preimage() {
+        let failure = LocalizedOperationFailureV1::new(
+            AuthorityOperation::ChangesetGetV2,
+            LocalizedOperationFailureKindV1::NotFound,
+        )
+        .unwrap();
+        let result = AuthenticatedOperationResultV1::LocalizedFailure(failure);
+        assert_eq!(
+            result.localized_result_value().unwrap().unwrap(),
+            json!({
+                "code": "proof.resource.not_found",
+                "detail": null,
+                "retryable": false,
+                "title": "The exact localized-content resource was not found",
+                "type": "urn:proof:problem:resource-not-found",
+            })
+        );
+        let commitment = LocalizedConsequenceCommitmentV1::new(
+            AuthorityOperation::ChangesetGetV2,
+            LocalizedConsequenceResultKindV1::Failure,
+            result.localized_result_digest().unwrap().unwrap(),
+            format!("blake3:{}", "7".repeat(64)).parse().unwrap(),
+        )
+        .unwrap();
+        assert!(commitment.matches_result(&result));
     }
 
     #[test]

@@ -1411,16 +1411,34 @@ pub const MAX_CONTEXT_PACK_BYTES: u64 = 1_048_576;
 /// Maximum UTF-8 byte length of a caller task identifier in a `ContextPack`.
 pub const MAX_CONTEXT_TASK_ID_BYTES: usize = 256;
 
-/// One read-side action that may be delegated to an Agent Principal.
+/// One governed action that may be delegated to an Agent Principal.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DelegatedAction {
+    /// Append one exact localized Edit batch to a `ChangeSet`.
+    ChangesetAdd,
+    /// Commit one approved localized `ChangeSet`.
+    ChangesetCommit,
+    /// Create one evidence-bound localized `ChangeSet`.
+    ChangesetCreate,
+    /// Read the effective localized `ChangeSet` projection.
+    ChangesetDiff,
+    /// Read one complete localized `ChangeSet`.
+    ChangesetGet,
+    /// Submit one ready localized `ChangeSet`.
+    ChangesetSubmit,
+    /// Validate one localized `ChangeSet` proposal.
+    ChangesetValidate,
     /// Inspect verified Workspace status.
     WorkspaceStatus,
     /// Query exact Objects from one released Environment.
     ObjectQueryReleased,
     /// Build one bounded immutable `ContextPack`.
     ContextBuild,
+    /// Materialize one immutable localized Edition.
+    EditionCreate,
+    /// Promote one exact localized Release.
+    ReleaseCreate,
 }
 
 impl DelegatedAction {
@@ -1428,9 +1446,18 @@ impl DelegatedAction {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ChangesetAdd => "changeset:add",
+            Self::ChangesetCommit => "changeset:commit",
+            Self::ChangesetCreate => "changeset:create",
+            Self::ChangesetDiff => "changeset:diff",
+            Self::ChangesetGet => "changeset:get",
+            Self::ChangesetSubmit => "changeset:submit",
+            Self::ChangesetValidate => "changeset:validate",
             Self::WorkspaceStatus => "workspace:status",
             Self::ObjectQueryReleased => "object:query_released",
             Self::ContextBuild => "context:build",
+            Self::EditionCreate => "edition:create",
+            Self::ReleaseCreate => "release:create",
         }
     }
 }
@@ -1446,9 +1473,18 @@ impl std::str::FromStr for DelegatedAction {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
+            "changeset:add" => Ok(Self::ChangesetAdd),
+            "changeset:commit" => Ok(Self::ChangesetCommit),
+            "changeset:create" => Ok(Self::ChangesetCreate),
+            "changeset:diff" => Ok(Self::ChangesetDiff),
+            "changeset:get" => Ok(Self::ChangesetGet),
+            "changeset:submit" => Ok(Self::ChangesetSubmit),
+            "changeset:validate" => Ok(Self::ChangesetValidate),
             "workspace:status" => Ok(Self::WorkspaceStatus),
             "object:query_released" => Ok(Self::ObjectQueryReleased),
             "context:build" => Ok(Self::ContextBuild),
+            "edition:create" => Ok(Self::EditionCreate),
+            "release:create" => Ok(Self::ReleaseCreate),
             _ => Err(DelegatedActionParseError),
         }
     }
@@ -2092,6 +2128,8 @@ pub enum CapabilityIdempotency {
     NotApplicable,
     /// The operation requires a caller-visible idempotency key.
     Required,
+    /// Proof derives the retry identity from the verified immutable closure.
+    Derived,
 }
 
 /// Side-effect classification advertised to callers and protocol adapters.
@@ -2102,6 +2140,8 @@ pub enum CapabilitySideEffect {
     ReadOnly,
     /// Writes an immutable evidence artifact but not authoritative content.
     EvidenceWrite,
+    /// Mutates governed localized content or its release lifecycle.
+    GovernedWrite,
 }
 
 impl CapabilitySideEffect {
@@ -2111,6 +2151,7 @@ impl CapabilitySideEffect {
         match self {
             Self::ReadOnly => "read_only",
             Self::EvidenceWrite => "evidence_write",
+            Self::GovernedWrite => "governed_write",
         }
     }
 }
@@ -2146,12 +2187,49 @@ pub struct CapabilityDescriptor {
     pub error_codes: &'static [&'static str],
     /// Codes reachable through the legacy ambient-Human application path.
     pub ambient_error_codes: &'static [&'static str],
-    /// Public codes reachable through authenticated P-0004 execution.
+    /// Public codes reachable through authenticated P-0004/P-0005 execution.
     pub authenticated_error_codes: &'static [&'static str],
     /// Maximum accepted Object count, when applicable.
     pub max_objects: Option<u32>,
     /// Maximum accepted payload bytes, when applicable.
     pub max_payload_bytes: Option<u64>,
+}
+
+impl CapabilityDescriptor {
+    /// Resolves the descriptor to the exact fixed authority-registry row.
+    #[must_use]
+    pub fn authority_operation(self) -> Option<authority::AuthorityOperation> {
+        authority::AuthorityOperation::from_pair(self.operation, self.version)
+    }
+
+    /// Parses the complete self-contained input Schema bundle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JSON error only if the statically registered Schema text is corrupt.
+    pub fn input_schema(self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::from_str(self.input_schema_json)
+    }
+
+    /// Parses the complete self-contained result-data Schema bundle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JSON error only if the statically registered Schema text is corrupt.
+    pub fn output_schema(self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::from_str(self.output_schema_json)
+    }
+
+    /// Stable MCP tool identity; v1 names remain unversioned and later versions are explicit.
+    #[must_use]
+    pub fn mcp_tool_name(self) -> String {
+        let suffix = self.version.rsplit('/').next().unwrap_or("unknown");
+        if suffix == "v1" {
+            format!("proof.{}", self.operation)
+        } else {
+            format!("proof.{}.{}", self.operation, suffix)
+        }
+    }
 }
 
 const WORKSPACE_STATUS_INPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/workspace.status/input/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"delegation_id":{"format":"uuid","type":"string"},"operating_principal_id":{"format":"uuid","type":"string"}},"required":["operating_principal_id","delegation_id"],"type":"object"}"#;
@@ -2161,212 +2239,538 @@ const RELEASED_OBJECT_QUERY_OUTPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/op
 const CONTEXT_BUILD_INPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/context.build/input/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"delegation_id":{"format":"uuid","type":"string"},"environment_id":{"maxLength":128,"minLength":1,"type":"string"},"expires_at":{"format":"date-time","type":"string"},"idempotency_key":{"format":"uuid","type":"string"},"intent":{"maxLength":4096,"minLength":1,"type":"string"},"max_bytes":{"maximum":1048576,"minimum":1,"type":"integer"},"max_objects":{"maximum":100,"minimum":1,"type":"integer"},"object_ids":{"items":{"format":"uuid","type":"string"},"maxItems":100,"minItems":1,"type":"array","uniqueItems":true},"operating_principal_id":{"format":"uuid","type":"string"},"task_id":{"maxLength":256,"minLength":1,"type":"string"}},"required":["operating_principal_id","delegation_id","task_id","intent","environment_id","object_ids","max_objects","max_bytes","idempotency_key","expires_at"],"type":"object"}"#;
 const CONTEXT_BUILD_OUTPUT_SCHEMA: &str = r#"{"$id":"proof.dev/schema/operation/context.build/output/v1","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"base_state":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"built_at":{"format":"date-time","type":"string"},"capabilities":{"items":{"type":"string"},"type":"array","uniqueItems":true},"context_pack_digest":{"pattern":"^blake3:[0-9a-f]{64}$","type":"string"},"context_pack_id":{"format":"uuid","type":"string"},"delegation_id":{"format":"uuid","type":"string"},"edition_id":{"format":"uuid","type":"string"},"environment_id":{"type":"string"},"expires_at":{"format":"date-time","type":"string"},"intent":{"type":"string"},"limits":{"additionalProperties":false,"properties":{"max_bytes":{"minimum":1,"type":"integer"},"max_objects":{"minimum":1,"type":"integer"}},"required":["max_objects","max_bytes"],"type":"object"},"manifest_json":{"type":"string"},"object_ids":{"items":{"format":"uuid","type":"string"},"type":"array","uniqueItems":true},"operating_principal_id":{"format":"uuid","type":"string"},"release_id":{"format":"uuid","type":"string"},"requesting_principal_id":{"format":"uuid","type":"string"},"task_id":{"type":"string"},"workspace_id":{"format":"uuid","type":"string"}},"required":["context_pack_id","workspace_id","requesting_principal_id","operating_principal_id","delegation_id","task_id","intent","environment_id","release_id","edition_id","base_state","object_ids","limits","built_at","expires_at","capabilities","manifest_json","context_pack_digest"],"type":"object"}"#;
 
-/// First agent-visible capability registry. No mutating content operation is exposed.
-pub static CAPABILITY_REGISTRY: [CapabilityDescriptor; 3] = [
-    CapabilityDescriptor {
-        operation: "workspace.status",
-        version: "proof.dev/operation/workspace.status/v1",
-        description: "Return verified Delegation-scoped status for the selected Workspace.",
-        input_schema_json: WORKSPACE_STATUS_INPUT_SCHEMA,
-        output_schema_json: WORKSPACE_STATUS_OUTPUT_SCHEMA,
-        required_action: DelegatedAction::WorkspaceStatus,
-        idempotency: CapabilityIdempotency::NotApplicable,
-        side_effect: CapabilitySideEffect::EvidenceWrite,
-        dry_run: false,
-        error_codes: &[
-            "proof.auth.actor_mismatch",
-            "proof.auth.audience_mismatch",
-            "proof.auth.binding_inactive",
-            "proof.auth.denied",
-            "proof.auth.expired",
-            "proof.auth.malformed",
-            "proof.auth.not_yet_valid",
-            "proof.auth.replay",
-            "proof.auth.unauthenticated",
-            "proof.authority.integrity",
-            "proof.authorization.delegation_expired",
-            "proof.authorization.delegation_not_yet_valid",
-            "proof.authorization.delegation_revoked",
-            "proof.authorization.denied",
-            "proof.authorization.principal_disabled",
-            "proof.authorization.scope_exceeded",
-            "proof.dependency.unavailable",
-            "proof.digest.mismatch",
-            "proof.internal",
-        ],
-        ambient_error_codes: &[
-            "proof.auth.denied",
-            "proof.auth.unauthenticated",
-            "proof.dependency.unavailable",
-            "proof.digest.mismatch",
-        ],
-        authenticated_error_codes: &[
-            "proof.auth.actor_mismatch",
-            "proof.auth.audience_mismatch",
-            "proof.auth.binding_inactive",
-            "proof.auth.denied",
-            "proof.auth.expired",
-            "proof.auth.malformed",
-            "proof.auth.not_yet_valid",
-            "proof.auth.replay",
-            "proof.authority.integrity",
-            "proof.authorization.delegation_expired",
-            "proof.authorization.delegation_not_yet_valid",
-            "proof.authorization.delegation_revoked",
-            "proof.authorization.denied",
-            "proof.authorization.principal_disabled",
-            "proof.authorization.scope_exceeded",
-            "proof.internal",
-        ],
-        max_objects: None,
-        max_payload_bytes: None,
-    },
-    CapabilityDescriptor {
-        operation: "object.query_released",
-        version: "proof.dev/operation/object.query_released/v1",
-        description: "Return exact Delegation-scoped Objects from one immutable released Edition.",
-        input_schema_json: RELEASED_OBJECT_QUERY_INPUT_SCHEMA,
-        output_schema_json: RELEASED_OBJECT_QUERY_OUTPUT_SCHEMA,
-        required_action: DelegatedAction::ObjectQueryReleased,
-        idempotency: CapabilityIdempotency::NotApplicable,
-        side_effect: CapabilitySideEffect::EvidenceWrite,
-        dry_run: false,
-        error_codes: &[
-            "proof.auth.actor_mismatch",
-            "proof.auth.audience_mismatch",
-            "proof.auth.binding_inactive",
-            "proof.auth.denied",
-            "proof.auth.expired",
-            "proof.auth.malformed",
-            "proof.auth.not_yet_valid",
-            "proof.auth.replay",
-            "proof.auth.unauthenticated",
-            "proof.authority.integrity",
-            "proof.authorization.budget_exceeded",
-            "proof.authorization.delegation_expired",
-            "proof.authorization.delegation_not_yet_valid",
-            "proof.authorization.delegation_revoked",
-            "proof.authorization.denied",
-            "proof.authorization.principal_disabled",
-            "proof.authorization.scope_exceeded",
-            "proof.dependency.unavailable",
-            "proof.digest.mismatch",
-            "proof.input.unsupported_version",
-            "proof.internal",
-            "proof.resource.not_found",
-            "proof.validation.failed",
-        ],
-        ambient_error_codes: &[
-            "proof.auth.denied",
-            "proof.auth.unauthenticated",
-            "proof.dependency.unavailable",
-            "proof.digest.mismatch",
-            "proof.input.unsupported_version",
-            "proof.resource.not_found",
-            "proof.validation.failed",
-        ],
-        authenticated_error_codes: &[
-            "proof.auth.actor_mismatch",
-            "proof.auth.audience_mismatch",
-            "proof.auth.binding_inactive",
-            "proof.auth.denied",
-            "proof.auth.expired",
-            "proof.auth.malformed",
-            "proof.auth.not_yet_valid",
-            "proof.auth.replay",
-            "proof.authority.integrity",
-            "proof.authorization.budget_exceeded",
-            "proof.authorization.delegation_expired",
-            "proof.authorization.delegation_not_yet_valid",
-            "proof.authorization.delegation_revoked",
-            "proof.authorization.denied",
-            "proof.authorization.principal_disabled",
-            "proof.authorization.scope_exceeded",
-            "proof.input.unsupported_version",
-            "proof.internal",
-            "proof.resource.not_found",
-        ],
-        max_objects: Some(100),
-        max_payload_bytes: Some(MAX_CONTEXT_PACK_BYTES),
-    },
-    CapabilityDescriptor {
-        operation: "context.build",
-        version: "proof.dev/operation/context.build/v1",
-        description: "Build one bounded immutable ContextPack from exact released Objects.",
-        input_schema_json: CONTEXT_BUILD_INPUT_SCHEMA,
-        output_schema_json: CONTEXT_BUILD_OUTPUT_SCHEMA,
-        required_action: DelegatedAction::ContextBuild,
-        idempotency: CapabilityIdempotency::Required,
-        side_effect: CapabilitySideEffect::EvidenceWrite,
-        dry_run: false,
-        error_codes: &[
-            "proof.auth.actor_mismatch",
-            "proof.auth.audience_mismatch",
-            "proof.auth.binding_inactive",
-            "proof.auth.denied",
-            "proof.auth.expired",
-            "proof.auth.malformed",
-            "proof.auth.not_yet_valid",
-            "proof.auth.replay",
-            "proof.auth.unauthenticated",
-            "proof.authority.integrity",
-            "proof.authorization.budget_exceeded",
-            "proof.authorization.delegation_expired",
-            "proof.authorization.delegation_not_yet_valid",
-            "proof.authorization.delegation_revoked",
-            "proof.authorization.denied",
-            "proof.authorization.principal_disabled",
-            "proof.authorization.scope_exceeded",
-            "proof.delegation.expired",
-            "proof.dependency.unavailable",
-            "proof.evidence.incomplete",
-            "proof.idempotency.key_reused",
-            "proof.input.too_large",
-            "proof.internal",
-            "proof.resource.not_found",
-        ],
-        ambient_error_codes: &[
-            "proof.auth.denied",
-            "proof.auth.unauthenticated",
-            "proof.delegation.expired",
-            "proof.dependency.unavailable",
-            "proof.evidence.incomplete",
-            "proof.idempotency.key_reused",
-            "proof.input.too_large",
-            "proof.resource.not_found",
-        ],
-        authenticated_error_codes: &[
-            "proof.auth.actor_mismatch",
-            "proof.auth.audience_mismatch",
-            "proof.auth.binding_inactive",
-            "proof.auth.denied",
-            "proof.auth.expired",
-            "proof.auth.malformed",
-            "proof.auth.not_yet_valid",
-            "proof.auth.replay",
-            "proof.authority.integrity",
-            "proof.authorization.budget_exceeded",
-            "proof.authorization.delegation_expired",
-            "proof.authorization.delegation_not_yet_valid",
-            "proof.authorization.delegation_revoked",
-            "proof.authorization.denied",
-            "proof.authorization.principal_disabled",
-            "proof.authorization.scope_exceeded",
-            "proof.delegation.expired",
-            "proof.idempotency.key_reused",
-            "proof.input.too_large",
-            "proof.internal",
-            "proof.resource.not_found",
-        ],
-        max_objects: Some(100),
-        max_payload_bytes: Some(MAX_CONTEXT_PACK_BYTES),
-    },
+const LOCALIZED_OPERATIONS_SCHEMA_CATALOG: &str =
+    include_str!("../../../conformance/v2/localized-content/schemas/operations.schema.json");
+const LOCALIZED_ARTIFACTS_SCHEMA_CATALOG: &str =
+    include_str!("../../../conformance/v2/localized-content/schemas/artifacts.schema.json");
+const LOCALIZED_ARTIFACT_REF_PREFIX: &str =
+    "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/";
+const LOCALIZED_ARTIFACT_BUNDLE_PREFIX: &str = "#/$defs/artifact__";
+
+fn rewrite_localized_schema_refs(value: &mut serde_json::Value, artifact_definition: bool) {
+    match value {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                rewrite_localized_schema_refs(value, artifact_definition);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            if let Some(reference) = object
+                .get("$ref")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+            {
+                let rewritten = if let Some(definition) =
+                    reference.strip_prefix(LOCALIZED_ARTIFACT_REF_PREFIX)
+                {
+                    Some(format!("{LOCALIZED_ARTIFACT_BUNDLE_PREFIX}{definition}"))
+                } else if artifact_definition {
+                    reference
+                        .strip_prefix("#/$defs/")
+                        .map(|definition| format!("{LOCALIZED_ARTIFACT_BUNDLE_PREFIX}{definition}"))
+                } else {
+                    None
+                };
+                if let Some(rewritten) = rewritten {
+                    object.insert("$ref".to_owned(), serde_json::Value::String(rewritten));
+                }
+            }
+            for child in object.values_mut() {
+                rewrite_localized_schema_refs(child, artifact_definition);
+            }
+        }
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {}
+    }
+}
+
+fn bundled_localized_schema_json(definition: &str) -> &'static str {
+    let operations: serde_json::Value = serde_json::from_str(LOCALIZED_OPERATIONS_SCHEMA_CATALOG)
+        .expect("checked-in localized operation Schema must remain valid JSON");
+    let artifacts: serde_json::Value = serde_json::from_str(LOCALIZED_ARTIFACTS_SCHEMA_CATALOG)
+        .expect("checked-in localized artifact Schema must remain valid JSON");
+    let mut operation_definitions = operations
+        .get("$defs")
+        .and_then(serde_json::Value::as_object)
+        .expect("localized operation Schema must expose $defs")
+        .clone();
+    let target = operation_definitions
+        .get(definition)
+        .cloned()
+        .expect("capability must name a checked-in localized Schema definition");
+    for value in operation_definitions.values_mut() {
+        rewrite_localized_schema_refs(value, false);
+    }
+    for (name, mut value) in artifacts
+        .get("$defs")
+        .and_then(serde_json::Value::as_object)
+        .expect("localized artifact Schema must expose $defs")
+        .clone()
+    {
+        rewrite_localized_schema_refs(&mut value, true);
+        operation_definitions.insert(format!("artifact__{name}"), value);
+    }
+    let mut root = target;
+    rewrite_localized_schema_refs(&mut root, false);
+    let object = root
+        .as_object_mut()
+        .expect("localized operation definitions must be object Schemas");
+    object.insert(
+        "$schema".to_owned(),
+        serde_json::Value::String("https://json-schema.org/draft/2020-12/schema".to_owned()),
+    );
+    object.insert(
+        "$id".to_owned(),
+        serde_json::Value::String(format!(
+            "https://proof.dev/schemas/localized-content/capability-bundle-v2/{definition}"
+        )),
+    );
+    object.insert(
+        "$defs".to_owned(),
+        serde_json::Value::Object(operation_definitions),
+    );
+    if definition.ends_with("Input") {
+        let properties = object
+            .get_mut("properties")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("localized input definitions must expose properties");
+        for guard in ["delegation_id", "operating_principal_id"] {
+            properties.insert(
+                guard.to_owned(),
+                serde_json::json!({ "$ref": "#/$defs/uuidV7" }),
+            );
+        }
+        let required = object
+            .get_mut("required")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("localized input definitions must expose required fields");
+        required.push(serde_json::Value::String(
+            "operating_principal_id".to_owned(),
+        ));
+        required.push(serde_json::Value::String("delegation_id".to_owned()));
+    }
+    Box::leak(
+        serde_json::to_string(&root)
+            .expect("localized capability Schema bundle must serialize")
+            .into_boxed_str(),
+    )
+}
+
+const LOCALIZED_AUTHENTICATED_ERROR_CODES: &[&str] = &[
+    "proof.auth.actor_mismatch",
+    "proof.auth.audience_mismatch",
+    "proof.auth.binding_inactive",
+    "proof.auth.denied",
+    "proof.auth.expired",
+    "proof.auth.malformed",
+    "proof.auth.not_yet_valid",
+    "proof.auth.replay",
+    "proof.authority.integrity",
+    "proof.authorization.budget_exceeded",
+    "proof.authorization.delegation_expired",
+    "proof.authorization.delegation_not_yet_valid",
+    "proof.authorization.delegation_revoked",
+    "proof.authorization.denied",
+    "proof.authorization.principal_disabled",
+    "proof.authorization.scope_exceeded",
+    "proof.changeset.duplicate_target",
+    "proof.changeset.invalid_supersession",
+    "proof.changeset.not_approved",
+    "proof.changeset.not_draft",
+    "proof.changeset.not_ready",
+    "proof.changeset.not_submitted",
+    "proof.evidence.incomplete",
+    "proof.idempotency.key_reused",
+    "proof.input.intent_mismatch",
+    "proof.input.limit_exceeded",
+    "proof.input.schema_mismatch",
+    "proof.input.unsupported_version",
+    "proof.internal",
+    "proof.policy.denied",
+    "proof.resource.not_found",
+    "proof.state.conflict",
+    "proof.state.source_conflict",
+    "proof.state.target_conflict",
+    "proof.validation.repair_evidence_invalid",
 ];
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one row carries the public capability contract"
+)]
+fn localized_capability(
+    operation: &'static str,
+    version: &'static str,
+    description: &'static str,
+    input_definition: &'static str,
+    output_definition: &'static str,
+    required_action: DelegatedAction,
+    idempotency: CapabilityIdempotency,
+    side_effect: CapabilitySideEffect,
+    max_objects: Option<u32>,
+    max_payload_bytes: Option<u64>,
+) -> CapabilityDescriptor {
+    CapabilityDescriptor {
+        operation,
+        version,
+        description,
+        input_schema_json: bundled_localized_schema_json(input_definition),
+        output_schema_json: bundled_localized_schema_json(output_definition),
+        required_action,
+        idempotency,
+        side_effect,
+        dry_run: false,
+        error_codes: LOCALIZED_AUTHENTICATED_ERROR_CODES,
+        ambient_error_codes: &[],
+        authenticated_error_codes: LOCALIZED_AUTHENTICATED_ERROR_CODES,
+        max_objects,
+        max_payload_bytes,
+    }
+}
+
+/// Complete agent-visible capability registry for the fixed 14-operation authority surface.
+pub static CAPABILITY_REGISTRY: std::sync::LazyLock<[CapabilityDescriptor; 14]> =
+    std::sync::LazyLock::new(|| {
+        [
+            CapabilityDescriptor {
+                operation: "workspace.status",
+                version: "proof.dev/operation/workspace.status/v1",
+                description: "Return verified Delegation-scoped status for the selected Workspace.",
+                input_schema_json: WORKSPACE_STATUS_INPUT_SCHEMA,
+                output_schema_json: WORKSPACE_STATUS_OUTPUT_SCHEMA,
+                required_action: DelegatedAction::WorkspaceStatus,
+                idempotency: CapabilityIdempotency::NotApplicable,
+                side_effect: CapabilitySideEffect::EvidenceWrite,
+                dry_run: false,
+                error_codes: &[
+                    "proof.auth.actor_mismatch",
+                    "proof.auth.audience_mismatch",
+                    "proof.auth.binding_inactive",
+                    "proof.auth.denied",
+                    "proof.auth.expired",
+                    "proof.auth.malformed",
+                    "proof.auth.not_yet_valid",
+                    "proof.auth.replay",
+                    "proof.auth.unauthenticated",
+                    "proof.authority.integrity",
+                    "proof.authorization.delegation_expired",
+                    "proof.authorization.delegation_not_yet_valid",
+                    "proof.authorization.delegation_revoked",
+                    "proof.authorization.denied",
+                    "proof.authorization.principal_disabled",
+                    "proof.authorization.scope_exceeded",
+                    "proof.dependency.unavailable",
+                    "proof.digest.mismatch",
+                    "proof.internal",
+                ],
+                ambient_error_codes: &[
+                    "proof.auth.denied",
+                    "proof.auth.unauthenticated",
+                    "proof.dependency.unavailable",
+                    "proof.digest.mismatch",
+                ],
+                authenticated_error_codes: &[
+                    "proof.auth.actor_mismatch",
+                    "proof.auth.audience_mismatch",
+                    "proof.auth.binding_inactive",
+                    "proof.auth.denied",
+                    "proof.auth.expired",
+                    "proof.auth.malformed",
+                    "proof.auth.not_yet_valid",
+                    "proof.auth.replay",
+                    "proof.authority.integrity",
+                    "proof.authorization.delegation_expired",
+                    "proof.authorization.delegation_not_yet_valid",
+                    "proof.authorization.delegation_revoked",
+                    "proof.authorization.denied",
+                    "proof.authorization.principal_disabled",
+                    "proof.authorization.scope_exceeded",
+                    "proof.internal",
+                ],
+                max_objects: None,
+                max_payload_bytes: None,
+            },
+            CapabilityDescriptor {
+                operation: "object.query_released",
+                version: "proof.dev/operation/object.query_released/v1",
+                description: "Return exact Delegation-scoped Objects from one immutable released Edition.",
+                input_schema_json: RELEASED_OBJECT_QUERY_INPUT_SCHEMA,
+                output_schema_json: RELEASED_OBJECT_QUERY_OUTPUT_SCHEMA,
+                required_action: DelegatedAction::ObjectQueryReleased,
+                idempotency: CapabilityIdempotency::NotApplicable,
+                side_effect: CapabilitySideEffect::EvidenceWrite,
+                dry_run: false,
+                error_codes: &[
+                    "proof.auth.actor_mismatch",
+                    "proof.auth.audience_mismatch",
+                    "proof.auth.binding_inactive",
+                    "proof.auth.denied",
+                    "proof.auth.expired",
+                    "proof.auth.malformed",
+                    "proof.auth.not_yet_valid",
+                    "proof.auth.replay",
+                    "proof.auth.unauthenticated",
+                    "proof.authority.integrity",
+                    "proof.authorization.budget_exceeded",
+                    "proof.authorization.delegation_expired",
+                    "proof.authorization.delegation_not_yet_valid",
+                    "proof.authorization.delegation_revoked",
+                    "proof.authorization.denied",
+                    "proof.authorization.principal_disabled",
+                    "proof.authorization.scope_exceeded",
+                    "proof.dependency.unavailable",
+                    "proof.digest.mismatch",
+                    "proof.input.unsupported_version",
+                    "proof.internal",
+                    "proof.resource.not_found",
+                    "proof.validation.failed",
+                ],
+                ambient_error_codes: &[
+                    "proof.auth.denied",
+                    "proof.auth.unauthenticated",
+                    "proof.dependency.unavailable",
+                    "proof.digest.mismatch",
+                    "proof.input.unsupported_version",
+                    "proof.resource.not_found",
+                    "proof.validation.failed",
+                ],
+                authenticated_error_codes: &[
+                    "proof.auth.actor_mismatch",
+                    "proof.auth.audience_mismatch",
+                    "proof.auth.binding_inactive",
+                    "proof.auth.denied",
+                    "proof.auth.expired",
+                    "proof.auth.malformed",
+                    "proof.auth.not_yet_valid",
+                    "proof.auth.replay",
+                    "proof.authority.integrity",
+                    "proof.authorization.budget_exceeded",
+                    "proof.authorization.delegation_expired",
+                    "proof.authorization.delegation_not_yet_valid",
+                    "proof.authorization.delegation_revoked",
+                    "proof.authorization.denied",
+                    "proof.authorization.principal_disabled",
+                    "proof.authorization.scope_exceeded",
+                    "proof.input.unsupported_version",
+                    "proof.internal",
+                    "proof.resource.not_found",
+                ],
+                max_objects: Some(100),
+                max_payload_bytes: Some(MAX_CONTEXT_PACK_BYTES),
+            },
+            CapabilityDescriptor {
+                operation: "context.build",
+                version: "proof.dev/operation/context.build/v1",
+                description: "Build one bounded immutable ContextPack from exact released Objects.",
+                input_schema_json: CONTEXT_BUILD_INPUT_SCHEMA,
+                output_schema_json: CONTEXT_BUILD_OUTPUT_SCHEMA,
+                required_action: DelegatedAction::ContextBuild,
+                idempotency: CapabilityIdempotency::Required,
+                side_effect: CapabilitySideEffect::EvidenceWrite,
+                dry_run: false,
+                error_codes: &[
+                    "proof.auth.actor_mismatch",
+                    "proof.auth.audience_mismatch",
+                    "proof.auth.binding_inactive",
+                    "proof.auth.denied",
+                    "proof.auth.expired",
+                    "proof.auth.malformed",
+                    "proof.auth.not_yet_valid",
+                    "proof.auth.replay",
+                    "proof.auth.unauthenticated",
+                    "proof.authority.integrity",
+                    "proof.authorization.budget_exceeded",
+                    "proof.authorization.delegation_expired",
+                    "proof.authorization.delegation_not_yet_valid",
+                    "proof.authorization.delegation_revoked",
+                    "proof.authorization.denied",
+                    "proof.authorization.principal_disabled",
+                    "proof.authorization.scope_exceeded",
+                    "proof.delegation.expired",
+                    "proof.dependency.unavailable",
+                    "proof.evidence.incomplete",
+                    "proof.idempotency.key_reused",
+                    "proof.input.too_large",
+                    "proof.internal",
+                    "proof.resource.not_found",
+                ],
+                ambient_error_codes: &[
+                    "proof.auth.denied",
+                    "proof.auth.unauthenticated",
+                    "proof.delegation.expired",
+                    "proof.dependency.unavailable",
+                    "proof.evidence.incomplete",
+                    "proof.idempotency.key_reused",
+                    "proof.input.too_large",
+                    "proof.resource.not_found",
+                ],
+                authenticated_error_codes: &[
+                    "proof.auth.actor_mismatch",
+                    "proof.auth.audience_mismatch",
+                    "proof.auth.binding_inactive",
+                    "proof.auth.denied",
+                    "proof.auth.expired",
+                    "proof.auth.malformed",
+                    "proof.auth.not_yet_valid",
+                    "proof.auth.replay",
+                    "proof.authority.integrity",
+                    "proof.authorization.budget_exceeded",
+                    "proof.authorization.delegation_expired",
+                    "proof.authorization.delegation_not_yet_valid",
+                    "proof.authorization.delegation_revoked",
+                    "proof.authorization.denied",
+                    "proof.authorization.principal_disabled",
+                    "proof.authorization.scope_exceeded",
+                    "proof.delegation.expired",
+                    "proof.idempotency.key_reused",
+                    "proof.input.too_large",
+                    "proof.internal",
+                    "proof.resource.not_found",
+                ],
+                max_objects: Some(100),
+                max_payload_bytes: Some(MAX_CONTEXT_PACK_BYTES),
+            },
+            localized_capability(
+                "context.build",
+                "proof.dev/operation/context.build/v2",
+                "Select and exactly replay one Human-built localized ContextPack.",
+                "contextBuildInput",
+                "contextBuildOutput",
+                DelegatedAction::ContextBuild,
+                CapabilityIdempotency::Required,
+                CapabilitySideEffect::EvidenceWrite,
+                Some(100),
+                Some(MAX_CONTEXT_PACK_BYTES),
+            ),
+            localized_capability(
+                "changeset.create",
+                "proof.dev/operation/changeset.create/v2",
+                "Create one Draft localized ChangeSet bound to exact intent and ContextPack evidence.",
+                "changeSetCreateInput",
+                "changeSetCreateOutput",
+                DelegatedAction::ChangesetCreate,
+                CapabilityIdempotency::Required,
+                CapabilitySideEffect::GovernedWrite,
+                None,
+                Some(MAX_CONTEXT_PACK_BYTES),
+            ),
+            localized_capability(
+                "changeset.add",
+                "proof.dev/operation/changeset.add/v2",
+                "Append one bounded semantic localized Edit batch to a Draft ChangeSet.",
+                "changeSetAddInput",
+                "changeSetAddOutput",
+                DelegatedAction::ChangesetAdd,
+                CapabilityIdempotency::Required,
+                CapabilitySideEffect::GovernedWrite,
+                Some(MAX_LOCALIZED_EDITS),
+                Some(MAX_CONTEXT_PACK_BYTES),
+            ),
+            localized_capability(
+                "changeset.get",
+                "proof.dev/operation/changeset.get/v2",
+                "Return one complete verified localized ChangeSet and effective projection.",
+                "changeSetGetInput",
+                "changeSetGetOutput",
+                DelegatedAction::ChangesetGet,
+                CapabilityIdempotency::NotApplicable,
+                CapabilitySideEffect::EvidenceWrite,
+                None,
+                None,
+            ),
+            localized_capability(
+                "changeset.diff",
+                "proof.dev/operation/changeset.diff/v2",
+                "Return the deterministic effective Edit projection for one localized ChangeSet.",
+                "changeSetDiffInput",
+                "changeSetDiffOutput",
+                DelegatedAction::ChangesetDiff,
+                CapabilityIdempotency::NotApplicable,
+                CapabilitySideEffect::EvidenceWrite,
+                None,
+                None,
+            ),
+            localized_capability(
+                "changeset.validate",
+                "proof.dev/operation/changeset.validate/v2",
+                "Validate the exact localized proposal and append immutable validation evidence.",
+                "changeSetValidateInput",
+                "changeSetValidateOutput",
+                DelegatedAction::ChangesetValidate,
+                CapabilityIdempotency::Derived,
+                CapabilitySideEffect::EvidenceWrite,
+                None,
+                None,
+            ),
+            localized_capability(
+                "changeset.submit",
+                "proof.dev/operation/changeset.submit/v2",
+                "Submit one exact Ready localized ChangeSet for governed approval.",
+                "changeSetSubmitInput",
+                "changeSetSubmitOutput",
+                DelegatedAction::ChangesetSubmit,
+                CapabilityIdempotency::Derived,
+                CapabilitySideEffect::GovernedWrite,
+                None,
+                None,
+            ),
+            localized_capability(
+                "changeset.commit",
+                "proof.dev/operation/changeset.commit/v2",
+                "Atomically commit one approved localized ChangeSet into authoritative renditions.",
+                "changeSetCommitInput",
+                "changeSetCommitOutput",
+                DelegatedAction::ChangesetCommit,
+                CapabilityIdempotency::Required,
+                CapabilitySideEffect::GovernedWrite,
+                None,
+                Some(MAX_CONTEXT_PACK_BYTES),
+            ),
+            localized_capability(
+                "edition.create",
+                "proof.dev/operation/edition.create/v2",
+                "Materialize one immutable localized Edition from an exact committed ChangeSet.",
+                "editionCreateInput",
+                "editionCreateOutput",
+                DelegatedAction::EditionCreate,
+                CapabilityIdempotency::Required,
+                CapabilitySideEffect::GovernedWrite,
+                None,
+                Some(MAX_CONTEXT_PACK_BYTES),
+            ),
+            localized_capability(
+                "release.create",
+                "proof.dev/operation/release.create/v2",
+                "Promote one exact localized Edition as a signed immutable Release.",
+                "releaseCreateInput",
+                "releaseCreateOutput",
+                DelegatedAction::ReleaseCreate,
+                CapabilityIdempotency::Required,
+                CapabilitySideEffect::GovernedWrite,
+                None,
+                Some(MAX_CONTEXT_PACK_BYTES),
+            ),
+            localized_capability(
+                "object.query_released",
+                "proof.dev/operation/object.query_released/v2",
+                "Return exact localized renditions selected from one immutable released Edition.",
+                "objectQueryReleasedInput",
+                "objectQueryReleasedOutput",
+                DelegatedAction::ObjectQueryReleased,
+                CapabilityIdempotency::NotApplicable,
+                CapabilitySideEffect::EvidenceWrite,
+                Some(u32::try_from(MAX_LOCALIZED_TARGETS).unwrap_or(u32::MAX)),
+                None,
+            ),
+        ]
+    });
 
 /// Returns every initial agent-visible capability in stable registry order.
 #[must_use]
-pub const fn capabilities() -> &'static [CapabilityDescriptor] {
-    &CAPABILITY_REGISTRY
+pub fn capabilities() -> &'static [CapabilityDescriptor] {
+    &CAPABILITY_REGISTRY[..]
 }
 
 /// Returns one capability by exact stable operation name.
@@ -2375,6 +2779,17 @@ pub fn capability(operation: &str) -> Option<&'static CapabilityDescriptor> {
     CAPABILITY_REGISTRY
         .iter()
         .find(|capability| capability.operation == operation)
+}
+
+/// Returns one capability by its exact registered operation name and version URI.
+#[must_use]
+pub fn capability_for_operation(
+    operation: &str,
+    version: &str,
+) -> Option<&'static CapabilityDescriptor> {
+    CAPABILITY_REGISTRY
+        .iter()
+        .find(|capability| capability.operation == operation && capability.version == version)
 }
 
 /// Input for creating one versioned delivery Environment.
@@ -2961,10 +3376,10 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        ApprovalName, CAPABILITY_REGISTRY, CapabilitySideEffect, ChangeSetEdit, ContentDigest,
-        CorrelationId, EditId, ExitCode, InspectedChangeSetEdit, InspectedObjectCreateEdit,
-        ObjectCreateEdit, ObjectId, OperationId, ResultEnvelope, SchemaId, SchemaVersion,
-        StatusData,
+        ApprovalName, CAPABILITY_REGISTRY, CapabilityIdempotency, CapabilitySideEffect,
+        ChangeSetEdit, ContentDigest, CorrelationId, EditId, ExitCode, InspectedChangeSetEdit,
+        InspectedObjectCreateEdit, ObjectCreateEdit, ObjectId, OperationId, ResultEnvelope,
+        SchemaId, SchemaVersion, StatusData, capability_for_operation,
     };
 
     const OPERATION_ID: &str = "019c0000-0000-7000-8000-000000000001";
@@ -2993,14 +3408,25 @@ mod tests {
 
     #[test]
     fn agent_capability_registry_exposes_complete_versioned_schemas() {
-        assert_eq!(CAPABILITY_REGISTRY.len(), 3);
-        for capability in CAPABILITY_REGISTRY {
-            assert_eq!(capability.side_effect, CapabilitySideEffect::EvidenceWrite);
-            assert_eq!(capability.side_effect.to_string(), "evidence_write");
-            let input: serde_json::Value =
-                serde_json::from_str(capability.input_schema_json).unwrap();
-            let output: serde_json::Value =
-                serde_json::from_str(capability.output_schema_json).unwrap();
+        assert_eq!(CAPABILITY_REGISTRY.len(), 14);
+        assert_eq!(
+            CAPABILITY_REGISTRY
+                .iter()
+                .filter(|capability| capability.side_effect == CapabilitySideEffect::EvidenceWrite)
+                .count(),
+            8
+        );
+        assert_eq!(
+            CAPABILITY_REGISTRY
+                .iter()
+                .filter(|capability| capability.side_effect == CapabilitySideEffect::GovernedWrite)
+                .count(),
+            6
+        );
+        for capability in CAPABILITY_REGISTRY.iter() {
+            assert!(capability.authority_operation().is_some());
+            let input = capability.input_schema().unwrap();
+            let output = capability.output_schema().unwrap();
             assert!(input["$id"].as_str().is_some());
             assert_eq!(input["additionalProperties"], false);
             assert!(
@@ -3009,17 +3435,49 @@ mod tests {
                     .is_some_and(|items| !items.is_empty())
             );
             assert!(output["$id"].as_str().is_some());
-            assert_eq!(output["additionalProperties"], false);
-            assert!(
-                output["required"]
-                    .as_array()
-                    .is_some_and(|items| !items.is_empty())
-            );
+            if output.get("$ref").is_none() {
+                assert_eq!(output["additionalProperties"], false);
+                assert!(
+                    output["required"]
+                        .as_array()
+                        .is_some_and(|items| !items.is_empty())
+                );
+            } else {
+                assert!(
+                    output["$ref"]
+                        .as_str()
+                        .is_some_and(|reference| { reference.starts_with("#/$defs/") })
+                );
+            }
+            if capability.version.ends_with("/v2") {
+                assert!(
+                    input["$defs"]
+                        .as_object()
+                        .is_some_and(|defs| !defs.is_empty())
+                );
+                assert!(!capability.input_schema_json.contains(
+                    "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/"
+                ));
+                assert!(!capability.output_schema_json.contains(
+                    "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/"
+                ));
+                for guard in ["operating_principal_id", "delegation_id"] {
+                    assert!(
+                        input["required"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|value| value == guard)
+                    );
+                    assert!(input["properties"].get(guard).is_some());
+                    assert!(output["properties"].get(guard).is_none());
+                }
+                assert_eq!(capability.mcp_tool_name().rsplit('.').next(), Some("v2"));
+            }
         }
-        let context = CAPABILITY_REGISTRY
-            .iter()
-            .find(|capability| capability.operation == "context.build")
-            .unwrap();
+        let context =
+            capability_for_operation("context.build", "proof.dev/operation/context.build/v1")
+                .unwrap();
         let input: serde_json::Value = serde_json::from_str(context.input_schema_json).unwrap();
         let required = input["required"].as_array().unwrap();
         for field in [
@@ -3031,11 +3489,18 @@ mod tests {
         ] {
             assert!(required.iter().any(|value| value == field));
         }
+        let validate = capability_for_operation(
+            "changeset.validate",
+            "proof.dev/operation/changeset.validate/v2",
+        )
+        .unwrap();
+        assert_eq!(validate.idempotency, CapabilityIdempotency::Derived);
+        assert_eq!(validate.side_effect, CapabilitySideEffect::EvidenceWrite);
     }
 
     #[test]
     fn capability_error_code_sets_are_sorted_mode_unions() {
-        for capability in CAPABILITY_REGISTRY {
+        for capability in CAPABILITY_REGISTRY.iter() {
             for codes in [
                 capability.error_codes,
                 capability.ambient_error_codes,

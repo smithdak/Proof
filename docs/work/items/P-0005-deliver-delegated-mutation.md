@@ -70,36 +70,36 @@ and unclaimed.
 
 ## Acceptance criteria
 
-- [ ] One real local scenario completes ContextPack → proposed content change →
+- [x] One real local scenario completes ContextPack → proposed content change →
       validation/repair → submission → Human approval → delegated commit →
       Edition → delegated Release → verification.
-- [ ] The Agent may add only `object.locale.put` v2 Edits for the immutable
+- [x] The Agent may add only `object.locale.put` v2 Edits for the immutable
       exact target set. Base Objects, Schemas, relationships, lifecycle,
       fallback, and unrelated locale renditions remain structurally
       unavailable through this profile.
-- [ ] The requesting Human issues the exact resource intent and equals the
+- [x] The requesting Human issues the exact resource intent and equals the
       direct Delegation issuer; the Agent can select the persisted intent and
       bound ContextPack but cannot create or replace either resource closure.
-- [ ] Wrong recipient, action, resource, locale, Environment, budget, expired or
+- [x] Wrong recipient, action, resource, locale, Environment, budget, expired or
       revoked Delegation, stale ContextPack/base state, replay mismatch, and
       approval bypass all fail structurally and atomically.
-- [ ] Under the ratified P-0003 profile, revocation, Principal/binding
+- [x] Under the ratified P-0003 profile, revocation, Principal/binding
       disablement, direct-Delegation invalidation, or applicable
       policy/configuration change between submission and consequence is detected
       by re-authorization; parent or subdelegation input is rejected as
       unsupported.
-- [ ] A controlled concurrency test proves that whichever of revocation and
+- [x] A controlled concurrency test proves that whichever of revocation and
       consequence commits first determines the result; no check-then-act window
       permits a post-revocation commit.
-- [ ] Every denial leaves governed content facts, committed
+- [x] Every denial leaves governed content facts, committed
       ChangeSet/Edition/Release history, content projections, and Environment
       pointers unchanged; only ratified denial/audit evidence may append.
-- [ ] Application, CLI, modern MCP, and legacy MCP assert equivalent behavior.
-- [ ] Every storage version supported before P-0005 migrates atomically and
+- [x] Application, CLI, modern MCP, and legacy MCP assert equivalent behavior.
+- [x] Every storage version supported before P-0005 migrates atomically and
       remains foreign-key clean; pre-existing authoritative facts, Known State,
       Editions, Releases, and Proof bytes/digests reproduce exactly; injected
       failures roll back and retry without partial semantic conversion.
-- [ ] The Linux quality gate and an adversarial falsification review pass.
+- [x] The Linux quality gate and an adversarial falsification review pass.
 
 ## Required evidence
 
@@ -118,7 +118,26 @@ Claimed by `codex:/root:p-0005` at `2026-08-21T12:33:51.831Z` from completed
 P-0004/P-0007 baseline `9c469e219ce5a2c6ec29f06dc6509a346b62cc10` on
 `proof-engineering/p-0005-delegated-mutation`.
 
+The implementation candidate enables all 11 registered localized v2
+operations through the existing P-0007 transaction kernel, adds storage v13
+for signed per-presentation localized consequences and successful
+Workspace-global application-key ownership, and preserves the Human ownership
+of resource intent, ContextPack first-build, and approval. Its exact immutable
+commit and Engineering evidence record are added by the qualification
+follow-up; this item remains `claimed` until that record exists.
+
+Retained evidence covers the complete lifecycle, current-authority and stale
+closure result withholding, two SQLite writer orders, late-batch rollback,
+cross-operation and Human/Agent key collisions, v13 projection tamper,
+v1-v12 migration, and real application/CLI/modern-MCP/legacy-MCP parity. The
+complete Ubuntu workspace test, doctest, and strict Clippy gates passed. The
+final falsification pass found no remaining candidate-attributable production
+defect.
+
 ## Residual risks and next-wave update
 
-Record incomplete repair/security cases for P-0006 and keep server concerns in
-map fog rather than widening this item.
+P-0006 must carry the v13 signed localized consequence, the independent
+authority checkpoint, the complete P-0007 Release closure, and explicit
+caller trust into a clean-directory verifier. It also owns distinct-UID or
+sandbox containment; P-0005 proves attribution and bounded broker behavior,
+not hostile same-UID isolation. Server concerns remain in map fog.

@@ -266,6 +266,9 @@
     "policy_bundle_digest": {
       "$ref": "#/$defs/digest"
     },
+    "localized_consequence_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment"
+    },
     "evaluated_at": {
       "$ref": "#/$defs/timestamp"
     },
@@ -316,6 +319,299 @@
     "reason_code"
   ],
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "allow"
+          },
+          "operation": {
+            "properties": {
+              "version": {
+                "enum": [
+                  "proof.dev/operation/changeset.add/v2",
+                  "proof.dev/operation/changeset.commit/v2",
+                  "proof.dev/operation/changeset.create/v2",
+                  "proof.dev/operation/changeset.diff/v2",
+                  "proof.dev/operation/changeset.get/v2",
+                  "proof.dev/operation/changeset.submit/v2",
+                  "proof.dev/operation/changeset.validate/v2",
+                  "proof.dev/operation/context.build/v2",
+                  "proof.dev/operation/edition.create/v2",
+                  "proof.dev/operation/object.query_released/v2",
+                  "proof.dev/operation/release.create/v2"
+                ]
+              }
+            },
+            "required": [
+              "version"
+            ]
+          }
+        },
+        "required": [
+          "decision",
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "localized_consequence_commitment"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "localized_consequence_commitment"
+          ]
+        }
+      }
+    },
+    {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.add/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_add_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.commit/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_commit_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.create/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_create_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.diff/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_diff_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.get/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_get_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.submit/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_submit_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/changeset.validate/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/change_set_validate_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/context.build/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/context_build_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/edition.create/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/edition_create_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/object.query_released/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/object_query_released_commitment"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "properties": {
+                  "version": {
+                    "const": "proof.dev/operation/release.create/v2"
+                  }
+                },
+                "required": ["version"]
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "localized_consequence_commitment": {
+                "$ref": "#/$defs/release_create_commitment"
+              }
+            }
+          }
+        }
+      ]
+    },
     {
       "if": {
         "properties": {
@@ -803,6 +1099,229 @@
     "digest": {
       "type": "string",
       "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "localized_consequence_commitment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_kind": {
+          "enum": [
+            "success",
+            "failure"
+          ]
+        },
+        "result_contract": {
+          "type": "string"
+        },
+        "result_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "application_consequence_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "result_kind",
+        "result_contract",
+        "result_digest",
+        "application_consequence_digest"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "result_kind": {
+              "const": "success"
+            },
+            "result_contract": {
+              "enum": [
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetAddOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCommitOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCreateOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetDiffOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetGetOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetSubmitOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetValidateOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/contextBuildOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/editionCreateOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/objectQueryReleasedOutput",
+                "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/releaseCreateOutput"
+              ]
+            }
+          },
+          "required": [
+            "result_kind",
+            "result_contract"
+          ]
+        },
+        {
+          "properties": {
+            "result_kind": {
+              "const": "failure"
+            },
+            "result_contract": {
+              "const": "proof.dev/result/localized-operation-problem/v1"
+            }
+          },
+          "required": [
+            "result_kind",
+            "result_contract"
+          ]
+        }
+      ]
+    },
+    "change_set_add_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetAddOutput"
+          }
+        }
+      }
+    },
+    "change_set_commit_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCommitOutput"
+          }
+        }
+      }
+    },
+    "change_set_create_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCreateOutput"
+          }
+        }
+      }
+    },
+    "change_set_diff_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetDiffOutput"
+          }
+        }
+      }
+    },
+    "change_set_get_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetGetOutput"
+          }
+        }
+      }
+    },
+    "change_set_submit_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetSubmitOutput"
+          }
+        }
+      }
+    },
+    "change_set_validate_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetValidateOutput"
+          }
+        }
+      }
+    },
+    "context_build_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/contextBuildOutput"
+          }
+        }
+      }
+    },
+    "edition_create_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/editionCreateOutput"
+          }
+        }
+      }
+    },
+    "object_query_released_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/objectQueryReleasedOutput"
+          }
+        }
+      }
+    },
+    "release_create_commitment": {
+      "$ref": "#/$defs/localized_consequence_commitment",
+      "if": {
+        "properties": { "result_kind": { "const": "success" } },
+        "required": ["result_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_contract": {
+            "const": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/releaseCreateOutput"
+          }
+        }
+      }
     },
     "nullable_digest": {
       "oneOf": [

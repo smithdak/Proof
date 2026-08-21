@@ -33,7 +33,7 @@ use zeroize::Zeroize as _;
 use super::{
     LocalIdentity, LocalPortError, LocalWorkspace, authenticated_principal,
     build_context_pack_authorized_transaction, ensure_latest_schema, load_exact_released_objects,
-    load_released_source, reproducible_known_state, verify_commit_operation_scope,
+    load_released_source, localized, reproducible_known_state, verify_commit_operation_scope,
 };
 
 pub(super) const AUTHORITY_SIGNING_KEY_RELATIVE_PATH: &str =
@@ -247,6 +247,64 @@ UPDATE workspace_metadata SET schema_version = 12 WHERE singleton = 1;
 PRAGMA user_version = 12;
 ";
 
+const V13_DATABASE_MIGRATION: &str = r"
+CREATE TABLE authenticated_localized_consequences_v1 (
+    decision_authority_sequence INTEGER PRIMARY KEY
+        REFERENCES authorization_decisions_v2(authority_sequence),
+    presentation_id TEXT NOT NULL UNIQUE
+        REFERENCES presentation_consumptions_v1(presentation_id),
+    workspace_id TEXT NOT NULL,
+    requesting_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    operating_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    delegation_id TEXT NOT NULL REFERENCES delegations_v2(delegation_id),
+    command_digest TEXT NOT NULL,
+    authorization_decision_digest TEXT NOT NULL UNIQUE
+        REFERENCES authorization_decisions_v2(decision_digest),
+    operation_name TEXT NOT NULL,
+    operation_version TEXT NOT NULL,
+    application_idempotency_kind TEXT NOT NULL CHECK (
+        application_idempotency_kind IN ('none', 'required', 'derived')
+    ),
+    application_idempotency_key TEXT,
+    result_kind TEXT NOT NULL CHECK (result_kind IN ('success', 'failure')),
+    result_contract TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    result_digest TEXT NOT NULL,
+    application_effect_digest TEXT NOT NULL,
+    application_consequence_digest TEXT NOT NULL,
+    selectors_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    evidence_digest TEXT NOT NULL UNIQUE,
+    CHECK (
+        (application_idempotency_kind = 'none' AND application_idempotency_key IS NULL) OR
+        (application_idempotency_kind = 'required' AND
+         application_idempotency_key IS NOT NULL) OR
+        (application_idempotency_kind = 'derived' AND
+         (result_kind = 'failure' OR application_idempotency_key IS NOT NULL))
+    )
+) STRICT;
+
+CREATE TABLE authenticated_application_idempotency_v1 (
+    workspace_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    idempotency_kind TEXT NOT NULL CHECK (idempotency_kind IN ('required', 'derived')),
+    operation_name TEXT NOT NULL,
+    operation_version TEXT NOT NULL,
+    command_digest TEXT NOT NULL,
+    result_digest TEXT NOT NULL,
+    application_effect_digest TEXT NOT NULL,
+    application_consequence_digest TEXT NOT NULL,
+    first_decision_authority_sequence INTEGER NOT NULL UNIQUE
+        REFERENCES authorization_decisions_v2(authority_sequence),
+    PRIMARY KEY (workspace_id, idempotency_key)
+) STRICT;
+
+INSERT INTO schema_migrations (version, name)
+VALUES (13, 'authenticated-localized-consequences');
+UPDATE workspace_metadata SET schema_version = 13 WHERE singleton = 1;
+PRAGMA user_version = 13;
+";
+
 const V12_CONTEXT_PACK_DELEGATION_MIGRATION: &str = r"
 ALTER TABLE context_pack_build_operations
     RENAME TO context_pack_build_operations_v11;
@@ -293,6 +351,12 @@ pub(super) fn migrate_schema_v12(transaction: &Transaction<'_>) -> Result<(), St
     migrate_context_pack_delegation_reference(transaction)?;
     transaction
         .execute_batch(V12_DATABASE_MIGRATION)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn migrate_schema_v13(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(V13_DATABASE_MIGRATION)
         .map_err(|error| error.to_string())
 }
 
@@ -873,7 +937,7 @@ impl LocalWorkspace {
         .map_err(|_| contract::AuthorityError::AuthMalformed)?;
         let command_input = invocation.command_input;
 
-        self.with_authority_consumption_transaction(
+        let execution = self.with_authority_consumption_transaction(
             move |transaction, workspace_id, bootstrap_principal_id, local_identity, signer| {
                 let presentation = verify_authenticated_presentation(
                     transaction,
@@ -894,7 +958,7 @@ impl LocalWorkspace {
                     evaluated_at,
                 )?;
                 if assessment.denial.is_none() {
-                    apply_context_idempotency_denial(
+                    apply_application_idempotency_denial(
                         transaction,
                         workspace_id,
                         &presentation,
@@ -910,6 +974,7 @@ impl LocalWorkspace {
                         &presentation,
                         &assessment,
                         evaluated_at,
+                        None,
                     )?;
                     persist_authorization_decision(
                         transaction,
@@ -917,49 +982,158 @@ impl LocalWorkspace {
                         &presentation,
                         &prepared,
                     )?;
+                    verify_authority_log(transaction, workspace_id)?;
                     return Ok(Err(denial));
                 }
 
-                let mut prepared = prepare_authorization_decision(
-                    transaction,
-                    workspace_id,
-                    signer,
-                    &presentation,
-                    &assessment,
-                    evaluated_at,
-                )?;
-                let result = match execute_authorized_consequence(
-                    transaction,
-                    workspace_id,
-                    &presentation,
-                    &assessment,
-                    prepared.record_digest,
-                    evaluated_at,
-                ) {
-                    Ok(result) => result,
+                let localized_operation =
+                    contract::authority_operation_entry(presentation.command.operation)
+                        .localized_contract
+                        .is_some();
+                let mut prepared = if localized_operation {
+                    None
+                } else {
+                    Some(prepare_authorization_decision(
+                        transaction,
+                        workspace_id,
+                        signer,
+                        &presentation,
+                        &assessment,
+                        evaluated_at,
+                        None,
+                    )?)
+                };
+                transaction
+                    .execute_batch("SAVEPOINT authenticated_authorized_consequence")
+                    .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+                let consequence = if localized_operation {
+                    execute_localized_consequence(
+                        self,
+                        transaction,
+                        workspace_id,
+                        &presentation,
+                        &assessment,
+                    )
+                } else {
+                    execute_authorized_consequence(
+                        self,
+                        transaction,
+                        workspace_id,
+                        &presentation,
+                        &assessment,
+                        prepared
+                            .as_ref()
+                            .ok_or_else(|| {
+                                contract::AuthorityError::AuthorityIntegrity(
+                                    "legacy consequence has no prepared decision".to_owned(),
+                                )
+                            })?
+                            .record_digest,
+                        evaluated_at,
+                    )
+                };
+                let result = match consequence {
+                    Ok(result) => {
+                        if matches!(
+                            &result,
+                            contract::AuthenticatedOperationResultV1::Failure(_)
+                                | contract::AuthenticatedOperationResultV1::LocalizedFailure(_)
+                        ) {
+                            transaction
+                                .execute_batch(
+                                    "ROLLBACK TO authenticated_authorized_consequence;
+                                     RELEASE authenticated_authorized_consequence",
+                                )
+                                .map_err(|error| {
+                                    contract::AuthorityError::Storage(error.to_string())
+                                })?;
+                        } else {
+                            transaction
+                                .execute_batch("RELEASE authenticated_authorized_consequence")
+                                .map_err(|error| {
+                                    contract::AuthorityError::Storage(error.to_string())
+                                })?;
+                        }
+                        result
+                    }
                     Err(error @ contract::AuthorityError::IdempotencyKeyReused) => {
+                        transaction
+                            .execute_batch(
+                                "ROLLBACK TO authenticated_authorized_consequence;
+                                 RELEASE authenticated_authorized_consequence",
+                            )
+                            .map_err(|rollback_error| {
+                                contract::AuthorityError::Storage(rollback_error.to_string())
+                            })?;
                         assessment.denial = Some((
                             contract::AuthorizationDenialReason::IdempotencyKeyReused,
                             error.clone(),
                         ));
-                        prepared = prepare_authorization_decision(
+                        let denial = prepare_authorization_decision(
                             transaction,
                             workspace_id,
                             signer,
                             &presentation,
                             &assessment,
                             evaluated_at,
+                            None,
                         )?;
                         persist_authorization_decision(
                             transaction,
                             workspace_id,
                             &presentation,
-                            &prepared,
+                            &denial,
                         )?;
+                        verify_authority_log(transaction, workspace_id)?;
                         return Ok(Err(error));
                     }
-                    Err(error) => return Err(error),
+                    Err(error) => {
+                        transaction
+                            .execute_batch(
+                                "ROLLBACK TO authenticated_authorized_consequence;
+                                 RELEASE authenticated_authorized_consequence",
+                            )
+                            .map_err(|rollback_error| {
+                                contract::AuthorityError::Storage(rollback_error.to_string())
+                            })?;
+                        return Err(error);
+                    }
                 };
+                let localized_result_evidence = localized_operation
+                    .then(|| {
+                        localized_result_evidence(
+                            transaction,
+                            workspace_id,
+                            &presentation,
+                            &assessment,
+                            &result,
+                        )
+                    })
+                    .transpose()?;
+                if prepared.is_none() {
+                    let commitment = localized_result_evidence
+                        .as_ref()
+                        .ok_or_else(|| {
+                            contract::AuthorityError::AuthorityIntegrity(
+                                "localized consequence lost its result evidence".to_owned(),
+                            )
+                        })?
+                        .commitment(presentation.command.operation)?;
+                    prepared = Some(prepare_authorization_decision(
+                        transaction,
+                        workspace_id,
+                        signer,
+                        &presentation,
+                        &assessment,
+                        evaluated_at,
+                        Some(commitment),
+                    )?);
+                }
+                let prepared = prepared.ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "authorized consequence has no signed decision".to_owned(),
+                    )
+                })?;
                 let execution = contract::AuthenticatedExecutionV1 {
                     command_input,
                     actor_context: presentation.actor_context.clone(),
@@ -977,9 +1151,35 @@ impl LocalWorkspace {
                     &presentation,
                     &prepared,
                 )?;
+                if matches!(
+                    &execution.result,
+                    contract::AuthenticatedOperationResultV1::LocalizedSuccess(_)
+                        | contract::AuthenticatedOperationResultV1::LocalizedFailure(_)
+                ) {
+                    persist_authenticated_localized_consequence(
+                        transaction,
+                        workspace_id,
+                        &presentation,
+                        &assessment,
+                        &prepared,
+                        localized_result_evidence.as_ref().ok_or_else(|| {
+                            contract::AuthorityError::AuthorityIntegrity(
+                                "localized consequence lost its signed result evidence".to_owned(),
+                            )
+                        })?,
+                    )?;
+                }
+                verify_authority_log(transaction, workspace_id)?;
                 Ok(Ok(execution))
             },
-        )
+        )?;
+        if let contract::AuthenticatedOperationResultV1::LocalizedSuccess(
+            contract::LocalizedOperationSuccessV1::ReleaseCreated(release),
+        ) = &execution.result
+        {
+            let _ = localized::materialize_localized_release_proof(self, release);
+        }
+        Ok(execution)
     }
 }
 
@@ -1560,6 +1760,7 @@ fn verify_authority_projections(
         records,
     )?;
     verify_authenticated_operation_result_projection(connection, workspace_id, records)?;
+    verify_authenticated_localized_consequence_projection(connection, workspace_id, records)?;
 
     let total_authority_records = connection
         .query_row("SELECT COUNT(*) FROM authority_records", [], |row| {
@@ -2622,6 +2823,1255 @@ fn verify_authenticated_operation_result_projection(
         &expected_results,
         &actual_results,
     )
+}
+
+#[derive(Clone, Debug)]
+struct AuthenticatedLocalizedConsequenceRow {
+    decision_authority_sequence: i64,
+    presentation_id: String,
+    workspace_id: String,
+    requesting_principal_id: String,
+    operating_principal_id: String,
+    delegation_id: String,
+    command_digest: String,
+    authorization_decision_digest: String,
+    operation_name: String,
+    operation_version: String,
+    application_idempotency_kind: String,
+    application_idempotency_key: Option<String>,
+    result_kind: String,
+    result_contract: String,
+    result_json: String,
+    result_digest: String,
+    application_effect_digest: String,
+    application_consequence_digest: String,
+    selectors_json: String,
+    evidence_json: String,
+    evidence_digest: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedApplicationLedgerRow {
+    workspace_id: String,
+    idempotency_key: String,
+    idempotency_kind: String,
+    operation_name: String,
+    operation_version: String,
+    command_digest: String,
+    result_digest: String,
+    application_effect_digest: String,
+    application_consequence_digest: String,
+    first_decision_authority_sequence: i64,
+}
+
+fn canonical_projection_value(
+    input: &str,
+    label: &str,
+) -> Result<serde_json::Value, contract::AuthorityError> {
+    let value = parse_strict(input.as_bytes()).map_err(|error| {
+        contract::AuthorityError::AuthorityIntegrity(format!("invalid {label}: {error}"))
+    })?;
+    let canonical = canonicalize(&value).map_err(|error| {
+        contract::AuthorityError::AuthorityIntegrity(format!("invalid {label}: {error}"))
+    })?;
+    if canonical.as_str() != input {
+        return Err(contract::AuthorityError::AuthorityIntegrity(format!(
+            "stored {label} is not canonical"
+        )));
+    }
+    Ok(value)
+}
+
+const fn localized_result_kind_name(
+    kind: contract::LocalizedConsequenceResultKindV1,
+) -> &'static str {
+    match kind {
+        contract::LocalizedConsequenceResultKindV1::Success => "success",
+        contract::LocalizedConsequenceResultKindV1::Failure => "failure",
+    }
+}
+
+fn load_authenticated_localized_consequence_rows(
+    connection: &Connection,
+) -> Result<Vec<AuthenticatedLocalizedConsequenceRow>, contract::AuthorityError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT decision_authority_sequence, presentation_id, workspace_id,
+                    requesting_principal_id, operating_principal_id, delegation_id,
+                    command_digest, authorization_decision_digest, operation_name,
+                    operation_version, application_idempotency_kind,
+                    application_idempotency_key, result_kind, result_contract,
+                    result_json, result_digest, application_effect_digest,
+                    application_consequence_digest, selectors_json, evidence_json,
+                    evidence_digest
+             FROM authenticated_localized_consequences_v1
+             ORDER BY decision_authority_sequence",
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    statement
+        .query_map([], |row| {
+            Ok(AuthenticatedLocalizedConsequenceRow {
+                decision_authority_sequence: row.get(0)?,
+                presentation_id: row.get(1)?,
+                workspace_id: row.get(2)?,
+                requesting_principal_id: row.get(3)?,
+                operating_principal_id: row.get(4)?,
+                delegation_id: row.get(5)?,
+                command_digest: row.get(6)?,
+                authorization_decision_digest: row.get(7)?,
+                operation_name: row.get(8)?,
+                operation_version: row.get(9)?,
+                application_idempotency_kind: row.get(10)?,
+                application_idempotency_key: row.get(11)?,
+                result_kind: row.get(12)?,
+                result_contract: row.get(13)?,
+                result_json: row.get(14)?,
+                result_digest: row.get(15)?,
+                application_effect_digest: row.get(16)?,
+                application_consequence_digest: row.get(17)?,
+                selectors_json: row.get(18)?,
+                evidence_json: row.get(19)?,
+                evidence_digest: row.get(20)?,
+            })
+        })
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "P5 verification reconstructs the signed result, immutable application anchors, and global idempotency ledger as one closed projection"
+)]
+fn verify_authenticated_localized_consequence_projection(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    records: &[VerifiedAuthorityProjectionRecord],
+) -> Result<(), contract::AuthorityError> {
+    let signed_decisions = records
+        .iter()
+        .filter_map(|record| match &record.record {
+            contract::AuthorityRecordV1::AuthorizationDecision(decision)
+                if decision.decision == contract::AuthorizationDecisionOutcome::Allow
+                    && contract::localized_operation_output_schema_uri(decision.operation)
+                        .is_some() =>
+            {
+                Some((
+                    decision.authority_sequence.get(),
+                    (decision, record.record_digest.as_str()),
+                ))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let rows = load_authenticated_localized_consequence_rows(connection)?;
+    if rows.len() != signed_decisions.len() {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "authenticated localized consequences do not exactly cover signed localized Allow decisions"
+                .to_owned(),
+        ));
+    }
+
+    let mut seen_sequences = BTreeSet::new();
+    let mut expected_ledger = BTreeMap::<(String, String), ExpectedApplicationLedgerRow>::new();
+    for row in &rows {
+        let sequence = u64::try_from(row.decision_authority_sequence).map_err(|_| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized consequence authority sequence is out of range".to_owned(),
+            )
+        })?;
+        if !seen_sequences.insert(sequence) {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized consequence authority sequence is duplicated".to_owned(),
+            ));
+        }
+        let (decision, decision_digest) =
+            signed_decisions.get(&sequence).copied().ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized consequence has no matching signed Allow decision".to_owned(),
+                )
+            })?;
+        let commitment = decision
+            .localized_consequence_commitment
+            .as_ref()
+            .ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized Allow decision lacks its signed consequence commitment".to_owned(),
+                )
+            })?;
+        let expected_result_kind = localized_result_kind_name(commitment.result_kind);
+        let operation_output_schema = contract::localized_operation_output_schema_uri(
+            decision.operation,
+        )
+        .ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "signed localized operation has no output Schema".to_owned(),
+            )
+        })?;
+        let expected_selectors_value = json!({
+            "changeset_ids": decision.requested_resources.changeset_ids,
+            "edition_ids": decision.requested_resources.edition_ids,
+            "release_ids": decision.requested_resources.release_ids,
+        });
+        let selectors_value =
+            canonical_projection_value(&row.selectors_json, "localized selectors")?;
+        let result_value = canonical_projection_value(&row.result_json, "localized result")?;
+        let result_canonical = canonicalize(&result_value)
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        let computed_result_digest = digest(ArtifactKind::OperationEffectV1, &result_canonical);
+        let evidence_value =
+            canonical_projection_value(&row.evidence_json, "localized consequence evidence")?;
+        let closure = evidence_value.get("closure").cloned().ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized consequence evidence has no closure".to_owned(),
+            )
+        })?;
+        let semantic_timestamp = evidence_value
+            .get("semantic_timestamp")
+            .cloned()
+            .ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized consequence evidence has no semantic timestamp".to_owned(),
+                )
+            })?;
+        if !(semantic_timestamp.is_null() || semantic_timestamp.is_string()) {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized consequence semantic timestamp is malformed".to_owned(),
+            ));
+        }
+        let expected_idempotency = expected_localized_idempotency_projection(
+            decision.operation,
+            expected_result_kind,
+            row.application_idempotency_kind.as_str(),
+            row.application_idempotency_key.as_deref(),
+        );
+        if row.workspace_id != workspace_id.to_string()
+            || row.workspace_id != decision.workspace_id.to_string()
+            || row.presentation_id != decision.presentation_id.to_string()
+            || row.requesting_principal_id != decision.requesting_principal_id.to_string()
+            || row.operating_principal_id != decision.operating_principal_id.to_string()
+            || row.delegation_id != decision.delegation.delegation_id.to_string()
+            || row.command_digest != decision.command_digest.to_string()
+            || row.authorization_decision_digest != decision_digest
+            || row.operation_name != decision.operation.name()
+            || row.operation_version != decision.operation.version()
+            || row.result_kind != expected_result_kind
+            || row.result_contract != commitment.result_contract
+            || row.result_digest != commitment.result_digest.to_string()
+            || computed_result_digest != commitment.result_digest
+            || row.application_consequence_digest
+                != commitment.application_consequence_digest.to_string()
+            || selectors_value != expected_selectors_value
+            || !expected_idempotency
+        {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "authenticated localized consequence differs from its signed decision".to_owned(),
+            ));
+        }
+
+        verify_localized_immutable_closure(connection, decision, &closure)?;
+        verify_localized_application_effect_projection(
+            connection,
+            decision.operation,
+            row,
+            &result_value,
+            &closure,
+        )?;
+
+        let composite = canonicalize(&json!({
+            "api_version": "proof.dev/authenticated-localized-consequence-commitment/v1",
+            "application_effect_digest": row.application_effect_digest,
+            "application_idempotency": {
+                "key": row.application_idempotency_key,
+                "kind": row.application_idempotency_kind,
+            },
+            "closure": closure,
+            "command_digest": decision.command_digest.to_string(),
+            "delegation_id": decision.delegation.delegation_id.to_string(),
+            "operating_principal_id": decision.operating_principal_id.to_string(),
+            "operation": {
+                "name": decision.operation.name(),
+                "version": decision.operation.version(),
+            },
+            "requesting_principal_id": decision.requesting_principal_id.to_string(),
+            "result": {
+                "contract": row.result_contract,
+                "digest": row.result_digest,
+                "kind": row.result_kind,
+            },
+            "selectors": selectors_value,
+            "semantic_timestamp": semantic_timestamp,
+            "workspace_id": decision.workspace_id.to_string(),
+        }))
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        let computed_consequence_digest = digest(ArtifactKind::OperationEffectV1, &composite);
+        if computed_consequence_digest != commitment.application_consequence_digest {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized application consequence does not reproduce its signed composite"
+                    .to_owned(),
+            ));
+        }
+
+        let expected_evidence = canonicalize(&json!({
+            "api_version": "proof.dev/authenticated-localized-consequence/v1",
+            "application_consequence_digest": row.application_consequence_digest,
+            "application_idempotency": {
+                "key": row.application_idempotency_key,
+                "kind": row.application_idempotency_kind,
+            },
+            "authorization_decision_digest": decision_digest,
+            "closure": evidence_value.get("closure"),
+            "command_digest": decision.command_digest.to_string(),
+            "delegation_id": decision.delegation.delegation_id.to_string(),
+            "operating_principal_id": decision.operating_principal_id.to_string(),
+            "operation": {
+                "name": decision.operation.name(),
+                "version": decision.operation.version(),
+            },
+            "operation_output_schema": operation_output_schema,
+            "presentation_id": decision.presentation_id.to_string(),
+            "requesting_principal_id": decision.requesting_principal_id.to_string(),
+            "result": {
+                "contract": row.result_contract,
+                "digest": row.result_digest,
+                "kind": row.result_kind,
+            },
+            "application_effect_digest": row.application_effect_digest,
+            "selectors": evidence_value.get("selectors"),
+            "semantic_timestamp": evidence_value.get("semantic_timestamp"),
+            "workspace_id": decision.workspace_id.to_string(),
+        }))
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        let evidence_canonical = canonicalize(&evidence_value)
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        let computed_evidence_digest = digest(ArtifactKind::OperationEffectV1, &evidence_canonical);
+        if expected_evidence.as_str() != row.evidence_json
+            || computed_evidence_digest.to_string() != row.evidence_digest
+        {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized consequence evidence does not exactly reproduce".to_owned(),
+            ));
+        }
+
+        if row.result_kind == "success"
+            && let Some(key) = row.application_idempotency_key.as_ref()
+        {
+            register_expected_application_ledger_row(&mut expected_ledger, row, key)?;
+        }
+    }
+    if seen_sequences != signed_decisions.keys().copied().collect() {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "signed localized Allow decision lacks consequence evidence".to_owned(),
+        ));
+    }
+    verify_authenticated_application_ledger_projection(connection, &expected_ledger)
+}
+
+fn expected_localized_idempotency_projection(
+    operation: contract::AuthorityOperation,
+    result_kind: &str,
+    actual_kind: &str,
+    actual_key: Option<&str>,
+) -> bool {
+    match contract::authority_operation_entry(operation).application_idempotency {
+        contract::ApplicationIdempotency::None => actual_kind == "none" && actual_key.is_none(),
+        contract::ApplicationIdempotency::RequiredUuidV7 => {
+            actual_kind == "required" && actual_key.is_some()
+        }
+        contract::ApplicationIdempotency::DerivedChangeset
+        | contract::ApplicationIdempotency::DerivedProposalPolicyValidator => {
+            actual_kind == "derived" && (result_kind == "failure" || actual_key.is_some())
+        }
+    }
+}
+
+fn register_expected_application_ledger_row(
+    expected: &mut BTreeMap<(String, String), ExpectedApplicationLedgerRow>,
+    row: &AuthenticatedLocalizedConsequenceRow,
+    key: &str,
+) -> Result<(), contract::AuthorityError> {
+    let map_key = (row.workspace_id.clone(), key.to_owned());
+    let candidate = ExpectedApplicationLedgerRow {
+        workspace_id: row.workspace_id.clone(),
+        idempotency_key: key.to_owned(),
+        idempotency_kind: row.application_idempotency_kind.clone(),
+        operation_name: row.operation_name.clone(),
+        operation_version: row.operation_version.clone(),
+        command_digest: row.command_digest.clone(),
+        result_digest: row.result_digest.clone(),
+        application_effect_digest: row.application_effect_digest.clone(),
+        application_consequence_digest: row.application_consequence_digest.clone(),
+        first_decision_authority_sequence: row.decision_authority_sequence,
+    };
+    if let Some(first) = expected.get(&map_key) {
+        if first.idempotency_kind != candidate.idempotency_kind
+            || first.operation_name != candidate.operation_name
+            || first.operation_version != candidate.operation_version
+            || first.command_digest != candidate.command_digest
+            || first.result_digest != candidate.result_digest
+            || first.application_effect_digest != candidate.application_effect_digest
+        {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "authenticated application key has divergent successful consequences".to_owned(),
+            ));
+        }
+        return Ok(());
+    }
+    expected.insert(map_key, candidate);
+    Ok(())
+}
+
+fn verify_authenticated_application_ledger_projection(
+    connection: &Connection,
+    expected: &BTreeMap<(String, String), ExpectedApplicationLedgerRow>,
+) -> Result<(), contract::AuthorityError> {
+    let expected_rows = expected
+        .values()
+        .map(|row| {
+            json!({
+                "application_consequence_digest": row.application_consequence_digest,
+                "application_effect_digest": row.application_effect_digest,
+                "command_digest": row.command_digest,
+                "first_decision_authority_sequence": row.first_decision_authority_sequence,
+                "idempotency_key": row.idempotency_key,
+                "idempotency_kind": row.idempotency_kind,
+                "operation_name": row.operation_name,
+                "operation_version": row.operation_version,
+                "result_digest": row.result_digest,
+                "workspace_id": row.workspace_id,
+            })
+        })
+        .collect::<Vec<_>>();
+    let actual_rows = query_projection_rows(
+        connection,
+        "SELECT workspace_id, idempotency_key, idempotency_kind, operation_name,
+                operation_version, command_digest, result_digest,
+                application_effect_digest, application_consequence_digest,
+                first_decision_authority_sequence
+         FROM authenticated_application_idempotency_v1",
+        |row| {
+            Ok(json!({
+                "application_consequence_digest": row.get::<_, String>(8)?,
+                "application_effect_digest": row.get::<_, String>(7)?,
+                "command_digest": row.get::<_, String>(5)?,
+                "first_decision_authority_sequence": row.get::<_, i64>(9)?,
+                "idempotency_key": row.get::<_, String>(1)?,
+                "idempotency_kind": row.get::<_, String>(2)?,
+                "operation_name": row.get::<_, String>(3)?,
+                "operation_version": row.get::<_, String>(4)?,
+                "result_digest": row.get::<_, String>(6)?,
+                "workspace_id": row.get::<_, String>(0)?,
+            }))
+        },
+    )?;
+    verify_projection_row_set(
+        "authenticated application idempotency projection",
+        &expected_rows,
+        &actual_rows,
+    )?;
+    let overlap = connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM authenticated_application_idempotency_v1 AS localized
+             JOIN authenticated_operation_results_v1 AS legacy
+               ON legacy.workspace_id = localized.workspace_id
+              AND legacy.idempotency_key = localized.idempotency_key",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    if overlap != 0 {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "an application idempotency key is owned by both legacy and localized ledgers"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "localized closure verification keeps historical monotonicity and immutable P7 artifact checks adjacent"
+)]
+fn verify_localized_immutable_closure(
+    connection: &Connection,
+    decision: &contract::AuthorizationDecisionV2,
+    closure: &serde_json::Value,
+) -> Result<(), contract::AuthorityError> {
+    let closure_object = closure.as_object().ok_or_else(|| {
+        contract::AuthorityError::AuthorityIntegrity(
+            "localized application closure is not an object".to_owned(),
+        )
+    })?;
+    if !closure_object.contains_key("resource_intent") {
+        let edition_ids = decision
+            .requested_resources
+            .edition_ids
+            .as_slice()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let release_ids = decision
+            .requested_resources
+            .release_ids
+            .as_slice()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        if edition_ids.len() > 1 || release_ids.len() > 1 {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized released closure has multiple resolved artifacts".to_owned(),
+            ));
+        }
+        let expected = json!({
+            "edition_id": edition_ids.first(),
+            "release_id": release_ids.first(),
+            "schema_ids": decision
+                .requested_resources
+                .schema_ids
+                .as_slice()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        });
+        if &expected != closure {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized released closure differs from signed selectors".to_owned(),
+            ));
+        }
+        return verify_released_closure_artifacts(connection, decision.workspace_id, closure);
+    }
+
+    let intent = closure_object
+        .get("resource_intent")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized intent closure has no resource intent".to_owned(),
+            )
+        })?;
+    let intent_id = required_json_string(
+        closure_object
+            .get("resource_intent")
+            .unwrap_or(&serde_json::Value::Null),
+        "intent_id",
+        "localized intent closure",
+    )?;
+    let intent_digest = required_json_string(
+        closure_object
+            .get("resource_intent")
+            .unwrap_or(&serde_json::Value::Null),
+        "intent_digest",
+        "localized intent closure",
+    )?;
+    let intent_issuer = required_json_string(
+        closure_object
+            .get("resource_intent")
+            .unwrap_or(&serde_json::Value::Null),
+        "issued_by_principal_id",
+        "localized intent closure",
+    )?;
+    if intent.len() != 3
+        || closure_object
+            .get("validator")
+            .and_then(serde_json::Value::as_str)
+            != Some(proof_application::LOCALIZED_CONTENT_VALIDATOR)
+        || !closure_object
+            .get("context_fresh")
+            .is_some_and(serde_json::Value::is_boolean)
+    {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized intent closure shape is malformed".to_owned(),
+        ));
+    }
+    verify_localized_intent_artifact(
+        connection,
+        decision.workspace_id,
+        intent_id,
+        intent_digest,
+        intent_issuer,
+    )?;
+
+    if let Some(context) = closure_object
+        .get("context")
+        .filter(|value| !value.is_null())
+    {
+        verify_localized_context_artifact(
+            connection,
+            decision.workspace_id,
+            intent_id,
+            intent_digest,
+            context,
+        )?;
+    }
+    let changeset_id = if let Some(changeset) = closure_object
+        .get("changeset")
+        .filter(|value| !value.is_null())
+    {
+        Some(verify_localized_changeset_artifact(
+            connection,
+            decision.workspace_id,
+            intent_id,
+            intent_digest,
+            changeset,
+        )?)
+    } else {
+        None
+    };
+    if let Some(approval) = closure_object
+        .get("approval")
+        .filter(|value| !value.is_null())
+    {
+        let changeset_id = changeset_id.as_deref().ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized approval closure has no ChangeSet anchor".to_owned(),
+            )
+        })?;
+        verify_localized_approval_artifact(connection, changeset_id, approval)?;
+    }
+    let exact = json!({
+        "approval": closure_object.get("approval"),
+        "changeset": closure_object.get("changeset"),
+        "context": closure_object.get("context"),
+        "context_fresh": closure_object.get("context_fresh"),
+        "resource_intent": closure_object.get("resource_intent"),
+        "validator": closure_object.get("validator"),
+    });
+    if &exact != closure {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized intent closure has unknown or missing fields".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_released_closure_artifacts(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    closure: &serde_json::Value,
+) -> Result<(), contract::AuthorityError> {
+    if let Some(release_id) = closure
+        .get("release_id")
+        .and_then(serde_json::Value::as_str)
+    {
+        let stored_workspace = connection
+            .query_row(
+                "SELECT workspace_id FROM releases WHERE release_id = ?1",
+                [release_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        if stored_workspace != workspace_id.to_string() {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized released closure references another Workspace".to_owned(),
+            ));
+        }
+        let release_id = release_id
+            .parse::<proof_application::ReleaseId>()
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        localized::load_localized_release(connection, workspace_id, release_id).map_err(
+            |error| {
+                contract::AuthorityError::AuthorityIntegrity(format!(
+                    "localized released-selection verification failed: {error:?}"
+                ))
+            },
+        )?;
+    }
+    if let Some(edition_id) = closure
+        .get("edition_id")
+        .and_then(serde_json::Value::as_str)
+    {
+        let exists = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM editions WHERE edition_id = ?1)",
+                [edition_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+        if !exists {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized released closure Edition is absent".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn verify_localized_intent_artifact(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    intent_id: &str,
+    signed_digest: &str,
+    signed_issuer: &str,
+) -> Result<(), contract::AuthorityError> {
+    let parsed_intent_id = intent_id
+        .parse::<proof_application::ContentResourceIntentId>()
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let loaded = localized::load_resource_intent(connection, workspace_id, parsed_intent_id)
+        .map_err(|error| {
+            contract::AuthorityError::AuthorityIntegrity(format!(
+                "localized resource-intent verification failed: {error:?}"
+            ))
+        })?;
+    let (stored_workspace, issuer, manifest_json, stored_digest): (String, String, String, String) =
+        connection
+            .query_row(
+                "SELECT workspace_id, issued_by_principal_id, manifest_json, intent_digest
+                 FROM content_resource_intents WHERE intent_id = ?1",
+                [intent_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let manifest = canonical_projection_value(&manifest_json, "localized resource intent")?;
+    let manifest = canonicalize(&manifest)
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let computed = digest(ArtifactKind::ContentResourceIntentV1, &manifest);
+    if stored_workspace != workspace_id.to_string()
+        || issuer != signed_issuer
+        || stored_digest != signed_digest
+        || computed.to_string() != stored_digest
+        || loaded.intent_digest.to_string() != signed_digest
+        || loaded.issued_by_principal_id.to_string() != signed_issuer
+    {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized resource-intent artifact does not reproduce".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_localized_context_artifact(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    intent_id: &str,
+    intent_digest: &str,
+    context: &serde_json::Value,
+) -> Result<(), contract::AuthorityError> {
+    let context_id = required_json_string(context, "context_pack_id", "localized ContextPack")?;
+    let context_digest =
+        required_json_string(context, "context_pack_digest", "localized ContextPack")?;
+    let policy_digest = required_json_string(context, "policy_digest", "localized ContextPack")?;
+    let parsed_context_id = context_id
+        .parse::<ContextPackId>()
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let loaded =
+        localized::load_context(connection, workspace_id, parsed_context_id).map_err(|error| {
+            contract::AuthorityError::AuthorityIntegrity(format!(
+                "localized ContextPack verification failed: {error:?}"
+            ))
+        })?;
+    let limits = context.get("limits").ok_or_else(|| {
+        contract::AuthorityError::AuthorityIntegrity(
+            "localized ContextPack closure has no limits".to_owned(),
+        )
+    })?;
+    let row: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        i64,
+        i64,
+        i64,
+        String,
+        String,
+        String,
+    ) = connection
+        .query_row(
+            "SELECT workspace_id, resource_intent_id, resource_intent_digest,
+                        policy_digest, context_pack_digest, max_objects, max_edits,
+                        max_validation_attempts, max_bytes, policy_json, manifest_json,
+                        principal_id
+                 FROM localized_context_packs WHERE context_pack_id = ?1",
+            [context_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
+                ))
+            },
+        )
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let policy_value = canonical_projection_value(&row.9, "localized policy")?;
+    let policy_canonical = canonicalize(&policy_value)
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let manifest_value = canonical_projection_value(&row.10, "localized ContextPack")?;
+    let manifest_canonical = canonicalize(&manifest_value)
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let exact_context = json!({
+        "context_pack_digest": context_digest,
+        "context_pack_id": context_id,
+        "limits": {
+            "max_bytes": row.8,
+            "max_edits": row.6,
+            "max_objects": row.5,
+            "max_validation_attempts": row.7,
+        },
+        "policy_digest": policy_digest,
+    });
+    if row.0 != workspace_id.to_string()
+        || row.1 != intent_id
+        || row.2 != intent_digest
+        || row.3 != policy_digest
+        || row.4 != context_digest
+        || loaded.resource_intent_id.to_string() != intent_id
+        || loaded.resource_intent_digest.to_string() != intent_digest
+        || loaded.context_pack_digest.to_string() != context_digest
+        || loaded.policy_digest.to_string() != policy_digest
+        || limits
+            != exact_context
+                .get("limits")
+                .unwrap_or(&serde_json::Value::Null)
+        || digest(ArtifactKind::PolicyBundleV1, &policy_canonical).to_string() != row.3
+        || digest(ArtifactKind::ContextPackV2, &manifest_canonical).to_string() != row.4
+        || &exact_context != context
+    {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized ContextPack artifact does not reproduce".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_localized_changeset_artifact(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    intent_id: &str,
+    intent_digest: &str,
+    changeset: &serde_json::Value,
+) -> Result<String, contract::AuthorityError> {
+    let changeset_id = required_json_string(changeset, "changeset_id", "localized ChangeSet")?;
+    let parsed_changeset_id = changeset_id
+        .parse::<proof_application::ChangeSetId>()
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let loaded = localized::load_changeset(connection, workspace_id, parsed_changeset_id).map_err(
+        |error| {
+            contract::AuthorityError::AuthorityIntegrity(format!(
+                "localized ChangeSet verification failed: {error:?}"
+            ))
+        },
+    )?;
+    let context_pack_id =
+        required_json_string(changeset, "context_pack_id", "localized ChangeSet")?;
+    let context_pack_digest =
+        required_json_string(changeset, "context_pack_digest", "localized ChangeSet")?;
+    let row: (String, String, String, String, String) = connection
+        .query_row(
+            "SELECT workspace_id, resource_intent_id, resource_intent_digest,
+                    context_pack_id, context_pack_digest
+             FROM localized_changesets WHERE changeset_id = ?1",
+            [changeset_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let exact = json!({
+        "changeset_id": changeset_id,
+        "context_pack_digest": context_pack_digest,
+        "context_pack_id": context_pack_id,
+        "resource_intent_digest": intent_digest,
+        "resource_intent_id": intent_id,
+    });
+    if row.0 != workspace_id.to_string()
+        || row.1 != intent_id
+        || row.2 != intent_digest
+        || row.3 != context_pack_id
+        || row.4 != context_pack_digest
+        || loaded.resource_intent_id.to_string() != intent_id
+        || loaded.resource_intent_digest.to_string() != intent_digest
+        || loaded.context_pack_id.to_string() != context_pack_id
+        || loaded.context_pack_digest.to_string() != context_pack_digest
+        || &exact != changeset
+    {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized ChangeSet closure does not reproduce".to_owned(),
+        ));
+    }
+    Ok(changeset_id.to_owned())
+}
+
+fn verify_localized_approval_artifact(
+    connection: &Connection,
+    changeset_id: &str,
+    approval: &serde_json::Value,
+) -> Result<(), contract::AuthorityError> {
+    let row: (String, String, String, String, String, String, String) = connection
+        .query_row(
+            "SELECT approval.approval_name, approval.sealed_changeset_digest,
+                    approval.validation_results_digest, approval.principal_id,
+                    approval.approved_at, approval.effect_digest,
+                    principal.principal_type
+             FROM localized_approvals AS approval
+             JOIN principals AS principal
+               ON principal.principal_id = approval.principal_id
+             WHERE approval.changeset_id = ?1",
+            [changeset_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let effect = canonicalize(&json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": "changeset.approve/v2",
+        "result": {
+            "approval": row.0,
+            "changeset_id": changeset_id,
+            "occurred_at": row.4,
+            "principal_id": row.3,
+            "sealed_changeset_digest": row.1,
+            "validation_results_digest": row.2,
+        },
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let exact = json!({
+        "approval_name": row.0,
+        "approved_at": row.4,
+        "effect_digest": row.5,
+        "principal_id": row.3,
+    });
+    if row.6 != "human" {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized approval principal is not a Human".to_owned(),
+        ));
+    }
+    if digest(ArtifactKind::OperationEffectV1, &effect).to_string() != row.5 {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized approval effect does not reproduce".to_owned(),
+        ));
+    }
+    if &exact != approval {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized signed approval closure differs from immutable evidence".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn query_localized_projection_digest<P: rusqlite::Params>(
+    connection: &Connection,
+    statement: &str,
+    params: P,
+) -> Result<String, contract::AuthorityError> {
+    connection
+        .query_row(statement, params, |row| row.get::<_, String>(0))
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))
+}
+
+fn localized_result_string<'a>(
+    result: &'a serde_json::Value,
+    field: &str,
+) -> Result<&'a str, contract::AuthorityError> {
+    required_json_string(result, field, "localized operation result")
+}
+
+fn row_workspace_id(
+    row: &AuthenticatedLocalizedConsequenceRow,
+) -> Result<WorkspaceId, contract::AuthorityError> {
+    row.workspace_id
+        .parse::<WorkspaceId>()
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))
+}
+
+fn verify_loaded_changeset_projection(
+    connection: &Connection,
+    row: &AuthenticatedLocalizedConsequenceRow,
+    result: &serde_json::Value,
+) -> Result<proof_application::LocalizedChangeSet, contract::AuthorityError> {
+    let changeset_id = localized_result_string(result, "changeset_id")?
+        .parse::<proof_application::ChangeSetId>()
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    localized::load_changeset(connection, row_workspace_id(row)?, changeset_id).map_err(|error| {
+        contract::AuthorityError::AuthorityIntegrity(format!(
+            "localized ChangeSet verification failed: {error:?}"
+        ))
+    })
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the closed 11-operation effect verifier makes every P7 reconstruction branch explicit and exhaustive"
+)]
+fn verify_localized_application_effect_projection(
+    connection: &Connection,
+    operation: contract::AuthorityOperation,
+    row: &AuthenticatedLocalizedConsequenceRow,
+    result: &serde_json::Value,
+    closure: &serde_json::Value,
+) -> Result<(), contract::AuthorityError> {
+    if row.result_kind == "failure"
+        || matches!(
+            operation,
+            contract::AuthorityOperation::ChangesetGetV2
+                | contract::AuthorityOperation::ChangesetDiffV2
+                | contract::AuthorityOperation::ObjectQueryReleasedV2
+        )
+    {
+        if row.application_effect_digest != row.result_digest {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "read or failed localized consequence has a mutable application effect".to_owned(),
+            ));
+        }
+        return Ok(());
+    }
+
+    let key = row.application_idempotency_key.as_deref();
+    if matches!(
+        operation,
+        contract::AuthorityOperation::ChangesetCreateV2
+            | contract::AuthorityOperation::ChangesetAddV2
+    ) {
+        verify_loaded_changeset_projection(connection, row, result)?;
+    }
+    let stored_effect = match operation {
+        contract::AuthorityOperation::ContextBuildV2 => query_localized_projection_digest(
+            connection,
+            "SELECT effect_digest FROM localized_context_build_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                row.workspace_id.as_str(),
+                row.requesting_principal_id.as_str(),
+                key.ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "localized Context consequence has no application key".to_owned(),
+                    )
+                })?,
+            ),
+        )?,
+        contract::AuthorityOperation::ChangesetCreateV2 => {
+            let changeset_id = localized_result_string(result, "changeset_id")?
+                .parse::<proof_application::ChangeSetId>()
+                .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+            if key.is_none() {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized ChangeSet create consequence has no application key".to_owned(),
+                ));
+            }
+            localized::verify_changeset_creation_effect(
+                connection,
+                row_workspace_id(row)?,
+                changeset_id,
+            )
+            .map_err(|error| {
+                contract::AuthorityError::AuthorityIntegrity(format!(
+                    "localized ChangeSet creation verification failed: {error:?}"
+                ))
+            })?
+            .to_string()
+        }
+        contract::AuthorityOperation::ChangesetAddV2 => {
+            let principal_id = row
+                .requesting_principal_id
+                .parse::<PrincipalId>()
+                .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+            localized::verify_add_effect(
+                connection,
+                row_workspace_id(row)?,
+                principal_id,
+                key.ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "localized Add consequence has no application key".to_owned(),
+                    )
+                })?,
+            )
+            .map_err(|error| {
+                contract::AuthorityError::AuthorityIntegrity(format!(
+                    "localized Add verification failed: {error:?}"
+                ))
+            })?
+            .to_string()
+        }
+        contract::AuthorityOperation::ChangesetValidateV2 => {
+            let validation_digest = localized_result_string(result, "validation_results_digest")?;
+            verify_loaded_changeset_projection(connection, row, result)?;
+            let stored = query_localized_projection_digest(
+                connection,
+                "SELECT results_digest FROM localized_validations
+                 WHERE results_digest = ?1",
+                [validation_digest],
+            )?;
+            if key.is_none() {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "successful localized validation has no derived application key".to_owned(),
+                ));
+            }
+            stored
+        }
+        contract::AuthorityOperation::ChangesetSubmitV2 => {
+            let changeset_id = localized_result_string(result, "changeset_id")?;
+            if key.is_none() {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "successful localized submit has no derived application key".to_owned(),
+                ));
+            }
+            let changeset = verify_loaded_changeset_projection(connection, row, result)?;
+            localized::load_localized_submission(connection, &changeset)
+                .map_err(|error| {
+                    contract::AuthorityError::AuthorityIntegrity(format!(
+                        "localized submission verification failed: {error:?}"
+                    ))
+                })?
+                .ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "localized submission evidence is absent".to_owned(),
+                    )
+                })?;
+            query_localized_projection_digest(
+                connection,
+                "SELECT effect_digest FROM localized_submissions WHERE changeset_id = ?1",
+                [changeset_id],
+            )?
+        }
+        contract::AuthorityOperation::ChangesetCommitV2 => {
+            let changeset_id = localized_result_string(result, "changeset_id")?
+                .parse::<proof_application::ChangeSetId>()
+                .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+            localized::load_localized_commit(connection, row_workspace_id(row)?, changeset_id)
+                .map_err(|error| {
+                    contract::AuthorityError::AuthorityIntegrity(format!(
+                        "localized commit verification failed: {error:?}"
+                    ))
+                })?;
+            query_localized_projection_digest(
+                connection,
+                "SELECT effect_digest FROM localized_commits
+                 WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+                (
+                    row.workspace_id.as_str(),
+                    row.requesting_principal_id.as_str(),
+                    key.ok_or_else(|| {
+                        contract::AuthorityError::AuthorityIntegrity(
+                            "localized Commit consequence has no application key".to_owned(),
+                        )
+                    })?,
+                ),
+            )?
+        }
+        contract::AuthorityOperation::EditionCreateV2 => {
+            let edition_id = localized_result_string(result, "edition_id")?
+                .parse::<proof_application::EditionId>()
+                .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+            localized::load_localized_edition(connection, row_workspace_id(row)?, edition_id)
+                .map_err(|error| {
+                    contract::AuthorityError::AuthorityIntegrity(format!(
+                        "localized Edition verification failed: {error:?}"
+                    ))
+                })?;
+            query_localized_projection_digest(
+                connection,
+                "SELECT effect_digest FROM localized_edition_operations
+                 WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+                (
+                    row.workspace_id.as_str(),
+                    row.requesting_principal_id.as_str(),
+                    key.ok_or_else(|| {
+                        contract::AuthorityError::AuthorityIntegrity(
+                            "localized Edition consequence has no application key".to_owned(),
+                        )
+                    })?,
+                ),
+            )?
+        }
+        contract::AuthorityOperation::ReleaseCreateV2 => {
+            let release_id = localized_result_string(result, "release_id")?;
+            let release_digest = localized_result_string(result, "release_digest")?;
+            let parsed_release_id = release_id
+                .parse::<proof_application::ReleaseId>()
+                .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+            localized::load_localized_release(
+                connection,
+                row_workspace_id(row)?,
+                parsed_release_id,
+            )
+            .map_err(|error| {
+                contract::AuthorityError::AuthorityIntegrity(format!(
+                    "localized Release verification failed: {error:?}"
+                ))
+            })?;
+            let stored = query_localized_projection_digest(
+                connection,
+                "SELECT release_digest FROM releases
+                 WHERE workspace_id = ?1 AND release_id = ?2",
+                (row.workspace_id.as_str(), release_id),
+            )?;
+            let operation_exists = connection
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM localized_release_operations
+                         WHERE workspace_id = ?1 AND principal_id = ?2
+                           AND idempotency_key = ?3 AND release_id = ?4
+                     )",
+                    (
+                        row.workspace_id.as_str(),
+                        row.requesting_principal_id.as_str(),
+                        key.ok_or_else(|| {
+                            contract::AuthorityError::AuthorityIntegrity(
+                                "localized Release consequence has no application key".to_owned(),
+                            )
+                        })?,
+                        release_id,
+                    ),
+                    |query_row| query_row.get::<_, bool>(0),
+                )
+                .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+            if !operation_exists || stored != release_digest {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized Release effect does not reproduce".to_owned(),
+                ));
+            }
+            stored
+        }
+        contract::AuthorityOperation::ChangesetGetV2
+        | contract::AuthorityOperation::ChangesetDiffV2
+        | contract::AuthorityOperation::ObjectQueryReleasedV2 => {
+            unreachable!("read operations returned before effect lookup")
+        }
+        contract::AuthorityOperation::ContextBuildV1
+        | contract::AuthorityOperation::ObjectQueryReleasedV1
+        | contract::AuthorityOperation::WorkspaceStatusV1 => {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "legacy operation reached localized application-effect verification".to_owned(),
+            ));
+        }
+    };
+    if stored_effect != row.application_effect_digest {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized application effect differs from immutable P7 evidence".to_owned(),
+        ));
+    }
+    if closure.is_null() {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized success has no application closure".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn load_workspace_authority_root(
@@ -4191,6 +5641,32 @@ struct VerifiedPresentation {
     actor_context_digest: proof_application::ContentDigest,
 }
 
+struct LocalizedIntentAuthorizationClosure {
+    intent: ContentResourceIntent,
+    context: Option<proof_application::LocalizedContextPack>,
+    changeset: Option<proof_application::LocalizedChangeSet>,
+    context_fresh: bool,
+}
+
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the transaction-scoped closure is short lived and direct ownership keeps frozen P7 evidence explicit"
+)]
+enum AuthorizationApplicationClosure {
+    Legacy,
+    LocalizedIntent(LocalizedIntentAuthorizationClosure),
+    LocalizedReleased(localized::ReleasedAuthorizationProjectionV1),
+}
+
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the verified closure is transaction scoped and boxing would obscure fail-closed resolution ownership"
+)]
+enum LocalizedIntentClosureResolution {
+    Verified(LocalizedIntentAuthorizationClosure),
+    Hidden,
+}
+
 struct AuthorizationAssessment {
     requested_resources: contract::RequestedResourcesV2,
     effective_constraints: contract::EffectiveConstraintsV2,
@@ -4198,10 +5674,24 @@ struct AuthorizationAssessment {
     binding: contract::BindingDecisionEvidenceV2,
     delegation: contract::DelegationDecisionEvidenceV2,
     resolved_delegation: Option<contract::DelegationV2>,
+    application_closure: AuthorizationApplicationClosure,
+    application_idempotency: Option<ApplicationIdempotencyAssessment>,
     denial: Option<(
         contract::AuthorizationDenialReason,
         contract::AuthorityError,
     )>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ApplicationIdempotencyKind {
+    Required,
+    Derived,
+}
+
+struct ApplicationIdempotencyAssessment {
+    kind: ApplicationIdempotencyKind,
+    key: Option<String>,
+    replay_application_effect_digest: Option<proof_application::ContentDigest>,
 }
 
 #[expect(
@@ -4444,7 +5934,7 @@ pub(super) fn delegation_covers_projected_resources_v1(
         && (!require_nonempty_schema_grant || !delegation.scope.schema_ids.as_slice().is_empty())
 }
 
-fn requested_resources(
+fn initial_requested_resources(
     workspace_id: WorkspaceId,
     input: &contract::EnabledOperationInputV1,
 ) -> Result<contract::RequestedResourcesV2, contract::AuthorityError> {
@@ -4454,6 +5944,19 @@ fn requested_resources(
         (
             contract::ResourceProjectionProfileName::WorkspaceOnlyV1,
             contract::EnabledOperationInputV1::WorkspaceStatus(_),
+        )
+        | (
+            contract::ResourceProjectionProfileName::LocalizedIntentClosureV1,
+            contract::EnabledOperationInputV1::LocalizedContextBuild(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetCreate(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetAdd(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetGet(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetDiff(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetValidate(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(_)
+            | contract::EnabledOperationInputV1::LocalizedChangeSetCommit(_)
+            | contract::EnabledOperationInputV1::LocalizedEditionCreate(_)
+            | contract::EnabledOperationInputV1::LocalizedReleaseCreate(_),
         ) => project_workspace_only_v1(workspace_id),
         (
             contract::ResourceProjectionProfileName::LegacyObjectSelectionV1,
@@ -4471,17 +5974,419 @@ fn requested_resources(
             value.environment_id.clone(),
             value.object_ids.as_slice(),
         ),
+        (
+            contract::ResourceProjectionProfileName::LocalizedReleasedSelectionV1,
+            contract::EnabledOperationInputV1::LocalizedObjectQueryReleased(value),
+        ) => {
+            let targets = value
+                .targets
+                .iter()
+                .map(|target| ReleasedLocaleTarget {
+                    object_id: target.object_id,
+                    locale: target.locale.clone(),
+                })
+                .collect::<Vec<_>>();
+            Ok(project_localized_released_selection_stage_one_v1(
+                workspace_id,
+                value.environment_id.clone(),
+                &targets,
+            )?
+            .requested)
+        }
         _ => Err(contract::AuthorityError::AuthorityIntegrity(
             "enabled operation disagrees with its frozen resource projection profile".to_owned(),
         )),
     }
 }
 
+fn closure_load<T>(
+    result: Result<T, LocalPortError>,
+) -> Result<Option<T>, contract::AuthorityError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(LocalPortError::Storage(detail)) => Err(contract::AuthorityError::Storage(detail)),
+        Err(LocalPortError::Integrity(detail)) => {
+            Err(contract::AuthorityError::AuthorityIntegrity(detail))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+fn context_is_fresh(
+    transaction: &Connection,
+    context: &proof_application::LocalizedContextPack,
+    lifecycle_changeset_id: Option<proof_application::ChangeSetId>,
+    replay_release_id: Option<proof_application::ReleaseId>,
+    evaluated_at: Timestamp,
+) -> Result<bool, contract::AuthorityError> {
+    if context.created_at > evaluated_at || evaluated_at >= context.expires_at {
+        return Ok(false);
+    }
+    localized::context_resource_closure_is_current(
+        transaction,
+        context,
+        lifecycle_changeset_id,
+        replay_release_id,
+    )
+    .map_err(authority_from_local_port)
+}
+
+fn resolve_changeset_intent_closure(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    requesting_principal_id: PrincipalId,
+    changeset_id: proof_application::ChangeSetId,
+    replay_release_id: Option<proof_application::ReleaseId>,
+    evaluated_at: Timestamp,
+) -> Result<LocalizedIntentClosureResolution, contract::AuthorityError> {
+    let Some(changeset) = closure_load(localized::load_changeset(
+        transaction,
+        workspace_id,
+        changeset_id,
+    ))?
+    else {
+        return Ok(LocalizedIntentClosureResolution::Hidden);
+    };
+    let Some(intent) = closure_load(localized::load_resource_intent(
+        transaction,
+        workspace_id,
+        changeset.resource_intent_id,
+    ))?
+    else {
+        return Ok(LocalizedIntentClosureResolution::Hidden);
+    };
+    let Some(context) = closure_load(localized::load_context(
+        transaction,
+        workspace_id,
+        changeset.context_pack_id,
+    ))?
+    else {
+        return Ok(LocalizedIntentClosureResolution::Hidden);
+    };
+    if changeset.principal_id != requesting_principal_id
+        || intent.issued_by_principal_id != requesting_principal_id
+        || context.principal_id != requesting_principal_id
+        || changeset.resource_intent_digest != intent.intent_digest
+        || changeset.context_pack_digest != context.context_pack_digest
+        || context.resource_intent_id != intent.intent_id
+        || context.resource_intent_digest != intent.intent_digest
+    {
+        return Ok(LocalizedIntentClosureResolution::Hidden);
+    }
+    let context_fresh = context_is_fresh(
+        transaction,
+        &context,
+        Some(changeset.changeset_id),
+        replay_release_id,
+        evaluated_at,
+    )?;
+    Ok(LocalizedIntentClosureResolution::Verified(
+        LocalizedIntentAuthorizationClosure {
+            intent,
+            context: Some(context),
+            changeset: Some(changeset),
+            context_fresh,
+        },
+    ))
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the closed localized registry requires explicit disclosure-neutral resolution for every resource anchor"
+)]
+fn resolve_localized_intent_closure(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    requesting_principal_id: PrincipalId,
+    input: &contract::EnabledOperationInputV1,
+    evaluated_at: Timestamp,
+) -> Result<LocalizedIntentClosureResolution, contract::AuthorityError> {
+    match input {
+        contract::EnabledOperationInputV1::LocalizedContextBuild(value) => {
+            let Some(intent) = closure_load(localized::load_resource_intent(
+                transaction,
+                workspace_id,
+                value.resource_intent_id,
+            ))?
+            else {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            };
+            if intent.intent_digest != value.resource_intent_digest
+                || intent.issued_by_principal_id != requesting_principal_id
+            {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            }
+            let command = value.clone().into_application_command();
+            let context = match localized::load_exact_context_replay(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+            ) {
+                Ok(context) => Some(context),
+                Err(LocalPortError::Storage(detail)) => {
+                    return Err(contract::AuthorityError::Storage(detail));
+                }
+                Err(LocalPortError::Integrity(detail)) => {
+                    return Err(contract::AuthorityError::AuthorityIntegrity(detail));
+                }
+                Err(_) => None,
+            };
+            let context_fresh = if let Some(context) = context.as_ref() {
+                context_is_fresh(transaction, context, None, None, evaluated_at)?
+            } else {
+                value.created_at <= evaluated_at && evaluated_at < value.expires_at
+            };
+            Ok(LocalizedIntentClosureResolution::Verified(
+                LocalizedIntentAuthorizationClosure {
+                    intent,
+                    context,
+                    changeset: None,
+                    context_fresh,
+                },
+            ))
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetCreate(value) => {
+            let Some(intent) = closure_load(localized::load_resource_intent(
+                transaction,
+                workspace_id,
+                value.resource_intent_id,
+            ))?
+            else {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            };
+            let Some(context) = closure_load(localized::load_context(
+                transaction,
+                workspace_id,
+                value.context_pack_id,
+            ))?
+            else {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            };
+            if intent.intent_digest != value.resource_intent_digest
+                || intent.issued_by_principal_id != requesting_principal_id
+                || context.principal_id != requesting_principal_id
+                || context.context_pack_digest != value.context_pack_digest
+                || context.resource_intent_id != intent.intent_id
+                || context.resource_intent_digest != intent.intent_digest
+            {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            }
+            let context_fresh = context_is_fresh(transaction, &context, None, None, evaluated_at)?;
+            Ok(LocalizedIntentClosureResolution::Verified(
+                LocalizedIntentAuthorizationClosure {
+                    intent,
+                    context: Some(context),
+                    changeset: None,
+                    context_fresh,
+                },
+            ))
+        }
+        contract::EnabledOperationInputV1::LocalizedEditionCreate(value) => {
+            let Some(commit) = closure_load(localized::load_localized_commit(
+                transaction,
+                workspace_id,
+                value.changeset_id,
+            ))?
+            else {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            };
+            if commit.changeset_id != value.changeset_id {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            }
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedReleaseCreate(value) => {
+            let Some(edition) = closure_load(localized::load_localized_edition(
+                transaction,
+                workspace_id,
+                value.edition_id,
+            ))?
+            else {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            };
+            let Some(commit) = closure_load(localized::load_localized_commit(
+                transaction,
+                workspace_id,
+                edition.changeset_id,
+            ))?
+            else {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            };
+            if edition.principal_id != requesting_principal_id
+                || commit.changeset_id != edition.changeset_id
+            {
+                return Ok(LocalizedIntentClosureResolution::Hidden);
+            }
+            let command = value.clone().into_application_command();
+            let replay_release_id = localized::load_exact_localized_release_replay(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+            )
+            .map_err(authority_from_local_port)?
+            .map(|release| release.release_id);
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                edition.changeset_id,
+                replay_release_id,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetAdd(value) => {
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetGet(value) => {
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetDiff(value) => {
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetValidate(value) => {
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(value) => {
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetCommit(value) => {
+            resolve_changeset_intent_closure(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                value.changeset_id,
+                None,
+                evaluated_at,
+            )
+        }
+        _ => Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized intent closure disagrees with its operation profile".to_owned(),
+        )),
+    }
+}
+
+fn apply_frozen_selectors(
+    requested: &mut contract::RequestedResourcesV2,
+    input: &contract::EnabledOperationInputV1,
+    closure: &AuthorizationApplicationClosure,
+) -> Result<(), contract::AuthorityError> {
+    let mut changeset_ids = Vec::new();
+    let mut edition_ids = Vec::new();
+    let mut release_ids = Vec::new();
+    match input {
+        contract::EnabledOperationInputV1::LocalizedChangeSetCreate(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetAdd(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetGet(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetDiff(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetValidate(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetCommit(value) => {
+            changeset_ids.push(value.changeset_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedEditionCreate(value) => {
+            changeset_ids.push(value.changeset_id);
+            edition_ids.push(value.edition_id);
+        }
+        contract::EnabledOperationInputV1::LocalizedReleaseCreate(value) => {
+            let AuthorizationApplicationClosure::LocalizedIntent(intent_closure) = closure else {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized Release has no verified intent closure".to_owned(),
+                ));
+            };
+            let changeset = intent_closure.changeset.as_ref().ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized Release closure has no ChangeSet".to_owned(),
+                )
+            })?;
+            changeset_ids.push(changeset.changeset_id);
+            edition_ids.push(value.edition_id);
+            release_ids.extend([value.expected_base_release_id, value.release_id]);
+        }
+        contract::EnabledOperationInputV1::LocalizedObjectQueryReleased(_) => {
+            let AuthorizationApplicationClosure::LocalizedReleased(projection) = closure else {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized released query has no staged projection".to_owned(),
+                ));
+            };
+            edition_ids.extend(projection.edition_id);
+            release_ids.extend(projection.release_id);
+        }
+        contract::EnabledOperationInputV1::WorkspaceStatus(_)
+        | contract::EnabledOperationInputV1::ObjectQueryReleased(_)
+        | contract::EnabledOperationInputV1::ContextBuild(_)
+        | contract::EnabledOperationInputV1::LocalizedContextBuild(_) => {}
+    }
+    requested.changeset_ids =
+        contract::RequestedChangeSetIdsV2::new(changeset_ids).map_err(contract_integrity)?;
+    requested.edition_ids =
+        contract::RequestedEditionIdsV2::new(edition_ids).map_err(contract_integrity)?;
+    requested.release_ids =
+        contract::RequestedReleaseIdsV2::new(release_ids).map_err(contract_integrity)?;
+    Ok(())
+}
+
 fn requested_effective_constraints(
     input: &contract::EnabledOperationInputV1,
+    closure: &AuthorizationApplicationClosure,
 ) -> Result<contract::EffectiveConstraintsV2, contract::AuthorityError> {
-    let (max_objects, max_context_bytes) = match input {
-        contract::EnabledOperationInputV1::WorkspaceStatus(_) => (1, 1),
+    let (max_objects, max_context_bytes, max_edits) = match input {
+        contract::EnabledOperationInputV1::WorkspaceStatus(_) => (1, 1, 1),
         contract::EnabledOperationInputV1::ObjectQueryReleased(value) => (
             u32::try_from(value.object_ids.as_slice().len()).map_err(|_| {
                 contract::AuthorityError::AuthorityIntegrity(
@@ -4489,16 +6394,64 @@ fn requested_effective_constraints(
                 )
             })?,
             1,
+            1,
         ),
         contract::EnabledOperationInputV1::ContextBuild(value) => {
-            (value.max_objects.get(), value.max_bytes.get())
+            (value.max_objects.get(), value.max_bytes.get(), 1)
+        }
+        contract::EnabledOperationInputV1::LocalizedContextBuild(value) => (
+            value.limits.max_objects,
+            u32::try_from(value.limits.max_bytes).map_err(|_| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized Context byte limit is out of range".to_owned(),
+                )
+            })?,
+            value.limits.max_edits,
+        ),
+        contract::EnabledOperationInputV1::LocalizedObjectQueryReleased(value) => {
+            let object_count = value
+                .targets
+                .iter()
+                .map(|target| target.object_id)
+                .collect::<BTreeSet<_>>()
+                .len();
+            (
+                u32::try_from(object_count).map_err(|_| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "requested Object count is out of range".to_owned(),
+                    )
+                })?,
+                1,
+                1,
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetCreate(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetAdd(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetGet(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetDiff(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetValidate(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetCommit(_)
+        | contract::EnabledOperationInputV1::LocalizedEditionCreate(_)
+        | contract::EnabledOperationInputV1::LocalizedReleaseCreate(_) => {
+            let context = match closure {
+                AuthorizationApplicationClosure::LocalizedIntent(value) => value.context.as_ref(),
+                _ => None,
+            };
+            context.map_or((1, 1, 1), |value| {
+                (
+                    value.limits.max_objects,
+                    u32::try_from(value.limits.max_bytes).unwrap_or(u32::MAX),
+                    value.limits.max_edits,
+                )
+            })
         }
     };
     Ok(contract::EffectiveConstraintsV2 {
         max_objects: contract::MaxObjects::new(max_objects).map_err(contract_integrity)?,
         max_context_bytes: contract::MaxContextBytes::new(max_context_bytes)
             .map_err(contract_integrity)?,
-        max_edits_per_changeset: contract::MaxEditsPerChangeSet::new(1)
+        max_edits_per_changeset: contract::MaxEditsPerChangeSet::new(max_edits)
             .map_err(contract_integrity)?,
     })
 }
@@ -4506,28 +6459,26 @@ fn requested_effective_constraints(
 fn effective_constraints_for_delegation(
     input: &contract::EnabledOperationInputV1,
     delegation: &contract::DelegationV2,
+    closure: &AuthorizationApplicationClosure,
 ) -> Result<contract::EffectiveConstraintsV2, contract::AuthorityError> {
-    let max_objects = match input {
-        contract::EnabledOperationInputV1::WorkspaceStatus(_) => delegation.constraints.max_objects,
-        contract::EnabledOperationInputV1::ObjectQueryReleased(value) => {
-            let requested = u32::try_from(value.object_ids.as_slice().len()).map_err(|_| {
-                contract::AuthorityError::AuthorityIntegrity(
-                    "requested Object count is out of range".to_owned(),
-                )
-            })?;
-            contract::MaxObjects::new(requested).map_err(contract_integrity)?
-        }
-        contract::EnabledOperationInputV1::ContextBuild(value) => value.max_objects,
+    let entry = contract::authority_operation_entry(input.operation());
+    let requested = requested_effective_constraints(input, closure)?;
+    let constraints = match entry.budget_projection {
+        contract::BudgetProjection::DelegationOnly => contract::EffectiveConstraintsV2 {
+            max_objects: delegation.constraints.max_objects,
+            max_context_bytes: delegation.constraints.max_context_bytes,
+            max_edits_per_changeset: delegation.constraints.max_edits_per_changeset,
+        },
+        contract::BudgetProjection::RequestedObjectCount => contract::EffectiveConstraintsV2 {
+            max_objects: requested.max_objects,
+            max_context_bytes: delegation.constraints.max_context_bytes,
+            max_edits_per_changeset: delegation.constraints.max_edits_per_changeset,
+        },
+        contract::BudgetProjection::NormalizedV1ContextLimits
+        | contract::BudgetProjection::NormalizedV2ContextLimits
+        | contract::BudgetProjection::BoundContextLimits => requested,
     };
-    let max_context_bytes = match input {
-        contract::EnabledOperationInputV1::ContextBuild(value) => value.max_bytes,
-        _ => delegation.constraints.max_context_bytes,
-    };
-    Ok(contract::EffectiveConstraintsV2 {
-        max_objects,
-        max_context_bytes,
-        max_edits_per_changeset: delegation.constraints.max_edits_per_changeset,
-    })
+    Ok(constraints)
 }
 
 fn record_digest_from_projection(
@@ -4569,6 +6520,8 @@ fn record_digest_from_projection(
 fn scope_and_budget_denial(
     delegation: &contract::DelegationV2,
     requested_action: contract::AuthorityAction,
+    requested_resources: &contract::RequestedResourcesV2,
+    effective_constraints: contract::EffectiveConstraintsV2,
     input: &contract::EnabledOperationInputV1,
 ) -> Option<(
     contract::AuthorizationDenialReason,
@@ -4580,42 +6533,22 @@ fn scope_and_budget_denial(
             contract::AuthorityError::ScopeExceeded,
         ));
     }
-    let (environment, objects) = match input {
-        contract::EnabledOperationInputV1::WorkspaceStatus(_) => return None,
-        contract::EnabledOperationInputV1::ObjectQueryReleased(value) => {
-            (&value.environment_id, value.object_ids.as_slice())
-        }
-        contract::EnabledOperationInputV1::ContextBuild(value) => {
-            (&value.environment_id, value.object_ids.as_slice())
-        }
-    };
-    if delegation
-        .scope
-        .environment_ids
-        .as_slice()
-        .binary_search(environment)
-        .is_err()
-        || objects.iter().any(|object_id| {
-            delegation
-                .scope
-                .object_ids
-                .as_slice()
-                .binary_search(object_id)
-                .is_err()
-        })
-    {
+    if !delegation_covers_projected_resources_v1(delegation, requested_resources, false) {
         return Some((
             contract::AuthorizationDenialReason::ScopeExceeded,
             contract::AuthorityError::ScopeExceeded,
         ));
     }
-    let object_count = u32::try_from(objects.len()).unwrap_or(u32::MAX);
-    let budget_exceeded = object_count > delegation.constraints.max_objects.get()
+    let budget_exceeded = effective_constraints.max_objects > delegation.constraints.max_objects
+        || effective_constraints.max_context_bytes > delegation.constraints.max_context_bytes
+        || effective_constraints.max_edits_per_changeset
+            > delegation.constraints.max_edits_per_changeset
         || match input {
             contract::EnabledOperationInputV1::ContextBuild(value) => {
-                value.max_objects.get() > delegation.constraints.max_objects.get()
-                    || value.max_bytes.get() > delegation.constraints.max_context_bytes.get()
-                    || value.expires_at > delegation.expires_at
+                value.expires_at > delegation.expires_at
+            }
+            contract::EnabledOperationInputV1::LocalizedContextBuild(value) => {
+                value.expires_at > delegation.expires_at
             }
             _ => false,
         };
@@ -4627,6 +6560,7 @@ fn scope_and_budget_denial(
 
 #[expect(
     clippy::too_many_lines,
+    clippy::if_not_else,
     reason = "the evaluator makes the complete current C6 ordering and denial precedence explicit"
 )]
 fn assess_authorization(
@@ -4636,7 +6570,9 @@ fn assess_authorization(
     presentation: &VerifiedPresentation,
     evaluated_at: Timestamp,
 ) -> Result<AuthorizationAssessment, contract::AuthorityError> {
-    let requested_resources = requested_resources(workspace_id, &presentation.operation_input)?;
+    let mut requested_resources =
+        initial_requested_resources(workspace_id, &presentation.operation_input)?;
+    let mut application_closure = AuthorizationApplicationClosure::Legacy;
     let requesting_status =
         load_principal_status(transaction, workspace_id, bootstrap_principal_id)?;
     let operating_status =
@@ -4680,13 +6616,11 @@ fn assess_authorization(
             contract::DelegationResolutionV2::NotFoundOrHidden
         },
     };
-    let effective_constraints = delegation.as_ref().map_or_else(
-        || requested_effective_constraints(&presentation.operation_input),
-        |value| effective_constraints_for_delegation(&presentation.operation_input, value),
-    )?;
+    let mut effective_constraints =
+        requested_effective_constraints(&presentation.operation_input, &application_closure)?;
     let requested_action =
         contract::authority_operation_entry(presentation.command.operation).requested_action;
-    let denial = if !principal_state.requesting_principal_enabled
+    let mut denial = if !principal_state.requesting_principal_enabled
         || !principal_state.operating_principal_enabled
     {
         Some((
@@ -4724,8 +6658,13 @@ fn assess_authorization(
                 contract::AuthorizationDenialReason::DelegationExpired,
                 contract::AuthorityError::DelegationExpired,
             ))
+        } else if !value.actions.as_slice().contains(&requested_action) {
+            Some((
+                contract::AuthorizationDenialReason::ScopeExceeded,
+                contract::AuthorityError::ScopeExceeded,
+            ))
         } else {
-            scope_and_budget_denial(value, requested_action, &presentation.operation_input)
+            None
         }
     } else {
         Some((
@@ -4733,6 +6672,121 @@ fn assess_authorization(
             contract::AuthorityError::DelegationUnavailable,
         ))
     };
+
+    if denial.is_none() {
+        let resolved_delegation = delegation.as_ref().ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "allowed authorization assessment has no Delegation".to_owned(),
+            )
+        })?;
+        let profile = contract::authority_operation_entry(presentation.command.operation)
+            .resource_projection_profile;
+        match profile {
+            contract::ResourceProjectionProfileName::WorkspaceOnlyV1
+            | contract::ResourceProjectionProfileName::LegacyObjectSelectionV1 => {
+                effective_constraints = effective_constraints_for_delegation(
+                    &presentation.operation_input,
+                    resolved_delegation,
+                    &application_closure,
+                )?;
+                denial = scope_and_budget_denial(
+                    resolved_delegation,
+                    requested_action,
+                    &requested_resources,
+                    effective_constraints,
+                    &presentation.operation_input,
+                );
+            }
+            contract::ResourceProjectionProfileName::LocalizedIntentClosureV1 => {
+                match resolve_localized_intent_closure(
+                    transaction,
+                    workspace_id,
+                    presentation.command.requesting_principal_id,
+                    &presentation.operation_input,
+                    evaluated_at,
+                )? {
+                    LocalizedIntentClosureResolution::Hidden => {
+                        denial = Some((
+                            contract::AuthorizationDenialReason::ScopeExceeded,
+                            contract::AuthorityError::ScopeExceeded,
+                        ));
+                    }
+                    LocalizedIntentClosureResolution::Verified(closure) => {
+                        requested_resources =
+                            project_localized_intent_closure_v1(workspace_id, &closure.intent)?;
+                        application_closure =
+                            AuthorizationApplicationClosure::LocalizedIntent(closure);
+                        apply_frozen_selectors(
+                            &mut requested_resources,
+                            &presentation.operation_input,
+                            &application_closure,
+                        )?;
+                        effective_constraints = effective_constraints_for_delegation(
+                            &presentation.operation_input,
+                            resolved_delegation,
+                            &application_closure,
+                        )?;
+                        denial = scope_and_budget_denial(
+                            resolved_delegation,
+                            requested_action,
+                            &requested_resources,
+                            effective_constraints,
+                            &presentation.operation_input,
+                        );
+                    }
+                }
+            }
+            contract::ResourceProjectionProfileName::LocalizedReleasedSelectionV1 => {
+                if !delegation_covers_projected_resources_v1(
+                    resolved_delegation,
+                    &requested_resources,
+                    true,
+                ) {
+                    denial = Some((
+                        contract::AuthorizationDenialReason::ScopeExceeded,
+                        contract::AuthorityError::ScopeExceeded,
+                    ));
+                } else {
+                    let contract::EnabledOperationInputV1::LocalizedObjectQueryReleased(value) =
+                        &presentation.operation_input
+                    else {
+                        return Err(contract::AuthorityError::AuthorityIntegrity(
+                            "localized released projection has the wrong input".to_owned(),
+                        ));
+                    };
+                    let command = value.clone().into_application_command();
+                    let projection = localized::resolve_released_authorization_projection(
+                        transaction,
+                        workspace_id,
+                        &command,
+                    )
+                    .map_err(authority_from_local_port)?;
+                    requested_resources.schema_ids =
+                        contract::RequestedSchemaIdsV2::new(projection.schema_ids.clone())
+                            .map_err(contract_integrity)?;
+                    application_closure =
+                        AuthorizationApplicationClosure::LocalizedReleased(projection);
+                    apply_frozen_selectors(
+                        &mut requested_resources,
+                        &presentation.operation_input,
+                        &application_closure,
+                    )?;
+                    effective_constraints = effective_constraints_for_delegation(
+                        &presentation.operation_input,
+                        resolved_delegation,
+                        &application_closure,
+                    )?;
+                    denial = scope_and_budget_denial(
+                        resolved_delegation,
+                        requested_action,
+                        &requested_resources,
+                        effective_constraints,
+                        &presentation.operation_input,
+                    );
+                }
+            }
+        }
+    }
     Ok(AuthorizationAssessment {
         requested_resources,
         effective_constraints,
@@ -4740,6 +6794,8 @@ fn assess_authorization(
         binding,
         delegation: delegation_evidence,
         resolved_delegation: delegation,
+        application_closure,
+        application_idempotency: None,
         denial,
     })
 }
@@ -4753,61 +6809,288 @@ struct PreparedDecision {
     authority_key_id: String,
 }
 
-fn apply_context_idempotency_denial(
+#[expect(
+    clippy::too_many_lines,
+    reason = "global application-key preflight checks legacy, v13, and P7 ownership before any consequence is attempted"
+)]
+fn apply_application_idempotency_denial(
     transaction: &Transaction<'_>,
     workspace_id: WorkspaceId,
     presentation: &VerifiedPresentation,
     assessment: &mut AuthorizationAssessment,
 ) -> Result<(), contract::AuthorityError> {
-    let contract::EnabledOperationInputV1::ContextBuild(input) = &presentation.operation_input
+    type LedgerRow = (String, String, String, String);
+
+    let registry = contract::authority_operation_entry(presentation.command.operation);
+    let application_idempotency = match registry.application_idempotency {
+        contract::ApplicationIdempotency::None => return Ok(()),
+        contract::ApplicationIdempotency::RequiredUuidV7 => {
+            let key = presentation
+                .operation_input
+                .application_idempotency_key()
+                .ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "required application key is absent after contract validation".to_owned(),
+                    )
+                })?;
+            ApplicationIdempotencyAssessment {
+                kind: ApplicationIdempotencyKind::Required,
+                key: Some(key.to_string()),
+                replay_application_effect_digest: None,
+            }
+        }
+        contract::ApplicationIdempotency::DerivedChangeset => ApplicationIdempotencyAssessment {
+            kind: ApplicationIdempotencyKind::Derived,
+            key: Some(derived_changeset_application_key(
+                workspace_id,
+                &presentation.operation_input,
+            )?),
+            replay_application_effect_digest: None,
+        },
+        contract::ApplicationIdempotency::DerivedProposalPolicyValidator => {
+            ApplicationIdempotencyAssessment {
+                kind: ApplicationIdempotencyKind::Derived,
+                key: derived_validation_application_key(workspace_id, assessment)?,
+                replay_application_effect_digest: None,
+            }
+        }
+    };
+    assessment.application_idempotency = Some(application_idempotency);
+    let Some(key) = assessment
+        .application_idempotency
+        .as_ref()
+        .and_then(|value| value.key.as_deref())
     else {
         return Ok(());
     };
-    let rows = transaction
+
+    let legacy_rows = transaction
         .prepare(
-            "SELECT command_digest FROM authenticated_operation_results_v1
+            "SELECT operation_name, operation_version, command_digest
+             FROM authenticated_operation_results_v1
              WHERE workspace_id = ?1 AND idempotency_key = ?2
-              ORDER BY command_digest",
+             ORDER BY operation_name, operation_version, command_digest",
         )
         .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
-        .query_map(
-            (workspace_id.to_string(), input.idempotency_key.to_string()),
-            |row| row.get::<_, String>(0),
-        )
+        .query_map((workspace_id.to_string(), key), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
-    if rows.len() > 1 {
+    if legacy_rows.len() > 1 {
         return Err(contract::AuthorityError::AuthorityIntegrity(
             "an authenticated operation key has multiple recorded results".to_owned(),
         ));
     }
-    if rows
-        .first()
-        .is_some_and(|digest| digest != &presentation.command_digest.to_string())
-    {
-        assessment.denial = Some((
-            contract::AuthorizationDenialReason::IdempotencyKeyReused,
-            contract::AuthorityError::IdempotencyKeyReused,
-        ));
+    if let Some((operation_name, operation_version, command_digest)) = legacy_rows.first() {
+        let exact_legacy_replay = presentation.command.operation
+            == contract::AuthorityOperation::ContextBuildV1
+            && operation_name == presentation.command.operation.name()
+            && operation_version == presentation.command.operation.version()
+            && command_digest == &presentation.command_digest.to_string();
+        if exact_legacy_replay {
+            return Ok(());
+        }
+        set_idempotency_denial(assessment);
+        return Ok(());
     }
-    let legacy_key_exists = transaction
+
+    let ledger: Option<LedgerRow> = transaction
         .query_row(
-            "SELECT EXISTS(
-                 SELECT 1 FROM context_pack_build_operations
-                 WHERE workspace_id = ?1 AND idempotency_key = ?2
-             )",
-            (workspace_id.to_string(), input.idempotency_key.to_string()),
-            |row| row.get::<_, bool>(0),
+            "SELECT operation_name, operation_version, command_digest,
+                    application_effect_digest
+             FROM authenticated_application_idempotency_v1
+             WHERE workspace_id = ?1 AND idempotency_key = ?2",
+            (workspace_id.to_string(), key),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
+        .optional()
         .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
-    if rows.is_empty() && legacy_key_exists {
-        assessment.denial = Some((
-            contract::AuthorizationDenialReason::IdempotencyKeyReused,
-            contract::AuthorityError::IdempotencyKeyReused,
-        ));
+    if let Some((operation_name, operation_version, command_digest, consequence_digest)) = ledger {
+        if operation_name != presentation.command.operation.name()
+            || operation_version != presentation.command.operation.version()
+            || command_digest != presentation.command_digest.to_string()
+        {
+            set_idempotency_denial(assessment);
+            return Ok(());
+        }
+        let consequence_digest = consequence_digest
+            .parse::<proof_application::ContentDigest>()
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        assessment
+            .application_idempotency
+            .as_mut()
+            .ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "application replay lost its derived key".to_owned(),
+                )
+            })?
+            .replay_application_effect_digest = Some(consequence_digest);
+        return Ok(());
+    }
+
+    let prior_sources = prior_application_key_sources(transaction, workspace_id, key)?;
+    if prior_sources.is_empty() {
+        return Ok(());
+    }
+    let exact_context_selection = presentation.command.operation
+        == contract::AuthorityOperation::ContextBuildV2
+        && prior_sources.as_slice() == ["localized_context_build_operations"]
+        && transaction
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM localized_context_build_operations
+                     WHERE workspace_id = ?1 AND principal_id = ?2
+                       AND idempotency_key = ?3 AND context_pack_id = ?4
+                 )",
+                (
+                    workspace_id.to_string(),
+                    presentation.command.requesting_principal_id.to_string(),
+                    key,
+                    match &presentation.operation_input {
+                        contract::EnabledOperationInputV1::LocalizedContextBuild(input) => {
+                            input.context_pack_id.to_string()
+                        }
+                        _ => String::new(),
+                    },
+                ),
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    if !exact_context_selection {
+        set_idempotency_denial(assessment);
     }
     Ok(())
+}
+
+fn prior_application_key_sources(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    key: &str,
+) -> Result<Vec<String>, contract::AuthorityError> {
+    let table_names = connection
+        .prepare(
+            "SELECT name FROM sqlite_schema
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+             ORDER BY name",
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    let mut sources = Vec::new();
+    for table_name in table_names {
+        let quoted_table = format!("\"{}\"", table_name.replace('"', "\"\""));
+        let columns = connection
+            .prepare(&format!("PRAGMA table_info({quoted_table})"))
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+        if !columns.iter().any(|column| column == "idempotency_key") {
+            continue;
+        }
+        let workspace_scoped = columns.iter().any(|column| column == "workspace_id");
+        let exists = if workspace_scoped {
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM {quoted_table}
+                         WHERE workspace_id = ?1 AND idempotency_key = ?2)"
+                    ),
+                    (workspace_id.to_string(), key),
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+        } else {
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM {quoted_table} WHERE idempotency_key = ?1)"
+                    ),
+                    [key],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+        };
+        if exists {
+            sources.push(table_name);
+        }
+    }
+    Ok(sources)
+}
+
+fn set_idempotency_denial(assessment: &mut AuthorizationAssessment) {
+    assessment.denial = Some((
+        contract::AuthorizationDenialReason::IdempotencyKeyReused,
+        contract::AuthorityError::IdempotencyKeyReused,
+    ));
+}
+
+fn derived_changeset_application_key(
+    workspace_id: WorkspaceId,
+    input: &contract::EnabledOperationInputV1,
+) -> Result<String, contract::AuthorityError> {
+    let contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(input) = input else {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "derived ChangeSet key selected for the wrong operation".to_owned(),
+        ));
+    };
+    let value = canonicalize(&json!({
+        "api_version": "proof.dev/application-idempotency-key/v1",
+        "changeset_id": input.changeset_id.to_string(),
+        "operation": "changeset.submit/v2",
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    Ok(digest(ArtifactKind::OperationEffectV1, &value).to_string())
+}
+
+fn derived_validation_application_key(
+    workspace_id: WorkspaceId,
+    assessment: &AuthorizationAssessment,
+) -> Result<Option<String>, contract::AuthorityError> {
+    let AuthorizationApplicationClosure::LocalizedIntent(closure) = &assessment.application_closure
+    else {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "derived validation key has no verified intent closure".to_owned(),
+        ));
+    };
+    let (Some(changeset), Some(context)) = (&closure.changeset, &closure.context) else {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "derived validation key has incomplete ChangeSet evidence".to_owned(),
+        ));
+    };
+    let diff = match localized::changeset_diff(changeset) {
+        Ok(diff) => diff,
+        Err(LocalPortError::Storage(detail)) => {
+            return Err(contract::AuthorityError::Storage(detail));
+        }
+        Err(LocalPortError::Integrity(detail)) => {
+            return Err(contract::AuthorityError::AuthorityIntegrity(detail));
+        }
+        Err(_) => return Ok(None),
+    };
+    let value = canonicalize(&json!({
+        "api_version": "proof.dev/application-idempotency-key/v1",
+        "changeset_id": changeset.changeset_id.to_string(),
+        "operation": "changeset.validate/v2",
+        "policy_digest": context.policy_digest.to_string(),
+        "proposal_digest": diff.proposal_digest.to_string(),
+        "validator": proof_application::LOCALIZED_CONTENT_VALIDATOR,
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    Ok(Some(
+        digest(ArtifactKind::OperationEffectV1, &value).to_string(),
+    ))
 }
 
 fn authority_policy_bundle_digest()
@@ -4827,6 +7110,7 @@ fn prepare_authorization_decision(
     presentation: &VerifiedPresentation,
     assessment: &AuthorizationAssessment,
     evaluated_at: Timestamp,
+    localized_consequence_commitment: Option<contract::LocalizedConsequenceCommitmentV1>,
 ) -> Result<PreparedDecision, contract::AuthorityError> {
     let head = load_authority_head(transaction, workspace_id)?.ok_or_else(|| {
         contract::AuthorityError::AuthorityIntegrity("authority log has no head".to_owned())
@@ -4871,6 +7155,7 @@ fn prepare_authorization_decision(
         delegation: assessment.delegation,
         policy_profile: contract::DirectAuthorityProfileV1::Direct,
         policy_bundle_digest: authority_policy_bundle_digest()?,
+        localized_consequence_commitment,
         evaluated_at,
         decision: outcome,
         reason_code,
@@ -5014,7 +7299,666 @@ fn persist_authorization_decision(
             ),
         )
         .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
-    verify_authority_log(transaction, workspace_id)
+    Ok(())
+}
+
+struct LocalizedResultEvidence {
+    result_kind: &'static str,
+    operation_output_schema: &'static str,
+    result_contract: &'static str,
+    result_json: String,
+    result_digest: proof_application::ContentDigest,
+    application_effect_digest: proof_application::ContentDigest,
+    application_consequence_digest: proof_application::ContentDigest,
+    selectors_json: String,
+    closure: serde_json::Value,
+}
+
+impl LocalizedResultEvidence {
+    fn commitment(
+        &self,
+        operation: contract::AuthorityOperation,
+    ) -> Result<contract::LocalizedConsequenceCommitmentV1, contract::AuthorityError> {
+        let result_kind = match self.result_kind {
+            "success" => contract::LocalizedConsequenceResultKindV1::Success,
+            "failure" => contract::LocalizedConsequenceResultKindV1::Failure,
+            _ => {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized result evidence has an unknown kind".to_owned(),
+                ));
+            }
+        };
+        let commitment = contract::LocalizedConsequenceCommitmentV1::new(
+            operation,
+            result_kind,
+            self.result_digest,
+            self.application_consequence_digest,
+        )
+        .map_err(contract_integrity)?;
+        if commitment.result_contract != self.result_contract {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized result contract differs from the signed commitment".to_owned(),
+            ));
+        }
+        Ok(commitment)
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "localized consequence persistence atomically cross-links the signed decision, canonical result, ledger, and P7 effect"
+)]
+fn persist_authenticated_localized_consequence(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    presentation: &VerifiedPresentation,
+    assessment: &AuthorizationAssessment,
+    prepared: &PreparedDecision,
+    evidence: &LocalizedResultEvidence,
+) -> Result<(), contract::AuthorityError> {
+    if prepared.decision.decision != contract::AuthorizationDecisionOutcome::Allow {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized consequence is not anchored to an Allow decision".to_owned(),
+        ));
+    }
+    let expected_commitment = evidence.commitment(presentation.command.operation)?;
+    if prepared.decision.localized_consequence_commitment.as_ref() != Some(&expected_commitment) {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized consequence differs from its signed decision commitment".to_owned(),
+        ));
+    }
+    let (idempotency_kind, idempotency_key) = localized_idempotency_evidence(
+        presentation.command.operation,
+        assessment,
+        evidence.result_kind,
+    )?;
+    let selectors = canonicalize(
+        &parse_strict(evidence.selectors_json.as_bytes())
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?,
+    )
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    if selectors.as_str() != evidence.selectors_json {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized consequence selectors are not canonical".to_owned(),
+        ));
+    }
+    let signed_selectors = canonicalize(&json!({
+        "changeset_ids": prepared.decision.requested_resources.changeset_ids,
+        "edition_ids": prepared.decision.requested_resources.edition_ids,
+        "release_ids": prepared.decision.requested_resources.release_ids,
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    if selectors.as_str() != signed_selectors.as_str() {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized consequence selectors differ from the signed decision".to_owned(),
+        ));
+    }
+    let consequence = canonicalize(&json!({
+        "api_version": "proof.dev/authenticated-localized-consequence/v1",
+        "application_consequence_digest": evidence.application_consequence_digest.to_string(),
+        "application_idempotency": {
+            "key": idempotency_key,
+            "kind": idempotency_kind,
+        },
+        "authorization_decision_digest": prepared.record_digest.to_string(),
+        "closure": evidence.closure,
+        "command_digest": presentation.command_digest.to_string(),
+        "delegation_id": presentation.command.delegation_id.to_string(),
+        "operating_principal_id": presentation.command.operating_principal_id.to_string(),
+        "operation": {
+            "name": presentation.command.operation.name(),
+            "version": presentation.command.operation.version(),
+        },
+        "operation_output_schema": evidence.operation_output_schema,
+        "presentation_id": presentation.command.presentation_id.to_string(),
+        "requesting_principal_id": presentation.command.requesting_principal_id.to_string(),
+        "result": {
+            "contract": evidence.result_contract,
+            "digest": evidence.result_digest.to_string(),
+            "kind": evidence.result_kind,
+        },
+        "application_effect_digest": evidence.application_effect_digest.to_string(),
+        "selectors": parse_strict(selectors.as_bytes()).map_err(|error| {
+            contract::AuthorityError::AuthorityIntegrity(error.to_string())
+        })?,
+        "semantic_timestamp": presentation
+            .operation_input
+            .semantic_timestamp()
+            .map(|value| value.to_string()),
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let evidence_digest = digest(ArtifactKind::OperationEffectV1, &consequence);
+    let sequence = i64::try_from(prepared.decision.authority_sequence.get()).map_err(|_| {
+        contract::AuthorityError::AuthorityIntegrity(
+            "localized consequence authority sequence is out of range".to_owned(),
+        )
+    })?;
+
+    if evidence.result_kind == "success"
+        && let Some(key) = idempotency_key
+    {
+        persist_authenticated_application_key(
+            transaction,
+            workspace_id,
+            key,
+            idempotency_kind,
+            presentation,
+            assessment,
+            evidence,
+            sequence,
+        )?;
+    }
+
+    transaction
+        .execute(
+            "INSERT INTO authenticated_localized_consequences_v1 (
+                 decision_authority_sequence, presentation_id, workspace_id,
+                 requesting_principal_id, operating_principal_id, delegation_id,
+                 command_digest, authorization_decision_digest, operation_name,
+                 operation_version, application_idempotency_kind,
+                 application_idempotency_key, result_kind, result_contract,
+                 result_json, result_digest, application_effect_digest,
+                 application_consequence_digest, selectors_json, evidence_json,
+                 evidence_digest
+             ) VALUES (
+                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                 ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21
+             )",
+            rusqlite::params![
+                sequence,
+                presentation.command.presentation_id.to_string(),
+                workspace_id.to_string(),
+                presentation.command.requesting_principal_id.to_string(),
+                presentation.command.operating_principal_id.to_string(),
+                presentation.command.delegation_id.to_string(),
+                presentation.command_digest.to_string(),
+                prepared.record_digest.to_string(),
+                presentation.command.operation.name(),
+                presentation.command.operation.version(),
+                idempotency_kind,
+                idempotency_key,
+                evidence.result_kind,
+                evidence.result_contract,
+                evidence.result_json,
+                evidence.result_digest.to_string(),
+                evidence.application_effect_digest.to_string(),
+                evidence.application_consequence_digest.to_string(),
+                selectors.as_str(),
+                consequence.as_str(),
+                evidence_digest.to_string(),
+            ],
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "localized result evidence builds one canonical signed composite across the closed result union"
+)]
+fn localized_result_evidence(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    presentation: &VerifiedPresentation,
+    assessment: &AuthorizationAssessment,
+    result: &contract::AuthenticatedOperationResultV1,
+) -> Result<LocalizedResultEvidence, contract::AuthorityError> {
+    let operation_output_schema =
+        contract::localized_operation_output_schema_uri(presentation.command.operation)
+            .ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized operation has no output Schema".to_owned(),
+                )
+            })?;
+    let (result_kind, result_contract) = match result {
+        contract::AuthenticatedOperationResultV1::LocalizedSuccess(success) => {
+            if success.operation() != presentation.command.operation {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized success operation differs from its signed command".to_owned(),
+                ));
+            }
+            ("success", operation_output_schema)
+        }
+        contract::AuthenticatedOperationResultV1::LocalizedFailure(failure) => {
+            if failure.operation != presentation.command.operation {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "localized failure operation differs from its signed command".to_owned(),
+                ));
+            }
+            (
+                "failure",
+                contract::LOCALIZED_PUBLIC_PROBLEM_RESULT_CONTRACT_V1,
+            )
+        }
+        _ => {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "non-localized result reached localized consequence persistence".to_owned(),
+            ));
+        }
+    };
+    let result_value = result
+        .localized_result_value()
+        .map_err(contract_integrity)?
+        .ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized result has no application-owned canonical value".to_owned(),
+            )
+        })?;
+    let canonical_result = canonicalize(&result_value)
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let result_digest = result
+        .localized_result_digest()
+        .map_err(contract_integrity)?
+        .ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized result has no application-owned digest".to_owned(),
+            )
+        })?;
+    let application_effect_digest = match result {
+        contract::AuthenticatedOperationResultV1::LocalizedSuccess(success) => {
+            localized_success_effect_digest(
+                transaction,
+                workspace_id,
+                presentation,
+                assessment,
+                success,
+                result_digest,
+            )?
+        }
+        contract::AuthenticatedOperationResultV1::LocalizedFailure(_) => result_digest,
+        _ => unreachable!("localized result union was checked above"),
+    };
+    let (idempotency_kind, idempotency_key) =
+        localized_idempotency_evidence(presentation.command.operation, assessment, result_kind)?;
+    let selectors = canonicalize(&json!({
+        "changeset_ids": assessment.requested_resources.changeset_ids,
+        "edition_ids": assessment.requested_resources.edition_ids,
+        "release_ids": assessment.requested_resources.release_ids,
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let closure = localized_closure_evidence(transaction, assessment, result)?;
+    let composite = canonicalize(&json!({
+        "api_version": "proof.dev/authenticated-localized-consequence-commitment/v1",
+        "application_effect_digest": application_effect_digest.to_string(),
+        "application_idempotency": {
+            "key": idempotency_key,
+            "kind": idempotency_kind,
+        },
+        "closure": closure,
+        "command_digest": presentation.command_digest.to_string(),
+        "delegation_id": presentation.command.delegation_id.to_string(),
+        "operating_principal_id": presentation.command.operating_principal_id.to_string(),
+        "operation": {
+            "name": presentation.command.operation.name(),
+            "version": presentation.command.operation.version(),
+        },
+        "requesting_principal_id": presentation.command.requesting_principal_id.to_string(),
+        "result": {
+            "contract": result_contract,
+            "digest": result_digest.to_string(),
+            "kind": result_kind,
+        },
+        "selectors": parse_strict(selectors.as_bytes()).map_err(|error| {
+            contract::AuthorityError::AuthorityIntegrity(error.to_string())
+        })?,
+        "semantic_timestamp": presentation
+            .operation_input
+            .semantic_timestamp()
+            .map(|value| value.to_string()),
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    let application_consequence_digest = digest(ArtifactKind::OperationEffectV1, &composite);
+    Ok(LocalizedResultEvidence {
+        result_kind,
+        operation_output_schema,
+        result_contract,
+        result_json: canonical_result.as_str().to_owned(),
+        result_digest,
+        application_effect_digest,
+        application_consequence_digest,
+        selectors_json: selectors.as_str().to_owned(),
+        closure,
+    })
+}
+
+fn localized_success_effect_digest(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    presentation: &VerifiedPresentation,
+    assessment: &AuthorizationAssessment,
+    success: &contract::LocalizedOperationSuccessV1,
+    result_digest: proof_application::ContentDigest,
+) -> Result<proof_application::ContentDigest, contract::AuthorityError> {
+    let principal_id = presentation.command.requesting_principal_id.to_string();
+    let required_key = assessment
+        .application_idempotency
+        .as_ref()
+        .and_then(|value| value.key.as_deref());
+    let raw = match success {
+        contract::LocalizedOperationSuccessV1::ContextBuilt(_) => Some(localized_digest_row(
+            transaction,
+            "SELECT effect_digest FROM localized_context_build_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.as_str(),
+                required_key.ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "localized Context replay has no application key".to_owned(),
+                    )
+                })?,
+            ),
+        )?),
+        contract::LocalizedOperationSuccessV1::ChangeSetCreated(value) => {
+            Some(localized_digest_row(
+                transaction,
+                "SELECT effect_digest FROM localized_changesets WHERE changeset_id = ?1",
+                [value.changeset_id.to_string()],
+            )?)
+        }
+        contract::LocalizedOperationSuccessV1::EditsAdded(_) => Some(localized_digest_row(
+            transaction,
+            "SELECT effect_digest FROM localized_add_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.as_str(),
+                required_key.ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "localized Add has no application key".to_owned(),
+                    )
+                })?,
+            ),
+        )?),
+        contract::LocalizedOperationSuccessV1::ChangeSetRead(_)
+        | contract::LocalizedOperationSuccessV1::ChangeSetDiffed(_)
+        | contract::LocalizedOperationSuccessV1::ReleasedRenditionsQueried(_) => None,
+        contract::LocalizedOperationSuccessV1::ChangeSetValidated(value) => {
+            Some(value.validation_results_digest)
+        }
+        contract::LocalizedOperationSuccessV1::ChangeSetSubmitted(value) => {
+            Some(localized_digest_row(
+                transaction,
+                "SELECT effect_digest FROM localized_submissions WHERE changeset_id = ?1",
+                [value.changeset_id.to_string()],
+            )?)
+        }
+        contract::LocalizedOperationSuccessV1::ChangeSetCommitted(value) => {
+            Some(localized_digest_row(
+                transaction,
+                "SELECT effect_digest FROM localized_commits WHERE changeset_id = ?1",
+                [value.changeset_id.to_string()],
+            )?)
+        }
+        contract::LocalizedOperationSuccessV1::EditionCreated(_) => Some(localized_digest_row(
+            transaction,
+            "SELECT effect_digest FROM localized_edition_operations
+             WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3",
+            (
+                workspace_id.to_string(),
+                principal_id.as_str(),
+                required_key.ok_or_else(|| {
+                    contract::AuthorityError::AuthorityIntegrity(
+                        "localized Edition has no application key".to_owned(),
+                    )
+                })?,
+            ),
+        )?),
+        contract::LocalizedOperationSuccessV1::ReleaseCreated(value) => Some(value.release_digest),
+    };
+    Ok(raw.unwrap_or(result_digest))
+}
+
+fn localized_digest_row<P: rusqlite::Params>(
+    transaction: &Transaction<'_>,
+    statement: &str,
+    params: P,
+) -> Result<proof_application::ContentDigest, contract::AuthorityError> {
+    let raw = transaction
+        .query_row(statement, params, |row| row.get::<_, String>(0))
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    raw.parse::<proof_application::ContentDigest>()
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))
+}
+
+fn localized_idempotency_evidence<'a>(
+    operation: contract::AuthorityOperation,
+    assessment: &'a AuthorizationAssessment,
+    result_kind: &str,
+) -> Result<(&'static str, Option<&'a str>), contract::AuthorityError> {
+    match contract::authority_operation_entry(operation).application_idempotency {
+        contract::ApplicationIdempotency::None => Ok(("none", None)),
+        contract::ApplicationIdempotency::RequiredUuidV7 => {
+            let value = assessment.application_idempotency.as_ref().ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "required application key was not assessed".to_owned(),
+                )
+            })?;
+            if value.kind != ApplicationIdempotencyKind::Required || value.key.is_none() {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "required application key has the wrong evidence kind".to_owned(),
+                ));
+            }
+            Ok(("required", value.key.as_deref()))
+        }
+        contract::ApplicationIdempotency::DerivedChangeset
+        | contract::ApplicationIdempotency::DerivedProposalPolicyValidator => {
+            let value = assessment.application_idempotency.as_ref().ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "derived application key was not assessed".to_owned(),
+                )
+            })?;
+            if value.kind != ApplicationIdempotencyKind::Derived
+                || (result_kind == "success" && value.key.is_none())
+            {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "derived application key has the wrong evidence kind".to_owned(),
+                ));
+            }
+            Ok(("derived", value.key.as_deref()))
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the global ledger insertion binds its transaction, actors, stable key identity, result, effect, and first sequence"
+)]
+fn persist_authenticated_application_key(
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    key: &str,
+    idempotency_kind: &str,
+    presentation: &VerifiedPresentation,
+    assessment: &AuthorizationAssessment,
+    evidence: &LocalizedResultEvidence,
+    sequence: i64,
+) -> Result<(), contract::AuthorityError> {
+    type ExistingKey = (String, String, String, String, String, String);
+    let existing: Option<ExistingKey> = transaction
+        .query_row(
+            "SELECT idempotency_kind, operation_name, operation_version,
+                    command_digest, result_digest, application_effect_digest
+             FROM authenticated_application_idempotency_v1
+             WHERE workspace_id = ?1 AND idempotency_key = ?2",
+            (workspace_id.to_string(), key),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    if let Some(existing) = existing {
+        let replay_expected = assessment
+            .application_idempotency
+            .as_ref()
+            .is_some_and(|value| value.replay_application_effect_digest.is_some());
+        if !replay_expected
+            || existing.0 != idempotency_kind
+            || existing.1 != presentation.command.operation.name()
+            || existing.2 != presentation.command.operation.version()
+            || existing.3 != presentation.command_digest.to_string()
+            || existing.4 != evidence.result_digest.to_string()
+            || existing.5 != evidence.application_effect_digest.to_string()
+        {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "authenticated application replay ledger does not reproduce".to_owned(),
+            ));
+        }
+        return Ok(());
+    }
+    transaction
+        .execute(
+            "INSERT INTO authenticated_application_idempotency_v1 (
+                 workspace_id, idempotency_key, idempotency_kind, operation_name,
+                 operation_version, command_digest, result_digest,
+                 application_effect_digest, application_consequence_digest,
+                 first_decision_authority_sequence
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            (
+                workspace_id.to_string(),
+                key,
+                idempotency_kind,
+                presentation.command.operation.name(),
+                presentation.command.operation.version(),
+                presentation.command_digest.to_string(),
+                evidence.result_digest.to_string(),
+                evidence.application_effect_digest.to_string(),
+                evidence.application_consequence_digest.to_string(),
+                sequence,
+            ),
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "closure evidence explicitly binds every optional immutable P7 artifact and Human approval field"
+)]
+fn localized_closure_evidence(
+    transaction: &Transaction<'_>,
+    assessment: &AuthorizationAssessment,
+    result: &contract::AuthenticatedOperationResultV1,
+) -> Result<serde_json::Value, contract::AuthorityError> {
+    let AuthorizationApplicationClosure::LocalizedIntent(closure) = &assessment.application_closure
+    else {
+        if let AuthorizationApplicationClosure::LocalizedReleased(projection) =
+            &assessment.application_closure
+        {
+            return Ok(json!({
+                "edition_id": projection.edition_id.map(|value| value.to_string()),
+                "release_id": projection.release_id.map(|value| value.to_string()),
+                "schema_ids": projection
+                    .schema_ids
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            }));
+        }
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "localized consequence has no localized closure".to_owned(),
+        ));
+    };
+    let context = closure.context.as_ref().or(match result {
+        contract::AuthenticatedOperationResultV1::LocalizedSuccess(
+            contract::LocalizedOperationSuccessV1::ContextBuilt(context),
+        ) => Some(context),
+        _ => None,
+    });
+    let approval = if let Some(changeset) = &closure.changeset {
+        let row = transaction
+            .query_row(
+                "SELECT approval.approval_name, approval.principal_id,
+                        approval.approved_at, approval.effect_digest,
+                        principal.principal_type, principal.enabled
+                 FROM localized_approvals AS approval
+                 JOIN principals AS principal
+                   ON principal.principal_id = approval.principal_id
+                 WHERE approval.changeset_id = ?1",
+                [changeset.changeset_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, bool>(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+        row.map(
+            |(approval_name, principal_id, approved_at, effect_digest, kind, enabled)| {
+                if kind != "human" || !enabled {
+                    return Err(contract::AuthorityError::AuthorityIntegrity(
+                        "localized approval principal is not an enabled Human".to_owned(),
+                    ));
+                }
+                Ok(json!({
+                    "approval_name": approval_name,
+                    "approved_at": approved_at,
+                    "effect_digest": effect_digest,
+                    "principal_id": principal_id,
+                }))
+            },
+        )
+        .transpose()?
+    } else {
+        None
+    };
+    let successful_approval_required = matches!(
+        result,
+        contract::AuthenticatedOperationResultV1::LocalizedSuccess(
+            contract::LocalizedOperationSuccessV1::ChangeSetCommitted(_)
+                | contract::LocalizedOperationSuccessV1::EditionCreated(_)
+                | contract::LocalizedOperationSuccessV1::ReleaseCreated(_)
+        )
+    );
+    if successful_approval_required && approval.is_none() {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "consequential localized success lacks enabled Human approval".to_owned(),
+        ));
+    }
+    Ok(json!({
+        "approval": approval,
+        "changeset": closure.changeset.as_ref().map(|value| json!({
+            "changeset_id": value.changeset_id.to_string(),
+            "context_pack_digest": value.context_pack_digest.to_string(),
+            "context_pack_id": value.context_pack_id.to_string(),
+            "resource_intent_digest": value.resource_intent_digest.to_string(),
+            "resource_intent_id": value.resource_intent_id.to_string(),
+        })),
+        "context": context.map(|value| json!({
+            "context_pack_digest": value.context_pack_digest.to_string(),
+            "context_pack_id": value.context_pack_id.to_string(),
+            "limits": {
+                "max_bytes": value.limits.max_bytes,
+                "max_edits": value.limits.max_edits,
+                "max_objects": value.limits.max_objects,
+                "max_validation_attempts": value.limits.max_validation_attempts,
+            },
+            "policy_digest": value.policy_digest.to_string(),
+        })),
+        "context_fresh": closure.context_fresh,
+        "resource_intent": {
+            "intent_digest": closure.intent.intent_digest.to_string(),
+            "intent_id": closure.intent.intent_id.to_string(),
+            "issued_by_principal_id": closure.intent.issued_by_principal_id.to_string(),
+        },
+        "validator": proof_application::LOCALIZED_CONTENT_VALIDATOR,
+    }))
 }
 
 fn authority_from_local_port(error: LocalPortError) -> contract::AuthorityError {
@@ -5052,11 +7996,20 @@ fn delegated_capability_versions_v2(delegation: &contract::DelegationV2) -> Vec<
         .iter()
         .filter(|capability| {
             let action = match capability.required_action {
+                DelegatedAction::ChangesetAdd => contract::AuthorityAction::ChangesetAdd,
+                DelegatedAction::ChangesetCommit => contract::AuthorityAction::ChangesetCommit,
+                DelegatedAction::ChangesetCreate => contract::AuthorityAction::ChangesetCreate,
+                DelegatedAction::ChangesetDiff => contract::AuthorityAction::ChangesetDiff,
+                DelegatedAction::ChangesetGet => contract::AuthorityAction::ChangesetGet,
+                DelegatedAction::ChangesetSubmit => contract::AuthorityAction::ChangesetSubmit,
+                DelegatedAction::ChangesetValidate => contract::AuthorityAction::ChangesetValidate,
                 DelegatedAction::WorkspaceStatus => contract::AuthorityAction::WorkspaceStatus,
                 DelegatedAction::ObjectQueryReleased => {
                     contract::AuthorityAction::ObjectQueryReleased
                 }
                 DelegatedAction::ContextBuild => contract::AuthorityAction::ContextBuild,
+                DelegatedAction::EditionCreate => contract::AuthorityAction::EditionCreate,
+                DelegatedAction::ReleaseCreate => contract::AuthorityAction::ReleaseCreate,
             };
             delegation.actions.as_slice().contains(&action)
         })
@@ -5251,11 +8204,257 @@ fn persist_context_result(
     Ok(())
 }
 
+fn localized_application_result(
+    operation: contract::AuthorityOperation,
+    result: Result<contract::LocalizedOperationSuccessV1, LocalPortError>,
+) -> Result<contract::AuthenticatedOperationResultV1, contract::AuthorityError> {
+    match result {
+        Ok(success) => Ok(contract::AuthenticatedOperationResultV1::LocalizedSuccess(
+            success,
+        )),
+        Err(LocalPortError::IdempotencyKeyReused) => {
+            Err(contract::AuthorityError::IdempotencyKeyReused)
+        }
+        Err(LocalPortError::Storage(detail)) => Err(contract::AuthorityError::Storage(detail)),
+        Err(LocalPortError::Integrity(detail)) => {
+            Err(contract::AuthorityError::AuthorityIntegrity(detail))
+        }
+        Err(LocalPortError::Signing(detail)) => Err(contract::AuthorityError::Signing(detail)),
+        Err(LocalPortError::Unauthenticated) => Err(contract::AuthorityError::AuthorityIntegrity(
+            "authority-owned localized consequence re-authenticated its Human".to_owned(),
+        )),
+        Err(error) => {
+            let application_error = localized::localized_from_local_port(error);
+            let kind = contract::LocalizedOperationFailureKindV1::from_application_error(
+                &application_error,
+            )
+            .ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "localized application failure has no caller-safe mapping".to_owned(),
+                )
+            })?;
+            let failure = contract::LocalizedOperationFailureV1::new(operation, kind)
+                .map_err(contract_integrity)?;
+            Ok(contract::AuthenticatedOperationResultV1::LocalizedFailure(
+                failure,
+            ))
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixed 11-row registry maps explicitly to existing P-0007 transaction helpers"
+)]
+fn execute_localized_consequence(
+    repository: &LocalWorkspace,
+    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
+    presentation: &VerifiedPresentation,
+    assessment: &AuthorizationAssessment,
+) -> Result<contract::AuthenticatedOperationResultV1, contract::AuthorityError> {
+    if let AuthorizationApplicationClosure::LocalizedIntent(closure) =
+        &assessment.application_closure
+        && !closure.context_fresh
+    {
+        return localized_application_result(
+            presentation.command.operation,
+            Err(LocalPortError::PolicyDenied),
+        );
+    }
+    let requesting_principal_id = presentation.command.requesting_principal_id;
+    let operation = presentation.command.operation;
+    let result = match &presentation.operation_input {
+        contract::EnabledOperationInputV1::LocalizedContextBuild(input) => {
+            let command = input.clone().into_application_command();
+            localized::replay_existing_context(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+            )
+            .map(contract::LocalizedOperationSuccessV1::ContextBuilt)
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetCreate(input) => {
+            let command = input.clone().into_application_command();
+            localized::create_changeset(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+            )
+            .map(contract::LocalizedOperationSuccessV1::ChangeSetCreated)
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetAdd(input) => (|| {
+            let edits = input
+                .edits
+                .iter()
+                .cloned()
+                .map(|edit| {
+                    let content = canonicalize(&serde_json::Value::Object(edit.content().clone()))
+                        .map_err(|_| LocalPortError::Invalid)?
+                        .as_str()
+                        .to_owned();
+                    edit.into_application_input(content)
+                        .map_err(|_| LocalPortError::Invalid)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let assigned_edit_ids = (0..edits.len())
+                .map(|index| {
+                    proof_assigned_edit_id(
+                        presentation.command.presentation_id.to_string().as_str(),
+                        index,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let command = proof_application::AddLocalizedEditsCommand {
+                changeset_id: input.changeset_id,
+                edits,
+                assigned_edit_ids,
+                idempotency_key: input.idempotency_key,
+            };
+            localized::add_edits(transaction, workspace_id, requesting_principal_id, &command)
+                .map(contract::LocalizedOperationSuccessV1::EditsAdded)
+        })(),
+        contract::EnabledOperationInputV1::LocalizedChangeSetGet(input) => {
+            localized::load_changeset(transaction, workspace_id, input.changeset_id).and_then(
+                |changeset| {
+                    let diff = localized::changeset_diff(&changeset)?;
+                    Ok(contract::LocalizedOperationSuccessV1::ChangeSetRead(
+                        contract::LocalizedChangeSetReadV1 {
+                            changeset,
+                            effective_leaf_digest: diff.effective_leaf_digest,
+                        },
+                    ))
+                },
+            )
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetDiff(input) => {
+            localized::load_changeset(transaction, workspace_id, input.changeset_id)
+                .and_then(|changeset| localized::changeset_diff(&changeset))
+                .map(contract::LocalizedOperationSuccessV1::ChangeSetDiffed)
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetValidate(input) => {
+            let replay = assessment
+                .application_idempotency
+                .as_ref()
+                .and_then(|value| value.replay_application_effect_digest);
+            replay
+                .map_or_else(
+                    || {
+                        localized::validate_changeset(
+                            transaction,
+                            workspace_id,
+                            requesting_principal_id,
+                            input.changeset_id,
+                        )
+                    },
+                    |validation_results_digest| {
+                        localized::replay_validation_for_authenticated_operation(
+                            transaction,
+                            workspace_id,
+                            requesting_principal_id,
+                            input.changeset_id,
+                            validation_results_digest,
+                        )
+                    },
+                )
+                .map(contract::LocalizedOperationSuccessV1::ChangeSetValidated)
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(input) => {
+            localized::submit_changeset(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                input.changeset_id,
+                input.submitted_at,
+            )
+            .map(contract::LocalizedOperationSuccessV1::ChangeSetSubmitted)
+        }
+        contract::EnabledOperationInputV1::LocalizedChangeSetCommit(input) => {
+            let command = input.into_application_command();
+            localized::commit_changeset(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+            )
+            .map(contract::LocalizedOperationSuccessV1::ChangeSetCommitted)
+        }
+        contract::EnabledOperationInputV1::LocalizedEditionCreate(input) => {
+            let command = input.into_application_command();
+            localized::create_localized_edition(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+            )
+            .map(contract::LocalizedOperationSuccessV1::EditionCreated)
+        }
+        contract::EnabledOperationInputV1::LocalizedReleaseCreate(input) => {
+            let command = input.clone().into_application_command();
+            localized::promote_localized_release_transaction(
+                transaction,
+                workspace_id,
+                requesting_principal_id,
+                &command,
+                || repository.preflight_release_proof_export(command.proof_id),
+                || repository.load_or_create_release_signer(command.release_id),
+            )
+            .map(contract::LocalizedOperationSuccessV1::ReleaseCreated)
+        }
+        contract::EnabledOperationInputV1::LocalizedObjectQueryReleased(input) => {
+            let command = input.clone().into_application_command();
+            localized::query_released_renditions(transaction, workspace_id, &command)
+                .map(contract::LocalizedOperationSuccessV1::ReleasedRenditionsQueried)
+        }
+        _ => {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "localized consequence received a legacy operation".to_owned(),
+            ));
+        }
+    };
+    localized_application_result(operation, result)
+}
+
+fn proof_assigned_edit_id(
+    presentation_id: &str,
+    edit_index: usize,
+) -> Result<proof_application::EditId, LocalPortError> {
+    let entropy = canonicalize(&json!({
+        "api_version": "proof.dev/proof-assigned-edit-id/v1",
+        "edit_index": edit_index,
+        "presentation_id": presentation_id,
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let entropy_digest = digest(ArtifactKind::OperationEffectV1, &entropy).to_string();
+    let entropy_hex = entropy_digest.strip_prefix("blake3:").ok_or_else(|| {
+        LocalPortError::Integrity("Edit identity entropy digest is malformed".to_owned())
+    })?;
+    if presentation_id.len() != 36 || entropy_hex.len() < 18 {
+        return Err(LocalPortError::Integrity(
+            "Edit identity source is malformed".to_owned(),
+        ));
+    }
+    let candidate = format!(
+        "{}-{}-7{}-8{}-{}",
+        &presentation_id[..8],
+        &presentation_id[9..13],
+        &entropy_hex[..3],
+        &entropy_hex[3..6],
+        &entropy_hex[6..18],
+    );
+    candidate
+        .parse::<proof_application::EditId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the three-operation closed union keeps success and committed-Allow failure mappings explicit"
 )]
 fn execute_authorized_consequence(
+    repository: &LocalWorkspace,
     transaction: &Transaction<'_>,
     workspace_id: WorkspaceId,
     presentation: &VerifiedPresentation,
@@ -5413,6 +8612,25 @@ fn execute_authorized_consequence(
             Ok(contract::AuthenticatedOperationResultV1::ContextPack(
                 context_pack,
             ))
+        }
+        contract::EnabledOperationInputV1::LocalizedContextBuild(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetCreate(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetAdd(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetGet(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetDiff(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetValidate(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetSubmit(_)
+        | contract::EnabledOperationInputV1::LocalizedChangeSetCommit(_)
+        | contract::EnabledOperationInputV1::LocalizedEditionCreate(_)
+        | contract::EnabledOperationInputV1::LocalizedReleaseCreate(_)
+        | contract::EnabledOperationInputV1::LocalizedObjectQueryReleased(_) => {
+            execute_localized_consequence(
+                repository,
+                transaction,
+                workspace_id,
+                presentation,
+                assessment,
+            )
         }
     }
 }
@@ -5657,12 +8875,15 @@ mod tests {
     use proof_canonical::{canonicalize, digest};
 
     use super::{
-        AuthorityPayloadProfile, BASE64, LocalIdentity, UNKNOWN_BINDING_DUMMY_RECORD_DIGEST,
+        AuthenticatedLocalizedConsequenceRow, AuthorityPayloadProfile, BASE64,
+        ExpectedApplicationLedgerRow, LocalIdentity, UNKNOWN_BINDING_DUMMY_RECORD_DIGEST,
         UNKNOWN_BINDING_DUMMY_RECORD_JSON, bootstrap_authority, contract,
-        delegation_covers_projected_resources_v1, migrate_schema_v12, parse_authority_envelope,
+        delegation_covers_projected_resources_v1, migrate_schema_v12, migrate_schema_v13,
+        parse_authority_envelope, prior_application_key_sources,
         project_legacy_object_selection_v1, project_localized_intent_closure_v1,
         project_localized_released_selection_stage_one_v1, project_workspace_only_v1,
-        projected_resources, verify_presentation_binding_candidate,
+        projected_resources, register_expected_application_ledger_row,
+        verify_presentation_binding_candidate,
     };
 
     const V11_PREREQUISITES: &str = r"
@@ -5708,6 +8929,133 @@ PRAGMA user_version = 11;
             .unwrap();
         connection.execute_batch(V11_PREREQUISITES).unwrap();
         connection
+    }
+
+    fn v12_connection() -> Connection {
+        let mut connection = v11_connection();
+        let transaction = connection.transaction().unwrap();
+        migrate_schema_v12(&transaction).unwrap();
+        transaction.commit().unwrap();
+        connection
+    }
+
+    fn localized_consequence_row(
+        sequence: i64,
+        composite_suffix: char,
+    ) -> AuthenticatedLocalizedConsequenceRow {
+        AuthenticatedLocalizedConsequenceRow {
+            decision_authority_sequence: sequence,
+            presentation_id: format!("presentation-{sequence}"),
+            workspace_id: "019c0000-0000-7000-8000-000000000001".to_owned(),
+            requesting_principal_id: "019c0000-0000-7000-8000-000000000002".to_owned(),
+            operating_principal_id: "019c0000-0000-7000-8000-000000000003".to_owned(),
+            delegation_id: "019c0000-0000-7000-8000-000000000004".to_owned(),
+            command_digest: format!("blake3:{}", "1".repeat(64)),
+            authorization_decision_digest: format!("blake3:{}", "2".repeat(64)),
+            operation_name: "changeset.submit".to_owned(),
+            operation_version: "proof.dev/operation/changeset.submit/v2".to_owned(),
+            application_idempotency_kind: "derived".to_owned(),
+            application_idempotency_key: Some("derived-submit-key".to_owned()),
+            result_kind: "success".to_owned(),
+            result_contract: "submit-result".to_owned(),
+            result_json: "{}".to_owned(),
+            result_digest: format!("blake3:{}", "3".repeat(64)),
+            application_effect_digest: format!("blake3:{}", "4".repeat(64)),
+            application_consequence_digest: format!(
+                "blake3:{}",
+                composite_suffix.to_string().repeat(64)
+            ),
+            selectors_json: "{}".to_owned(),
+            evidence_json: "{}".to_owned(),
+            evidence_digest: format!("blake3:{}", "6".repeat(64)),
+        }
+    }
+
+    #[test]
+    fn mutable_current_closure_does_not_change_global_replay_identity() {
+        let mut expected =
+            std::collections::BTreeMap::<(String, String), ExpectedApplicationLedgerRow>::new();
+        let first = localized_consequence_row(11, '5');
+        let replay_after_approval = localized_consequence_row(12, '7');
+
+        register_expected_application_ledger_row(
+            &mut expected,
+            &first,
+            first.application_idempotency_key.as_deref().unwrap(),
+        )
+        .unwrap();
+        register_expected_application_ledger_row(
+            &mut expected,
+            &replay_after_approval,
+            replay_after_approval
+                .application_idempotency_key
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let row = expected.values().next().unwrap();
+        assert_eq!(row.first_decision_authority_sequence, 11);
+        assert_eq!(
+            row.application_consequence_digest,
+            first.application_consequence_digest
+        );
+        assert_eq!(
+            row.application_effect_digest,
+            first.application_effect_digest
+        );
+    }
+
+    #[test]
+    fn global_replay_identity_rejects_raw_effect_substitution() {
+        let mut expected =
+            std::collections::BTreeMap::<(String, String), ExpectedApplicationLedgerRow>::new();
+        let first = localized_consequence_row(11, '5');
+        let mut substituted = localized_consequence_row(12, '7');
+        substituted.application_effect_digest = format!("blake3:{}", "8".repeat(64));
+        let key = first.application_idempotency_key.as_deref().unwrap();
+        register_expected_application_ledger_row(&mut expected, &first, key).unwrap();
+
+        assert!(
+            register_expected_application_ledger_row(&mut expected, &substituted, key).is_err()
+        );
+    }
+
+    #[test]
+    fn application_key_inventory_discovers_future_key_bearing_tables() {
+        let connection = v11_connection();
+        connection
+            .execute_batch(
+                "CREATE TABLE future_workspace_operation (
+                     workspace_id TEXT NOT NULL,
+                     idempotency_key TEXT NOT NULL,
+                     PRIMARY KEY (workspace_id, idempotency_key)
+                 ) STRICT;
+                 CREATE TABLE future_single_workspace_operation (
+                     idempotency_key TEXT PRIMARY KEY
+                 ) STRICT;
+                 INSERT INTO future_workspace_operation VALUES (
+                     '019c0000-0000-7000-8000-000000000001',
+                     '019c0000-0000-7000-8000-000000000099'
+                 );
+                 INSERT INTO future_single_workspace_operation VALUES (
+                     '019c0000-0000-7000-8000-000000000099'
+                 );",
+            )
+            .unwrap();
+        let sources = prior_application_key_sources(
+            &connection,
+            "019c0000-0000-7000-8000-000000000001".parse().unwrap(),
+            "019c0000-0000-7000-8000-000000000099",
+        )
+        .unwrap();
+        assert_eq!(
+            sources,
+            [
+                "future_single_workspace_operation".to_owned(),
+                "future_workspace_operation".to_owned(),
+            ]
+        );
     }
 
     #[test]
@@ -5810,6 +9158,114 @@ PRAGMA user_version = 11;
             )
             .unwrap();
         assert_eq!(table_count, 0);
+    }
+
+    #[test]
+    fn migration_creates_strict_v13_consequence_and_global_key_tables() {
+        let mut connection = v12_connection();
+        let transaction = connection.transaction().unwrap();
+        migrate_schema_v13(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let versions = (
+            connection
+                .query_row(
+                    "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
+        );
+        assert_eq!(versions, (13, 13, 13));
+
+        for table in [
+            "authenticated_application_idempotency_v1",
+            "authenticated_localized_consequences_v1",
+        ] {
+            let strict = connection
+                .query_row(
+                    "SELECT strict FROM pragma_table_list WHERE schema = 'main' AND name = ?1",
+                    [table],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap();
+            assert!(strict, "{table} must remain STRICT");
+        }
+        connection.execute("PRAGMA foreign_key_check", []).unwrap();
+    }
+
+    #[test]
+    fn migration_failure_rolls_back_and_v13_retry_is_exact() {
+        let mut connection = v12_connection();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_v13_migration
+                 BEFORE INSERT ON schema_migrations
+                 WHEN NEW.version = 13
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected v13 migration failure');
+                 END;",
+            )
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        assert!(migrate_schema_v13(&transaction).is_err());
+        transaction.rollback().unwrap();
+
+        let table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'table' AND name IN (
+                     'authenticated_application_idempotency_v1',
+                     'authenticated_localized_consequences_v1'
+                 )",
+                [],
+                |row| row.get::<_, u32>(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 0);
+        let versions = (
+            connection
+                .query_row(
+                    "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
+        );
+        assert_eq!(versions, (12, 12, 12));
+
+        connection
+            .execute("DROP TRIGGER reject_v13_migration", [])
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        migrate_schema_v13(&transaction).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 13",
+                    [],
+                    |row| { row.get::<_, u32>(0) }
+                )
+                .unwrap(),
+            1
+        );
     }
 
     #[test]

@@ -156,10 +156,23 @@ fn run_execute(
     let execution = repository
         .execute_authenticated(invocation, evaluated_at)
         .map_err(|error| authority_problem(&error, "auth.execute", context))?;
-    if let AuthenticatedOperationResultV1::Failure(failure) = &execution.result {
-        return Err(operation_failure_problem(*failure, &execution, context));
+    match &execution.result {
+        AuthenticatedOperationResultV1::Failure(failure) => {
+            return Err(operation_failure_problem(*failure, &execution, context));
+        }
+        AuthenticatedOperationResultV1::LocalizedFailure(failure) => {
+            return Err(localized_operation_failure_problem(
+                *failure,
+                execution.decision_record_digest,
+                context,
+            ));
+        }
+        AuthenticatedOperationResultV1::WorkspaceStatus(_)
+        | AuthenticatedOperationResultV1::ReleasedObjectQuery(_)
+        | AuthenticatedOperationResultV1::ContextPack(_)
+        | AuthenticatedOperationResultV1::LocalizedSuccess(_) => {}
     }
-    render_execution(output, context, &execution);
+    render_execution(output, context, &execution)?;
     Ok(ExitCode::Success)
 }
 
@@ -533,9 +546,9 @@ fn render_execution(
     output: OutputFormat,
     context: ExecutionContext,
     execution: &AuthenticatedExecutionV1,
-) {
+) -> Result<(), Box<Problem>> {
     let operation = execution.command_input.operation.name();
-    let mut data = operation_result_value(execution);
+    let mut data = operation_result_value(execution, context)?;
     let authority = json!({
         "requesting_principal_id": execution.actor_context_evidence.requesting_principal_id.to_string(),
         "operating_principal_id": execution.actor_context_evidence.operating_principal_id.to_string(),
@@ -554,7 +567,11 @@ fn render_execution(
         "authority_key_id": execution.decision.authority_key_id.to_string(),
         "decision": execution.decision.decision,
     });
-    if let Value::Object(object) = &mut data {
+    if !matches!(
+        &execution.result,
+        AuthenticatedOperationResultV1::LocalizedSuccess(_)
+    ) && let Value::Object(object) = &mut data
+    {
         object.insert("authority".to_owned(), authority);
     }
     let mut result = ResultEnvelope::success(
@@ -583,6 +600,12 @@ fn render_execution(
                 AuthenticatedOperationResultV1::Failure(failure) => {
                     println!("{} failed: {}", failure.operation().name(), failure.code());
                 }
+                AuthenticatedOperationResultV1::LocalizedSuccess(success) => {
+                    println!("{} completed", success.operation().name());
+                }
+                AuthenticatedOperationResultV1::LocalizedFailure(failure) => {
+                    println!("{} failed: {}", failure.operation.name(), failure.code());
+                }
             }
             println!(
                 "authorization decision: {}",
@@ -590,11 +613,15 @@ fn render_execution(
             );
         }
     }
+    Ok(())
 }
 
-fn operation_result_value(execution: &AuthenticatedExecutionV1) -> Value {
+fn operation_result_value(
+    execution: &AuthenticatedExecutionV1,
+    context: ExecutionContext,
+) -> Result<Value, Box<Problem>> {
     match &execution.result {
-        AuthenticatedOperationResultV1::WorkspaceStatus(status) => json!({
+        AuthenticatedOperationResultV1::WorkspaceStatus(status) => Ok(json!({
             "workspace_id": status.workspace_id.to_string(),
             "requesting_principal_id": status.requesting_principal_id.to_string(),
             "operating_principal_id": status.operating_principal_id.to_string(),
@@ -603,9 +630,9 @@ fn operation_result_value(execution: &AuthenticatedExecutionV1) -> Value {
             "authoritative_sequence": status.authoritative_sequence,
             "state_digest": status.state_digest.to_string(),
             "authorization_decision_digest": status.authorization_decision_digest.to_string(),
-        }),
-        AuthenticatedOperationResultV1::ReleasedObjectQuery(query) => query_value(query),
-        AuthenticatedOperationResultV1::ContextPack(pack) => json!({
+        })),
+        AuthenticatedOperationResultV1::ReleasedObjectQuery(query) => Ok(query_value(query)),
+        AuthenticatedOperationResultV1::ContextPack(pack) => Ok(json!({
             "context_pack_id": pack.context_pack_id.to_string(),
             "workspace_id": pack.workspace_id.to_string(),
             "requesting_principal_id": pack.requesting_principal_id.to_string(),
@@ -626,12 +653,20 @@ fn operation_result_value(execution: &AuthenticatedExecutionV1) -> Value {
             "manifest_json": pack.manifest_json,
             "context_pack_digest": pack.context_pack_digest.to_string(),
             "idempotency_key": execution.command_input.idempotency_key.map(|value| value.to_string()),
-        }),
-        AuthenticatedOperationResultV1::Failure(failure) => json!({
+        })),
+        AuthenticatedOperationResultV1::Failure(failure) => Ok(json!({
             "failure": {
                 "code": failure.code(),
             }
-        }),
+        })),
+        AuthenticatedOperationResultV1::LocalizedSuccess(success) => success
+            .output_value()
+            .map_err(|_| invalid_operation_result_problem(success.operation().name(), context)),
+        AuthenticatedOperationResultV1::LocalizedFailure(failure) => Ok(json!({
+            "failure": {
+                "code": failure.code(),
+            }
+        })),
     }
 }
 
@@ -676,6 +711,38 @@ fn operation_failure_problem(
         execution.decision_record_digest
     ));
     Box::new(problem)
+}
+
+fn localized_operation_failure_problem(
+    failure: proof_application::authority::LocalizedOperationFailureV1,
+    decision_record_digest: proof_application::ContentDigest,
+    context: ExecutionContext,
+) -> Box<Problem> {
+    let public = failure.public_problem();
+    let mut problem = Problem::new(
+        public.problem_type,
+        public.title,
+        public.code,
+        failure.operation.name(),
+        context.operation_id,
+        context.correlation_id,
+    );
+    problem.detail = Some(format!(
+        "authorization allow decision recorded as {decision_record_digest}"
+    ));
+    problem.retryable = public.retryable;
+    Box::new(problem)
+}
+
+fn invalid_operation_result_problem(operation: &str, context: ExecutionContext) -> Box<Problem> {
+    Box::new(Problem::new(
+        "urn:proof:problem:internal",
+        "The authenticated operation result is invalid",
+        "proof.internal",
+        operation,
+        context.operation_id,
+        context.correlation_id,
+    ))
 }
 
 fn query_value(query: &proof_application::ReleasedObjectQuery) -> Value {
@@ -735,8 +802,12 @@ mod tests {
 
     use clap::Parser as _;
     use proof_application::{
-        BindingId, PresentationId, Timestamp,
-        authority::{AuthenticatedCommandSigner as _, CommandInputV1, SignAuthenticatedCommandV1},
+        BindingId, ContentDigest, PresentationId, Timestamp,
+        authority::{
+            ApplicationIdempotency, AuthenticatedCommandSigner as _, CommandInputV1,
+            LocalizedOperationFailureKindV1, LocalizedOperationFailureV1,
+            SignAuthenticatedCommandV1, authority_operation_entry,
+        },
     };
     use proof_attestation::{
         Ed25519SigningProvider, ProofSigningProvider as _,
@@ -745,13 +816,16 @@ mod tests {
 
     use super::{
         FileCredentialSigner, MAX_AUTHENTICATED_INVOCATION_BYTES, canonical_invocation,
-        normalized_command_input, parse_canonical_invocation, read_bounded, stdin_only,
-        validate_credential_handle,
+        localized_operation_failure_problem, normalized_command_input, parse_canonical_invocation,
+        read_bounded, stdin_only, validate_credential_handle,
     };
-    use crate::{Cli, run};
+    use crate::{Cli, ExecutionContext, run};
 
     const STATUS_COMMAND: &str =
         include_str!("../../../conformance/v1/authority/vectors/semantic-command.valid.json");
+    const LOCALIZED_OPERATION_INSTANCES: &str = include_str!(
+        "../../../conformance/v2/localized-content/vectors/operation-instances.valid.json"
+    );
 
     #[test]
     fn clap_rejects_every_non_stdin_auth_source() {
@@ -980,6 +1054,104 @@ mod tests {
             ])
         );
         assert!(canonical_invocation(&invocation).is_ok());
+    }
+
+    #[test]
+    fn signer_normalizes_all_eleven_localized_v2_commands_through_the_application_contract() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(LOCALIZED_OPERATION_INSTANCES).unwrap();
+        let cases = vectors["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 11);
+
+        for case in cases {
+            let version = case["operation_id"].as_str().unwrap();
+            let descriptor = proof_application::capabilities()
+                .iter()
+                .find(|descriptor| descriptor.version == version)
+                .unwrap_or_else(|| panic!("missing capability {version}"));
+            let operation = descriptor.authority_operation().unwrap();
+            let idempotency_key = match authority_operation_entry(operation).application_idempotency
+            {
+                ApplicationIdempotency::RequiredUuidV7 => case["input"]["idempotency_key"].clone(),
+                ApplicationIdempotency::None
+                | ApplicationIdempotency::DerivedChangeset
+                | ApplicationIdempotency::DerivedProposalPolicyValidator => serde_json::Value::Null,
+            };
+            let command = serde_json::json!({
+                "api_version": "proof.dev/command-input/v1",
+                "workspace_id": "019c0000-0000-7000-8000-000000000001",
+                "operation": {
+                    "name": descriptor.operation,
+                    "version": descriptor.version,
+                },
+                "delegation_id": "019c0000-0000-7000-8000-000000000005",
+                "idempotency_key": idempotency_key,
+                "normalized_input": case["input"],
+                "requesting_principal_id": "019c0000-0000-7000-8000-000000000002",
+                "operating_principal_id": "019c0000-0000-7000-8000-000000000003",
+            });
+
+            let normalized = normalized_command_input(&serde_json::to_vec(&command).unwrap())
+                .unwrap_or_else(|error| panic!("{version} failed: {error:?}"));
+            assert_eq!(normalized.operation, operation);
+            assert_eq!(
+                normalized.normalized_input,
+                case["input"].as_object().unwrap().clone(),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn localized_failures_use_the_same_public_projection_as_the_application_contract() {
+        let context = ExecutionContext {
+            operation_id: "019c0000-0000-7000-8000-000000000011".parse().unwrap(),
+            correlation_id: "019c0000-0000-7000-8000-000000000012".parse().unwrap(),
+        };
+        let decision_record_digest: ContentDigest =
+            "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .parse()
+                .unwrap();
+        let kinds = [
+            LocalizedOperationFailureKindV1::NotFound,
+            LocalizedOperationFailureKindV1::UnsupportedVersion,
+            LocalizedOperationFailureKindV1::InvalidInput,
+            LocalizedOperationFailureKindV1::IntentMismatch,
+            LocalizedOperationFailureKindV1::SourceConflict,
+            LocalizedOperationFailureKindV1::TargetConflict,
+            LocalizedOperationFailureKindV1::StateConflict,
+            LocalizedOperationFailureKindV1::DuplicateActiveTarget,
+            LocalizedOperationFailureKindV1::InvalidSupersession,
+            LocalizedOperationFailureKindV1::InvalidRepairEvidence,
+            LocalizedOperationFailureKindV1::NotDraft,
+            LocalizedOperationFailureKindV1::NotReady,
+            LocalizedOperationFailureKindV1::NotSubmitted,
+            LocalizedOperationFailureKindV1::NotApproved,
+            LocalizedOperationFailureKindV1::EvidenceMissing,
+            LocalizedOperationFailureKindV1::LimitExceeded,
+            LocalizedOperationFailureKindV1::PolicyDenied,
+        ];
+
+        for kind in kinds {
+            let failure = LocalizedOperationFailureV1::new(
+                proof_application::authority::AuthorityOperation::ChangesetAddV2,
+                kind,
+            )
+            .unwrap();
+            let expected = kind.public_problem();
+            let problem =
+                localized_operation_failure_problem(failure, decision_record_digest, context);
+            assert_eq!(problem.problem_type, expected.problem_type);
+            assert_eq!(problem.title, expected.title);
+            assert_eq!(problem.code, expected.code);
+            assert_eq!(problem.retryable, expected.retryable);
+            assert_eq!(
+                problem.detail.as_deref(),
+                Some(
+                    "authorization allow decision recorded as blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )
+            );
+        }
     }
 
     #[test]

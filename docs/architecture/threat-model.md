@@ -1,12 +1,13 @@
 # Threat model
 
-**Status:** Ratified baseline with implemented local authenticated-read controls
-**Baseline:** August 20, 2026
+**Status:** Ratified baseline with implemented bounded local authenticated-mutation controls
+**Baseline:** August 21, 2026
 
-> **Implemented P-0004 profile:** The local authentication, replay, and
-> authority-log controls labeled below are implemented for the three enabled v1
-> reads. Portable authority bundles and hostile-process containment remain P-0006
-> qualification work. The normative contract is the
+> **Implemented P-0004/P-0005 profile:** The local authentication, replay,
+> authority-log, and localized-consequence controls labeled below are
+> implemented for all 14 enabled operations. Portable authority bundles,
+> hostile-process containment, and publication remain P-0006 qualification
+> work. The normative contract is the
 > [authenticated actor contract](authenticated-actor.md).
 
 This threat model defines the security boundaries that shape Proof's architecture. It is updated when a new interface, trust relationship, or deployment mode is introduced.
@@ -157,7 +158,7 @@ unknown credentials and invalid signatures have equivalent public behavior.
 
 **Threats:** Edit substitution after approval, partial write, stale base overwrite, duplicate commit after timeout.
 
-**Controls:** canonical ChangeSet digest, atomic transaction, optimistic concurrency, approval bound to digest, idempotency record committed with effects, append-only authoritative facts.
+**Controls:** canonical ChangeSet digest, atomic transaction, optimistic concurrency, Human approval bound to digest, Workspace-global successful idempotency record committed with effects, signed localized result/consequence commitment, append-only authoritative facts, and v13 projection verification.
 
 ### Ratified P-0003 profile — presentation replay and substitution
 
@@ -176,11 +177,18 @@ ordering; and presentation consumption, authorization, idempotency, and
 consequence in one transaction. Current revocation, disablement, or policy
 denial blocks disclosure of an earlier successful result.
 
+For localized operations, current-state authorization also reconstructs the
+immutable Human-issued intent and ContextPack, required approval, and content/
+Environment closure. The Agent surface cannot issue or replace closure or
+approve. Application failures receive a signed failure consequence but do not
+reserve the application key; successful keys are Workspace-global across the
+localized operation set.
+
 ### Evidence tampering
 
-**Threats:** altered Edition, substituted subject, forged Proof, deleted history, algorithm confusion.
+**Threats:** altered Edition, substituted subject or localized result, forged Proof, deleted or swapped consequence/global-key rows, deleted history, algorithm confusion.
 
-**Controls:** immutable artifacts, algorithm-qualified digests, domain separation, DSSE typed envelope, in-toto subjects, explicit trust policy, independent golden-vector verification, retention controls.
+**Controls:** immutable artifacts, algorithm-qualified digests, domain separation, DSSE typed envelope, signed result/effect commitment, v13 local consequence reconstruction, in-toto subjects, explicit trust policy, independent golden-vector verification, retention controls.
 
 **Ratified P-0003 profile:** P-0006 portable verification receives the future
 `AuthorityEvidenceBundleV1` and every required binding, `DelegationV2`,

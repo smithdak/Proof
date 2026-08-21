@@ -1,7 +1,7 @@
 # Roadmap and MVP
 
 **Status:** Ratified product sequence  
-**Baseline:** August 3, 2026
+**Baseline:** August 21, 2026
 
 The roadmap is organized around complete capability loops rather than feature count. Each milestone must produce an independently usable and testable system slice.
 
@@ -49,7 +49,7 @@ The roadmap is organized around complete capability loops rather than feature co
 - Stable MCP adapter with protocol negotiation.
 - Agent-security abuse cases and conformance tests.
 
-**Implemented P-0004 read profile:** Milestone 2 uses distinct local per-Agent Ed25519
+**Implemented P-0004/P-0005 local profile:** Milestone 2 uses distinct local per-Agent Ed25519
 proof-of-possession credentials, adapter-derived authenticated actor context,
 single-use signed command presentations, one direct Human-to-Agent
 `DelegationV2`, and a separately rooted append-only authority log. CLI and both
@@ -58,8 +58,9 @@ selectors, never authority. P-0006 then defines and qualifies the portable
 `AuthorityEvidenceBundleV1`, including an independently pinned authority-head
 checkpoint when rollback or latest-history completeness must be detected. The
 local SQLite-plus-file-signer profile does not prevent restoration of a valid
-older authority prefix or fork. P-0004 implements this profile for the three
-enabled v1 reads. Its normative definition is the
+older authority prefix or fork. P-0004 implements this kernel for the three
+retained v1 reads; P-0005 composes it with all 11 localized v2 operations. Its
+normative definition is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
 **Ratified P-0003 qualification boundary:** a process with the bootstrap Unix
@@ -80,11 +81,11 @@ and the ambient CLI remains Human-only. This adds no network/collaboration
 server.
 
 P-0004 implements the generic evaluator for the reconciled 14-row authority
-registry—three retained v1 reads and 11 localized v2 pairs—but exposes only the
-current v1 status/query/context operations. P-0007 owns the exact
+registry—three retained v1 reads and 11 localized v2 pairs—and P-0005 exposes
+all 14 through CLI and both MCP eras. P-0007 owns the exact
 content/Edit/Edition/Release contracts; P-0003 fixes their complete-intent and
-staged released-query projections; P-0005 owns Agent write enablement and may
-not reinterpret either side.
+staged released-query projections; P-0005 binds but does not reinterpret either
+side.
 
 Authenticated status/query reads use no idempotency key: every fresh
 presentation is a distinct attempt that appends one consumption plus decision
@@ -92,15 +93,15 @@ and returns a newly authorized current read. Their metadata is
 `evidence_write`, while governed content/projections remain unchanged under the
 ratified C4 security-evidence rule. ContextPack build remains idempotent.
 
-### Implemented P-0007 Human content sequence
+### Implemented P-0007/P-0005 localized content sequence
 
-This sequence is implemented for the Human content path. It remains a named
-content-foundation prerequisite rather than placing unproven content semantics
-inside delegated mutation.
+This sequence is implemented for the Human content path and bounded
+authenticated Agent path. P-0007 remains the named content-foundation
+prerequisite, so P-0005 does not introduce separate Agent content semantics.
 
-- P-0007 implements the Human-path localized content foundation before
-  P-0005 enables Agent writes. It covers append-only `ObjectLocaleRevisionV1`
-  renditions, repair by Edit supersession, exact-locale queries, versioned
+- P-0007 implements the Human-path localized content foundation; P-0005 enables
+  the same lifecycle for authenticated Agents. It covers append-only
+  `ObjectLocaleRevisionV1` renditions, repair by Edit supersession, exact-locale queries, versioned
   ChangeSet/Edition/Release artifacts, migration, and causal release checks.
 - The existing `ObjectRevisionV1` remains the locale-neutral source.
   `object.locale.put` can create an absent rendition or replace an exact
@@ -113,6 +114,9 @@ inside delegated mutation.
   campaign and content subtree are resolved by an authenticated Human into a
   separately persisted intent that the Agent cannot replace or narrow; neither
   is a grant dimension or a runtime hierarchy query.
+- The Human builds the initial localized ContextPack and performs approval. An
+  Agent may exactly select or replay that pack but cannot create or replace
+  closure or approve a ChangeSet.
 - Invalid validation remains repairable in the versioned ChangeSet contract.
   A repair appends a same-target superseding Edit, while validation, approval,
   commit, and Proof evidence bind the complete attempt history and final active
@@ -122,17 +126,20 @@ inside delegated mutation.
   and proves that its full delta is exactly the one committed ChangeSet. An
   ambient current Edition or unrelated committed delta cannot be released under
   the operation's authority.
-- Ratified application contracts reserve `/v2` successors for
+- Ratified application contracts define `/v2` successors for
   `context.build`, `object.query_released`, all content-capable `changeset.*`
   operations, `edition.create`, and `release.create`. P-0003's ratified profile
   reconciles all 11 with the three retained v1 reads and freezes their exact
-  resource projections; these remain disabled Agent capabilities until P-0005
-  enables them through the P-0004 kernel.
+  resource projections; P-0005 enables them through the P-0004 kernel.
+- Each localized Allow signs the exact application result and consequence.
+  Storage schema v13 cross-links the per-presentation decision and effect and
+  enforces Workspace-global successful application keys. Exact replay still
+  requires fresh authentication and current-state authorization.
 
-P-0005 depends on both P-0007 and P-0004 and supplies authenticated Agent
-mutation and end-to-end delegated evidence. P-0006 then
-qualifies the complete north-star loop and portable verification. Until those
-items pass, the Milestone 2 exit condition remains unmet.
+P-0005 composes P-0007 and P-0004 and supplies bounded local authenticated
+Agent mutation and local delegated evidence. P-0006 still must qualify the
+complete north-star loop, portable verification, containment, and publication.
+Until P-0006 passes, the Milestone 2 exit condition remains unmet.
 
 **Exit condition:** An agent can complete the north-star localization scenario without unrestricted repository access or privileged commands.
 

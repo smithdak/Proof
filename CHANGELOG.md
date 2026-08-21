@@ -22,6 +22,11 @@ All notable project changes are documented here. The format follows [Keep a Chan
   Ed25519 bindings, single-use DSSE commands, direct Delegation evaluation,
   separately rooted canonical authority evidence, and equivalent CLI plus
   modern and legacy MCP broker paths.
+- Implemented bounded delegated localized mutation across all 11 registered v2
+  operations, with immutable Human-issued intent and ContextPack selection,
+  separate Human approval, fresh current-authority evaluation, signed result
+  and consequence commitments, Workspace-global successful idempotency, and
+  equivalent application, CLI, modern MCP, and legacy MCP behavior.
 - Added ordered `object.create` Edits with strict canonical input, Schema validation, atomic mixed ChangeSet commits, and immutable Object revisions.
 - Added Object-bearing Known State and Edition commitments while preserving Schema-only canonical digests.
 - Added versioned Environments, immutable promotion and rollback history, and portable Ed25519 DSSE/in-toto Release Proofs.
