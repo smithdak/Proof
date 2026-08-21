@@ -1,8 +1,8 @@
 ---
 id: P-0006
 title: Close Milestone 2 with independently verifiable evidence and conformance
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: qualification
 blocked_by: [P-0005]
 claimed_by: null
@@ -26,19 +26,61 @@ evidence without trusting the producing Workspace or Agent.
 
 ## Promotion condition
 
-Re-shape the exact exit fixture and offline-verification input contract after
-P-0005 closes. Do not mark this item `ready` from roadmap prose alone.
+Satisfied by completed P-0005 candidate
+`c6f6ca899e1a63cf26f858d28b14163ffc270086` and Engineering evidence commit
+`03fd4ea6088f943c708026c42f918f478c115329`. The exact exit fixture and
+offline-verification input contract are reshaped below from the retained v13
+consequence and Release semantics, not from roadmap prose alone.
 
 ## Ratified P-0003 profile reshape
 
-The following P-0003-dependent clauses are ratified. They reshape future
-qualification only. This item remains blocked by P-0005. The controlling
-contract is the
+The following P-0003-dependent clauses are ratified and now shape P-0006
+qualification. P-0005 has satisfied the implementation dependency. The
+controlling contract is the
 [authenticated actor contract](../../architecture/authenticated-actor.md).
-P-0002 and P-0007 have closed the Human-path write-resource contract, and
-P-0003 is accepted with its exact operation/projection registry. P-0004
-implements the bounded local authenticated read profile. P-0006 remains
-blocked on P-0005 and is not claimable yet.
+P-0002 and P-0007 have closed the Human-path write-resource contract, P-0003
+is accepted with its exact operation/projection registry, P-0004 implements
+the bounded local authenticated read profile, and P-0005 implements the
+complete delegated localized-write path. P-0006 is now ready and unclaimed.
+
+## P-0005 consequence and Release reshape
+
+The portable closure and independent verifier must preserve, reconstruct, and
+cross-check the exact meanings established by storage v13:
+
+- carry the signed
+  `AuthorizationDecisionV2.localized_consequence_commitment`, including the
+  canonical result kind, result contract, result digest, and application
+  consequence digest;
+- carry the exact authenticated localized consequence evidence needed to
+  reconstruct command and operation version, requesting Human, operating
+  Agent, direct Delegation, selectors, application-key kind and value,
+  semantic timestamp, Human-owned intent and Context policy/limits, validator,
+  approval, canonical result, and raw P-0007 effect;
+- preserve `ReleaseV2.principal_id` as the requesting Human and
+  `ReleaseV2.authorization_decision_digest` as the P-0007 Human release-policy
+  decision. The separate P-0005 Agent decision, result commitment, and raw
+  effect must be verified as a cross-linked authority consequence, never
+  substituted into those Release fields;
+- treat the v13 Workspace-global application-key ledger as replay and
+  projection-integrity evidence, not as a trust root. Recompute its ownership
+  from the signed command, decision, consequence, result, and immutable
+  application effect; and
+- distinguish the stable successful application result and raw effect from the
+  fresh signed localized-consequence commitment and cross-linked
+  per-presentation consequence evidence for each exact replay. The
+  Workspace-global key owner anchors the first successful command, result,
+  effect, and application-consequence digest; each later Allow must
+  independently reconstruct its current signed composite closure. A Deny
+  carries decision, consumption, and actor evidence but no localized
+  commitment, result, or consequence. A mapped application failure is an Allow
+  with a signed failure-result commitment and cross-linked consequence
+  evidence, rolls back partial application writes, and reserves no application
+  key.
+
+The clean-directory verifier must validate this closure without the producing
+Workspace database or private keys and without reusing the producer's
+projection-reconstruction or serialization path.
 
 ## Authorized scope
 
@@ -197,7 +239,11 @@ once one is ratified, not in Git by default.
 
 ## Completion record
 
-Blocked by P-0005.
+Ready and unclaimed at `2026-08-21T16:26:07.480Z` after P-0005 completed.
+P-0005 Engineering evidence commit
+`03fd4ea6088f943c708026c42f918f478c115329` binds the exact v13 inputs and
+residual boundaries that this item must carry into portable verification. No
+P-0006 implementation or Milestone 2 completion is claimed by this promotion.
 
 ## Residual risks and next-wave update
 

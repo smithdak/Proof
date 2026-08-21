@@ -8,10 +8,10 @@ under bounded Delegation and a task-specific ContextPack, with human approval,
 independently verifiable evidence, structured repair, and no privileged
 interface.
 
-P-0007's Release foundation and P-0004's read-authority kernel are the clean,
-qualified baseline for P-0005 delegated mutation. Collaboration-server and
-enterprise deployment work begin only after the Milestone 2 exit scenario
-passes.
+P-0005 candidate `c6f6ca8` and Engineering evidence `03fd4ea` are the clean,
+qualified delegated-mutation baseline for P-0006 portable verification and
+Milestone 2 closure. Collaboration-server and enterprise deployment work begin
+only after the Milestone 2 exit scenario passes.
 
 ## Operating notes
 
@@ -60,19 +60,19 @@ passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `review` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
+| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `ready` | P-0005 | Prove repair, abuse resistance, adapter parity, portable closure, containment, and independent verification. |
 
 ## Next
 
-P-0006 remains blocked until P-0005 closes and must be reshaped before
-promotion to `ready`.
+No later item is promoted. Milestone 3 remains in fog until P-0006 completes
+the independently verifiable exit and exposes the next decision boundary.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
+| None | n/a | n/a | P-0006 is the sole ready frontier. |
 
 ## Completed
 
@@ -82,6 +82,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `done` | P-0001 | Ratified exact-locale renditions, append-only repair, immutable resource intent, and causally closed Edition/Release semantics. |
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `done` | P-0001, P-0002 | Ratified the bounded local authenticated-actor, direct Delegation, and current-authorization retry contract. |
 | [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `done` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
+| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `done` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
@@ -89,7 +90,10 @@ is accepted as `done` through Assurance record `29ad9d9`. Historical
 unsupported candidates `fede487` and `c4b312d` remain unsupported and are not
 relabeled by completion. P-0004 candidate `8788847`, bound through Engineering
 evidence `e6843ad`, passed the bounded local authorization-kernel gate and is
-`done` under `review_gate: none`.
+`done` under `review_gate: none`. P-0005 candidate `c6f6ca8`, bound through
+Engineering evidence `03fd4ea`, passed the bounded delegated-mutation gate and
+is `done` under `review_gate: none`; P-0006 is the ready, unclaimed Milestone 2
+closure frontier.
 
 ## Decisions so far
 
@@ -106,7 +110,8 @@ baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
 `DelegationV2` resource dimension is required. P-0007 implements and qualifies
 that foundation through the Human path. P-0004 implements authenticated Agent
-reads; P-0005 is ready to add delegated mutation.
+reads, P-0005 implements delegated localized mutation, and P-0006 is ready to
+verify the portable Milestone 2 closure.
 
 ### Ratified P-0003 profile
 
@@ -118,14 +123,14 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 both MCP eras treat Principal and Delegation identifiers as cross-checks or
 selectors rather than authority. This is accepted architecture, not an
 implementation-status claim by itself. P-0004 implements its bounded local read
-profile, and P-0006 remains blocked.
+profile, P-0005 implements the 11 localized v2 operations, and P-0006 is ready.
 
 Candidate `38999d0` was qualified and accepted by project owner `smithdak` at
 `2026-08-20T19:52:12.756Z`. It aligns
 the exact locale Schema, closes the 14-pair operation registry, freezes the
 localized resource and budget projections, and regenerates the affected
-conformance vectors. P-0004 enables only the three authenticated v1 reads; the
-11 localized mutation rows remain disabled until P-0005. The exact candidate,
+conformance vectors. P-0004 later enabled the three authenticated v1 reads;
+P-0005 now enables the 11 localized mutation rows. The exact P-0003 candidate,
 acceptance, and falsification record are bound by the
 [P-0003 receipt](evidence/P-0003/receipt.md).
 

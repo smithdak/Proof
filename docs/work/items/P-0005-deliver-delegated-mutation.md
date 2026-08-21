@@ -1,7 +1,7 @@
 ---
 id: P-0005
 title: Deliver delegated mutation through a verified Release
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0004, P-0007]
@@ -151,6 +151,13 @@ It entered `review` under `review_gate: none`; the exact-candidate audit found
 no candidate-attributable production defect or unsupported documentation
 claim. The separate completion change names the immutable Engineering evidence
 commit before moving this item to `done`.
+
+Completed at `2026-08-21T16:26:07.480Z` under `review_gate: none`.
+Engineering evidence commit `03fd4ea6088f943c708026c42f918f478c115329`
+binds exact candidate `c6f6ca899e1a63cf26f858d28b14163ffc270086`,
+its 40 item-work Git blobs, the qualification-time lifecycle transcript, and
+every recorded gate. The bounded P-0005 outcome is `done`; P-0006 becomes the
+ready, unclaimed frontier for portable evidence and Milestone 2 closure.
 
 Residual limits remain explicit: same-UID/private-Workspace processes remain
 inside Human/admin trust, Windows identity runtime is unqualified, and the
