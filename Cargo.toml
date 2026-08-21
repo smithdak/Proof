@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/proof-agent-signer",
     "crates/proof-application",
     "crates/proof-attestation",
     "crates/proof-canonical",
@@ -7,6 +8,7 @@ members = [
     "crates/proof-domain",
     "crates/proof-local",
     "crates/proof-mcp",
+    "crates/proof-verifier",
 ]
 resolver = "3"
 

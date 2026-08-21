@@ -305,6 +305,92 @@ UPDATE workspace_metadata SET schema_version = 13 WHERE singleton = 1;
 PRAGMA user_version = 13;
 ";
 
+const V14_DATABASE_MIGRATION: &str = r"
+CREATE TABLE authenticated_command_presentation_cutover_v1 (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    first_required_authority_sequence INTEGER NOT NULL CHECK (
+        first_required_authority_sequence > 0
+    )
+) STRICT;
+INSERT INTO authenticated_command_presentation_cutover_v1 (
+    singleton, first_required_authority_sequence
+)
+SELECT 1, COALESCE(MAX(authority_sequence), 0) + 1 FROM authority_records;
+
+CREATE TABLE authenticated_command_presentations_v1 (
+    presentation_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    decision_authority_sequence INTEGER NOT NULL UNIQUE,
+    command_input_json TEXT NOT NULL CHECK (length(command_input_json) > 0),
+    command_digest TEXT NOT NULL,
+    command_envelope_json TEXT NOT NULL CHECK (length(command_envelope_json) > 0),
+    command_envelope_digest TEXT NOT NULL UNIQUE,
+    UNIQUE (workspace_id, presentation_id)
+) STRICT;
+
+CREATE TRIGGER authenticated_command_presentation_cutover_no_update
+BEFORE UPDATE ON authenticated_command_presentation_cutover_v1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated command presentation cutover is immutable');
+END;
+CREATE TRIGGER authenticated_command_presentation_cutover_no_delete
+BEFORE DELETE ON authenticated_command_presentation_cutover_v1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated command presentation cutover is immutable');
+END;
+CREATE TRIGGER authenticated_command_presentation_cutover_no_replace
+BEFORE INSERT ON authenticated_command_presentation_cutover_v1
+WHEN EXISTS (
+    SELECT 1 FROM authenticated_command_presentation_cutover_v1 WHERE singleton = 1
+)
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated command presentation cutover is immutable');
+END;
+CREATE TRIGGER authenticated_command_presentation_no_update
+BEFORE UPDATE ON authenticated_command_presentations_v1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated command presentation is immutable');
+END;
+CREATE TRIGGER authenticated_command_presentation_no_delete
+BEFORE DELETE ON authenticated_command_presentations_v1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated command presentation is immutable');
+END;
+CREATE TRIGGER authenticated_command_presentation_no_replace
+BEFORE INSERT ON authenticated_command_presentations_v1
+WHEN EXISTS (
+    SELECT 1 FROM authenticated_command_presentations_v1 AS existing
+    WHERE existing.presentation_id = NEW.presentation_id
+       OR existing.decision_authority_sequence = NEW.decision_authority_sequence
+       OR existing.command_envelope_digest = NEW.command_envelope_digest
+)
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated command presentation is immutable');
+END;
+CREATE TRIGGER authorization_decision_requires_command_presentation
+BEFORE INSERT ON authorization_decisions_v2
+WHEN NEW.authority_sequence >= (
+    SELECT first_required_authority_sequence
+    FROM authenticated_command_presentation_cutover_v1 WHERE singleton = 1
+)
+AND NOT EXISTS (
+    SELECT 1 FROM authenticated_command_presentations_v1 AS presentation
+    WHERE presentation.presentation_id = NEW.presentation_id
+      AND presentation.workspace_id = NEW.workspace_id
+      AND presentation.decision_authority_sequence = NEW.authority_sequence
+      AND presentation.command_digest = NEW.command_digest
+      AND presentation.command_envelope_digest = NEW.command_envelope_digest
+)
+BEGIN
+    SELECT RAISE(ABORT, 'authorization decision lacks exact command presentation');
+END;
+
+INSERT INTO schema_migrations (version, name)
+VALUES (14, 'persist-authenticated-command-presentations');
+UPDATE workspace_metadata SET schema_version = 14 WHERE singleton = 1;
+PRAGMA user_version = 14;
+";
+
 const V12_CONTEXT_PACK_DELEGATION_MIGRATION: &str = r"
 ALTER TABLE context_pack_build_operations
     RENAME TO context_pack_build_operations_v11;
@@ -357,6 +443,12 @@ pub(super) fn migrate_schema_v12(transaction: &Transaction<'_>) -> Result<(), St
 pub(super) fn migrate_schema_v13(transaction: &Transaction<'_>) -> Result<(), String> {
     transaction
         .execute_batch(V13_DATABASE_MIGRATION)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn migrate_schema_v14(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(V14_DATABASE_MIGRATION)
         .map_err(|error| error.to_string())
 }
 
@@ -946,6 +1038,7 @@ impl LocalWorkspace {
                     local_identity,
                     &command_input,
                     &parsed,
+                    canonical_command.as_str(),
                     command_digest,
                     evaluated_at,
                     authenticated_at,
@@ -1243,7 +1336,7 @@ fn decode_canonical<T: DeserializeOwned>(
     clippy::too_many_lines,
     reason = "one linear verifier keeps the explicit causal counter and root-transition branch visible"
 )]
-fn verify_authority_log(
+pub(super) fn verify_authority_log(
     transaction: &Connection,
     workspace_id: WorkspaceId,
 ) -> Result<(), contract::AuthorityError> {
@@ -1752,6 +1845,7 @@ fn verify_authority_projections(
         &decisions,
         &consumptions,
     )?;
+    verify_authenticated_command_presentation_projection(connection, workspace_id, records)?;
     verify_actor_evidence_projection(connection, workspace_id, bootstrap_principal_id, records)?;
     verify_enrollment_challenge_projections(
         connection,
@@ -5630,7 +5724,9 @@ fn verify_subject_commitment_opening(
 struct VerifiedPresentation {
     operation_input: contract::EnabledOperationInputV1,
     command: contract::AuthenticatedCommandV1,
+    command_input_json: String,
     command_digest: proof_application::ContentDigest,
+    command_envelope_json: String,
     command_envelope_digest: proof_application::ContentDigest,
     binding: contract::PrincipalBindingV1,
     binding_record_digest: proof_application::ContentDigest,
@@ -7199,6 +7295,24 @@ fn persist_authorization_decision(
     })?;
     transaction
         .execute(
+            "INSERT INTO authenticated_command_presentations_v1 (
+                 presentation_id, workspace_id, decision_authority_sequence,
+                 command_input_json, command_digest, command_envelope_json,
+                 command_envelope_digest
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                prepared.decision.presentation_id.to_string(),
+                workspace_id.to_string(),
+                sequence,
+                presentation.command_input_json.as_str(),
+                prepared.decision.command_digest.to_string(),
+                presentation.command_envelope_json.as_str(),
+                prepared.decision.command_envelope_digest.to_string(),
+            ],
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    transaction
+        .execute(
             "INSERT INTO authority_records (
                  authority_sequence, workspace_id, previous_authority_record_digest,
                  record_kind, record_json, record_digest, envelope_json,
@@ -7299,6 +7413,203 @@ fn persist_authorization_decision(
             ),
         )
         .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct AuthenticatedCommandPresentationRow {
+    presentation_id: String,
+    workspace_id: String,
+    decision_authority_sequence: i64,
+    command_input_json: String,
+    command_digest: String,
+    command_envelope_json: String,
+    command_envelope_digest: String,
+}
+
+fn load_authenticated_command_presentation_rows(
+    connection: &Connection,
+) -> Result<Vec<AuthenticatedCommandPresentationRow>, contract::AuthorityError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT presentation_id, workspace_id, decision_authority_sequence,
+                    command_input_json, command_digest, command_envelope_json,
+                    command_envelope_digest
+             FROM authenticated_command_presentations_v1
+             ORDER BY decision_authority_sequence",
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    statement
+        .query_map([], |row| {
+            Ok(AuthenticatedCommandPresentationRow {
+                presentation_id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                decision_authority_sequence: row.get(2)?,
+                command_input_json: row.get(3)?,
+                command_digest: row.get(4)?,
+                command_envelope_json: row.get(5)?,
+                command_envelope_digest: row.get(6)?,
+            })
+        })
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the v14 projection verifies exact canonical input and signed envelope bytes against the historical decision and binding"
+)]
+fn verify_authenticated_command_presentation_projection(
+    connection: &Connection,
+    workspace_id: WorkspaceId,
+    records: &[VerifiedAuthorityProjectionRecord],
+) -> Result<(), contract::AuthorityError> {
+    let required_trigger_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema
+             WHERE type = 'trigger' AND name IN (
+                 'authenticated_command_presentation_cutover_no_update',
+                 'authenticated_command_presentation_cutover_no_delete',
+                 'authenticated_command_presentation_cutover_no_replace',
+                 'authenticated_command_presentation_no_update',
+                 'authenticated_command_presentation_no_delete',
+                 'authenticated_command_presentation_no_replace',
+                 'authorization_decision_requires_command_presentation'
+             )",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+    if required_trigger_count != 7 {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "authenticated-command presentation immutability triggers are incomplete".to_owned(),
+        ));
+    }
+    let first_required_sequence = connection
+        .query_row(
+            "SELECT first_required_authority_sequence
+             FROM authenticated_command_presentation_cutover_v1
+             WHERE singleton = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    if first_required_sequence <= 0 {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "authenticated-command presentation cutover is out of range".to_owned(),
+        ));
+    }
+
+    let decisions = records
+        .iter()
+        .filter_map(|record| match &record.record {
+            contract::AuthorityRecordV1::AuthorizationDecision(decision) => {
+                Some((decision.authority_sequence.get(), decision))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let bindings = records
+        .iter()
+        .filter_map(|record| match &record.record {
+            contract::AuthorityRecordV1::PrincipalBinding(binding) => {
+                Some((binding.binding_id.to_string(), binding))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let rows = load_authenticated_command_presentation_rows(connection)?;
+    let mut covered_sequences = BTreeSet::new();
+
+    for row in rows {
+        let sequence = u64::try_from(row.decision_authority_sequence).map_err(|_| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "authenticated-command presentation authority sequence is out of range".to_owned(),
+            )
+        })?;
+        if !covered_sequences.insert(sequence) {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "authenticated-command presentation authority sequence is duplicated".to_owned(),
+            ));
+        }
+        let decision = decisions.get(&sequence).copied().ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "authenticated-command presentation has no signed decision".to_owned(),
+            )
+        })?;
+        let input_value =
+            canonical_projection_value(&row.command_input_json, "authenticated command input")?;
+        let command_input = serde_json::from_value::<contract::CommandInputV1>(input_value)
+            .map_err(|error| {
+                contract::AuthorityError::AuthorityIntegrity(format!(
+                    "invalid authenticated command input: {error}"
+                ))
+            })?;
+        command_input
+            .validate_for_authenticated_execution()
+            .map_err(contract_integrity)?;
+        let command_input_canonical =
+            canonicalize(&serde_json::to_value(&command_input).map_err(|error| {
+                contract::AuthorityError::AuthorityIntegrity(error.to_string())
+            })?)
+            .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        let computed_command_digest = digest(ArtifactKind::CommandV1, &command_input_canonical);
+
+        let binding = bindings
+            .get(&decision.binding.binding_id.to_string())
+            .copied()
+            .ok_or_else(|| {
+                contract::AuthorityError::AuthorityIntegrity(
+                    "authenticated command references no historical binding".to_owned(),
+                )
+            })?;
+        let verified = verify_authority_envelope::<contract::AuthenticatedCommandV1>(
+            row.command_envelope_json.as_bytes(),
+            AuthorityPayloadProfile::AuthenticatedCommand,
+            &[binding.authenticated_subject.as_subject().subject()],
+        )
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+        let command = &verified.parsed.payload;
+        command_input
+            .validate_authenticated_command(
+                command,
+                decision.requesting_principal_id,
+                decision.operating_principal_id,
+            )
+            .map_err(contract_integrity)?;
+
+        if row.workspace_id != workspace_id.to_string()
+            || row.workspace_id != decision.workspace_id.to_string()
+            || row.presentation_id != decision.presentation_id.to_string()
+            || row.command_digest != computed_command_digest.to_string()
+            || row.command_digest != decision.command_digest.to_string()
+            || row.command_envelope_digest != verified.parsed.envelope_digest.to_string()
+            || row.command_envelope_digest != decision.command_envelope_digest.to_string()
+            || verified.parsed.envelope_json != row.command_envelope_json
+            || command.binding_id != decision.binding.binding_id
+            || command.presentation_id != decision.presentation_id
+            || command.command_digest != decision.command_digest
+        {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "authenticated-command presentation differs from its signed decision".to_owned(),
+            ));
+        }
+    }
+
+    let first_required_sequence = u64::try_from(first_required_sequence).map_err(|_| {
+        contract::AuthorityError::AuthorityIntegrity(
+            "authenticated-command presentation cutover is out of range".to_owned(),
+        )
+    })?;
+    if decisions.keys().any(|sequence| {
+        *sequence >= first_required_sequence && !covered_sequences.contains(sequence)
+    }) {
+        return Err(contract::AuthorityError::AuthorityIntegrity(
+            "post-cutover signed decision lacks exact authenticated-command presentation bytes"
+                .to_owned(),
+        ));
+    }
     Ok(())
 }
 
@@ -8694,6 +9005,7 @@ fn verify_authenticated_presentation(
     parsed: &proof_attestation::authority::ParsedAuthorityEnvelope<
         contract::AuthenticatedCommandV1,
     >,
+    command_input_json: &str,
     command_digest: proof_application::ContentDigest,
     evaluated_at: Timestamp,
     authenticated_at: Timestamp,
@@ -8846,7 +9158,9 @@ fn verify_authenticated_presentation(
     Ok(VerifiedPresentation {
         operation_input,
         command: command.clone(),
+        command_input_json: command_input_json.to_owned(),
         command_digest,
+        command_envelope_json: parsed.envelope_json.clone(),
         command_envelope_digest: parsed.envelope_digest,
         binding,
         binding_record_digest,
@@ -8879,7 +9193,7 @@ mod tests {
         ExpectedApplicationLedgerRow, LocalIdentity, UNKNOWN_BINDING_DUMMY_RECORD_DIGEST,
         UNKNOWN_BINDING_DUMMY_RECORD_JSON, bootstrap_authority, contract,
         delegation_covers_projected_resources_v1, migrate_schema_v12, migrate_schema_v13,
-        parse_authority_envelope, prior_application_key_sources,
+        migrate_schema_v14, parse_authority_envelope, prior_application_key_sources,
         project_legacy_object_selection_v1, project_localized_intent_closure_v1,
         project_localized_released_selection_stage_one_v1, project_workspace_only_v1,
         projected_resources, register_expected_application_ledger_row,
@@ -8935,6 +9249,14 @@ PRAGMA user_version = 11;
         let mut connection = v11_connection();
         let transaction = connection.transaction().unwrap();
         migrate_schema_v12(&transaction).unwrap();
+        transaction.commit().unwrap();
+        connection
+    }
+
+    fn v13_connection() -> Connection {
+        let mut connection = v12_connection();
+        let transaction = connection.transaction().unwrap();
+        migrate_schema_v13(&transaction).unwrap();
         transaction.commit().unwrap();
         connection
     }
@@ -9262,6 +9584,226 @@ PRAGMA user_version = 11;
                     "SELECT COUNT(*) FROM schema_migrations WHERE version = 13",
                     [],
                     |row| { row.get::<_, u32>(0) }
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the migration acceptance test proves version markers, cutover, strict tables, triggers, and no fabrication"
+    )]
+    fn migration_creates_strict_v14_presentation_schema_without_fabricating_history() {
+        let mut connection = v13_connection();
+        let signer = Ed25519SigningProvider::from_secret_bytes(&[41_u8; 32]);
+        let workspace_id = "019c0000-0000-7000-8000-000000000001"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let principal_id = "019c0000-0000-7000-8000-000000000002"
+            .parse::<PrincipalId>()
+            .unwrap();
+        let local_identity = LocalIdentity {
+            provider: "os/unix",
+            subject: "uid:1000".to_owned(),
+        };
+        let transaction = connection.transaction().unwrap();
+        bootstrap_authority(
+            &transaction,
+            workspace_id,
+            principal_id,
+            "2026-08-20T20:00:00Z".parse().unwrap(),
+            &signer,
+            &local_identity,
+            [0x24; 32],
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+
+        let transaction = connection.transaction().unwrap();
+        migrate_schema_v14(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let versions = (
+            connection
+                .query_row(
+                    "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
+        );
+        assert_eq!(versions, (14, 14, 14));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT first_required_authority_sequence
+                     FROM authenticated_command_presentation_cutover_v1
+                     WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM authenticated_command_presentations_v1",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            0,
+            "migration must not invent exact bytes for historical records"
+        );
+        for table in [
+            "authenticated_command_presentation_cutover_v1",
+            "authenticated_command_presentations_v1",
+        ] {
+            let strict = connection
+                .query_row(
+                    "SELECT strict FROM pragma_table_list WHERE schema = 'main' AND name = ?1",
+                    [table],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap();
+            assert!(strict, "{table} must remain STRICT");
+        }
+        let trigger_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' AND name IN (
+                     'authenticated_command_presentation_cutover_no_update',
+                     'authenticated_command_presentation_cutover_no_delete',
+                     'authenticated_command_presentation_cutover_no_replace',
+                     'authenticated_command_presentation_no_update',
+                     'authenticated_command_presentation_no_delete',
+                     'authenticated_command_presentation_no_replace',
+                     'authorization_decision_requires_command_presentation'
+                 )",
+                [],
+                |row| row.get::<_, u32>(0),
+            )
+            .unwrap();
+        assert_eq!(trigger_count, 7);
+        assert!(
+            connection
+                .execute(
+                    "UPDATE authenticated_command_presentation_cutover_v1
+                     SET first_required_authority_sequence = 1 WHERE singleton = 1",
+                    [],
+                )
+                .is_err(),
+            "the durable cutover cannot be moved to legitimize missing post-v14 bytes"
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO authenticated_command_presentation_cutover_v1
+                     (singleton, first_required_authority_sequence) VALUES (1, 1)",
+                    [],
+                )
+                .is_err(),
+            "INSERT OR REPLACE cannot bypass cutover immutability"
+        );
+        connection
+            .execute(
+                "INSERT INTO authenticated_command_presentations_v1 (
+                     presentation_id, workspace_id, decision_authority_sequence,
+                     command_input_json, command_digest,
+                     command_envelope_json, command_envelope_digest
+                 ) VALUES ('presentation-v14',
+                           '019c0000-0000-7000-8000-000000000001', 2,
+                           '{}', 'blake3:input', '{}', 'blake3:envelope')",
+                [],
+            )
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO authenticated_command_presentations_v1 (
+                         presentation_id, workspace_id, decision_authority_sequence,
+                         command_input_json, command_digest,
+                         command_envelope_json, command_envelope_digest
+                     ) VALUES ('presentation-v14',
+                               '019c0000-0000-7000-8000-000000000001', 2,
+                               '{\"changed\":true}', 'blake3:changed',
+                               '{\"changed\":true}', 'blake3:changed-envelope')",
+                    [],
+                )
+                .is_err(),
+            "INSERT OR REPLACE cannot substitute exact presentation bytes"
+        );
+    }
+
+    #[test]
+    fn migration_failure_rolls_back_and_v14_retry_is_exact() {
+        let mut connection = v13_connection();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_v14_migration
+                 BEFORE INSERT ON schema_migrations
+                 WHEN NEW.version = 14
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected v14 migration failure');
+                 END;",
+            )
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        assert!(migrate_schema_v14(&transaction).is_err());
+        transaction.rollback().unwrap();
+
+        let table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN (
+                     'authenticated_command_presentation_cutover_v1',
+                     'authenticated_command_presentations_v1'
+                 )",
+                [],
+                |row| row.get::<_, u32>(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 0);
+        let versions = (
+            connection
+                .query_row(
+                    "SELECT schema_version FROM workspace_metadata WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
+        );
+        assert_eq!(versions, (13, 13, 13));
+
+        connection
+            .execute("DROP TRIGGER reject_v14_migration", [])
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        migrate_schema_v14(&transaction).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 14",
+                    [],
+                    |row| row.get::<_, u32>(0),
                 )
                 .unwrap(),
             1

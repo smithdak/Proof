@@ -16,7 +16,9 @@ use serde::Serialize;
 use thiserror::Error;
 
 pub mod authority;
+pub mod evidence;
 mod localized;
+pub use evidence::*;
 pub use localized::*;
 
 /// The stable API version for non-streaming command results.

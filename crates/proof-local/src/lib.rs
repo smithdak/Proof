@@ -3,6 +3,7 @@
 //! Local filesystem and `SQLite` adapters for Proof.
 
 mod authority;
+mod evidence;
 mod localized;
 
 use std::{
@@ -71,7 +72,7 @@ const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
 const RELEASE_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/release-signing.ed25519";
-const LATEST_DATABASE_SCHEMA_VERSION: u32 = 13;
+const LATEST_DATABASE_SCHEMA_VERSION: u32 = 14;
 const OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const LOCAL_RELEASE_TARGET: &str = "proof.local/released-state/v1";
 const LOCAL_RELEASE_POLICY: &str = "proof.local/release-policy/v1";
@@ -3136,6 +3137,7 @@ fn initialize_database(
     localized::migrate_schema_v11(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::migrate_schema_v12(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::migrate_schema_v13(&transaction).map_err(WorkspaceInitializationError::Storage)?;
+    authority::migrate_schema_v14(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::bootstrap_authority(
         &transaction,
         workspace_id
@@ -4264,6 +4266,10 @@ fn ensure_latest_schema(
     if version == 12 {
         authority::migrate_schema_v13(transaction).map_err(LatestSchemaError::Storage)?;
         version = 13;
+    }
+    if version == 13 {
+        authority::migrate_schema_v14(transaction).map_err(LatestSchemaError::Storage)?;
+        version = 14;
     }
     if version == LATEST_DATABASE_SCHEMA_VERSION {
         Ok(())

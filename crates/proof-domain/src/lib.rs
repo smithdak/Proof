@@ -755,6 +755,22 @@ pub enum ArtifactKind {
     EditionV2,
     /// One immutable localized-content Release fact.
     ReleaseV2,
+    /// One portable index over a complete Release and authority evidence closure.
+    AuthorityEvidenceBundleV1,
+    /// One exported exact v13 authenticated localized consequence.
+    AuthenticatedLocalizedConsequenceV1,
+    /// One protected opening of an authenticated requesting-subject commitment.
+    AuthenticatedSubjectOpeningV1,
+    /// One independently retained authority-log checkpoint.
+    AuthorityCheckpointV1,
+    /// One explicit caller-supplied portable-verification trust policy.
+    VerificationTrustPolicyV1,
+    /// One deterministic structured portable-verification report.
+    VerificationReportV1,
+    /// One exported public Release-signing key validity record.
+    ReleaseSigningKeyV1,
+    /// One exported Release-signing key revocation record.
+    ReleaseSigningKeyRevocationV1,
 }
 
 impl ArtifactKind {
@@ -799,9 +815,129 @@ impl ArtifactKind {
             Self::KnownStateV2 => "proof:known-state:v2",
             Self::EditionV2 => "proof:edition:v2",
             Self::ReleaseV2 => "proof:release:v2",
+            Self::AuthorityEvidenceBundleV1 => "proof:authority-evidence-bundle:v1",
+            Self::AuthenticatedLocalizedConsequenceV1 => {
+                "proof:authenticated-localized-consequence:v1"
+            }
+            Self::AuthenticatedSubjectOpeningV1 => "proof:authenticated-subject-opening:v1",
+            Self::AuthorityCheckpointV1 => "proof:authority-checkpoint:v1",
+            Self::VerificationTrustPolicyV1 => "proof:verification-trust-policy:v1",
+            Self::VerificationReportV1 => "proof:verification-report:v1",
+            Self::ReleaseSigningKeyV1 => "proof:release-signing-key:v1",
+            Self::ReleaseSigningKeyRevocationV1 => "proof:release-signing-key-revocation:v1",
         }
     }
+
+    /// Returns the stable lowercase wire and content-addressed path name.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::EditionV1 => "edition_v1",
+            Self::ChangeSetV1 => "changeset_v1",
+            Self::ContextPackV1 => "context_pack_v1",
+            Self::ValidationResultsV1 => "validation_results_v1",
+            Self::KnownStateV1 => "known_state_v1",
+            Self::SchemaVersionV1 => "schema_version_v1",
+            Self::EditBatchV1 => "edit_batch_v1",
+            Self::OperationEffectV1 => "operation_effect_v1",
+            Self::SchemaSetV1 => "schema_set_v1",
+            Self::ObjectRevisionV1 => "object_revision_v1",
+            Self::ObjectSetV1 => "object_set_v1",
+            Self::EnvironmentConfigV1 => "environment_config_v1",
+            Self::ReleaseV1 => "release_v1",
+            Self::ProofEnvelopeV1 => "proof_envelope_v1",
+            Self::DelegationV1 => "delegation_v1",
+            Self::PrincipalRegistrationV1 => "principal_registration_v1",
+            Self::AuthorizationDecisionV1 => "authorization_decision_v1",
+            Self::PolicyBundleV1 => "policy_bundle_v1",
+            Self::CommandV1 => "command_v1",
+            Self::AuthenticatedCommandEnvelopeV1 => "authenticated_command_envelope_v1",
+            Self::BindingEnrollmentChallengeV1 => "binding_enrollment_challenge_v1",
+            Self::BindingEnrollmentEnvelopeV1 => "binding_enrollment_envelope_v1",
+            Self::AuthenticatedSubjectCommitmentV1 => "authenticated_subject_commitment_v1",
+            Self::AuthenticatedActorContextV1 => "authenticated_actor_context_v1",
+            Self::AuthorityRecordV1 => "authority_record_v1",
+            Self::AuthorityRecordEnvelopeV1 => "authority_record_envelope_v1",
+            Self::ContentResourceIntentV1 => "content_resource_intent_v1",
+            Self::ContextPackV2 => "context_pack_v2",
+            Self::EditBatchV2 => "edit_batch_v2",
+            Self::EditV2 => "edit_v2",
+            Self::ChangeSetV2 => "changeset_v2",
+            Self::ValidationResultsV2 => "validation_results_v2",
+            Self::ObjectLocaleRevisionV1 => "object_locale_revision_v1",
+            Self::ObjectSetV2 => "object_set_v2",
+            Self::KnownStateV2 => "known_state_v2",
+            Self::EditionV2 => "edition_v2",
+            Self::ReleaseV2 => "release_v2",
+            Self::AuthorityEvidenceBundleV1 => "authority_evidence_bundle_v1",
+            Self::AuthenticatedLocalizedConsequenceV1 => "authenticated_localized_consequence_v1",
+            Self::AuthenticatedSubjectOpeningV1 => "authenticated_subject_opening_v1",
+            Self::AuthorityCheckpointV1 => "authority_checkpoint_v1",
+            Self::VerificationTrustPolicyV1 => "verification_trust_policy_v1",
+            Self::VerificationReportV1 => "verification_report_v1",
+            Self::ReleaseSigningKeyV1 => "release_signing_key_v1",
+            Self::ReleaseSigningKeyRevocationV1 => "release_signing_key_revocation_v1",
+        }
+    }
+
+    /// Resolves one exact stable wire name without aliases or case folding.
+    #[must_use]
+    pub fn from_wire_name(value: &str) -> Option<Self> {
+        ALL_ARTIFACT_KINDS
+            .iter()
+            .copied()
+            .find(|kind| kind.wire_name() == value)
+    }
 }
+
+/// Closed artifact-kind registry in stable wire order.
+pub const ALL_ARTIFACT_KINDS: [ArtifactKind; 45] = [
+    ArtifactKind::EditionV1,
+    ArtifactKind::ChangeSetV1,
+    ArtifactKind::ContextPackV1,
+    ArtifactKind::ValidationResultsV1,
+    ArtifactKind::KnownStateV1,
+    ArtifactKind::SchemaVersionV1,
+    ArtifactKind::EditBatchV1,
+    ArtifactKind::OperationEffectV1,
+    ArtifactKind::SchemaSetV1,
+    ArtifactKind::ObjectRevisionV1,
+    ArtifactKind::ObjectSetV1,
+    ArtifactKind::EnvironmentConfigV1,
+    ArtifactKind::ReleaseV1,
+    ArtifactKind::ProofEnvelopeV1,
+    ArtifactKind::DelegationV1,
+    ArtifactKind::PrincipalRegistrationV1,
+    ArtifactKind::AuthorizationDecisionV1,
+    ArtifactKind::PolicyBundleV1,
+    ArtifactKind::CommandV1,
+    ArtifactKind::AuthenticatedCommandEnvelopeV1,
+    ArtifactKind::BindingEnrollmentChallengeV1,
+    ArtifactKind::BindingEnrollmentEnvelopeV1,
+    ArtifactKind::AuthenticatedSubjectCommitmentV1,
+    ArtifactKind::AuthenticatedActorContextV1,
+    ArtifactKind::AuthorityRecordV1,
+    ArtifactKind::AuthorityRecordEnvelopeV1,
+    ArtifactKind::ContentResourceIntentV1,
+    ArtifactKind::ContextPackV2,
+    ArtifactKind::EditBatchV2,
+    ArtifactKind::EditV2,
+    ArtifactKind::ChangeSetV2,
+    ArtifactKind::ValidationResultsV2,
+    ArtifactKind::ObjectLocaleRevisionV1,
+    ArtifactKind::ObjectSetV2,
+    ArtifactKind::KnownStateV2,
+    ArtifactKind::EditionV2,
+    ArtifactKind::ReleaseV2,
+    ArtifactKind::AuthorityEvidenceBundleV1,
+    ArtifactKind::AuthenticatedLocalizedConsequenceV1,
+    ArtifactKind::AuthenticatedSubjectOpeningV1,
+    ArtifactKind::AuthorityCheckpointV1,
+    ArtifactKind::VerificationTrustPolicyV1,
+    ArtifactKind::VerificationReportV1,
+    ArtifactKind::ReleaseSigningKeyV1,
+    ArtifactKind::ReleaseSigningKeyRevocationV1,
+];
 
 /// A supported content-digest algorithm.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

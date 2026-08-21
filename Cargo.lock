@@ -909,6 +909,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-agent-signer"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "proof-application",
+ "proof-attestation",
+ "proof-canonical",
+ "serde",
+ "serde_json",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "proof-application"
 version = "0.1.0"
 dependencies = [
@@ -959,6 +973,7 @@ dependencies = [
  "proof-local",
  "proof-mcp",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "uuid",
@@ -1007,6 +1022,21 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "proof-verifier"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "ed25519-dalek",
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "serde_json_canonicalizer",
+ "thiserror",
+ "time",
 ]
 
 [[package]]

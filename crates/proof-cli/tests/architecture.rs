@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, path::Path, process::Command};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    process::Command,
+};
 
 use serde_json::Value;
 
@@ -11,7 +15,7 @@ fn inward_dependency_boundaries_are_enforced() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1", "--no-deps"])
-        .current_dir(workspace)
+        .current_dir(&workspace)
         .output()
         .expect("cargo metadata should run");
     assert!(output.status.success());
@@ -25,6 +29,8 @@ fn inward_dependency_boundaries_are_enforced() {
     let local = normal_dependencies(packages, "proof-local");
     let cli = normal_dependencies(packages, "proof-cli");
     let mcp = normal_dependencies(packages, "proof-mcp");
+    let signer = normal_dependencies(packages, "proof-agent-signer");
+    let verifier = normal_dependencies(packages, "proof-verifier");
 
     assert_eq!(
         domain,
@@ -96,6 +102,7 @@ fn inward_dependency_boundaries_are_enforced() {
             "proof-attestation".to_owned(),
             "proof-canonical".to_owned(),
             "proof-local".to_owned(),
+            "rustix".to_owned(),
             "serde".to_owned(),
             "serde_json".to_owned(),
             "uuid".to_owned(),
@@ -116,6 +123,41 @@ fn inward_dependency_boundaries_are_enforced() {
         ]),
         "the MCP interface may compose application contracts and adapters but owns no domain behavior"
     );
+    assert_eq!(
+        signer,
+        BTreeSet::from([
+            "clap".to_owned(),
+            "proof-application".to_owned(),
+            "proof-attestation".to_owned(),
+            "proof-canonical".to_owned(),
+            "serde".to_owned(),
+            "serde_json".to_owned(),
+            "uuid".to_owned(),
+            "zeroize".to_owned(),
+        ]),
+        "the Agent signer may depend on signing/application contracts but never the Workspace adapter or SQLite"
+    );
+    assert_eq!(
+        verifier,
+        BTreeSet::from([
+            "base64".to_owned(),
+            "blake3".to_owned(),
+            "ed25519-dalek".to_owned(),
+            "jsonschema".to_owned(),
+            "serde".to_owned(),
+            "serde_json".to_owned(),
+            "serde_json_canonicalizer".to_owned(),
+            "thiserror".to_owned(),
+            "time".to_owned(),
+        ]),
+        "the independent verifier owns its strict wire, canonicalization, digest, and signature path"
+    );
+    assert_no_reachable_dependencies(
+        &workspace,
+        "proof-agent-signer",
+        &["proof-cli", "proof-local", "proof-mcp", "rusqlite"],
+    );
+    assert_no_transitive_proof_dependencies(&workspace, "proof-verifier");
 }
 
 fn normal_dependencies(packages: &[Value], package_name: &str) -> BTreeSet<String> {
@@ -131,4 +173,72 @@ fn normal_dependencies(packages: &[Value], package_name: &str) -> BTreeSet<Strin
         .filter(|dependency| dependency["kind"].is_null())
         .map(|dependency| dependency["name"].as_str().unwrap().to_owned())
         .collect()
+}
+
+fn assert_no_transitive_proof_dependencies(workspace: &Path, package_name: &str) {
+    for dependency_name in resolved_dependency_names(workspace, package_name) {
+        assert!(
+            !dependency_name.starts_with("proof-"),
+            "{package_name} reaches forbidden dependency {dependency_name}"
+        );
+    }
+}
+
+fn assert_no_reachable_dependencies(workspace: &Path, package_name: &str, forbidden: &[&str]) {
+    let dependencies = resolved_dependency_names(workspace, package_name);
+    for forbidden_name in forbidden {
+        assert!(
+            !dependencies.contains(*forbidden_name),
+            "{package_name} reaches forbidden dependency {forbidden_name}"
+        );
+    }
+}
+
+fn resolved_dependency_names(workspace: &Path, package_name: &str) -> BTreeSet<String> {
+    let output = Command::new(env!("CARGO"))
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .current_dir(workspace)
+        .output()
+        .expect("resolved cargo metadata should run");
+    assert!(output.status.success());
+    let metadata: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let packages = metadata["packages"].as_array().unwrap();
+    let package_names = packages
+        .iter()
+        .map(|package| {
+            (
+                package["id"].as_str().unwrap().to_owned(),
+                package["name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let package_id = packages
+        .iter()
+        .find(|package| package["name"] == package_name)
+        .unwrap_or_else(|| panic!("missing package {package_name}"))["id"]
+        .as_str()
+        .unwrap();
+    let nodes = metadata["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| (node["id"].as_str().unwrap().to_owned(), node))
+        .collect::<BTreeMap<_, _>>();
+    let mut pending = vec![package_id.to_owned()];
+    let mut visited = BTreeSet::new();
+    let mut dependency_names = BTreeSet::new();
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        let node = nodes
+            .get(&current)
+            .unwrap_or_else(|| panic!("missing resolve node {current}"));
+        for dependency in node["deps"].as_array().unwrap() {
+            let dependency_id = dependency["pkg"].as_str().unwrap();
+            dependency_names.insert(package_names[dependency_id].clone());
+            pending.push(dependency_id.to_owned());
+        }
+    }
+    dependency_names
 }

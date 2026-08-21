@@ -2,6 +2,7 @@
 
 mod auth_cli;
 mod authority_cli;
+mod evidence_cli;
 mod localized_cli;
 mod release_cli;
 
@@ -41,6 +42,7 @@ use uuid::Uuid;
 
 use auth_cli::AuthAction;
 use authority_cli::{CapabilityAction, ContextAction, DelegationAction, PrincipalAction};
+use evidence_cli::EvidenceAction;
 use localized_cli::LocalizedAction;
 use release_cli::{EnvironmentAction, ObjectAction, ProjectionAction, ReleaseAction};
 
@@ -150,6 +152,11 @@ enum Command {
     Release {
         #[command(subcommand)]
         action: ReleaseAction,
+    },
+    /// Export portable Release and authority-evidence closures.
+    Evidence {
+        #[command(subcommand)]
+        action: EvidenceAction,
     },
     /// Query immutable released content.
     Object {
@@ -336,6 +343,9 @@ impl Command {
             Self::Release {
                 action: ReleaseAction::Verify { .. },
             } => "release.verify",
+            Self::Evidence {
+                action: EvidenceAction::Export { .. },
+            } => "evidence.export",
             Self::Object {
                 action: ObjectAction::Query { .. },
             } => "object.query_released",
@@ -549,6 +559,9 @@ fn run_command(
         }
         Command::Release { action } => {
             release_cli::run_release(action, output, context, workspace)?
+        }
+        Command::Evidence { action } => {
+            evidence_cli::run_evidence(action, output, context, workspace)?
         }
         Command::Object { action } => {
             release_cli::run_object(action, output, context, workspace, authority)?
