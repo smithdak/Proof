@@ -1,13 +1,13 @@
 ---
 id: P-0006
 title: Close Milestone 2 with independently verifiable evidence and conformance
-status: ready
+status: claimed
 wave: now
 kind: qualification
 blocked_by: [P-0005]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0006
+claimed_at: 2026-08-21T16:36:33.390Z
+base_sha: 0a5becaf9794d81c9a5b1d7118e190b16dd247d2
 review_gate: project-owner
 accepted_by: null
 accepted_at: null
@@ -244,6 +244,10 @@ P-0005 Engineering evidence commit
 `03fd4ea6088f943c708026c42f918f478c115329` binds the exact v13 inputs and
 residual boundaries that this item must carry into portable verification. No
 P-0006 implementation or Milestone 2 completion is claimed by this promotion.
+
+Claimed by `codex:/root:p-0006` at `2026-08-21T16:36:33.390Z` from completed
+P-0005 commit `0a5becaf9794d81c9a5b1d7118e190b16dd247d2` on
+`proof-engineering/p-0006-milestone-2-closure`.
 
 ## Residual risks and next-wave update
 

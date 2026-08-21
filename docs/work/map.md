@@ -60,7 +60,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `ready` | P-0005 | Prove repair, abuse resistance, adapter parity, portable closure, containment, and independent verification. |
+| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `claimed` | P-0005 | Prove repair, abuse resistance, adapter parity, portable closure, containment, and independent verification. |
 
 ## Next
 
