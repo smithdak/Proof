@@ -1,7 +1,7 @@
 ---
 id: P-0004
 title: Implement the authenticated authorization kernel
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0003]
@@ -325,6 +325,12 @@ parity, and the final falsification and acceptance-criteria audits. It entered
 `review` under `review_gate: none`; Engineering disposition is supported for
 the bounded local profile, while the lifecycle completion change remains
 separate so it can name this immutable evidence record.
+
+Completed at `2026-08-21T00:14:21.316Z` under `review_gate: none`. Engineering
+evidence commit `e6843ada5be3ad48d669dc1c1ae23cb4e997220d` binds exact candidate
+`87888475829cf6f197f6b1ed4b0c0e1a9863ccf7`, its 61 Git blobs, and every
+qualification result. The bounded P-0004 outcome is `done`; P-0005 becomes the
+ready, unclaimed frontier and delegated mutation remains unimplemented.
 
 Residual limits remain explicit: same-UID/private-Workspace processes are
 inside Human/admin trust, a pinned later head is required to detect valid older

@@ -8,9 +8,10 @@ under bounded Delegation and a task-specific ContextPack, with human approval,
 independently verifiable evidence, structured repair, and no privileged
 interface.
 
-The current Release and read-authority implementation must first become a clean,
-qualified baseline. Collaboration-server and enterprise deployment work begin
-only after the Milestone 2 exit scenario passes.
+P-0007's Release foundation and P-0004's read-authority kernel are the clean,
+qualified baseline for P-0005 delegated mutation. Collaboration-server and
+enterprise deployment work begin only after the Milestone 2 exit scenario
+passes.
 
 ## Operating notes
 
@@ -59,25 +60,18 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `review` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
-| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
-
-P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
-is accepted as `done` through Assurance record `29ad9d9`. Historical
-unsupported candidates `fede487` and `c4b312d` remain unsupported and are not
-relabeled by completion.
+| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `ready` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 
 ## Next
 
-These later implementation items remain blocked until their dependencies close.
-Each must be re-read and reshaped before promotion to `ready`.
+P-0006 remains blocked until P-0005 closes and must be reshaped before
+promotion to `ready`.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `blocked` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `blocked` | P-0005 | Prove repair, abuse resistance, adapter parity, and independent verification. |
 
 ## Completed
@@ -87,6 +81,15 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `done` | P-0001 | Ratified exact-locale renditions, append-only repair, immutable resource intent, and causally closed Edition/Release semantics. |
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `done` | P-0001, P-0002 | Ratified the bounded local authenticated-actor, direct Delegation, and current-authorization retry contract. |
+| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `done` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
+| [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
+
+P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
+is accepted as `done` through Assurance record `29ad9d9`. Historical
+unsupported candidates `fede487` and `c4b312d` remain unsupported and are not
+relabeled by completion. P-0004 candidate `8788847`, bound through Engineering
+evidence `e6843ad`, passed the bounded local authorization-kernel gate and is
+`done` under `review_gate: none`.
 
 ## Decisions so far
 
@@ -102,8 +105,8 @@ resource intent, and Edition/Release causality tied to the unchanged preview
 baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
 `DelegationV2` resource dimension is required. P-0007 implements and qualifies
-that foundation through the Human path. Agent authority remains unimplemented;
-P-0005 adds it only after P-0004 closes.
+that foundation through the Human path. P-0004 implements authenticated Agent
+reads; P-0005 is ready to add delegated mutation.
 
 ### Ratified P-0003 profile
 
@@ -114,15 +117,16 @@ adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras treat Principal and Delegation identifiers as cross-checks or
 selectors rather than authority. This is accepted architecture, not an
-implementation-status claim; P-0004 is `claimed`, and P-0006 remains blocked.
+implementation-status claim by itself. P-0004 implements its bounded local read
+profile, and P-0006 remains blocked.
 
 Candidate `38999d0` was qualified and accepted by project owner `smithdak` at
 `2026-08-20T19:52:12.756Z`. It aligns
 the exact locale Schema, closes the 14-pair operation registry, freezes the
 localized resource and budget projections, and regenerates the affected
-conformance vectors. P-0004 exposes no write path until it implements this
-contract. The exact candidate, acceptance, and falsification record are bound
-by the
+conformance vectors. P-0004 enables only the three authenticated v1 reads; the
+11 localized mutation rows remain disabled until P-0005. The exact candidate,
+acceptance, and falsification record are bound by the
 [P-0003 receipt](evidence/P-0003/receipt.md).
 
 The controlling contract is the

@@ -1,8 +1,8 @@
 ---
 id: P-0005
 title: Deliver delegated mutation through a verified Release
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: implementation
 blocked_by: [P-0004, P-0007]
 claimed_by: null
@@ -24,17 +24,23 @@ content behavior ratified by P-0002, repair and submit a ChangeSet, pause for a
 separate Human approval, then resume through execution-time authorization,
 commit, Edition, Environment Release, and persisted verification.
 
-## Promotion condition
+## Promotion condition — satisfied
 
-Re-shape this item after P-0004 and P-0007 close. It is not claimable while
-authenticated authority remains provisional or the Human-path localized
-content contracts are unimplemented.
+P-0007 candidate `47153144b4b834cfffab61b328e4551f09fe50cb`, bound through
+Engineering evidence `8308ebfb9090270982fcfb06c8247ab423fcb51d` and Assurance
+record `29ad9d95c100c9ecfad5080c998915c23a2a5f93`, closed the Human-path
+localized content foundation. P-0004 candidate
+`87888475829cf6f197f6b1ed4b0c0e1a9863ccf7`, bound through Engineering
+evidence `e6843ada5be3ad48d669dc1c1ae23cb4e997220d`, closed the bounded local
+authenticated read kernel. Both dependencies are `done`; this item is ready
+and unclaimed.
 
 ## Authorized scope
 
-- Add the ratified delegated actions, resources, budgets, and ContextPack
-  requirements for ChangeSet proposal/edit/validation/submission, commit,
-  Edition creation, and Release promotion.
+- Enable and wire the 11 already-registered localized v2 operation rows through
+  P-0007's ChangeSet, Edition, and Release consequences. P-0005 must not add or
+  reinterpret their actions, resource projections, budgets, retry classes,
+  closure anchors, selectors, or registry rows.
 - Integrate the P-0007 application and storage contracts; do not reimplement or
   fork localized-content, repair, Edition, Release, or migration semantics in
   an Agent adapter.
@@ -105,7 +111,8 @@ private key material.
 
 ## Completion record
 
-Blocked by P-0004 and P-0007.
+Ready and unclaimed after P-0007 and P-0004 completion. Delegated mutation is
+still unimplemented; claiming P-0005 is the next authorized execution step.
 
 ## Residual risks and next-wave update
 

@@ -36,8 +36,9 @@ qualification only. This item remains blocked by P-0005. The controlling
 contract is the
 [authenticated actor contract](../../architecture/authenticated-actor.md).
 P-0002 and P-0007 have closed the Human-path write-resource contract, and
-P-0003's reconciled candidate binds its exact operation/projection registry.
-That profile is still unaccepted until the project owner closes P-0003.
+P-0003 is accepted with its exact operation/projection registry. P-0004
+implements the bounded local authenticated read profile. P-0006 remains
+blocked on P-0005 and is not claimable yet.
 
 ## Authorized scope
 
