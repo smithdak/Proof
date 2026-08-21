@@ -60,7 +60,7 @@ passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `ready` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
+| [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `claimed` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 
 ## Next
 

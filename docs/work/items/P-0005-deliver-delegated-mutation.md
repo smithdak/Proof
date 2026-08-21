@@ -1,13 +1,13 @@
 ---
 id: P-0005
 title: Deliver delegated mutation through a verified Release
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0004, P-0007]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0005
+claimed_at: 2026-08-21T12:33:51.831Z
+base_sha: 9c469e219ce5a2c6ec29f06dc6509a346b62cc10
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -113,6 +113,10 @@ private key material.
 
 Ready and unclaimed after P-0007 and P-0004 completion. Delegated mutation is
 still unimplemented; claiming P-0005 is the next authorized execution step.
+
+Claimed by `codex:/root:p-0005` at `2026-08-21T12:33:51.831Z` from completed
+P-0004/P-0007 baseline `9c469e219ce5a2c6ec29f06dc6509a346b62cc10` on
+`proof-engineering/p-0005-delegated-mutation`.
 
 ## Residual risks and next-wave update
 
