@@ -1,0 +1,476 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0004",
+  "base_sha": "445f56c8737e97d7041ece2971ac755fea5fa05c",
+  "claim_commit": "ca9de58c38530fccfe16decf862fedd2cbf8f935",
+  "candidate_parent_sha": "ca9de58c38530fccfe16decf862fedd2cbf8f935",
+  "candidate_commit": "87888475829cf6f197f6b1ed4b0c0e1a9863ccf7",
+  "item_work_commit": "87888475829cf6f197f6b1ed4b0c0e1a9863ccf7",
+  "branch": "proof-engineering/p-0004-authorization-kernel",
+  "qualified_at": "2026-08-21T00:10:35Z",
+  "qualification_state": "engineering-qualified-review-eligible",
+  "live_remote_verified": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "candidate_path_count": 61,
+    "candidate_paths": [
+      "CHANGELOG.md",
+      "Cargo.lock",
+      "README.md",
+      "conformance/v1/authority/README.md",
+      "conformance/v1/authority/schemas/authorization-decision-v2.schema.json",
+      "conformance/v1/authority/vectors/authorization-decision-v2.authority-envelope.valid.json",
+      "conformance/v1/authority/vectors/authorization-decision-v2.valid.json",
+      "conformance/v1/authority/vectors/delegation-revocation.valid.json",
+      "conformance/v1/authority/vectors/principal-binding-authority.dsse-bytes.valid.json",
+      "conformance/v1/authority/vectors/principal-binding-revocation.valid.json",
+      "conformance/v1/authority/vectors/principal-binding.authority-envelope.valid.json",
+      "conformance/v1/authority/vectors/principal-status-agent-disabled.valid.json",
+      "conformance/v1/authority/vectors/rejected-authentication-cases.json",
+      "conformance/v1/authority/vectors/rejected-authority-cases.json",
+      "conformance/v1/authority/vectors/rejected-authorization-cases.json",
+      "conformance/v1/authority/vectors/workspace-authority-root-successor.valid.json",
+      "conformance/v1/authority/vectors/workspace-authority-root-transition.dsse-bytes.valid.json",
+      "conformance/v1/authority/vectors/workspace-authority-root-transition.envelope.valid.json",
+      "conformance/v1/authority/vectors/workspace-authority-root-transition.payload.valid.json",
+      "conformance/v1/authority/vectors/workspace-authority-root.valid.json",
+      "crates/proof-application/Cargo.toml",
+      "crates/proof-application/src/authority.rs",
+      "crates/proof-application/src/lib.rs",
+      "crates/proof-attestation/src/authority.rs",
+      "crates/proof-attestation/src/lib.rs",
+      "crates/proof-cli/Cargo.toml",
+      "crates/proof-cli/src/auth_cli.rs",
+      "crates/proof-cli/src/authority_cli.rs",
+      "crates/proof-cli/src/main.rs",
+      "crates/proof-cli/tests/architecture.rs",
+      "crates/proof-cli/tests/auth_cli.rs",
+      "crates/proof-cli/tests/auth_transport_parity.rs",
+      "crates/proof-cli/tests/cli.rs",
+      "crates/proof-domain/src/lib.rs",
+      "crates/proof-local/Cargo.toml",
+      "crates/proof-local/src/authority.rs",
+      "crates/proof-local/src/lib.rs",
+      "crates/proof-local/tests/initialize.rs",
+      "crates/proof-local/tests/p0004_authority.rs",
+      "crates/proof-local/tests/p0004_authority_continuity.rs",
+      "crates/proof-local/tests/p0004_authority_falsification.rs",
+      "crates/proof-local/tests/p0004_authority_matrix.rs",
+      "crates/proof-local/tests/p0007_assurance_g6_g9.rs",
+      "crates/proof-mcp/Cargo.toml",
+      "crates/proof-mcp/src/backend.rs",
+      "crates/proof-mcp/src/lib.rs",
+      "crates/proof-mcp/tests/protocol.rs",
+      "docs/README.md",
+      "docs/architecture/agent-authority.md",
+      "docs/architecture/authenticated-actor.md",
+      "docs/architecture/domain-model.md",
+      "docs/architecture/overview.md",
+      "docs/architecture/proof-model.md",
+      "docs/architecture/threat-model.md",
+      "docs/decisions/0011-local-agent-command-authentication.md",
+      "docs/product/roadmap.md",
+      "docs/product/vision.md",
+      "docs/reference/cli.md",
+      "docs/reference/errors.md",
+      "docs/reference/standards.md",
+      "docs/work/items/P-0004-implement-authorization-kernel.md"
+    ],
+    "insertions": 21637,
+    "deletions": 768,
+    "artifact_digest_status": "61 of 61 exact Git blobs bound by SHA-256",
+    "storage_source_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    "storage_target_version": 12,
+    "registered_operation_pairs": 14,
+    "exposed_authenticated_operation_pairs": 3,
+    "disabled_localized_operation_pairs": 11,
+    "resource_projection_profiles": 4,
+    "dependency_package_records_added": 0,
+    "production_dependency_packages_added": [],
+    "test_only_dependency_packages_added": [],
+    "production_direct_edges_added": [
+      "proof-application -> base64",
+      "proof-application -> serde_json (promoted from dev-dependency)",
+      "proof-cli -> zeroize",
+      "proof-local -> base64",
+      "proof-local -> getrandom 0.4.3",
+      "proof-mcp -> proof-attestation"
+    ],
+    "test_only_direct_edges_added": [
+      "proof-cli -> base64",
+      "proof-cli -> proof-mcp"
+    ],
+    "test_only_direct_edges_removed": [
+      "proof-application -> serde_json (promoted to production dependency)"
+    ],
+    "unrelated_paths": []
+  },
+  "implementation_scope": {
+    "identity_adapters": [
+      "Unix bootstrap Human",
+      "local Ed25519 Agent proof of possession",
+      "deterministic identity, time, and subject blind"
+    ],
+    "authority_lifecycle": [
+      "single-use enrollment challenge",
+      "immutable Principal binding history",
+      "binding rotation and revocation",
+      "terminal Principal disablement",
+      "direct Human-to-Agent DelegationV2",
+      "dual-signed Workspace authority-root transition"
+    ],
+    "brokers": [
+      "proof auth execute --invocation -",
+      "modern proof-mcp stdio",
+      "legacy proof-mcp stdio"
+    ],
+    "enabled_agent_operations": [
+      "workspace.status/v1",
+      "object.query_released/v1",
+      "context.build/v1"
+    ],
+    "non_goals": [
+      "delegated content mutation",
+      "network or collaboration authority server",
+      "portable AuthorityEvidenceBundleV1 qualification",
+      "same-UID hostile-process containment",
+      "Windows identity-runtime support",
+      "push, tag, release, deploy, or publication"
+    ]
+  },
+  "environment": {
+    "windows": {
+      "purpose": "workspace checks, compilation, strict lint, and focused deterministic tests only",
+      "runtime_identity_qualified": false,
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "node": "v26.1.0",
+      "npm": "11.16.0",
+      "git": "2.43.0.windows.1"
+    },
+    "ubuntu": {
+      "distribution": "Ubuntu 24.04.4 LTS",
+      "surface": "WSL2",
+      "purpose": "qualifying complete workspace runtime surface",
+      "kernel": "5.15.167.4-microsoft-standard-WSL2",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "node": "v22.23.1",
+      "npm": "10.9.8",
+      "git": "2.43.0",
+      "tmpdir": "/tmp",
+      "cargo_target_dir": "/mnt/d/github/Proof/target/p4-wsl"
+    }
+  },
+  "commands": [
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0004_authority",
+      "exit_code": 0,
+      "result": "10 passed; 0 failed"
+    },
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0004_authority_matrix",
+      "exit_code": 0,
+      "result": "7 passed; 0 failed"
+    },
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0004_authority_falsification",
+      "exit_code": 0,
+      "result": "10 passed; 0 failed"
+    },
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0004_authority_continuity",
+      "exit_code": 0,
+      "result": "5 passed; 0 failed"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p4-wsl cargo test --locked -p proof-local --test initialize p0004_",
+      "exit_code": 0,
+      "result": "2 passed; 0 failed; 126 filtered out"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p4-wsl cargo test --locked -p proof-cli --test auth_transport_parity",
+      "exit_code": 0,
+      "result": "2 passed; 0 failed; real CLI, modern MCP, and legacy MCP parity supported"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo check --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed with warnings denied"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p4-wsl cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "452 tests passed across all targets and features; 0 failures"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p4-wsl cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "6 doc-test crate summaries passed; 0 doctests; 0 failures"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p4-wsl cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed with warnings denied"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "163 internal documentation links checked"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "7 work items passed metadata, lifecycle, dependencies, map parity, transitions, and evidence contracts"
+    },
+    {
+      "surface": "windows",
+      "command": "PowerShell ConvertFrom-Json over conformance authority JSON and docs/work/evidence/P-0004/manifest.json",
+      "exit_code": 0,
+      "result": "68 JSON files parsed: 67 authority conformance files and this manifest"
+    },
+    {
+      "surface": "windows",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
+      "exit_code": 0,
+      "result": "53 Markdown files checked; 0 issues"
+    },
+    {
+      "surface": "windows",
+      "command": "git -c safe.directory=D:/github/Proof diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows-git-object",
+      "command": "git diff-tree/rev-parse/cat-file at 87888475829cf6f197f6b1ed4b0c0e1a9863ccf7 with SHA-256 over each emitted blob byte stream",
+      "exit_code": 0,
+      "result": "61 candidate paths; 21637 insertions; 768 deletions; 61 of 61 Git blobs hashed"
+    },
+    {
+      "surface": "windows",
+      "command": "PowerShell wrapper around git grep at 87888475829cf6f197f6b1ed4b0c0e1a9863ccf7 over candidate source surfaces for private-key, token, and unapproved host-path markers; expected no-match status 1 is normalized to process success",
+      "exit_code": 0,
+      "result": "0 matches"
+    }
+  ],
+  "independent_acceptance_audit": {
+    "scope": "final P-0004 acceptance criteria against the candidate diff, retained tests, public error boundaries, and evidence claims",
+    "result": "supported with no contradiction",
+    "disposition_effect": "supports review eligibility only; no owner disposition was executed"
+  },
+  "required_evidence_matrices": {
+    "authentication_binding_privacy": {
+      "test": "crates/proof-local/tests/p0004_authority.rs",
+      "families": [
+        "single consumption and write-free replay",
+        "unknown-binding and invalid-signature public parity",
+        "hidden Delegation denial",
+        "post-revocation result withholding",
+        "authentication time boundaries",
+        "Binding and Delegation interval boundaries",
+        "causal disablement and revocation",
+        "maximum typed authority records",
+        "raw UID and blind exclusion"
+      ],
+      "result": "10 passed; 0 failed"
+    },
+    "authorization_and_atomicity": {
+      "test": "crates/proof-local/tests/p0004_authority_matrix.rs",
+      "families": [
+        "zero-write pre-consumption failures",
+        "committed current-binding denial",
+        "action, resource, and budget denial",
+        "chain and subdelegation rejection",
+        "committed released-query allow outcomes",
+        "workspace-global application idempotency",
+        "unsupported-version committed allow failure"
+      ],
+      "policy_denied": "reserved and unreachable under fixed direct/v1 policy; no executed denial claim",
+      "result": "7 passed; 0 failed"
+    },
+    "falsification": {
+      "test": "crates/proof-local/tests/p0004_authority_falsification.rs",
+      "families": [
+        "fresh ContextPack replay and projection tamper",
+        "full reconstructed-projection deletion, substitution, and mutation denial",
+        "Agent denial across every closed Human/admin authority surface",
+        "post-Context revocation and Principal disablement withhold the prior idempotent result",
+        "causal disablement and historical key-reuse rejection",
+        "signed disablement and revocation projection deletion",
+        "trusted challenge time and recipient liveness",
+        "invalid root signature custody preservation",
+        "root transition commit-failure recovery",
+        "published-successor mismatch and exact resumption"
+      ],
+      "result": "10 passed; 0 failed"
+    },
+    "continuity": {
+      "test": "crates/proof-local/tests/p0004_authority_continuity.rs",
+      "families": [
+        "predecessor key loss",
+        "compromised-predecessor attacker successor versus independent pin",
+        "signed mutation",
+        "signed reorder",
+        "valid older prefix versus later pin"
+      ],
+      "result": "5 passed; 0 failed"
+    },
+    "migration": {
+      "test": "crates/proof-local/tests/initialize.rs",
+      "source_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "target_version": 12,
+      "expected_retry_state": "12/12/12",
+      "historical_artifacts": [
+        "signed v10 ReleaseV1",
+        "signed v11 localized v1/v2 and rollback history"
+      ],
+      "result": "2 passed; 0 failed; 126 filtered out"
+    },
+    "transport_parity": {
+      "test": "crates/proof-cli/tests/auth_transport_parity.rs",
+      "transports": [
+        "real proof CLI subprocess",
+        "modern proof-mcp LocalBackend",
+        "legacy proof-mcp LocalBackend"
+      ],
+      "result": "2 passed; 0 failed"
+    }
+  },
+  "falsification": {
+    "strongest_counterargument": "Signed authority history is insufficient if authorization trusts attacker-edited unsigned projections.",
+    "candidate_response": "Reconstruct and cross-check every security-relevant projection from the signed authority log before authorization and retain deletion, substitution, mutation, and reorder probes.",
+    "strongest_rejected_alternative": "Protected network or enterprise authority service in P-0004",
+    "rejection_basis": "It adds provider, deployment, credential, and recovery contracts beyond the bounded local milestone; the Human-owned local broker is the smaller complete slice.",
+    "confidence": "high for the bounded local P-0004 Engineering claim; residual trust and durability limits remain explicit"
+  },
+  "limitations": [
+    "Same-UID and private-Workspace processes remain inside Human/admin trust.",
+    "The file credential adapter is not KMS, OIDC, workload identity, executable attestation, model attestation, or a production credential service.",
+    "Valid older signed prefixes and hidden forks require an independently pinned later authority head.",
+    "Compromised-predecessor rotation is not root recovery and does not establish a new trust epoch.",
+    "SQLite commit and successor-key file publication have bounded recovery tests but no physical atomicity, power-loss, filesystem-durability, or storage-controller claim.",
+    "PolicyDenied is reserved and unreachable under the fixed direct/v1 policy profile.",
+    "Delegated content mutation remains disabled until P-0005.",
+    "Portable AuthorityEvidenceBundleV1 and deployment containment remain P-0006 work.",
+    "No Windows identity-runtime support is claimed.",
+    "No live remote, push, tag, release, deploy, publication, production mutation, or customer proof is claimed."
+  ],
+  "artifact_digests": [
+    {"path":"CHANGELOG.md","git_blob_oid":"89a469192c0c3305d36c3354eb2d0d8be05702bc","byte_domain":"git_blob","algorithm":"sha256","digest":"e8afe4357ece40727590aa7c61a79a4ab2a33ab9732ecdb7a4bdedb0eafb5365"},
+    {"path":"Cargo.lock","git_blob_oid":"98148685cf0f05a6d86942e571bc7d4c860d2aec","byte_domain":"git_blob","algorithm":"sha256","digest":"f28629a1b3bb24a8233f42085889d77c1e281641bab594e6eaf562431a86ac08"},
+    {"path":"README.md","git_blob_oid":"c65d8238b007f04d11b2ea22ff3624c236d39226","byte_domain":"git_blob","algorithm":"sha256","digest":"8570ce09305def89322cd76cf52355c0445ba7afd1a3de1bb420e933b4951e4f"},
+    {"path":"conformance/v1/authority/README.md","git_blob_oid":"c684f43ab2240fd7852e65bfb0bbf53054f119cd","byte_domain":"git_blob","algorithm":"sha256","digest":"0c42b63aca05eb524d9d8b12c9f20346ae3a6f42c93ac3f8492ce2de50bfdddb"},
+    {"path":"conformance/v1/authority/schemas/authorization-decision-v2.schema.json","git_blob_oid":"1144d8950a7263ba8926c25d7e7280a1d544be4b","byte_domain":"git_blob","algorithm":"sha256","digest":"e5b6e59bfdd933830de5c872730e46b21855191c3a561106920ad64ca83bc901"},
+    {"path":"conformance/v1/authority/vectors/authorization-decision-v2.authority-envelope.valid.json","git_blob_oid":"3514439595dd0ab7263fe87d3c52f9f1710b2748","byte_domain":"git_blob","algorithm":"sha256","digest":"112619efc68ace7c77e04d8ae8776fdee827d4430ab6c58db602011853897738"},
+    {"path":"conformance/v1/authority/vectors/authorization-decision-v2.valid.json","git_blob_oid":"9566445da02204258cfbabd1131aa0a14ee27e41","byte_domain":"git_blob","algorithm":"sha256","digest":"2bbd9d6f2aa645461c9ad34e5da57e73250500a913172e84cdfb07dc98f579a7"},
+    {"path":"conformance/v1/authority/vectors/delegation-revocation.valid.json","git_blob_oid":"6deb31c438e931e1866508692cddaada00fdb796","byte_domain":"git_blob","algorithm":"sha256","digest":"7093b66c2fc74ae43f6ced2f7be91955e3c7061785767f38a92fb9193c5efac3"},
+    {"path":"conformance/v1/authority/vectors/principal-binding-authority.dsse-bytes.valid.json","git_blob_oid":"34243c4865cdf791bfff548140ae22b07423640b","byte_domain":"git_blob","algorithm":"sha256","digest":"3b23e424e9085e4c22e98d5cb28fc34f07e2b6cfea986fdf470f62483a1d33eb"},
+    {"path":"conformance/v1/authority/vectors/principal-binding-revocation.valid.json","git_blob_oid":"cb2caeed19cf5529a42d1ebc357a02a87a9559f2","byte_domain":"git_blob","algorithm":"sha256","digest":"7dfc5ddcfdd3c634896de0a84f7efdc1ed8dc360fd78ff6c1eb7d77e98ad15ce"},
+    {"path":"conformance/v1/authority/vectors/principal-binding.authority-envelope.valid.json","git_blob_oid":"4a1e61626a99b7325ae931ad1461d242d1578953","byte_domain":"git_blob","algorithm":"sha256","digest":"2020a437a5dbc88f52faffb7fdccc84477c2bba9c7d0fe03b75fb51d0b3c326d"},
+    {"path":"conformance/v1/authority/vectors/principal-status-agent-disabled.valid.json","git_blob_oid":"51c46ddcc13d7fd803ccd981d3765dddebf9a6c3","byte_domain":"git_blob","algorithm":"sha256","digest":"0bc531cc0999c22f6e5d9cee3dc92d7687b307a7e201691988b4d3b26835d871"},
+    {"path":"conformance/v1/authority/vectors/rejected-authentication-cases.json","git_blob_oid":"09890c9677b73ab874b22d89ba3823b8cd2ab795","byte_domain":"git_blob","algorithm":"sha256","digest":"499c893db929259ca7d5a14512545cd14508cb8c0cc974982400a776b1e973d0"},
+    {"path":"conformance/v1/authority/vectors/rejected-authority-cases.json","git_blob_oid":"42d0c9314f173288ef87ca699a92dc5f27d2ca62","byte_domain":"git_blob","algorithm":"sha256","digest":"a08cfd5f767d90847409236c9c057d757230d46c847dd5ac50512f86dda28864"},
+    {"path":"conformance/v1/authority/vectors/rejected-authorization-cases.json","git_blob_oid":"2b3bd33e9bc6c67aa937d9ff78839fc20c66b68e","byte_domain":"git_blob","algorithm":"sha256","digest":"f34196164e4d6a9276087e5655fa44d5ade4bc47fcedab28d174c953a118db37"},
+    {"path":"conformance/v1/authority/vectors/workspace-authority-root-successor.valid.json","git_blob_oid":"08fde9ede73f2b1e11e1362cc8d8e23d5c179234","byte_domain":"git_blob","algorithm":"sha256","digest":"b9910407db0c377984dcf2b8a5f6dd03a27d2f03fa81259e8ba7d13ca10c8939"},
+    {"path":"conformance/v1/authority/vectors/workspace-authority-root-transition.dsse-bytes.valid.json","git_blob_oid":"00399275ac89aeba31202cdb3742ea440efd3165","byte_domain":"git_blob","algorithm":"sha256","digest":"5dd42491fafe3099ffa0bad00e28d416e2d3e60cb2d7a2c52f9172e049104c7a"},
+    {"path":"conformance/v1/authority/vectors/workspace-authority-root-transition.envelope.valid.json","git_blob_oid":"db25f3fbde52f326f3e1470811b6285e9cf4278c","byte_domain":"git_blob","algorithm":"sha256","digest":"c9cc6fd338265db15c14509cb82f4f94c0d96b8d41e670e49e08dbe160df5ff1"},
+    {"path":"conformance/v1/authority/vectors/workspace-authority-root-transition.payload.valid.json","git_blob_oid":"f0fc92969bdc3cdb955ecc072efd4b218674bb18","byte_domain":"git_blob","algorithm":"sha256","digest":"0cd2b88e40823c9eaf0cdac69088d2737071f0d924046436413382eed07555d0"},
+    {"path":"conformance/v1/authority/vectors/workspace-authority-root.valid.json","git_blob_oid":"94af0a62ed993378cd95f575906d803f11ad4add","byte_domain":"git_blob","algorithm":"sha256","digest":"0fee2cd034a32f9187a789aa24b5663d1e89d47d093b3aec3e07dff5c1f4db4e"},
+    {"path":"crates/proof-application/Cargo.toml","git_blob_oid":"0ea467567fbb8ba95f322faf5a8e25b43a07fb6b","byte_domain":"git_blob","algorithm":"sha256","digest":"8c43f52c75f2e62c622f628b7b0f1e2e15225cd77869d81a0f5a6232749dcf2a"},
+    {"path":"crates/proof-application/src/authority.rs","git_blob_oid":"276e407ebca5952de6e3036b26b75fc5fb4ebd8a","byte_domain":"git_blob","algorithm":"sha256","digest":"8e68c35188444c914fb39af4f7f81b45ed1300875df0182a4d51e46b30e4bdd1"},
+    {"path":"crates/proof-application/src/lib.rs","git_blob_oid":"fe95be44d0717787c1c4dd06fb4bfca5addacc70","byte_domain":"git_blob","algorithm":"sha256","digest":"22a6b945d08b493655cba1fbd3cc9f22794d9a675844aab642a3df90f5d20c7b"},
+    {"path":"crates/proof-attestation/src/authority.rs","git_blob_oid":"bee950611c7d38cd2e0873c088158b18868a51be","byte_domain":"git_blob","algorithm":"sha256","digest":"ee1bf8dbeb6f0e7155879f61b83e58f798998830634e32ca5ff508cd2a5c96d9"},
+    {"path":"crates/proof-attestation/src/lib.rs","git_blob_oid":"69f4c92b2f8a03553a7acec6c76da1059b4bf6ea","byte_domain":"git_blob","algorithm":"sha256","digest":"58c412a13533adb13d6bb0f691655af0dfe6fb858524cb339ad3f296c3b7042c"},
+    {"path":"crates/proof-cli/Cargo.toml","git_blob_oid":"e0d6fb5dda4e3d1ae0e7b8ce9aff99a14e58f682","byte_domain":"git_blob","algorithm":"sha256","digest":"fe40a3484c9ab7216230d10b5c8b0390fe4881cf3e40a5aa104a111625c4e463"},
+    {"path":"crates/proof-cli/src/auth_cli.rs","git_blob_oid":"2f80faddeef868158a45967cf03b528a259efc5d","byte_domain":"git_blob","algorithm":"sha256","digest":"4913e129561248a5919b4ef4bb24ee1b968777bf1aa63a033dafe4109906be53"},
+    {"path":"crates/proof-cli/src/authority_cli.rs","git_blob_oid":"2eeb1efd094d97347cfc049e8df42d445578ecc0","byte_domain":"git_blob","algorithm":"sha256","digest":"94b1f2fdda6a8c9201bb38ba4a4a167e7644fbad32ab221b99bb5d6f9b4722d0"},
+    {"path":"crates/proof-cli/src/main.rs","git_blob_oid":"6ffe9f08d0f261b58ae5698697b4cf5d197bec01","byte_domain":"git_blob","algorithm":"sha256","digest":"2c6e9481d5e40f16d60f911fbe4b9adac1ba6722f535e10ef89543166d9d863f"},
+    {"path":"crates/proof-cli/tests/architecture.rs","git_blob_oid":"b41727fdd7f95f8dcc2e246b3ba47b885877728c","byte_domain":"git_blob","algorithm":"sha256","digest":"91effbcfa2207535f90e18915b8dce403e6a1059803726a3e05e00a20e4cb724"},
+    {"path":"crates/proof-cli/tests/auth_cli.rs","git_blob_oid":"fbe15f95c6e783a9e8b8f2401a6e3d36df40618b","byte_domain":"git_blob","algorithm":"sha256","digest":"3cdc34ab57eacba4f0b45f457799da354fdbbcd5df9ab21e177b4369919870c1"},
+    {"path":"crates/proof-cli/tests/auth_transport_parity.rs","git_blob_oid":"b98b503a37b6541c78e7ff076d3e48fce0737b28","byte_domain":"git_blob","algorithm":"sha256","digest":"9c88c74ae7ddc6469d75ec14ac5db16268ce22457e2ce0241242f2649fb5041f"},
+    {"path":"crates/proof-cli/tests/cli.rs","git_blob_oid":"addb550cc2da95669e4380f3482d595e3b230478","byte_domain":"git_blob","algorithm":"sha256","digest":"8c709de040dcbdca75cf7266d0100a3df49df93f44e1ec0992aebfb0b3b03cba"},
+    {"path":"crates/proof-domain/src/lib.rs","git_blob_oid":"f0a16edd89b3e84b6d902857037bf0562c31ad36","byte_domain":"git_blob","algorithm":"sha256","digest":"597e67e25b6c652a4d1ad688152d86939dddfdd4a17ec94d33d6d5cdbdd13b20"},
+    {"path":"crates/proof-local/Cargo.toml","git_blob_oid":"3f22148bd8b45c0ed569664a57c43690e137ca8e","byte_domain":"git_blob","algorithm":"sha256","digest":"0412100b7816ceb9192e5234b00b2ef5a6bfb8b316c85783f7f4b4fd60f298d7"},
+    {"path":"crates/proof-local/src/authority.rs","git_blob_oid":"7b9d94a9c4afc6921cebe84633b2b6691bfc0a8d","byte_domain":"git_blob","algorithm":"sha256","digest":"0f754a13bb9a6b6a61993b32299aa837c829ee5c38384d2a848d9dae13be4b87"},
+    {"path":"crates/proof-local/src/lib.rs","git_blob_oid":"18c8609189142ff5e7f943b0b65eb951c665139c","byte_domain":"git_blob","algorithm":"sha256","digest":"44670ccab2265f2127c24fc7e62fdae55a66dd0f8722587fb246bbd8e5216898"},
+    {"path":"crates/proof-local/tests/initialize.rs","git_blob_oid":"59f6621c7ad129b1547834873c94e2554a9cfc38","byte_domain":"git_blob","algorithm":"sha256","digest":"ce03e057032b79b130abea962cd6b9b7a9d0453f086624c0fe2b92398c55b408"},
+    {"path":"crates/proof-local/tests/p0004_authority.rs","git_blob_oid":"44e5d779be36f28c4d37e2d9167de3021d0a454a","byte_domain":"git_blob","algorithm":"sha256","digest":"2e34375926079cb5bcf0d7f7bf6f04d5fb86b5871310d872cab58fa5c1db83cc"},
+    {"path":"crates/proof-local/tests/p0004_authority_continuity.rs","git_blob_oid":"764f7bc32f561efd4cc96f4f86234d458da3fbee","byte_domain":"git_blob","algorithm":"sha256","digest":"4c5974aff52b485144aade322f524ca0ad9c07a61a57743519fac0b335cd3f58"},
+    {"path":"crates/proof-local/tests/p0004_authority_falsification.rs","git_blob_oid":"ca14c1e2675f53fa2665e4225fec3d9867e51275","byte_domain":"git_blob","algorithm":"sha256","digest":"3b00fbf9ed0e79ca69c8b3e21ea368456cad857d379335af7f2cfddbbfd4d495"},
+    {"path":"crates/proof-local/tests/p0004_authority_matrix.rs","git_blob_oid":"e79b9b87fe12a70e3741c290f0e2e56182d79fc5","byte_domain":"git_blob","algorithm":"sha256","digest":"7dbed9b0693e37d9347800201b00789ed46cd563907835f7ec727471cea9faa5"},
+    {"path":"crates/proof-local/tests/p0007_assurance_g6_g9.rs","git_blob_oid":"1fda92a39c553f60f7d8429d2ba32fc4875ef79d","byte_domain":"git_blob","algorithm":"sha256","digest":"34435da0b9c810942744cc5a4a8800455209d771fadcc3f0f68d38fd36a4fc95"},
+    {"path":"crates/proof-mcp/Cargo.toml","git_blob_oid":"1a1768078a70a56ea911bc1194e3c7e874ae5d96","byte_domain":"git_blob","algorithm":"sha256","digest":"b0c53aea9267ab01d2ca3507d62e006f1a9c5014766e7958bdbb59d646ef6dd7"},
+    {"path":"crates/proof-mcp/src/backend.rs","git_blob_oid":"78035ab2511f5d9ccecc810782509280620a636f","byte_domain":"git_blob","algorithm":"sha256","digest":"b63978d6028b27d5b89bdd68a408eb56fe598dda520fd3ddf87eda3565610b87"},
+    {"path":"crates/proof-mcp/src/lib.rs","git_blob_oid":"8de529353496e39bb762527a4fa7bf6cfb488be9","byte_domain":"git_blob","algorithm":"sha256","digest":"23d7a62652fc086a65babfabc215300ff9298a594b5b0fb4c2b3bc399fad010f"},
+    {"path":"crates/proof-mcp/tests/protocol.rs","git_blob_oid":"964afc8148b5a93e22104c3ccb7ff27d60553f04","byte_domain":"git_blob","algorithm":"sha256","digest":"a50eb2c0eef8fcee1d0b9530cab1602c8302a4ca9bcc508d90810636a56254a0"},
+    {"path":"docs/README.md","git_blob_oid":"054aec7071729691c396ce1205416197bef06a05","byte_domain":"git_blob","algorithm":"sha256","digest":"a4d3443247df0f9844ecaf148e5827739d21658e8a13f932cedc4a6b0b0e4376"},
+    {"path":"docs/architecture/agent-authority.md","git_blob_oid":"b4acd6f0338ab1b4556b16f08c0023049b67a78b","byte_domain":"git_blob","algorithm":"sha256","digest":"d7d93babded00e62062bb4f967230f71d8a7fd6202f8324591e65c4756ab2fdf"},
+    {"path":"docs/architecture/authenticated-actor.md","git_blob_oid":"4b4380212565ea11d574e091b086c8c174364f66","byte_domain":"git_blob","algorithm":"sha256","digest":"bc3947eb42f2f608db1071fcbb9e5b515f9ad8329d80678df29fa803f9ae7ca0"},
+    {"path":"docs/architecture/domain-model.md","git_blob_oid":"caa2cee36b39a01577248f74ed2b27ac6eea0e21","byte_domain":"git_blob","algorithm":"sha256","digest":"e998bbf48fe4e3215a95c067ac921e87fefb4bdc2a7b9e82caab5fa7448b34dd"},
+    {"path":"docs/architecture/overview.md","git_blob_oid":"a4728ee3fff4edc49fddab14e60f09ed5d39a4ce","byte_domain":"git_blob","algorithm":"sha256","digest":"a27842852f60955283110d7ac93cb0667e3d363a4327b31162bb4bd2e9de766f"},
+    {"path":"docs/architecture/proof-model.md","git_blob_oid":"12571ecacb68d25889a86d4549a0bf1aa72f9aab","byte_domain":"git_blob","algorithm":"sha256","digest":"bb55045d0d85417e939a4d20f6b7b05568c1fd8021f21803c6e51693de536817"},
+    {"path":"docs/architecture/threat-model.md","git_blob_oid":"1855a377acd888ac94cea49eae7516f4ad0bf717","byte_domain":"git_blob","algorithm":"sha256","digest":"6f359b68554261df05ff0fdf99d6b04d5a7a47e773332fd5d5498d968ae418ee"},
+    {"path":"docs/decisions/0011-local-agent-command-authentication.md","git_blob_oid":"9110fa298223a4c22228d33a798bcebb04022d3a","byte_domain":"git_blob","algorithm":"sha256","digest":"79463174913451d04b34c81cbc10883bdc66ce35cb6a12f6e553ae2840ea232c"},
+    {"path":"docs/product/roadmap.md","git_blob_oid":"df46c20fc7898348a8fa034a43267fe1a76099ea","byte_domain":"git_blob","algorithm":"sha256","digest":"b6a476de58c675225305ed48667e2b64df6f88a410a9cdefcfcb653a0007ae71"},
+    {"path":"docs/product/vision.md","git_blob_oid":"b977b9f40dcfe790c5657525dc8e41c9c29639f9","byte_domain":"git_blob","algorithm":"sha256","digest":"d87ee0462ed9b857ca7905ea931ed0f0d7cc55b2327872b75cce25906f646a27"},
+    {"path":"docs/reference/cli.md","git_blob_oid":"8462a14fbd7aeb4c309f247ffe973000190f3ae0","byte_domain":"git_blob","algorithm":"sha256","digest":"2fa8c6f54bebcaf406a88fadb54725656c13a66ace4a0317fdac687f17339a82"},
+    {"path":"docs/reference/errors.md","git_blob_oid":"f908e04762a9795606194cfa6774750774977e33","byte_domain":"git_blob","algorithm":"sha256","digest":"c29d34bc46d470f75bbe7d551035bd3cda4cc9268a52fb42a5d031ba57cffd9a"},
+    {"path":"docs/reference/standards.md","git_blob_oid":"4eec3b61f9fe0c650f6c20948c81388fcc1f59d5","byte_domain":"git_blob","algorithm":"sha256","digest":"2b817dd5b848209434cf1d4916784aa7ae8592396ce5c3c788663dcc57dc12c4"},
+    {"path":"docs/work/items/P-0004-implement-authorization-kernel.md","git_blob_oid":"976f286e2310a3f32bda3bc891c29089df084c85","byte_domain":"git_blob","algorithm":"sha256","digest":"0c4724391ae59c2480e06d3ab897e1c4b1b71dfe45999ae2763275b63ef517be"}
+  ],
+  "artifact_digest_note": "SHA-256 computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; no worktree hashes substituted",
+  "evidence_paths": [
+    "docs/work/evidence/P-0004/receipt.md",
+    "docs/work/evidence/P-0004/manifest.json"
+  ],
+  "gate_state": {
+    "engineering_local_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "focused_falsification_review": "supported",
+    "independent_acceptance_audit": "supported-with-no-contradiction",
+    "current_disposition_eligible": true,
+    "disposition_executed": false
+  },
+  "boundaries": {
+    "main_pushed": false,
+    "feature_branch_pushed": false,
+    "tagged": false,
+    "released": false,
+    "published": false,
+    "deployed": false,
+    "production_mutated": false,
+    "customer_proven": false,
+    "windows_runtime_support_claimed": false,
+    "policy_denial_execution_claimed": false,
+    "portable_authority_bundle_claimed": false,
+    "delegated_content_mutation_claimed": false
+  }
+}

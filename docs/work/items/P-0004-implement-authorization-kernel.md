@@ -1,7 +1,7 @@
 ---
 id: P-0004
 title: Implement the authenticated authorization kernel
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0003]
@@ -309,6 +309,30 @@ acceptance transition.
 Claimed by `codex:/root:p-0004` at `2026-08-20T19:59:59.679Z` from accepted
 P-0003 commit `445f56c8737e97d7041ece2971ac755fea5fa05c` on
 `proof-engineering/p-0004-authorization-kernel`.
+
+Engineering candidate
+`87888475829cf6f197f6b1ed4b0c0e1a9863ccf7`, whose parent is the claim
+commit `ca9de58c38530fccfe16decf862fedd2cbf8f935`, qualified at
+`2026-08-21T00:10:35Z`. The exact qualification record is:
+
+- [Engineering receipt](../evidence/P-0004/receipt.md)
+- [Machine-readable manifest](../evidence/P-0004/manifest.json)
+
+The candidate passed 452 locked Ubuntu workspace tests, six documentation-test
+crate summaries, strict Windows and Ubuntu Clippy, Windows compile and focused
+deterministic suites, v1-v11 to v12 migration, CLI/modern-MCP/legacy-MCP
+parity, and the final falsification and acceptance-criteria audits. It entered
+`review` under `review_gate: none`; Engineering disposition is supported for
+the bounded local profile, while the lifecycle completion change remains
+separate so it can name this immutable evidence record.
+
+Residual limits remain explicit: same-UID/private-Workspace processes are
+inside Human/admin trust, a pinned later head is required to detect valid older
+prefixes or hidden forks, root-key publication is recoverable rather than
+physically atomic, `PolicyDenied` is reserved under fixed `direct/v1`, Windows
+identity runtime is unqualified, and delegated mutation plus portable bundles
+remain P-0005/P-0006 work. No push, tag, release, publication, deployment,
+production mutation, or customer proof occurred.
 
 ## Residual risks and next-wave update
 

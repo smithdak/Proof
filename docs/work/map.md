@@ -59,7 +59,7 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `claimed` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
+| [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `review` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
