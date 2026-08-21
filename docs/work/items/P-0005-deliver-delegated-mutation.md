@@ -1,7 +1,7 @@
 ---
 id: P-0005
 title: Deliver delegated mutation through a verified Release
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0004, P-0007]
@@ -133,6 +133,30 @@ v1-v12 migration, and real application/CLI/modern-MCP/legacy-MCP parity. The
 complete Ubuntu workspace test, doctest, and strict Clippy gates passed. The
 final falsification pass found no remaining candidate-attributable production
 defect.
+
+Engineering candidate
+`c6f6ca899e1a63cf26f858d28b14163ffc270086`, whose parent is the claim
+commit `4ee3af241b8040b86f00dd403febf458948c5b20`, qualified at
+`2026-08-21T16:03:13Z`. The exact qualification record is:
+
+- [Engineering receipt](../evidence/P-0005/receipt.md)
+- [Machine-readable manifest](../evidence/P-0005/manifest.json)
+
+The immutable candidate passed 493 locked Ubuntu workspace tests, six
+documentation-test crate summaries, strict Windows and Ubuntu Clippy, Windows
+all-target compilation, v1-v12 to v13 migration with exact historical Release
+and Proof preservation, real CLI/modern-MCP/legacy-MCP parity, the complete
+11-operation lifecycle, and final falsification and acceptance-criteria audits.
+It entered `review` under `review_gate: none`; the exact-candidate audit found
+no candidate-attributable production defect or unsupported documentation
+claim. The separate completion change names the immutable Engineering evidence
+commit before moving this item to `done`.
+
+Residual limits remain explicit: same-UID/private-Workspace processes remain
+inside Human/admin trust, Windows identity runtime is unqualified, and the
+portable authority/Release closure plus independent clean-directory verifier
+remain P-0006 work. No push, tag, release, publication, deployment, production
+mutation, live remote verification, or customer proof occurred.
 
 ## Residual risks and next-wave update
 

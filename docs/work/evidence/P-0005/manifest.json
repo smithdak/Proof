@@ -1,0 +1,446 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0005",
+  "base_sha": "9c469e219ce5a2c6ec29f06dc6509a346b62cc10",
+  "claim_commit": "4ee3af241b8040b86f00dd403febf458948c5b20",
+  "candidate_parent_sha": "4ee3af241b8040b86f00dd403febf458948c5b20",
+  "candidate_commit": "c6f6ca899e1a63cf26f858d28b14163ffc270086",
+  "item_work_commit": "c6f6ca899e1a63cf26f858d28b14163ffc270086",
+  "branch": "proof-engineering/p-0005-delegated-mutation",
+  "qualified_at": "2026-08-21T16:03:13Z",
+  "qualification_state": "engineering-qualified-review-eligible",
+  "live_remote_verified": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "candidate_path_count": 40,
+    "candidate_paths": [
+      "CHANGELOG.md",
+      "Cargo.lock",
+      "README.md",
+      "conformance/v1/authority/README.md",
+      "conformance/v1/authority/schemas/authorization-decision-v2.schema.json",
+      "crates/proof-application/Cargo.toml",
+      "crates/proof-application/src/authority.rs",
+      "crates/proof-application/src/lib.rs",
+      "crates/proof-cli/src/auth_cli.rs",
+      "crates/proof-cli/tests/architecture.rs",
+      "crates/proof-cli/tests/auth_cli.rs",
+      "crates/proof-cli/tests/cli.rs",
+      "crates/proof-cli/tests/p0005_transport_parity.rs",
+      "crates/proof-local/src/authority.rs",
+      "crates/proof-local/src/lib.rs",
+      "crates/proof-local/src/localized.rs",
+      "crates/proof-local/tests/initialize.rs",
+      "crates/proof-local/tests/p0003_authority_reconciliation.rs",
+      "crates/proof-local/tests/p0004_authority.rs",
+      "crates/proof-local/tests/p0005_delegated_lifecycle.rs",
+      "crates/proof-local/tests/p0005_delegated_matrix.rs",
+      "crates/proof-local/tests/p0005_local_kernel.rs",
+      "crates/proof-local/tests/p0007_assurance_g6_g9.rs",
+      "crates/proof-mcp/Cargo.toml",
+      "crates/proof-mcp/src/backend.rs",
+      "docs/README.md",
+      "docs/architecture/agent-authority.md",
+      "docs/architecture/authenticated-actor.md",
+      "docs/architecture/delegated-content.md",
+      "docs/architecture/domain-model.md",
+      "docs/architecture/overview.md",
+      "docs/architecture/proof-model.md",
+      "docs/architecture/threat-model.md",
+      "docs/product/roadmap.md",
+      "docs/product/scope.md",
+      "docs/product/vision.md",
+      "docs/reference/cli.md",
+      "docs/reference/errors.md",
+      "docs/reference/standards.md",
+      "docs/work/items/P-0005-deliver-delegated-mutation.md"
+    ],
+    "insertions": 16176,
+    "deletions": 2791,
+    "artifact_digest_status": "40 of 40 exact Git blobs bound by SHA-256",
+    "storage_source_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "storage_target_version": 13,
+    "registered_operation_pairs": 14,
+    "enabled_authenticated_operation_pairs": 14,
+    "newly_enabled_localized_operation_pairs": 11,
+    "dependency_package_records_added": 0,
+    "production_dependency_packages_added": [],
+    "test_only_dependency_packages_added": [],
+    "production_direct_edges_added": [
+      "proof-application -> proof-canonical"
+    ],
+    "test_only_direct_edges_added": [
+      "proof-mcp -> jsonschema"
+    ],
+    "unrelated_paths": []
+  },
+  "implementation_scope": [
+    "all 11 previously registered localized v2 operations enabled through the existing P-0007 application kernel",
+    "storage v13 signed localized consequence and Workspace-global successful application-key ownership",
+    "atomic authentication, current authorization, localized application consequence, result commitment, and evidence persistence",
+    "requesting Human-owned resource intent and ContextPack first-build with a distinct enabled-Human approval",
+    "lifecycle-relative freshness for exact replay and current authority, selected-target, base-state, and Environment-pointer re-evaluation",
+    "real CLI, modern MCP, and legacy MCP semantic parity over one Local Workspace"
+  ],
+  "qualification_transcript": {
+    "api_version": "proof.dev/qualification/p0005-lifecycle/v1",
+    "application": {
+      "global_application_keys": 10,
+      "localized_changesets": 1,
+      "localized_edits": 2,
+      "localized_releases": 1,
+      "successful_presentations": 24,
+      "validation_attempts": 2
+    },
+    "artifacts": {
+      "changeset_id": "019d2000-0000-7000-8000-000000000050",
+      "context_pack_digest": "blake3:e7b8a688535d1afd83fcbe65c6024974170a5e15b66ea04826ae2146e7f2c944",
+      "context_pack_id": "019d2000-0000-7000-8000-000000000042",
+      "edition_digest": "blake3:f578fa17062546e3d53be36cf6fe0ec2d2abde5f854f25e79a33a2c8e2c5503b",
+      "edition_id": "019d2000-0000-7000-8000-000000000055",
+      "proof_envelope_digest": "blake3:ab6b2fbbcc1433ea682153923341bad050eafc6c667baaeae72b599229ee80fc",
+      "proof_id": "019d2000-0000-7000-8000-000000000058",
+      "release_digest": "blake3:af782e47f68a6b6632b7a4cefdc1ae11cee6e36485c1547fbd0f6abdea0fd66b",
+      "release_id": "019d2000-0000-7000-8000-000000000057",
+      "resource_intent_digest": "blake3:43c420e15fee8a121aa111baca921727760384c53d3b6dbd3ad1377712e9a653",
+      "resource_intent_id": "019d2000-0000-7000-8000-000000000040",
+      "resulting_state_digest": "blake3:1b0b18ba5e86943af2414d377d3da6b28d994c3424d34ec1f59f4a2323604a72"
+    },
+    "authority": {
+      "actor_evidence": 25,
+      "consumptions": 25,
+      "decisions": 25,
+      "final_head_digest": "blake3:ee25d072c735f1cc8c69cd867ce5898ba8ceda92a8550e0c7db354043f7d93f3",
+      "final_head_sequence": 30,
+      "localized_consequences": 24,
+      "release_decision_digest": "blake3:93b5482949ab127e5834e3f8195ced2ceae7319bc132cade62a706b86d6801b8"
+    },
+    "denial": {
+      "operation": "release.create/v2",
+      "presentation_id": "019d2000-0000-7000-8000-000000000319",
+      "reason_code": "proof.authorization.principal_disabled"
+    },
+    "identity": {
+      "delegation_id": "019d2000-0000-7000-8000-000000000200",
+      "operating_principal_id": "019d2000-0000-7000-8000-000000000100",
+      "requesting_principal_id": "019d2000-0000-7000-8000-000000000002",
+      "workspace_id": "019d2000-0000-7000-8000-000000000001"
+    },
+    "operation_calls": {
+      "changeset.add/v2": 4,
+      "changeset.commit/v2": 2,
+      "changeset.create/v2": 2,
+      "changeset.diff/v2": 1,
+      "changeset.get/v2": 1,
+      "changeset.submit/v2": 3,
+      "changeset.validate/v2": 4,
+      "context.build/v2": 2,
+      "edition.create/v2": 2,
+      "object.query_released/v2": 1,
+      "release.create/v2": 3
+    },
+    "capture_command": "cargo test --locked -p proof-local --test p0005_delegated_lifecycle -- --nocapture",
+    "capture_provenance": "qualification-time exact-candidate lifecycle run at item_work_commit; later ad hoc runs may generate different Release-signing material and are not substituted"
+  },
+  "environment": {
+    "windows": {
+      "purpose": "workspace check, strict lint, formatting, and focused deterministic tests only",
+      "runtime_identity_qualified": false,
+      "os": "Microsoft Windows NT 10.0.26100.0",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)"
+    },
+    "ubuntu": {
+      "distribution": "Ubuntu-24.04",
+      "surface": "WSL2",
+      "purpose": "qualifying complete workspace runtime surface",
+      "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+      "cargo": "1.97.1 (c980f4866 2026-06-30)",
+      "cargo_path": "/home/dakota/.cargo/bin/cargo",
+      "tmpdir": "/tmp",
+      "cargo_target_dir": "/mnt/d/github/Proof/target/p5-wsl"
+    }
+  },
+  "commands": [
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0005_delegated_lifecycle",
+      "exit_code": 0,
+      "result": "1 passed; 0 failed"
+    },
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0005_delegated_matrix",
+      "exit_code": 0,
+      "result": "12 passed; 0 failed, including the shared lifecycle target"
+    },
+    {
+      "surface": "windows-focused",
+      "command": "cargo test --locked -p proof-local --test p0005_local_kernel",
+      "exit_code": 0,
+      "result": "6 passed; 0 failed, including the shared lifecycle target"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "wsl.exe -d Ubuntu-24.04 --cd /mnt/d/github/Proof /usr/bin/env TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p5-wsl /home/dakota/.cargo/bin/cargo test --locked -p proof-local --test initialize p0005_ -- --nocapture",
+      "exit_code": 0,
+      "result": "2 passed; 0 failed; 127 filtered out"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "wsl.exe -d Ubuntu-24.04 --cd /mnt/d/github/Proof /usr/bin/env TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p5-wsl /home/dakota/.cargo/bin/cargo test --locked -p proof-cli --test p0005_transport_parity",
+      "exit_code": 0,
+      "result": "1 passed; 0 failed; real CLI, modern MCP, and legacy MCP parity supported"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo check --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows",
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed with warnings denied"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "wsl.exe -d Ubuntu-24.04 --cd /mnt/d/github/Proof /usr/bin/env TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p5-wsl /home/dakota/.cargo/bin/cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "493 tests passed across all targets and features; 0 failures; exact immutable-candidate rerun"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "wsl.exe -d Ubuntu-24.04 --cd /mnt/d/github/Proof /usr/bin/env TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p5-wsl /home/dakota/.cargo/bin/cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "6 doc-test crate summaries passed; 0 failures"
+    },
+    {
+      "surface": "ubuntu-24.04-wsl2",
+      "command": "wsl.exe -d Ubuntu-24.04 --cd /mnt/d/github/Proof /usr/bin/env TMPDIR=/tmp CARGO_TARGET_DIR=/mnt/d/github/Proof/target/p5-wsl /home/dakota/.cargo/bin/cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed with warnings denied"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "165 internal documentation links checked"
+    },
+    {
+      "surface": "windows",
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "7 work items passed metadata, lifecycle, dependencies, map parity, transitions, and evidence contracts"
+    },
+    {
+      "surface": "windows",
+      "command": "npm exec --yes --package=markdownlint-cli2@0.23.2 -- markdownlint-cli2",
+      "exit_code": 0,
+      "result": "53 repository Markdown files checked; 0 issues"
+    },
+    {
+      "surface": "windows",
+      "command": "PowerShell ConvertFrom-Json over authority conformance JSON and docs/work/evidence manifests",
+      "exit_code": 0,
+      "result": "all JSON parsed"
+    },
+    {
+      "surface": "windows",
+      "command": "git -c safe.directory=D:/github/Proof diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "surface": "windows-git-object",
+      "command": "git diff-tree/rev-parse/cat-file at c6f6ca899e1a63cf26f858d28b14163ffc270086 with SHA-256 over each emitted blob byte stream",
+      "exit_code": 0,
+      "result": "40 candidate paths; 16176 insertions; 2791 deletions; 40 of 40 Git blobs hashed"
+    },
+    {
+      "surface": "windows",
+      "command": "PowerShell wrapper around git grep at c6f6ca899e1a63cf26f858d28b14163ffc270086 over candidate source surfaces for private-key, token, secret, and unapproved personal-path markers; expected no-match status 1 normalized to process success",
+      "exit_code": 0,
+      "result": "0 matches"
+    }
+  ],
+  "independent_acceptance_audit": {
+    "scope": "exact P-0005 candidate diff, acceptance criteria, retained tests, public error boundaries, migration, transport parity, and evidence claims",
+    "result": "supported with no candidate-attributable production defect",
+    "candidate_attributable_production_defects": 0,
+    "disposition_effect": "supports review eligibility only; no owner disposition was executed"
+  },
+  "required_evidence_matrices": {
+    "delegated_lifecycle": {
+      "test": "crates/proof-local/tests/p0005_delegated_lifecycle.rs",
+      "families": [
+        "Human-owned ResourceIntent and ContextPack selection",
+        "Agent ChangeSet create, add, get, diff, invalid validation, repair, valid validation, and submit",
+        "distinct Human approval and forged Agent-approval rejection",
+        "fresh delegated commit, Edition, Release, exact released query, and Release verification",
+        "exact replay for all 11 operation contracts",
+        "terminal Principal disablement withholding after completed Release"
+      ],
+      "result": "1 passed; 0 failed; exact structured transcript retained"
+    },
+    "denial_atomicity_and_concurrency": {
+      "test": "crates/proof-local/tests/p0005_delegated_matrix.rs",
+      "denial_dimensions": [
+        "malformed presentation",
+        "actor mismatch",
+        "action",
+        "Environment",
+        "Object",
+        "Schema",
+        "locale",
+        "budget",
+        "Delegation expiry",
+        "wrong recipient",
+        "Delegation revocation",
+        "current Binding revocation",
+        "stale Known State",
+        "stale selected Context target",
+        "application-key operation or semantic-input mismatch"
+      ],
+      "atomicity": "pre-consumption failures write nothing; committed denials append only ratified authority evidence; localized failure does not reserve the application key; both BEGIN IMMEDIATE writer orders serialize revocation and consequence",
+      "result": "12 passed; 0 failed, including the shared lifecycle target"
+    },
+    "local_kernel_and_projection_falsification": {
+      "test": "crates/proof-local/tests/p0005_local_kernel.rs",
+      "families": [
+        "Human application-key collision becomes a signed deny without application effect",
+        "approval-missing failure does not own the key and exact retry succeeds after Human approval",
+        "late second-edit failure rolls back the complete authenticated add batch",
+        "exact Context replay is withheld after selected-target movement",
+        "table-driven localized consequence, application ledger, Context, and raw P7 effect tamper rejection"
+      ],
+      "result": "6 passed; 0 failed, including the shared lifecycle target"
+    },
+    "migration": {
+      "test": "crates/proof-local/tests/initialize.rs",
+      "source_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      "target_version": 13,
+      "expected_retry_state": "13/13/13",
+      "historical_artifacts": [
+        "real signed v10 ReleaseV1 and Proof bytes",
+        "real v11 mixed v1/v2 Release and rollback history",
+        "exact v12 facts, Known State, localized lifecycle, Release, Proof, Schema, typed SQLite, and foreign-key state"
+      ],
+      "result": "2 passed; 0 failed; 127 filtered out"
+    },
+    "transport_parity": {
+      "test": "crates/proof-cli/tests/p0005_transport_parity.rs",
+      "transports": [
+        "real proof CLI subprocess",
+        "modern proof-mcp LocalBackend",
+        "legacy proof-mcp LocalBackend"
+      ],
+      "assertions": "exact result, normalized command, localized commitment, resources, constraints, requesting and operating actors, cryptographically verified decision envelopes, one raw P7 effect, one global key owner, and identical committed failure semantics",
+      "result": "1 passed; 0 failed"
+    }
+  },
+  "falsification": {
+    "strongest_counterargument": "A signed Allow can still be unsafe if an unsigned localized result, application effect, idempotency owner, current closure, or derived projection can be substituted or replayed after its authority or selected state becomes stale.",
+    "candidate_response": "AuthorizationDecisionV2 signs a typed LocalizedConsequenceCommitmentV1; v13 reconstructs a one-to-one Allow, consequence, result, raw P7 effect, actor and selector closure, and global application-key owner, while lifecycle-relative freshness withholds stale exact replay.",
+    "probes": [
+      "decision result-digest substitution",
+      "localized consequence deletion and mutation",
+      "application ledger deletion and mutation",
+      "Context and raw P7 effect substitution",
+      "stale target, base state, Environment pointer, Binding, Delegation, and Principal state",
+      "late-batch partial write",
+      "revocation-versus-consequence check-then-act race",
+      "transport-specific result or decision semantics"
+    ],
+    "result": "no retained probe falsified the bounded local qualification claim",
+    "strongest_rejected_alternative": "Fold the P-0006 portable clean-directory evidence bundle, independent verifier, and deployment containment into P-0005.",
+    "rejection_basis": "That would expand a complete local delegated-mutation slice into caller trust, distribution, rollback-detection, and hostile-workload containment contracts; P-0005 retains the exact v13 cross-links P-0006 needs without claiming those absent properties.",
+    "confidence": "high for the bounded local P-0005 Engineering claim; no Windows runtime, portable-verifier, hostile same-UID containment, or publication claim is included"
+  },
+  "limitations": [
+    "Same-UID and private-Workspace processes remain inside the Human/admin trust boundary; attribution and bounded broker behavior are not hostile same-UID containment.",
+    "P-0006 must produce and verify a portable clean-directory authority and Release evidence bundle with an independent checkpoint and explicit caller trust.",
+    "ReleaseV2.principal_id remains the requesting Human and its authorization_decision_digest remains the P-0007 Human release-policy decision; Agent identity, decision, result, and raw P7 effect are cross-linked in the separate v13 localized consequence.",
+    "No collaboration server, HTTP API, PostgreSQL, provider, model, visual UI, or ambient Agent repository, filesystem, command, or network authority is added.",
+    "No Windows identity-runtime support is claimed.",
+    "No live remote, push, tag, release, deploy, publication, production mutation, or customer proof is claimed."
+  ],
+  "artifact_digests": [
+    {"path":"CHANGELOG.md","git_blob_oid":"85eb0e2420c83f61b372f299d300bf12c19ccf52","byte_domain":"git_blob","algorithm":"sha256","digest":"83c0a9142b90b77f10ead3f64eaaff8c3a40bc7ad5ad2986deaa5c1300895248"},
+    {"path":"Cargo.lock","git_blob_oid":"2174c1497fe18989b566c7334571d3c006496a8f","byte_domain":"git_blob","algorithm":"sha256","digest":"38b010a3abdbbb7bad3145bbec7c43fa8bc8307f94df55eb03df0f7a13d6ca1d"},
+    {"path":"README.md","git_blob_oid":"7aa7788dfee1b0062e4981f4c1665404189ae8c4","byte_domain":"git_blob","algorithm":"sha256","digest":"cebf5661a5b38696d30779a4ad8890baf38289605b0842b16e3be9fcae352a52"},
+    {"path":"conformance/v1/authority/README.md","git_blob_oid":"be6d5592f0677aaf672d5fbfd266f7bbdf9312c1","byte_domain":"git_blob","algorithm":"sha256","digest":"89e5ed0628b3d4bbb305643bba0bd16d28a09d22fdb7ac1e539598dd98c24a6e"},
+    {"path":"conformance/v1/authority/schemas/authorization-decision-v2.schema.json","git_blob_oid":"fdc4bfdd92be979dd30c3495f72e86867c4b2d5f","byte_domain":"git_blob","algorithm":"sha256","digest":"cff3015b8fa3331f317d58c62c1a104d2f3bbb1f470247456bff931e05a71922"},
+    {"path":"crates/proof-application/Cargo.toml","git_blob_oid":"687229f39ef03417ecdf8f338a668736454d53b3","byte_domain":"git_blob","algorithm":"sha256","digest":"024c7a0bdd55e442f98afcc1ee169f264f47f1eee7d5446d2c4e773ca29cae13"},
+    {"path":"crates/proof-application/src/authority.rs","git_blob_oid":"396ecaed44b0d659ec986aa359e35e051b8c03aa","byte_domain":"git_blob","algorithm":"sha256","digest":"96ebeba1da2146701065aa2320df5c723bd949fcfe9d81705ac5899620086f9a"},
+    {"path":"crates/proof-application/src/lib.rs","git_blob_oid":"58683083a62aeddbd9247128a72ef983f90fd110","byte_domain":"git_blob","algorithm":"sha256","digest":"4c58df6ae8e507bcf3c52683b97ada5f9ed5cd5b6e83895de10996a7574b17e3"},
+    {"path":"crates/proof-cli/src/auth_cli.rs","git_blob_oid":"599d4d1dc469eefd9be0aad82be2897218f25d44","byte_domain":"git_blob","algorithm":"sha256","digest":"d1ebf38da51492c691e0bfea3e2551f3160a3a6d4aa353694de82506e6c88616"},
+    {"path":"crates/proof-cli/tests/architecture.rs","git_blob_oid":"a3d47989c7820e4648c9284bcd7be7bbb309150a","byte_domain":"git_blob","algorithm":"sha256","digest":"84c6c818fecd1ba77a331a3e0285f696c961fc64e04000b364d54b2fd7efc372"},
+    {"path":"crates/proof-cli/tests/auth_cli.rs","git_blob_oid":"48f819d20991841556362364b37766e92ecc6811","byte_domain":"git_blob","algorithm":"sha256","digest":"9c3c418c6810f6cc671048a527c368a93cf19561a37ec8d314148313312039fe"},
+    {"path":"crates/proof-cli/tests/cli.rs","git_blob_oid":"b74d727f24d2dbd157bc70520a0497eec4d80089","byte_domain":"git_blob","algorithm":"sha256","digest":"4764c9c73806fbfe26fe9599bccff4a19e16ef33c4c0d760af9c9f0588a80d1c"},
+    {"path":"crates/proof-cli/tests/p0005_transport_parity.rs","git_blob_oid":"424b56759dd13dc849c5711928f116c224e6e4a5","byte_domain":"git_blob","algorithm":"sha256","digest":"b704eb0095186d6b50357302b66f01190410f3949198f3879044a66a4c4f4f4d"},
+    {"path":"crates/proof-local/src/authority.rs","git_blob_oid":"12fc2903eb4c9bbd00e14f00b24d30d83d980c2d","byte_domain":"git_blob","algorithm":"sha256","digest":"c54b47ae1a2e8f5677a77e6cd75eac9b93179c589ebf7980611714591be048b1"},
+    {"path":"crates/proof-local/src/lib.rs","git_blob_oid":"5a12da143d8b75a04c9bf43131b657734326d5f8","byte_domain":"git_blob","algorithm":"sha256","digest":"9987c226e21237dada8cf11c1e987fe1a8cf888c62f9cac9b54c8fff7b1a14e5"},
+    {"path":"crates/proof-local/src/localized.rs","git_blob_oid":"3577eee382185108973359b2c1098c7386b59eee","byte_domain":"git_blob","algorithm":"sha256","digest":"537379238e78a9ea15d15202031afbd16d1bce3a8e1382d81ca3f14311c2f22d"},
+    {"path":"crates/proof-local/tests/initialize.rs","git_blob_oid":"31edba9d835789309092992ade3f9e9b8cdc7f34","byte_domain":"git_blob","algorithm":"sha256","digest":"78e7e8a343bbc54b2fee6a7f69a3980434f243a9b7afc0372c20aea78679258e"},
+    {"path":"crates/proof-local/tests/p0003_authority_reconciliation.rs","git_blob_oid":"54aef918863434ea3681c3d21f56b85b8f3c0c2b","byte_domain":"git_blob","algorithm":"sha256","digest":"690e8f82bc1dc2cafddf89a72acaad842674c0e22c17c6d7425cd0a6405c546d"},
+    {"path":"crates/proof-local/tests/p0004_authority.rs","git_blob_oid":"1ba48ca36b8d21e79821361ddb2e240e236abd5e","byte_domain":"git_blob","algorithm":"sha256","digest":"6f489c0751c3b6e57b87666f20857e546d3b0a955f0dbd7503a9af3630138376"},
+    {"path":"crates/proof-local/tests/p0005_delegated_lifecycle.rs","git_blob_oid":"0fde7322c89afa2b0ef326c7ef7d826c2968f1f7","byte_domain":"git_blob","algorithm":"sha256","digest":"1cfb9e1a2fb42be73c75e070f5bf87fdb7a4e553cf0d141df403448affb1bf9f"},
+    {"path":"crates/proof-local/tests/p0005_delegated_matrix.rs","git_blob_oid":"5c8e3a71b72377fdf9eb266fbec95dc03d5fde6e","byte_domain":"git_blob","algorithm":"sha256","digest":"df89fba9d697957025a409ab7c1136209755b28348406c0cdedad21e54fdda84"},
+    {"path":"crates/proof-local/tests/p0005_local_kernel.rs","git_blob_oid":"4a25562bb95a7f21f06f0bea48da37356e5f8d05","byte_domain":"git_blob","algorithm":"sha256","digest":"c369818f8b58f6d5fafccd28a6bbcd7dd3f1f6a04aa450abaa60096b0da1b054"},
+    {"path":"crates/proof-local/tests/p0007_assurance_g6_g9.rs","git_blob_oid":"3bb1f321cb7addc7c277ef38fdd73e4a8ad89c54","byte_domain":"git_blob","algorithm":"sha256","digest":"8ac2320082d16e92c58cf2e1c82544ef84ec81e77b6b17efb8e837afcf94e0aa"},
+    {"path":"crates/proof-mcp/Cargo.toml","git_blob_oid":"de351204bb472c77f258ae03c1968c638245e4c2","byte_domain":"git_blob","algorithm":"sha256","digest":"a689aa51ff916988da44f2243a1c04e9b7ee22f00e57bd546843727e7ac5c7b7"},
+    {"path":"crates/proof-mcp/src/backend.rs","git_blob_oid":"6ac1d734b1c59606daf3675efa63557df6fb198f","byte_domain":"git_blob","algorithm":"sha256","digest":"d8a7053d547e6fb9de98ee78def938cbb99baaf1149c920e4a7b09e689bcd1f7"},
+    {"path":"docs/README.md","git_blob_oid":"0808569b24599f553d33314b8656f86177b4724d","byte_domain":"git_blob","algorithm":"sha256","digest":"877633fab45c3c2ee9ce523d8fd6a76a761cd25fa098aa489a1b621f587a2e3a"},
+    {"path":"docs/architecture/agent-authority.md","git_blob_oid":"1b627173e11c96c0187d7221dc9f55a45685adbb","byte_domain":"git_blob","algorithm":"sha256","digest":"a1367101f4b60ae98d84d4c4ed33d037ac8840af34a1d829527815d0b486c16e"},
+    {"path":"docs/architecture/authenticated-actor.md","git_blob_oid":"38f543aaf60fbabb557d722b1d5dc3f96ba3fa2f","byte_domain":"git_blob","algorithm":"sha256","digest":"cca34f3da6e2cdfe74f941a85aa006315c36ee9fd9c27548a639fd5ae4eca6d8"},
+    {"path":"docs/architecture/delegated-content.md","git_blob_oid":"5699c2e2cf0b7fe7575c7a47e9460c8cee4e7b9c","byte_domain":"git_blob","algorithm":"sha256","digest":"4166b37fb588dcc2448d2084c365b3552fa234492b1b49d94b277765e6acf9f8"},
+    {"path":"docs/architecture/domain-model.md","git_blob_oid":"9571a49c1f946fdf87d6fb7021b7cca770122103","byte_domain":"git_blob","algorithm":"sha256","digest":"b0979d857d387bd4befd86743dddf73ce75113b0f429b0ed2c65d090c780c36b"},
+    {"path":"docs/architecture/overview.md","git_blob_oid":"9e22802cae047559dbd87508154f22ce31d9f3ff","byte_domain":"git_blob","algorithm":"sha256","digest":"3095985765dde8fed9ce6e0b810ee0fff4133c7485e3f1460007c6b5e47d58cf"},
+    {"path":"docs/architecture/proof-model.md","git_blob_oid":"d03061d4837b206f6bcda55b0568ffcbeec39933","byte_domain":"git_blob","algorithm":"sha256","digest":"6790b36d19e2d6c3643044328230055f4802238301246135e79f91f239b23998"},
+    {"path":"docs/architecture/threat-model.md","git_blob_oid":"78ac51d4299e9601e08a2d5a9599027b51635f79","byte_domain":"git_blob","algorithm":"sha256","digest":"9bc341ab2eec08e5053c836606b18c46a435dc10a568593bb87174c0973e6c96"},
+    {"path":"docs/product/roadmap.md","git_blob_oid":"9f7ece822896b62ece95076eb4452f226a5c049e","byte_domain":"git_blob","algorithm":"sha256","digest":"5bdc1ac6ba8afdaee4d2a441f1b0b5c193f8d241465165f8ee3c0a64a6025bb9"},
+    {"path":"docs/product/scope.md","git_blob_oid":"bda9ddc6fc17b7960e1bfa10184b47d310819205","byte_domain":"git_blob","algorithm":"sha256","digest":"981d99ba590980f22af113535972a5c5b3c41205a0a41a0a7c86800888494873"},
+    {"path":"docs/product/vision.md","git_blob_oid":"e00676cbba96cb757a78df46a43239f51361a0d0","byte_domain":"git_blob","algorithm":"sha256","digest":"69fbc8c21466f5ac3f9edf9d15f4d0129424374af5f17d7ef07fc21fbf88a4c7"},
+    {"path":"docs/reference/cli.md","git_blob_oid":"d0612abeb6454c8ecaafdba813977182267abdc7","byte_domain":"git_blob","algorithm":"sha256","digest":"61eeb991ce12b11790f17ef79d031248f5f0cfe4227ab1344f4ff59787428c6e"},
+    {"path":"docs/reference/errors.md","git_blob_oid":"f20dd6c07ee04942e0ab543e3d354028173c7c9f","byte_domain":"git_blob","algorithm":"sha256","digest":"4672e48c1646b2e14a832e93cd0150bc39f0ee8226c718882f0d2979b8359386"},
+    {"path":"docs/reference/standards.md","git_blob_oid":"b30e86ade00325237478f74620190fc49cc10084","byte_domain":"git_blob","algorithm":"sha256","digest":"c4a79f093a264d98f7d2ab6472c6f283caceec18693fa6b93b78b6d13ad851c1"},
+    {"path":"docs/work/items/P-0005-deliver-delegated-mutation.md","git_blob_oid":"c3d43ebed909c3e14f51bcb9d62067cac2937214","byte_domain":"git_blob","algorithm":"sha256","digest":"7ccbdfc1348ec476fa0226c92af9dafa48037a92f108b841f626f4dd5c2bea08"}
+  ],
+  "artifact_digest_note": "SHA-256 computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; no worktree hashes substituted",
+  "evidence_paths": [
+    "docs/work/evidence/P-0005/receipt.md",
+    "docs/work/evidence/P-0005/manifest.json"
+  ],
+  "gate_state": {
+    "engineering_local_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "focused_falsification_review": "supported",
+    "independent_acceptance_audit": "supported-with-no-defect",
+    "current_disposition_eligible": true,
+    "disposition_executed": false
+  },
+  "boundaries": {
+    "main_pushed": false,
+    "feature_branch_pushed": false,
+    "tagged": false,
+    "released": false,
+    "published": false,
+    "deployed": false,
+    "production_mutated": false,
+    "customer_proven": false,
+    "windows_runtime_support_claimed": false,
+    "hostile_same_uid_containment_claimed": false,
+    "portable_clean_directory_verifier_claimed": false,
+    "owner_disposition_executed": false
+  }
+}
