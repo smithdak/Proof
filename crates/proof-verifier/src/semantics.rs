@@ -15,7 +15,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     ParsedCheckpoint,
-    container::{LoadedArtifact, LoadedBundle},
+    container::{LoadedArtifact, LoadedBundle, RequiredArtifact},
     crypto::{
         PublicSigner, domain_digest, parse_dsse_unverified, parse_public_signer, verify_dsse,
     },
@@ -897,15 +897,28 @@ fn verify_commands(
             );
             continue;
         };
-        let Some(input) = loaded.artifacts.get(&companion.command_input) else {
-            incomplete(
-                report,
-                "command_authentication",
-                "proof.verify.command.input_missing",
-                Some(entry.record_digest),
-                Some(entry.sequence),
-            );
-            continue;
+        let input = match loaded.required_artifact(&companion.command_input) {
+            RequiredArtifact::Available(input) => input,
+            RequiredArtifact::MissingRequiredExternal => {
+                incomplete(
+                    report,
+                    "command_authentication",
+                    "proof.verify.command.input_missing",
+                    Some(entry.record_digest),
+                    Some(entry.sequence),
+                );
+                continue;
+            }
+            RequiredArtifact::InvalidOrAbsent => {
+                invalid(
+                    report,
+                    "command_authentication",
+                    "proof.verify.command.input_missing",
+                    Some(entry.record_digest),
+                    Some(entry.sequence),
+                );
+                continue;
+            }
         };
         let Some(envelope) = loaded
             .artifacts
@@ -1585,7 +1598,29 @@ fn verify_localized_consequences(
                     continue;
                 };
                 let evidence = &consequence.value;
-                let input = loaded.artifacts.get(&companion.command_input);
+                let input = match loaded.required_artifact(&companion.command_input) {
+                    RequiredArtifact::Available(input) => input,
+                    RequiredArtifact::MissingRequiredExternal => {
+                        incomplete(
+                            report,
+                            "localized_consequence",
+                            "proof.verify.consequence.artifact_missing",
+                            Some(companion.command_input.digest),
+                            Some(record.sequence),
+                        );
+                        continue;
+                    }
+                    RequiredArtifact::InvalidOrAbsent => {
+                        invalid(
+                            report,
+                            "localized_consequence",
+                            "proof.verify.consequence.cross_link",
+                            Some(companion.command_input.digest),
+                            Some(record.sequence),
+                        );
+                        continue;
+                    }
+                };
                 let result_digest = digest_path(evidence, &["result", "digest"]);
                 let effect_digest = digest_field(evidence, "application_effect_digest");
                 let consequence_digest = digest_field(evidence, "application_consequence_digest");
@@ -1624,7 +1659,7 @@ fn verify_localized_consequences(
                             _ => false,
                         }
                 });
-                let effect_checks = spec.zip(input).map(|(spec, input)| {
+                let effect_checks = spec.map(|spec| {
                     let effect_exact = localized_effect_is_exact(
                         loaded,
                         spec,
@@ -3330,17 +3365,22 @@ fn verify_release(
         Some(policy.policy_profile.as_str()) == policy_profile
             && Some(policy.environment_config_digest) == environment_digest
     });
-    let exact_policy_decision = human_decision.and_then(|digest| {
-        loaded
-            .bundle
-            .artifacts
-            .iter()
-            .find(|descriptor| {
-                descriptor.role == EvidenceRole::ReleasePolicyDecision
-                    && descriptor.artifact.digest == digest
-            })
-            .and_then(|descriptor| loaded.artifacts.get(&descriptor.artifact))
-    });
+    let exact_policy_decision = match human_decision
+        .map(|digest| loaded.required_role_artifact(EvidenceRole::ReleasePolicyDecision, digest))
+    {
+        Some(RequiredArtifact::Available(artifact)) => Some(artifact),
+        Some(RequiredArtifact::MissingRequiredExternal) => {
+            incomplete(
+                report,
+                "policy",
+                "proof.verify.release.policy_missing",
+                human_decision,
+                None,
+            );
+            return;
+        }
+        Some(RequiredArtifact::InvalidOrAbsent) | None => None,
+    };
     let policy_decision_matches = exact_policy_decision.is_some_and(|artifact| {
         string(&artifact.value, "api_version")
             == Some("proof.dev/release-authorization-decision/v2")

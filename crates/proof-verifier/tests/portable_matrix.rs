@@ -235,6 +235,75 @@ fn required_external_preimage_is_incomplete_without_producer_reconstruction() {
     assert_eq!(report.outcome, Outcome::Incomplete, "{report:#?}");
     assert!(finding_codes(&report).contains(&"proof.verify.external.missing"));
     assert!(finding_codes(&report).contains(&"proof.verify.command.input_missing"));
+    assert!(finding_codes(&report).contains(&"proof.verify.consequence.artifact_missing"));
+    assert_eq!(
+        report.dimensions["localized_consequence"],
+        DimensionStatus::Incomplete
+    );
+    assert!(
+        report
+            .dimensions
+            .values()
+            .all(|status| *status != DimensionStatus::Invalid),
+        "{report:#?}"
+    );
+}
+
+#[test]
+fn invalid_included_preimage_remains_invalid() {
+    let fixture = generate(OpeningMode::Withhold, SignatureMode::Valid);
+    let command_path = fixture.artifact_path(fixture.command_input);
+    let mut command: Value = serde_json::from_slice(&fs::read(&command_path).unwrap()).unwrap();
+    command["workspace_id"] = Value::String("019c0000-0000-7000-8000-000000000099".to_owned());
+    fs::write(&command_path, canonical(&command)).unwrap();
+
+    let report = verify(&fixture, Some(&fixture.checkpoint_json));
+    assert_eq!(report.outcome, Outcome::Invalid, "{report:#?}");
+    assert!(finding_codes(&report).contains(&"proof.verify.artifact.digest"));
+    assert!(!finding_codes(&report).contains(&"proof.verify.external.missing"));
+    assert_eq!(
+        report.dimensions["command_authentication"],
+        DimensionStatus::Invalid
+    );
+    assert_eq!(
+        report.dimensions["localized_consequence"],
+        DimensionStatus::Invalid
+    );
+}
+
+#[test]
+fn required_external_release_policy_is_incomplete_without_semantic_cascade() {
+    let mut fixture = generate(OpeningMode::Withhold, SignatureMode::Valid);
+    let mut bundle = fixture.bundle_value();
+    let descriptor = bundle["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|descriptor| descriptor["role"] == "release_policy_decision")
+        .unwrap();
+    let policy_reference: ArtifactRef =
+        serde_json::from_value(descriptor["artifact"].clone()).unwrap();
+    descriptor["availability"] = serde_json::json!({"state": "external_commitment"});
+    let policy_path = fixture.artifact_path(policy_reference);
+    fs::remove_file(&policy_path).unwrap();
+    let digest_directory = policy_path.parent().unwrap();
+    let kind_directory = digest_directory.parent().unwrap();
+    fs::remove_dir(digest_directory).unwrap();
+    fs::remove_dir(kind_directory).unwrap();
+    fixture.replace_bundle(&bundle);
+
+    let report = verify(&fixture, Some(&fixture.checkpoint_json));
+    assert_eq!(report.outcome, Outcome::Incomplete, "{report:#?}");
+    assert!(finding_codes(&report).contains(&"proof.verify.external.missing"));
+    assert!(finding_codes(&report).contains(&"proof.verify.release.policy_missing"));
+    assert_eq!(report.dimensions["policy"], DimensionStatus::Incomplete);
+    assert!(
+        report
+            .dimensions
+            .values()
+            .all(|status| *status != DimensionStatus::Invalid),
+        "{report:#?}"
+    );
 }
 
 #[test]

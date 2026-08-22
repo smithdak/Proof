@@ -35,6 +35,47 @@ pub(crate) struct LoadedBundle {
     pub(crate) missing_external: BTreeSet<ArtifactRef>,
 }
 
+/// Availability of a declared artifact needed by a later semantic check.
+///
+/// Keeping an externally withheld dependency distinct from an artifact that
+/// failed container validation prevents an `Incomplete` disclosure from being
+/// reinterpreted as an `Invalid` semantic contradiction.
+pub(crate) enum RequiredArtifact<'a> {
+    Available(&'a LoadedArtifact),
+    MissingRequiredExternal,
+    InvalidOrAbsent,
+}
+
+impl LoadedBundle {
+    pub(crate) fn required_artifact(&self, reference: &ArtifactRef) -> RequiredArtifact<'_> {
+        if let Some(artifact) = self.artifacts.get(reference) {
+            RequiredArtifact::Available(artifact)
+        } else if self.missing_external.contains(reference) {
+            RequiredArtifact::MissingRequiredExternal
+        } else {
+            RequiredArtifact::InvalidOrAbsent
+        }
+    }
+
+    pub(crate) fn required_role_artifact(
+        &self,
+        role: EvidenceRole,
+        digest: crate::model::Digest,
+    ) -> RequiredArtifact<'_> {
+        let mut matches =
+            self.bundle.artifacts.iter().filter(|descriptor| {
+                descriptor.role == role && descriptor.artifact.digest == digest
+            });
+        let Some(descriptor) = matches.next() else {
+            return RequiredArtifact::InvalidOrAbsent;
+        };
+        if matches.next().is_some() {
+            return RequiredArtifact::InvalidOrAbsent;
+        }
+        self.required_artifact(&descriptor.artifact)
+    }
+}
+
 pub(crate) fn load_bundle(
     root: &Path,
     trust: &TrustPolicy,
