@@ -99,6 +99,77 @@ pub fn execute_legacy_mcp_process(
     mcp_outcome(&responses[1])
 }
 
+#[allow(
+    dead_code,
+    reason = "the shared P-0006 helper is exercised by the separate containment target"
+)]
+pub fn execute_modern_mcp_process_call(
+    root: &Path,
+    name: &str,
+    arguments: &Value,
+    authentication: &str,
+) -> Value {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": "p0006-modern-adversarial",
+        "method": "tools/call",
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "dev.proof/authentication": authentication,
+            },
+            "name": name,
+            "arguments": arguments,
+        },
+    });
+    let mut responses = serve_mcp_process(root, &[request]);
+    assert_eq!(responses.len(), 1);
+    responses.pop().unwrap()
+}
+
+#[allow(
+    dead_code,
+    reason = "the shared P-0006 helper is exercised by the separate containment target"
+)]
+pub fn execute_legacy_mcp_process_call(
+    root: &Path,
+    name: &str,
+    arguments: &Value,
+    authentication: &str,
+) -> Value {
+    let requests = [
+        json!({
+            "jsonrpc": "2.0",
+            "id": "p0006-legacy-adversarial-initialize",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": LEGACY_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": { "name": "p0006-containment", "version": "1" },
+            },
+        }),
+        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "p0006-legacy-adversarial",
+            "method": "tools/call",
+            "params": {
+                "_meta": { "dev.proof/authentication": authentication },
+                "name": name,
+                "arguments": arguments,
+            },
+        }),
+    ];
+    let responses = serve_mcp_process(root, &requests);
+    assert_eq!(responses.len(), 2);
+    assert_eq!(
+        responses[0]["result"]["protocolVersion"],
+        LEGACY_PROTOCOL_VERSION
+    );
+    responses[1].clone()
+}
+
 fn modern_request(invocation: &AuthenticatedInvocationV1, id: &str) -> Value {
     json!({
         "jsonrpc": "2.0",

@@ -5,6 +5,7 @@ mod p0006_support;
 use std::{
     fs,
     io::Write as _,
+    os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
@@ -38,12 +39,15 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use p0006_support::{
-    BrokerOutcome, execute_cli_broker, execute_legacy_mcp_broker, execute_legacy_mcp_process,
-    execute_modern_mcp_broker, execute_modern_mcp_process,
+    BrokerOutcome, canonical_frame, execute_cli_broker, execute_legacy_mcp_broker,
+    execute_legacy_mcp_process, execute_legacy_mcp_process_call, execute_modern_mcp_broker,
+    execute_modern_mcp_process, execute_modern_mcp_process_call,
 };
 
+const AGENT_SELECTED_PATH_CANARY: &str = "p0006-agent-selected-path-must-not-open";
+
 #[test]
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "one retained proof keeps the namespace, signer, and real CLI/MCP process boundaries causally adjacent"
 )]
@@ -62,6 +66,7 @@ fn distinct_uid_bwrap_signer_feeds_workspace_status_to_cli_and_mcp_process_bound
             &fixture.command_frame(),
         )
     });
+    assert_agent_selected_paths_are_rejected_before_storage(&fixture, &invocations[0]);
     for invocation in &invocations {
         assert_eq!(invocation.command_input, fixture.command_input());
         let verified = verify_authority_envelope::<Value>(
@@ -122,6 +127,129 @@ fn distinct_uid_bwrap_signer_feeds_workspace_status_to_cli_and_mcp_process_bound
         .unwrap();
     assert_eq!(decisions, 5);
     assert_eq!(consumptions, 5);
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the retained adversarial proof keeps CLI and both MCP-era rejection boundaries adjacent"
+)]
+fn assert_agent_selected_paths_are_rejected_before_storage(
+    fixture: &AuthorityFixture,
+    invocation: &AuthenticatedInvocationV1,
+) {
+    let selected_workspace_root = fixture
+        .directory()
+        .join(format!("{AGENT_SELECTED_PATH_CANARY}-workspace"));
+    fs::create_dir(&selected_workspace_root).unwrap();
+    let selected_workspace = LocalWorkspace::new(&selected_workspace_root).unwrap();
+    initialize_workspace(
+        &selected_workspace,
+        InitializeWorkspaceCommand {
+            workspace_id: generated_id(),
+            bootstrap_principal_id: generated_id(),
+        },
+    )
+    .unwrap();
+    let selected_file = fixture
+        .directory()
+        .join(format!("{AGENT_SELECTED_PATH_CANARY}-invocation.json"));
+    let selected_file_contents = canonical_frame(invocation);
+    fs::write(&selected_file, &selected_file_contents).unwrap();
+
+    assert_no_broker_storage(&fixture.repository);
+    assert_no_broker_storage(&selected_workspace);
+
+    let file_source = Command::new(env!("CARGO_BIN_EXE_proof"))
+        .current_dir(fixture.root())
+        .args(["--output", "json", "auth", "execute", "--invocation"])
+        .arg(&selected_file)
+        .output()
+        .unwrap();
+    assert_eq!(file_source.status.code(), Some(2));
+    assert!(file_source.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&file_source.stderr)
+            .contains("authenticated Agent transport is stdin-only")
+    );
+
+    let selected_workspace_attempt = Command::new(env!("CARGO_BIN_EXE_proof"))
+        .current_dir(fixture.root())
+        .arg("--workspace")
+        .arg(&selected_workspace_root)
+        .args(["--output", "json", "auth", "execute", "--invocation", "-"])
+        .output()
+        .unwrap();
+    assert!(!selected_workspace_attempt.status.success());
+    let selected_workspace_problem = format!(
+        "{}{}",
+        String::from_utf8_lossy(&selected_workspace_attempt.stdout),
+        String::from_utf8_lossy(&selected_workspace_attempt.stderr)
+    );
+    assert!(selected_workspace_problem.contains("fixed filesystem boundary"));
+    assert!(selected_workspace_problem.contains("--workspace is not accepted"));
+
+    let authentication = invocation.authentication.as_str();
+    let selected_tool = selected_file.display().to_string();
+    for response in [
+        execute_modern_mcp_process_call(fixture.root(), &selected_tool, &json!({}), authentication),
+        execute_legacy_mcp_process_call(fixture.root(), &selected_tool, &json!({}), authentication),
+    ] {
+        assert_eq!(response["error"]["code"], -32_602);
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown tool")
+        );
+    }
+
+    let path_shaped_arguments = json!({
+        "delegation_id": fixture.delegation_id.to_string(),
+        "invocation": selected_file.display().to_string(),
+        "operating_principal_id": fixture.agent_principal_id.to_string(),
+        "path": selected_file.display().to_string(),
+        "tool": selected_tool,
+        "workspace": selected_workspace_root.display().to_string(),
+    });
+    for response in [
+        execute_modern_mcp_process_call(
+            fixture.root(),
+            "proof.workspace.status",
+            &path_shaped_arguments,
+            authentication,
+        ),
+        execute_legacy_mcp_process_call(
+            fixture.root(),
+            "proof.workspace.status",
+            &path_shaped_arguments,
+            authentication,
+        ),
+    ] {
+        assert_eq!(response["result"]["isError"], true);
+        let problem: Value =
+            serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
+                .unwrap();
+        assert_eq!(problem["code"], "proof.auth.malformed");
+    }
+
+    assert_eq!(
+        fs::read_to_string(&selected_file).unwrap(),
+        selected_file_contents
+    );
+    assert_no_broker_storage(&fixture.repository);
+    assert_no_broker_storage(&selected_workspace);
+}
+
+fn assert_no_broker_storage(repository: &LocalWorkspace) {
+    let database = repository.open_database().unwrap();
+    for table in ["authorization_decisions_v2", "presentation_consumptions_v1"] {
+        let count: i64 = database
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table} changed before broker admission");
+    }
 }
 
 fn assert_bwrap_available() {
@@ -287,7 +415,7 @@ fn status_projection(outcome: &BrokerOutcome) -> Value {
 }
 
 struct AuthorityFixture {
-    _directory: TestDirectory,
+    directory: TestDirectory,
     repository: LocalWorkspace,
     credential_directory: PathBuf,
     agent_key_id: String,
@@ -434,7 +562,6 @@ impl AuthorityFixture {
 
         let credential_directory = directory.path().join("credentials");
         fs::create_dir(&credential_directory).unwrap();
-        use std::os::unix::fs::PermissionsExt as _;
         fs::set_permissions(&credential_directory, fs::Permissions::from_mode(0o700)).unwrap();
         let credential_path = credential_directory.join("agent-a.json");
         fs::write(
@@ -451,7 +578,7 @@ impl AuthorityFixture {
         fs::set_permissions(credential_path, fs::Permissions::from_mode(0o600)).unwrap();
 
         Self {
-            _directory: directory,
+            directory,
             repository,
             credential_directory,
             agent_key_id,
@@ -465,6 +592,10 @@ impl AuthorityFixture {
 
     fn root(&self) -> &Path {
         self.repository.root()
+    }
+
+    fn directory(&self) -> &Path {
+        self.directory.path()
     }
 
     fn credential_directory(&self) -> &Path {

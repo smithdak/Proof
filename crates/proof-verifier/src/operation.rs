@@ -246,22 +246,40 @@ pub(crate) fn validate_command_and_projection(
     decision: &Value,
     delegation: &Value,
 ) -> Option<&'static OperationSpec> {
-    let operation = input.get("operation")?;
-    let spec = resolve(operation)?;
-    if decision.get("operation") != Some(operation)
-        || decision.get("requested_action") != Some(&Value::String(spec.action.to_owned()))
-    {
-        return None;
-    }
+    validate_command_and_projection_inner(loaded, input, decision, delegation, false)
+}
+
+pub(crate) fn validate_command_and_projection_allowing_missing_context_build(
+    loaded: &LoadedBundle,
+    input: &Value,
+    decision: &Value,
+    delegation: &Value,
+) -> Option<&'static OperationSpec> {
+    validate_command_and_projection_inner(loaded, input, decision, delegation, true)
+}
+
+fn validate_command_and_projection_inner(
+    loaded: &LoadedBundle,
+    input: &Value,
+    decision: &Value,
+    delegation: &Value,
+    allow_missing_context_build: bool,
+) -> Option<&'static OperationSpec> {
+    let spec = validate_command_shape(input, decision)?;
     let normalized = input.get("normalized_input")?;
-    if !validate_normalized(spec, input, normalized) {
-        return None;
-    }
     let evaluated = decision
         .get("evaluated_at")
         .and_then(Value::as_str)
         .and_then(parse_timestamp)?;
-    let mut projection = derive_projection(loaded, spec, input, normalized, decision, evaluated)?;
+    let mut projection = derive_projection(
+        loaded,
+        spec,
+        input,
+        normalized,
+        decision,
+        evaluated,
+        allow_missing_context_build,
+    )?;
     let delegated_constraints = delegation.get("constraints")?;
     match (spec.name, spec.version) {
         ("workspace.status", _) => {
@@ -285,6 +303,100 @@ pub(crate) fn validate_command_and_projection(
         == Some(&projection.requested_value(&loaded.bundle.workspace_id))
         && decision.get("effective_constraints") == Some(&projection.constraints_value()))
     .then_some(spec)
+}
+
+pub(crate) fn validate_command_initial_projection(
+    input: &Value,
+    decision: &Value,
+) -> Option<&'static OperationSpec> {
+    let spec = validate_command_shape(input, decision)?;
+    let normalized = input.get("normalized_input")?;
+    let mut projection = Projection {
+        max_objects: 1,
+        max_context_bytes: 1,
+        max_edits: 1,
+        ..Projection::default()
+    };
+    match (spec.name, spec.version) {
+        ("object.query_released", "proof.dev/operation/object.query_released/v1") => {
+            projection
+                .environment_ids
+                .insert(string_field(normalized, "environment_id")?.to_owned());
+            projection
+                .object_ids
+                .extend(strings(normalized.get("object_ids"))?);
+            projection.max_objects = projection.object_ids.len() as u64;
+        }
+        ("context.build", "proof.dev/operation/context.build/v1") => {
+            projection
+                .environment_ids
+                .insert(string_field(normalized, "environment_id")?.to_owned());
+            projection
+                .object_ids
+                .extend(strings(normalized.get("object_ids"))?);
+            projection.max_objects = normalized.get("max_objects")?.as_u64()?;
+            projection.max_context_bytes = normalized.get("max_bytes")?.as_u64()?;
+        }
+        ("context.build", "proof.dev/operation/context.build/v2") => {
+            projection.max_objects = normalized.pointer("/limits/max_objects")?.as_u64()?;
+            projection.max_context_bytes = normalized.pointer("/limits/max_bytes")?.as_u64()?;
+            projection.max_edits = normalized.pointer("/limits/max_edits")?.as_u64()?;
+        }
+        ("object.query_released", "proof.dev/operation/object.query_released/v2") => {
+            projection
+                .environment_ids
+                .insert(string_field(normalized, "environment_id")?.to_owned());
+            for target in normalized.get("targets")?.as_array()? {
+                projection
+                    .object_ids
+                    .insert(string_field(target, "object_id")?.to_owned());
+                projection
+                    .locales
+                    .insert(string_field(target, "locale")?.to_owned());
+            }
+            projection.max_objects = projection.object_ids.len() as u64;
+        }
+        _ => {}
+    }
+    let workspace = string_field(decision, "workspace_id")?;
+    (decision.get("requested_resources") == Some(&projection.requested_value(workspace))
+        && decision.get("effective_constraints") == Some(&projection.constraints_value()))
+    .then_some(spec)
+}
+
+pub(crate) fn validate_command_shape(
+    input: &Value,
+    decision: &Value,
+) -> Option<&'static OperationSpec> {
+    let operation = input.get("operation")?;
+    let spec = resolve(operation)?;
+    if decision.get("operation") != Some(operation)
+        || decision.get("requested_action") != Some(&Value::String(spec.action.to_owned()))
+    {
+        return None;
+    }
+    validate_normalized(spec, input, input.get("normalized_input")?).then_some(spec)
+}
+
+pub(crate) fn full_projection_is_resolvable(
+    loaded: &LoadedBundle,
+    input: &Value,
+    decision: &Value,
+) -> bool {
+    let Some(spec) = validate_command_shape(input, decision) else {
+        return false;
+    };
+    let Some(normalized) = input.get("normalized_input") else {
+        return false;
+    };
+    let Some(evaluated) = decision
+        .get("evaluated_at")
+        .and_then(Value::as_str)
+        .and_then(parse_timestamp)
+    else {
+        return false;
+    };
+    derive_projection(loaded, spec, input, normalized, decision, evaluated, false).is_some()
 }
 
 fn validate_normalized(spec: &OperationSpec, command: &Value, normalized: &Value) -> bool {
@@ -403,6 +515,7 @@ fn derive_projection(
     input: &Value,
     decision: &Value,
     evaluated: time::OffsetDateTime,
+    allow_missing_context_build: bool,
 ) -> Option<Projection> {
     let mut projection = Projection {
         max_objects: 1,
@@ -435,7 +548,15 @@ fn derive_projection(
             derive_released_query(loaded, input, &mut projection)?;
         }
         _ => {
-            derive_intent_closure(loaded, spec, input, decision, evaluated, &mut projection)?;
+            derive_intent_closure(
+                loaded,
+                spec,
+                input,
+                decision,
+                evaluated,
+                allow_missing_context_build,
+                &mut projection,
+            )?;
         }
     }
     apply_selectors(loaded, spec, input, &mut projection)?;
@@ -449,6 +570,7 @@ fn derive_intent_closure(
     input: &Value,
     decision: &Value,
     evaluated: time::OffsetDateTime,
+    allow_missing_context_build: bool,
     projection: &mut Projection,
 ) -> Option<()> {
     let requesting = string_field(decision, "requesting_principal_id")?;
@@ -465,15 +587,6 @@ fn derive_intent_closure(
             None,
             None,
         ),
-        "edition.create" => {
-            let changeset = changeset_by_id(loaded, string_field(input, "changeset_id")?)?;
-            (
-                digest_field(&changeset.value, "resource_intent_digest")?,
-                digest_field(&changeset.value, "context_pack_digest"),
-                Some(changeset),
-                None,
-            )
-        }
         "release.create" => {
             let edition = edition_by_id(loaded, string_field(input, "edition_id")?)?;
             let changeset_id = edition.value.pointer("/changeset/changeset_id")?.as_str()?;
@@ -501,18 +614,35 @@ fn derive_intent_closure(
     {
         return None;
     }
-    if let Some(changeset) = changeset {
-        if string_field(&changeset.value, "principal_id")? != requesting
+    if let Some(changeset) = changeset
+        && (string_field(&changeset.value, "principal_id")? != requesting
             || digest_field(&changeset.value, "resource_intent_digest")? != intent_digest
-            || changeset.value.get("resource_intent_id") != intent.value.get("intent_id")
-        {
-            return None;
-        }
+            || changeset.value.get("resource_intent_id") != intent.value.get("intent_id"))
+    {
+        return None;
     }
     if let Some(edition) = edition
         && string_field(&edition.value, "principal_id")? != requesting
     {
         return None;
+    }
+    let targets = project_intent_resources(&intent.value, projection)?;
+    if allow_missing_context_build
+        && spec.name == "context.build"
+        && spec.version == "proof.dev/operation/context.build/v2"
+    {
+        if input.get("resource_intent_id") != intent.value.get("intent_id") {
+            return None;
+        }
+        let created = string_field(input, "created_at").and_then(parse_timestamp)?;
+        let expires = string_field(input, "expires_at").and_then(parse_timestamp)?;
+        if created > evaluated || evaluated >= expires {
+            return None;
+        }
+        projection.max_objects = input.pointer("/limits/max_objects")?.as_u64()?;
+        projection.max_context_bytes = input.pointer("/limits/max_bytes")?.as_u64()?;
+        projection.max_edits = input.pointer("/limits/max_edits")?.as_u64()?;
+        return Some(());
     }
     let context = match context_digest {
         Some(digest) => exact_role(loaded, EvidenceRole::ContextPack, digest)?,
@@ -531,7 +661,20 @@ fn derive_intent_closure(
     {
         return None;
     }
-    let targets = intent.value.get("targets")?.as_array()?;
+    projection.max_objects = context.value.pointer("/limits/max_objects")?.as_u64()?;
+    projection.max_context_bytes = context.value.pointer("/limits/max_bytes")?.as_u64()?;
+    projection.max_edits = context.value.pointer("/limits/max_edits")?.as_u64()?;
+    if !intent_limits_are_respected(context, targets, changeset, projection) {
+        return None;
+    }
+    Some(())
+}
+
+fn project_intent_resources<'a>(
+    intent: &'a Value,
+    projection: &mut Projection,
+) -> Option<&'a [Value]> {
+    let targets = intent.get("targets")?.as_array()?;
     for target in targets {
         projection
             .object_ids
@@ -545,30 +688,34 @@ fn derive_intent_closure(
     }
     projection
         .environment_ids
-        .insert(string_field(&intent.value, "environment_id")?.to_owned());
-    projection.max_objects = context.value.pointer("/limits/max_objects")?.as_u64()?;
-    projection.max_context_bytes = context.value.pointer("/limits/max_bytes")?.as_u64()?;
-    projection.max_edits = context.value.pointer("/limits/max_edits")?.as_u64()?;
-    let resource_count = context.value.get("resources")?.as_array()?.len() as u64;
+        .insert(string_field(intent, "environment_id")?.to_owned());
+    Some(targets)
+}
+
+fn intent_limits_are_respected(
+    context: &LoadedArtifact,
+    targets: &[Value],
+    changeset: Option<&LoadedArtifact>,
+    projection: &Projection,
+) -> bool {
+    let Some(resources) = context.value.get("resources").and_then(Value::as_array) else {
+        return false;
+    };
     let target_object_count = targets
         .iter()
         .filter_map(|target| string_field(target, "object_id"))
         .collect::<BTreeSet<_>>()
         .len() as u64;
-    let context_bytes = u64::try_from(context.bytes.len()).ok()?;
     let edit_count = changeset
         .and_then(|changeset| changeset.value.get("edits"))
         .and_then(Value::as_array)
         .map_or(0_u64, |edits| edits.len() as u64);
-    if resource_count != targets.len() as u64
-        || target_object_count > projection.max_objects
-        || resource_count > projection.max_edits
-        || context_bytes > projection.max_context_bytes
-        || edit_count > projection.max_edits
-    {
-        return None;
-    }
-    Some(())
+    resources.len() == targets.len()
+        && target_object_count <= projection.max_objects
+        && resources.len() as u64 <= projection.max_edits
+        && u64::try_from(context.bytes.len())
+            .is_ok_and(|bytes| bytes <= projection.max_context_bytes)
+        && edit_count <= projection.max_edits
 }
 
 fn derive_released_query(
@@ -798,6 +945,168 @@ pub(crate) fn uuid_v7(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{
+        ArtifactDescriptor, ArtifactKind, ArtifactRef, AuthorityHead, Availability,
+        BUNDLE_API_VERSION, Bundle, Entrypoints,
+    };
+
+    const WORKSPACE_ID: &str = "019c0000-0000-7000-8000-000000000001";
+    const PRINCIPAL_ID: &str = "019c0000-0000-7000-8000-000000000002";
+    const INTENT_ID: &str = "019c0000-0000-7000-8000-000000000003";
+    const CONTEXT_ID: &str = "019c0000-0000-7000-8000-000000000004";
+    const IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-000000000005";
+
+    fn artifact_ref(artifact_kind: ArtifactKind, byte: u8) -> ArtifactRef {
+        ArtifactRef {
+            artifact_kind,
+            digest: Digest([byte; 32]),
+        }
+    }
+
+    fn loaded_with_intent(intent_ref: ArtifactRef, intent: Value) -> LoadedBundle {
+        let release_ref = artifact_ref(ArtifactKind::ReleaseV2, 2);
+        let proof_ref = artifact_ref(ArtifactKind::ProofEnvelopeV1, 3);
+        let consequence_ref = artifact_ref(ArtifactKind::AuthenticatedLocalizedConsequenceV1, 4);
+        LoadedBundle {
+            bundle: Bundle {
+                api_version: BUNDLE_API_VERSION.to_owned(),
+                workspace_id: WORKSPACE_ID.to_owned(),
+                entrypoints: Entrypoints {
+                    target_release_manifest: release_ref,
+                    target_release_proof_envelope: proof_ref,
+                    target_authorization_record_digest: Digest([5; 32]),
+                    target_localized_consequence: consequence_ref,
+                },
+                included_authority_head: AuthorityHead {
+                    sequence: 0,
+                    record_digest: Digest([5; 32]),
+                },
+                authority_prefix: Vec::new(),
+                artifacts: vec![ArtifactDescriptor {
+                    role: EvidenceRole::ResourceIntent,
+                    artifact: intent_ref,
+                    availability: Availability::Included { byte_length: 1 },
+                }],
+            },
+            manifest_digest: Digest([6; 32]),
+            artifacts: [(
+                intent_ref,
+                LoadedArtifact {
+                    bytes: vec![0],
+                    value: intent,
+                },
+            )]
+            .into_iter()
+            .collect(),
+            missing_external: BTreeSet::new(),
+            required_external_missing: false,
+        }
+    }
+
+    fn context_build_projection_fixture() -> (LoadedBundle, Value, Value, Value) {
+        let intent_ref = artifact_ref(ArtifactKind::ContentResourceIntentV1, 1);
+        let intent = json!({
+            "environment_id": "production",
+            "intent_id": INTENT_ID,
+            "issued_by_principal_id": PRINCIPAL_ID,
+            "targets": [{
+                "locale": "en-US",
+                "object_id": "019c0000-0000-7000-8000-000000000006",
+                "schema_id": "article",
+            }],
+            "workspace_id": WORKSPACE_ID,
+        });
+        let normalized = json!({
+            "api_version": "proof.dev/operation/context.build/v2",
+            "context_pack_id": CONTEXT_ID,
+            "created_at": "2026-08-21T09:00:00Z",
+            "expires_at": "2026-08-21T11:00:00Z",
+            "idempotency_key": IDEMPOTENCY_KEY,
+            "limits": {
+                "max_bytes": 4096,
+                "max_edits": 2,
+                "max_objects": 1,
+                "max_validation_attempts": 3,
+            },
+            "policy_rules": [{
+                "disallowed_values": ["forbidden"],
+                "locale": "en-US",
+                "pointer": "/title",
+            }],
+            "resource_intent_digest": intent_ref.digest,
+            "resource_intent_id": INTENT_ID,
+        });
+        let input = json!({
+            "idempotency_key": IDEMPOTENCY_KEY,
+            "normalized_input": normalized,
+            "operation": {
+                "name": "context.build",
+                "version": "proof.dev/operation/context.build/v2",
+            },
+        });
+        let decision = json!({
+            "effective_constraints": {
+                "max_context_bytes": 4096,
+                "max_edits_per_changeset": 2,
+                "max_objects": 1,
+            },
+            "evaluated_at": "2026-08-21T10:00:00Z",
+            "operation": input["operation"],
+            "requested_action": "context:build",
+            "requested_resources": {
+                "changeset_ids": [],
+                "edition_ids": [],
+                "environment_ids": ["production"],
+                "locales": ["en-US"],
+                "object_ids": ["019c0000-0000-7000-8000-000000000006"],
+                "release_ids": [],
+                "schema_ids": ["article"],
+                "workspace_ids": [WORKSPACE_ID],
+            },
+            "requesting_principal_id": PRINCIPAL_ID,
+            "workspace_id": WORKSPACE_ID,
+        });
+        let delegation = json!({
+            "constraints": {
+                "max_context_bytes": 4096,
+                "max_edits_per_changeset": 2,
+                "max_objects": 1,
+            },
+        });
+        let loaded = loaded_with_intent(intent_ref, intent);
+        (loaded, input, decision, delegation)
+    }
+
+    fn insert_context_pack(loaded: &mut LoadedBundle) {
+        let intent_ref = loaded.bundle.artifacts[0].artifact;
+        let intent = loaded.artifacts[&intent_ref].value.clone();
+        let context_ref = artifact_ref(ArtifactKind::ContextPackV2, 7);
+        loaded.bundle.artifacts.push(ArtifactDescriptor {
+            role: EvidenceRole::ContextPack,
+            artifact: context_ref,
+            availability: Availability::Included { byte_length: 128 },
+        });
+        loaded.artifacts.insert(
+            context_ref,
+            LoadedArtifact {
+                bytes: vec![0; 128],
+                value: json!({
+                    "created_at": "2026-08-21T09:00:00Z",
+                    "expires_at": "2026-08-21T11:00:00Z",
+                    "limits": {
+                        "max_bytes": 4096,
+                        "max_edits": 2,
+                        "max_objects": 1,
+                    },
+                    "principal_id": PRINCIPAL_ID,
+                    "resource_intent": intent,
+                    "resource_intent_digest": intent_ref.digest,
+                    "resources": [{}],
+                    "workspace_id": WORKSPACE_ID,
+                }),
+            },
+        );
+    }
 
     #[test]
     fn registry_is_closed_and_uuid_is_canonical_v7() {
@@ -813,6 +1122,82 @@ mod tests {
         assert!(
             resolve(
                 &json!({"name":"release.create","version":"proof.dev/operation/release.create/v3"})
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn missing_context_build_projection_requires_the_explicit_fallback() {
+        let (loaded, input, decision, delegation) = context_build_projection_fixture();
+
+        assert!(validate_command_and_projection(&loaded, &input, &decision, &delegation).is_none());
+        assert!(
+            validate_command_and_projection_allowing_missing_context_build(
+                &loaded,
+                &input,
+                &decision,
+                &delegation,
+            )
+            .is_some()
+        );
+
+        let mut wrong_intent = input.clone();
+        wrong_intent["normalized_input"]["resource_intent_id"] =
+            Value::String("019c0000-0000-7000-8000-000000000099".to_owned());
+        assert!(
+            validate_command_and_projection_allowing_missing_context_build(
+                &loaded,
+                &wrong_intent,
+                &decision,
+                &delegation,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn ordinary_context_build_projection_still_requires_a_context_pack() {
+        let (mut loaded, input, decision, delegation) = context_build_projection_fixture();
+        insert_context_pack(&mut loaded);
+
+        assert!(validate_command_and_projection(&loaded, &input, &decision, &delegation).is_some());
+    }
+
+    #[test]
+    fn missing_context_build_freshness_matches_the_producer_boundaries() {
+        let (loaded, mut input, decision, delegation) = context_build_projection_fixture();
+        input["normalized_input"]["created_at"] = decision["evaluated_at"].clone();
+        assert!(
+            validate_command_and_projection_allowing_missing_context_build(
+                &loaded,
+                &input,
+                &decision,
+                &delegation,
+            )
+            .is_some()
+        );
+
+        input["normalized_input"]["created_at"] = Value::String("2026-08-21T09:00:00Z".to_owned());
+        input["normalized_input"]["expires_at"] = decision["evaluated_at"].clone();
+        assert!(
+            validate_command_and_projection_allowing_missing_context_build(
+                &loaded,
+                &input,
+                &decision,
+                &delegation,
+            )
+            .is_none()
+        );
+
+        input["normalized_input"]["expires_at"] = Value::String("2026-08-21T11:00:00Z".to_owned());
+        input["normalized_input"]["created_at"] = Value::String("2026-08-21T10:00:01Z".to_owned());
+        assert!(
+            validate_command_and_projection_allowing_missing_context_build(
+                &loaded,
+                &input,
+                &decision,
+                &delegation,
             )
             .is_none()
         );

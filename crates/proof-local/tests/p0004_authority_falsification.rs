@@ -93,6 +93,7 @@ const BASE_TIME: &str = "2026-08-20T12:00:00Z";
 const DETERMINISTIC_UID: u64 = 2_004;
 const DETERMINISTIC_SUBJECT_BLIND: [u8; 32] = [0x54; 32];
 const AUTHORITY_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/authority-signing.ed25519";
+const RELEASE_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/release-signing.ed25519";
 const SUCCESSOR_STAGING_KEY_RELATIVE_PATH: &str = ".proof/state/authority-successor.ed25519";
 
 #[test]
@@ -187,15 +188,28 @@ fn fresh_context_presentation_replays_exact_result_and_projection_tamper_fails_c
 
 #[derive(Clone, Copy, Debug)]
 enum CurrentAuthorityInvalidation {
+    BindingRotation,
     DelegationRevocation,
     PrincipalDisablement,
 }
 
 impl CurrentAuthorityInvalidation {
-    const ALL: [Self; 2] = [Self::DelegationRevocation, Self::PrincipalDisablement];
+    const ALL: [Self; 3] = [
+        Self::BindingRotation,
+        Self::DelegationRevocation,
+        Self::PrincipalDisablement,
+    ];
 
     fn apply(self, fixture: &ContextFixture) {
         match self {
+            Self::BindingRotation => fixture.enroll_binding(
+                FUTURE_CHALLENGE_ID,
+                FUTURE_BINDING_ID.parse().unwrap(),
+                &Ed25519SigningProvider::from_secret_bytes(&[0x43; 32]),
+                Some(fixture.binding_id),
+                fixture.time(121),
+                fixture.time(1_000),
+            ),
             Self::DelegationRevocation => {
                 let head = fixture
                     .repository
@@ -226,6 +240,7 @@ impl CurrentAuthorityInvalidation {
 
     const fn expected_error(self) -> AuthorityError {
         match self {
+            Self::BindingRotation => AuthorityError::AuthBindingInactive,
             Self::DelegationRevocation => AuthorityError::DelegationRevoked,
             Self::PrincipalDisablement => AuthorityError::PrincipalDisabled,
         }
@@ -233,6 +248,7 @@ impl CurrentAuthorityInvalidation {
 
     const fn expected_reason(self) -> AuthorizationDenialReason {
         match self {
+            Self::BindingRotation => AuthorizationDenialReason::BindingInactive,
             Self::DelegationRevocation => AuthorizationDenialReason::DelegationRevoked,
             Self::PrincipalDisablement => AuthorizationDenialReason::PrincipalDisabled,
         }
@@ -1030,6 +1046,66 @@ fn invalid_root_transition_signature_preserves_database_and_key_custody() {
     assert_eq!(authority_root_state(&fixture.repository), database_before);
     assert!(staging_path.exists());
     assert!(!published_path.exists());
+}
+
+#[test]
+fn agent_binding_rejects_authority_and_release_signing_keys() {
+    for key_path in [
+        AUTHORITY_SIGNING_KEY_RELATIVE_PATH,
+        RELEASE_SIGNING_KEY_RELATIVE_PATH,
+    ] {
+        let fixture = ContextFixture::new();
+        let signer = signer_from_file(&fixture.repository.root().join(key_path));
+        let head_before = fixture.authority_head();
+        let error = fixture
+            .try_enroll_binding(
+                FUTURE_CHALLENGE_ID,
+                FUTURE_BINDING_ID.parse().unwrap(),
+                &signer,
+                Some(fixture.binding_id),
+                fixture.time(40),
+                fixture.time(900),
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, AuthorityError::AuthorityIntegrity(_)));
+        assert_eq!(fixture.authority_head(), head_before, "{key_path}");
+        assert_eq!(
+            fixture.challenge_consumed(FUTURE_CHALLENGE_ID),
+            None,
+            "{key_path}"
+        );
+    }
+}
+
+#[test]
+fn authority_successor_rejects_agent_and_release_signing_keys() {
+    for role in ["agent", "release"] {
+        let fixture = ContextFixture::new();
+        let successor_secret = match role {
+            "agent" => fixture.signer.secret_bytes(),
+            "release" => signer_from_file(
+                &fixture
+                    .repository
+                    .root()
+                    .join(RELEASE_SIGNING_KEY_RELATIVE_PATH),
+            )
+            .secret_bytes(),
+            _ => unreachable!(),
+        };
+        let staged = stage_valid_root_transition(&fixture, successor_secret);
+        let database_before = authority_root_state(&fixture.repository);
+
+        assert!(matches!(
+            fixture
+                .repository
+                .transition_workspace_authority_root(staged.transition, staged.envelope_json,),
+            Err(AuthorityError::AuthorityIntegrity(_))
+        ));
+        assert_eq!(authority_root_state(&fixture.repository), database_before);
+        assert!(staged.staging_path.exists(), "{role}");
+        assert!(!staged.published_path.exists(), "{role}");
+    }
 }
 
 #[test]

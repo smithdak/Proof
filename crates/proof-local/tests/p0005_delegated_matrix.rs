@@ -684,6 +684,10 @@ mod retained {
             );
             assert_eq!(after.decisions, authority_before.decisions + 1);
             assert_eq!(after.consumptions, authority_before.consumptions + 1);
+            assert_eq!(
+                after.command_presentations,
+                authority_before.command_presentations + 1
+            );
             assert_eq!(after.actor_evidence, authority_before.actor_evidence + 1);
             assert_eq!(
                 after.localized_consequences,
@@ -755,6 +759,10 @@ mod retained {
             );
             assert_eq!(after.decisions, authority_before.decisions + 1);
             assert_eq!(after.consumptions, authority_before.consumptions + 1);
+            assert_eq!(
+                after.command_presentations,
+                authority_before.command_presentations + 1
+            );
             assert_eq!(after.actor_evidence, authority_before.actor_evidence + 1);
             assert_eq!(
                 after.localized_consequences,
@@ -788,6 +796,10 @@ mod retained {
             assert_eq!(
                 after_denial.decisions,
                 authority_before_denial.decisions + 1
+            );
+            assert_eq!(
+                after_denial.command_presentations,
+                authority_before_denial.command_presentations + 1
             );
             assert_eq!(
                 after_denial.localized_consequences,
@@ -856,6 +868,10 @@ mod retained {
             assert_eq!(after.authority_records, authority.authority_records + 1);
             assert_eq!(after.decisions, authority.decisions + 1);
             assert_eq!(after.consumptions, authority.consumptions + 1);
+            assert_eq!(
+                after.command_presentations,
+                authority.command_presentations + 1
+            );
             assert_eq!(after.actor_evidence, authority.actor_evidence + 1);
             assert_eq!(
                 after.localized_consequences,
@@ -1163,6 +1179,11 @@ mod retained {
             assert_eq!(after.decisions, authority.decisions + 1, "{label}");
             assert_eq!(after.consumptions, authority.consumptions + 1, "{label}");
             assert_eq!(
+                after.command_presentations,
+                authority.command_presentations + 1,
+                "{label}"
+            );
+            assert_eq!(
                 after.actor_evidence,
                 authority.actor_evidence + 1,
                 "{label}"
@@ -1211,6 +1232,11 @@ mod retained {
             );
             assert_eq!(after.decisions, authority.decisions + 1, "{label}");
             assert_eq!(after.consumptions, authority.consumptions + 1, "{label}");
+            assert_eq!(
+                after.command_presentations,
+                authority.command_presentations + 1,
+                "{label}"
+            );
             assert_eq!(
                 after.actor_evidence,
                 authority.actor_evidence + 1,

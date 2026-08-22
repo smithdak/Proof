@@ -36,6 +36,10 @@ mod retained {
                 authority_before.consumptions + 1
             );
             assert_eq!(
+                authority_after.command_presentations,
+                authority_before.command_presentations + 1
+            );
+            assert_eq!(
                 authority_after.actor_evidence,
                 authority_before.actor_evidence + 1
             );
@@ -410,6 +414,10 @@ mod retained {
                 authority_before.head_sequence + 1
             );
             assert_eq!(authority_after.decisions, authority_before.decisions + 1);
+            assert_eq!(
+                authority_after.command_presentations,
+                authority_before.command_presentations + 1
+            );
             assert_eq!(
                 authority_after.localized_consequences,
                 authority_before.localized_consequences + 1

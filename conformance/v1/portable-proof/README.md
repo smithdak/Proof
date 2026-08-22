@@ -21,12 +21,19 @@ The canonical wire fixtures are intentionally compact and reviewable:
 
 The verifier-owned matrix additionally exercises included/withheld commitment parity,
 missing checkpoints, byte and digest tampering, deterministic reports, and raw UID and
-blind canaries. The public CLI integration freezes semantic exit codes `0`, `20`, and
-`21`, usage/input exit `64`, canonical report stdout, and stable stderr codes. Run both
-from the repository root:
+blind canaries. The closed
+[`verifier-finding-codes.json`](../verifier-finding-codes.json) registry accounts for
+every structured report finding and CLI diagnostic emitted by the v1 verifier. Its
+coverage classifications distinguish directly asserted behavior from structural guards;
+registration does not imply that every guard has an independent branch-level test. The
+public CLI integration freezes semantic exit codes `0`, `20`, and `21`, usage/input exit
+`64`, canonical report stdout, and stable stderr codes. Run the retained conformance
+targets from the repository root:
 
 ```text
 cargo test --locked -p proof-verifier --test portable_matrix
+cargo test --locked -p proof-verifier --test security_matrix
+cargo test --locked -p proof-verifier --test finding_code_registry
 cargo test --locked -p proof-verifier --test public_cli
 ```
 

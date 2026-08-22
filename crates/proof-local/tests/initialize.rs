@@ -2194,10 +2194,10 @@ fn delayed_changeset_retries_return_original_results_after_commit() {
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9 through v13 storage"
+    reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9 through v14 storage"
 )]
 fn lifecycle_chronology_rejects_invalid_first_writes_but_replays_original_results() {
-    for schema_version in [9, 10, 11, 12, 13] {
+    for schema_version in [9, 10, 11, 12, 13, 14] {
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         match schema_version {
@@ -2205,7 +2205,8 @@ fn lifecycle_chronology_rejects_invalid_first_writes_but_replays_original_result
             10 => downgrade_database_to_v10(&repository),
             11 => downgrade_database_to_v11(&repository),
             12 => downgrade_database_to_v12(&repository),
-            13 => {}
+            13 => downgrade_database_to_v13(&repository),
+            14 => {}
             _ => unreachable!(),
         }
         assert_storage_version(&repository, schema_version);
@@ -10277,6 +10278,10 @@ fn release_history_byte_snapshot(repository: &LocalWorkspace) -> TableRowSnapsho
         "authenticated_application_idempotency_v1",
         "authenticated_localized_consequences_v1",
     ];
+    const V14_TABLES: &[&str] = &[
+        "authenticated_command_presentation_cutover_v1",
+        "authenticated_command_presentations_v1",
+    ];
     let connection = repository.open_database().unwrap();
     let names = sqlite_table_names(&connection)
         .into_iter()
@@ -10285,6 +10290,7 @@ fn release_history_byte_snapshot(repository: &LocalWorkspace) -> TableRowSnapsho
                 && name != "workspace_metadata"
                 && !V12_TABLES.contains(&name.as_str())
                 && !V13_TABLES.contains(&name.as_str())
+                && !V14_TABLES.contains(&name.as_str())
         })
         .collect::<Vec<_>>();
     let mut snapshot = table_row_snapshot(&connection, &names);

@@ -42,8 +42,9 @@ use rusqlite::{Connection, types::ValueRef};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-const MUTABLE_AUTHORITY_TABLES: [&str; 5] = [
+const MUTABLE_AUTHORITY_TABLES: [&str; 6] = [
     "authenticated_actor_context_evidence_v1",
+    "authenticated_command_presentations_v1",
     "authenticated_operation_results_v1",
     "authority_records",
     "authorization_decisions_v2",
@@ -693,6 +694,7 @@ struct AuthorityExecutionCounts {
     decisions: i64,
     consumptions: i64,
     actor_evidence: i64,
+    command_presentations: i64,
     operation_results: i64,
 }
 
@@ -703,6 +705,7 @@ impl AuthorityExecutionCounts {
             decisions: self.decisions + count,
             consumptions: self.consumptions + count,
             actor_evidence: self.actor_evidence + count,
+            command_presentations: self.command_presentations + count,
             operation_results: self.operation_results,
         }
     }
@@ -715,6 +718,7 @@ fn authority_execution_counts(connection: &Connection) -> AuthorityExecutionCoun
                     (SELECT COUNT(*) FROM authorization_decisions_v2),
                     (SELECT COUNT(*) FROM presentation_consumptions_v1),
                     (SELECT COUNT(*) FROM authenticated_actor_context_evidence_v1),
+                    (SELECT COUNT(*) FROM authenticated_command_presentations_v1),
                     (SELECT COUNT(*) FROM authenticated_operation_results_v1)",
             [],
             |row| {
@@ -723,7 +727,8 @@ fn authority_execution_counts(connection: &Connection) -> AuthorityExecutionCoun
                     decisions: row.get(1)?,
                     consumptions: row.get(2)?,
                     actor_evidence: row.get(3)?,
-                    operation_results: row.get(4)?,
+                    command_presentations: row.get(4)?,
+                    operation_results: row.get(5)?,
                 })
             },
         )

@@ -33,6 +33,7 @@ pub(crate) struct LoadedBundle {
     pub(crate) manifest_digest: crate::model::Digest,
     pub(crate) artifacts: BTreeMap<ArtifactRef, LoadedArtifact>,
     pub(crate) missing_external: BTreeSet<ArtifactRef>,
+    pub(crate) required_external_missing: bool,
 }
 
 /// Availability of a declared artifact needed by a later semantic check.
@@ -304,6 +305,7 @@ pub(crate) fn load_bundle(
         manifest_digest,
         artifacts,
         missing_external,
+        required_external_missing,
     })
 }
 

@@ -543,6 +543,10 @@ fn p0005_agent_executes_the_complete_human_owned_localized_lifecycle() {
         authority_before_disabled_replay.head_sequence + 1
     );
     assert_eq!(
+        authority_after_disabled_replay.command_presentations,
+        authority_before_disabled_replay.command_presentations + 1
+    );
+    assert_eq!(
         authority_after_disabled_replay.localized_consequences,
         authority_before_disabled_replay.localized_consequences
     );
@@ -1086,6 +1090,10 @@ impl LifecycleFixture {
         assert_eq!(after.consumptions, before.consumptions + 1);
         assert_eq!(after.actor_evidence, before.actor_evidence + 1);
         assert_eq!(
+            after.command_presentations,
+            before.command_presentations + 1
+        );
+        assert_eq!(
             after.localized_consequences,
             before.localized_consequences + 1
         );
@@ -1093,26 +1101,34 @@ impl LifecycleFixture {
 
     fn authority_state(&self) -> AuthorityState {
         let connection = self.repository.open_database().unwrap();
-        let (authority_records, decisions, consumptions, actor_evidence, localized_consequences) =
-            connection
-                .query_row(
-                    "SELECT (SELECT COUNT(*) FROM authority_records),
-                            (SELECT COUNT(*) FROM authorization_decisions_v2),
-                            (SELECT COUNT(*) FROM presentation_consumptions_v1),
-                            (SELECT COUNT(*) FROM authenticated_actor_context_evidence_v1),
-                            (SELECT COUNT(*) FROM authenticated_localized_consequences_v1)",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get(0)?,
-                            row.get(1)?,
-                            row.get(2)?,
-                            row.get(3)?,
-                            row.get(4)?,
-                        ))
-                    },
-                )
-                .unwrap();
+        let (
+            authority_records,
+            decisions,
+            consumptions,
+            actor_evidence,
+            command_presentations,
+            localized_consequences,
+        ) = connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM authority_records),
+                        (SELECT COUNT(*) FROM authorization_decisions_v2),
+                        (SELECT COUNT(*) FROM presentation_consumptions_v1),
+                        (SELECT COUNT(*) FROM authenticated_actor_context_evidence_v1),
+                        (SELECT COUNT(*) FROM authenticated_command_presentations_v1),
+                        (SELECT COUNT(*) FROM authenticated_localized_consequences_v1)",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
         AuthorityState {
             head_sequence: self
                 .repository
@@ -1125,6 +1141,7 @@ impl LifecycleFixture {
             decisions,
             consumptions,
             actor_evidence,
+            command_presentations,
             localized_consequences,
         }
     }
@@ -1537,6 +1554,7 @@ impl LifecycleFixture {
         assert_eq!(state.decisions, 24);
         assert_eq!(state.consumptions, 24);
         assert_eq!(state.actor_evidence, 24);
+        assert_eq!(state.command_presentations, 24);
         assert_eq!(state.localized_consequences, 24);
         assert_eq!(self.count("authenticated_application_idempotency_v1"), 10);
         let connection = self.repository.open_database().unwrap();
@@ -1667,6 +1685,7 @@ struct AuthorityState {
     decisions: i64,
     consumptions: i64,
     actor_evidence: i64,
+    command_presentations: i64,
     localized_consequences: i64,
 }
 
@@ -1698,6 +1717,7 @@ fn governed_snapshot(connection: &Connection) -> TableSnapshot {
     const AUTHORITY_TABLES: &[&str] = &[
         "authenticated_actor_context_evidence_v1",
         "authenticated_application_idempotency_v1",
+        "authenticated_command_presentations_v1",
         "authenticated_localized_consequences_v1",
         "authenticated_operation_results_v1",
         "authenticated_subject_commitment_openings_v1",

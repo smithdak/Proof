@@ -4807,6 +4807,26 @@ impl contract::AuthorityAdministrator for LocalWorkspace {
         {
             return Err(contract::AuthorityError::AuthorityRootUnavailable);
         }
+        let conflicting_cross_role_key = transaction
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM principal_bindings_v1
+                     WHERE workspace_id = ?1 AND authenticated_subject = ?2
+                     UNION ALL
+                     SELECT 1 FROM signing_keys WHERE key_id = ?2
+                 )",
+                (
+                    workspace_id.to_string(),
+                    transition.successor_authority_key_id.as_str(),
+                ),
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+        if conflicting_cross_role_key {
+            return Err(contract::AuthorityError::AuthorityIntegrity(
+                "an authority successor cannot reuse an Agent or Release signing key".to_owned(),
+            ));
+        }
         let verified = verify_authority_envelope::<contract::WorkspaceAuthorityRootTransitionV1>(
             canonical_transition_envelope_json.as_bytes(),
             AuthorityPayloadProfile::WorkspaceAuthorityRootTransition,
@@ -5208,6 +5228,25 @@ fn validate_administrative_record(
                 return Err(contract::AuthorityError::PrincipalDisabled);
             }
             validate_binding_key_identity(binding)?;
+            let key_id = binding.authenticated_subject.as_subject().subject();
+            let conflicting_cross_role_key = transaction
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM workspace_authority_roots
+                         WHERE workspace_id = ?1 AND authority_key_id = ?2
+                         UNION ALL
+                         SELECT 1 FROM signing_keys WHERE key_id = ?2
+                     )",
+                    (workspace_id.to_string(), key_id),
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| contract::AuthorityError::Storage(error.to_string()))?;
+            if conflicting_cross_role_key {
+                return Err(contract::AuthorityError::AuthorityIntegrity(
+                    "an Agent credential cannot reuse an authority or Release signing key"
+                        .to_owned(),
+                ));
+            }
             let conflicting_historical_credential = transaction
                 .query_row(
                     "SELECT EXISTS(

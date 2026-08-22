@@ -9795,6 +9795,22 @@ fn persist_signing_key(
             "local signing key identity does not match public bytes".to_owned(),
         ));
     }
+    let conflicting_cross_role_key = connection
+        .query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM workspace_authority_roots WHERE authority_key_id = ?1
+                 UNION ALL
+                 SELECT 1 FROM principal_bindings_v1 WHERE authenticated_subject = ?1
+             )",
+            [metadata.key_id.as_str()],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if conflicting_cross_role_key {
+        return Err(LocalPortError::Signing(
+            "a Release signing key cannot reuse authority or Agent credential authority".to_owned(),
+        ));
+    }
     let manifest = canonicalize(&serde_json::json!({
         "algorithm": "ed25519",
         "api_version": "proof.dev/signing-key-metadata/v1",
@@ -16154,6 +16170,66 @@ impl Drop for InitializationCleanup {
         }
         if let Some(path) = &self.runtime_path {
             let _ = fs::remove_dir_all(path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod signing_key_role_tests {
+    use super::*;
+
+    #[test]
+    fn release_signing_key_rejects_authority_and_agent_credentials() {
+        for (role, table, column) in [
+            ("authority", "workspace_authority_roots", "authority_key_id"),
+            ("agent", "principal_bindings_v1", "authenticated_subject"),
+        ] {
+            let connection = Connection::open_in_memory().unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE workspace_authority_roots (
+                         authority_key_id TEXT PRIMARY KEY
+                     ) STRICT;
+                     CREATE TABLE principal_bindings_v1 (
+                         authenticated_subject TEXT PRIMARY KEY
+                     ) STRICT;
+                     CREATE TABLE signing_keys (
+                         key_id TEXT PRIMARY KEY,
+                         algorithm TEXT NOT NULL,
+                         public_key TEXT NOT NULL,
+                         trust_profile TEXT NOT NULL,
+                         not_before TEXT NOT NULL,
+                         metadata_json TEXT NOT NULL,
+                         metadata_digest TEXT NOT NULL UNIQUE
+                     ) STRICT;",
+                )
+                .unwrap();
+            let signer = Ed25519SigningProvider::from_secret_bytes(&[0x5a; 32]);
+            let metadata = signer.metadata().unwrap();
+            connection
+                .execute(
+                    &format!("INSERT INTO {table} ({column}) VALUES (?1)"),
+                    [metadata.key_id.as_str()],
+                )
+                .unwrap();
+
+            assert!(matches!(
+                persist_signing_key(
+                    &connection,
+                    &metadata,
+                    "2026-08-22T12:00:00Z".parse().unwrap(),
+                ),
+                Err(LocalPortError::Signing(_))
+            ));
+            assert_eq!(
+                connection
+                    .query_row("SELECT COUNT(*) FROM signing_keys", [], |row| {
+                        row.get::<_, u32>(0)
+                    })
+                    .unwrap(),
+                0,
+                "{role}"
+            );
         }
     }
 }

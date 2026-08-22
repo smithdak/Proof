@@ -170,6 +170,7 @@ impl ArtifactCollector {
 #[derive(Clone)]
 struct ReleaseClosureEntry {
     release_id: String,
+    api_version: String,
     previous_release_id: Option<String>,
     rollback_target_release_id: Option<String>,
     edition_id: String,
@@ -492,6 +493,7 @@ fn collect_release_closure(
             release.release_id.clone(),
             ReleaseClosureEntry {
                 release_id: release.release_id,
+                api_version: release.api_version,
                 previous_release_id: release.previous_release_id,
                 rollback_target_release_id: release.rollback_target_release_id,
                 edition_id: release.edition_id,
@@ -741,7 +743,87 @@ fn collect_content_closure(
         .values()
         .map(|entry| entry.edition_id.clone())
         .collect::<Vec<_>>();
-    collect_edition_content_closure(connection, workspace_id, pending_editions, collector)
+    let pending_states = collect_v1_release_origin_states(connection, releases)?;
+    collect_edition_content_closure(
+        connection,
+        workspace_id,
+        pending_editions,
+        pending_states,
+        collector,
+    )
+}
+
+fn collect_v1_release_origin_states(
+    connection: &Connection,
+    releases: &ReleaseClosure,
+) -> ExportResult<Vec<(String, i64, String)>> {
+    let mut states = BTreeSet::new();
+    for entry in releases
+        .entries
+        .values()
+        .filter(|entry| entry.api_version == "proof.dev/release/v1")
+    {
+        let (statement_json, envelope_json): (String, String) = connection
+            .query_row(
+                "SELECT statement_json, envelope_json FROM release_proofs WHERE release_id = ?1",
+                [entry.release_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(storage)?
+            .ok_or_else(|| incomplete(format!("Release {} lacks its Proof", entry.release_id)))?;
+        let parsed = proof_attestation::parse_release_envelope(envelope_json.as_bytes()).map_err(
+            |error| {
+                invalid(format!(
+                    "Release {} Proof is invalid: {error}",
+                    entry.release_id
+                ))
+            },
+        )?;
+        if parsed.payload_json != statement_json
+            || parsed.statement.predicate_type != proof_attestation::RELEASE_PREDICATE_TYPE
+        {
+            return Err(invalid(format!(
+                "Release {} stored Statement differs from its signed v1 Proof",
+                entry.release_id
+            )));
+        }
+        for field in ["base_state", "edition_state"] {
+            let state_digest = parsed
+                .statement
+                .predicate
+                .pointer(&format!("/origin/{field}"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "Release {} v1 Proof has no origin {field}",
+                        entry.release_id
+                    ))
+                })?;
+            parse_digest(state_digest)?;
+            let sequence = connection
+                .query_row(
+                    "SELECT authoritative_sequence FROM known_state_artifacts
+                     WHERE api_version = 'proof.dev/known-state/v1' AND state_digest = ?1",
+                    [state_digest],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(storage)?
+                .ok_or_else(|| {
+                    incomplete(format!(
+                        "Release {} v1 Proof origin {field} Known State is absent",
+                        entry.release_id
+                    ))
+                })?;
+            states.insert((
+                "proof.dev/known-state/v1".to_owned(),
+                sequence,
+                state_digest.to_owned(),
+            ));
+        }
+    }
+    Ok(states.into_iter().collect())
 }
 
 #[expect(
@@ -752,10 +834,10 @@ fn collect_edition_content_closure(
     connection: &Connection,
     workspace_id: WorkspaceId,
     mut pending_editions: Vec<String>,
+    mut pending_states: Vec<(String, i64, String)>,
     collector: &mut ArtifactCollector,
 ) -> ExportResult<()> {
     let mut visited_editions = BTreeSet::new();
-    let mut pending_states = Vec::<(String, i64, String)>::new();
     let mut localized_changesets = BTreeSet::new();
 
     while let Some(edition_id) = pending_editions.pop() {
@@ -1386,6 +1468,7 @@ fn collect_decision_application_closure(
                 connection,
                 workspace_id,
                 vec![edition_id.to_owned()],
+                Vec::new(),
                 collector,
             )?;
         }
@@ -1503,6 +1586,7 @@ fn collect_signed_released_closure(
             connection,
             workspace_id,
             vec![edition_id.to_owned()],
+            Vec::new(),
             collector,
         )?;
     }
@@ -2664,8 +2748,11 @@ mod tests {
         Ed25519SigningProvider, ProofSigningProvider as _,
         authority::{AuthorityPayloadProfile, sign_authority_payload},
     };
-    use proof_canonical::{canonicalize, digest as canonical_digest, object_revision_digest};
+    use proof_canonical::{
+        canonicalize, digest as canonical_digest, object_revision_digest, parse_strict,
+    };
     use rusqlite::{Connection, params, types::ValueRef};
+    use serde_json::Value;
 
     use super::{
         ArtifactCollector, LocalWorkspace, StoredConsequence, collect_release_closure,
@@ -3285,6 +3372,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the retained downgrade fixture keeps migration and exported-evidence assertions together"
+    )]
     fn pre_v14_export_marks_missing_historical_presentations_external() {
         let fixture = prepare_pre_v14_export_fixture();
         let connection = fixture.repository.open_database().unwrap();
@@ -3298,6 +3389,22 @@ mod tests {
                 .unwrap(),
             1
         );
+        let v1_statement: String = connection
+            .query_row(
+                "SELECT proof.statement_json
+                 FROM release_proofs AS proof
+                 JOIN releases AS release ON release.release_id = proof.release_id
+                 WHERE release.api_version = 'proof.dev/release/v1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let v1_statement = parse_strict(v1_statement.as_bytes()).unwrap();
+        let v1_base_state = v1_statement
+            .pointer("/predicate/origin/base_state")
+            .and_then(Value::as_str)
+            .unwrap()
+            .to_owned();
         connection
             .execute_batch(
                 "DROP TRIGGER authorization_decision_requires_command_presentation;
@@ -3317,6 +3424,27 @@ mod tests {
                 subject_opening: SubjectOpeningDisclosureV1::Withhold,
             })
             .unwrap();
+
+        let v1_base_state_descriptor = exported
+            .bundle
+            .artifacts
+            .iter()
+            .find(|descriptor| {
+                descriptor.role == EvidenceRoleV1::KnownState
+                    && descriptor.artifact.artifact_kind == ArtifactKind::KnownStateV1
+                    && descriptor.artifact.digest.to_string() == v1_base_state
+            })
+            .expect("the signed v1 Proof origin base Known State must be exported");
+        assert!(matches!(
+            v1_base_state_descriptor.availability,
+            EvidenceAvailabilityV1::Included { .. }
+        ));
+        assert!(
+            exported
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.artifact == v1_base_state_descriptor.artifact)
+        );
 
         let presentation_descriptors = exported
             .bundle

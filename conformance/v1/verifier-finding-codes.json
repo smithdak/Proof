@@ -1,0 +1,405 @@
+{
+  "api_version": "proof.dev/verifier-finding-code-registry/v1",
+  "namespace": "proof.verify.",
+  "report_findings": {
+    "code_count": 156,
+    "families": {
+      "actor": [
+        "proof.verify.actor.missing"
+      ],
+      "application": [
+        "proof.verify.application.entrypoint_not_first",
+        "proof.verify.application.failure_reserved",
+        "proof.verify.application.key_reused"
+      ],
+      "artifact": [
+        "proof.verify.artifact.availability_conflict",
+        "proof.verify.artifact.digest",
+        "proof.verify.artifact.external_conflict",
+        "proof.verify.artifact.length",
+        "proof.verify.artifact.limit",
+        "proof.verify.artifact.missing_included",
+        "proof.verify.artifact.noncanonical",
+        "proof.verify.artifact.path",
+        "proof.verify.artifact.schema"
+      ],
+      "authority": [
+        "proof.verify.authority.beyond_compromise_cutoff",
+        "proof.verify.authority.causal_state",
+        "proof.verify.authority.chain",
+        "proof.verify.authority.compromise_cutoff",
+        "proof.verify.authority.decision_key",
+        "proof.verify.authority.envelope_invalid",
+        "proof.verify.authority.envelope_missing",
+        "proof.verify.authority.policy_untrusted",
+        "proof.verify.authority.record_schema",
+        "proof.verify.authority.root",
+        "proof.verify.authority.root_time",
+        "proof.verify.authority.rotation",
+        "proof.verify.authority.rotation_key",
+        "proof.verify.authority.rotation_reuse",
+        "proof.verify.authority.signature"
+      ],
+      "authority_prefix": [
+        "proof.verify.authority_prefix.sequence"
+      ],
+      "binding": [
+        "proof.verify.binding.inactive",
+        "proof.verify.binding.key",
+        "proof.verify.binding.kind",
+        "proof.verify.binding.missing"
+      ],
+      "bundle": [
+        "proof.verify.bundle.closure",
+        "proof.verify.bundle.count",
+        "proof.verify.bundle.descriptor",
+        "proof.verify.bundle.entrypoint",
+        "proof.verify.bundle.identity",
+        "proof.verify.bundle.inventory",
+        "proof.verify.bundle.limit",
+        "proof.verify.bundle.missing",
+        "proof.verify.bundle.noncanonical",
+        "proof.verify.bundle.path",
+        "proof.verify.bundle.schema"
+      ],
+      "checkpoint": [
+        "proof.verify.checkpoint.invalid",
+        "proof.verify.checkpoint.limit",
+        "proof.verify.checkpoint.mismatch",
+        "proof.verify.checkpoint.required"
+      ],
+      "command": [
+        "proof.verify.command.cross_link",
+        "proof.verify.command.envelope_missing",
+        "proof.verify.command.input_missing",
+        "proof.verify.command.missing",
+        "proof.verify.command.no_decisions",
+        "proof.verify.command.operation_projection",
+        "proof.verify.command.signature",
+        "proof.verify.command.unexpected"
+      ],
+      "consequence": [
+        "proof.verify.consequence.artifact_missing",
+        "proof.verify.consequence.cross_link",
+        "proof.verify.consequence.decision",
+        "proof.verify.consequence.deny_has_effect",
+        "proof.verify.consequence.missing",
+        "proof.verify.consequence.none",
+        "proof.verify.consequence.nonlocalized_has_effect"
+      ],
+      "content": [
+        "proof.verify.content.approval",
+        "proof.verify.content.approval_policy",
+        "proof.verify.content.approval_time",
+        "proof.verify.content.base_edition",
+        "proof.verify.content.base_state",
+        "proof.verify.content.changeset",
+        "proof.verify.content.changeset_proposal",
+        "proof.verify.content.changeset_reference",
+        "proof.verify.content.context",
+        "proof.verify.content.context_cross_link",
+        "proof.verify.content.context_freshness",
+        "proof.verify.content.context_policy",
+        "proof.verify.content.context_resources",
+        "proof.verify.content.delta_state_mismatch",
+        "proof.verify.content.edit_artifact",
+        "proof.verify.content.edit_batch",
+        "proof.verify.content.edit_lineage",
+        "proof.verify.content.edit_shape",
+        "proof.verify.content.edit_targets",
+        "proof.verify.content.edits",
+        "proof.verify.content.effective_edits",
+        "proof.verify.content.evidence",
+        "proof.verify.content.hitchhike",
+        "proof.verify.content.intent",
+        "proof.verify.content.intent_cross_link",
+        "proof.verify.content.intent_targets",
+        "proof.verify.content.promotion_shape",
+        "proof.verify.content.proposal_reconstruction",
+        "proof.verify.content.reference_artifacts",
+        "proof.verify.content.references",
+        "proof.verify.content.release_kind",
+        "proof.verify.content.release_predecessor",
+        "proof.verify.content.release_state",
+        "proof.verify.content.rendition_artifact",
+        "proof.verify.content.rendition_cross_link",
+        "proof.verify.content.rendition_digest",
+        "proof.verify.content.rendition_edit",
+        "proof.verify.content.rendition_evidence",
+        "proof.verify.content.rendition_removal",
+        "proof.verify.content.rendition_sequence",
+        "proof.verify.content.rendition_targets",
+        "proof.verify.content.renditions",
+        "proof.verify.content.repair_evidence",
+        "proof.verify.content.rollback_ancestry",
+        "proof.verify.content.rollback_reference_artifacts",
+        "proof.verify.content.rollback_references",
+        "proof.verify.content.rollback_shape",
+        "proof.verify.content.rollback_target",
+        "proof.verify.content.schema",
+        "proof.verify.content.seal",
+        "proof.verify.content.source_object",
+        "proof.verify.content.state_object",
+        "proof.verify.content.state_rendition",
+        "proof.verify.content.state_schema",
+        "proof.verify.content.state_transition",
+        "proof.verify.content.submission",
+        "proof.verify.content.target_edition",
+        "proof.verify.content.target_state",
+        "proof.verify.content.unrepaired_validation",
+        "proof.verify.content.validation_artifact",
+        "proof.verify.content.validation_digest",
+        "proof.verify.content.validation_findings",
+        "proof.verify.content.validation_head",
+        "proof.verify.content.validation_proposal",
+        "proof.verify.content.validation_shape",
+        "proof.verify.content.validations"
+      ],
+      "decision": [
+        "proof.verify.decision.shape"
+      ],
+      "delegation": [
+        "proof.verify.delegation.hidden",
+        "proof.verify.delegation.invalid"
+      ],
+      "external": [
+        "proof.verify.external.missing"
+      ],
+      "external_roots": [
+        "proof.verify.external_roots.limit"
+      ],
+      "principal": [
+        "proof.verify.principal.state"
+      ],
+      "release": [
+        "proof.verify.release.approval",
+        "proof.verify.release.content_approval",
+        "proof.verify.release.delta",
+        "proof.verify.release.envelope",
+        "proof.verify.release.key_time",
+        "proof.verify.release.key_untrusted",
+        "proof.verify.release.policy",
+        "proof.verify.release.policy_missing",
+        "proof.verify.release.producer_key",
+        "proof.verify.release.requires_v2",
+        "proof.verify.release.signature",
+        "proof.verify.release.statement_profile",
+        "proof.verify.release.subject"
+      ],
+      "subject": [
+        "proof.verify.subject.commitment_missing",
+        "proof.verify.subject.descriptor_count",
+        "proof.verify.subject.descriptor_missing",
+        "proof.verify.subject.opening_invalid",
+        "proof.verify.subject.opening_required"
+      ],
+      "total": [
+        "proof.verify.total.limit"
+      ],
+      "trust": [
+        "proof.verify.trust.invalid",
+        "proof.verify.trust.limit"
+      ]
+    }
+  },
+  "cli_diagnostics": {
+    "code_count": 2,
+    "families": {
+      "input": [
+        "proof.verify.input"
+      ],
+      "usage": [
+        "proof.verify.usage"
+      ]
+    }
+  },
+  "coverage": {
+    "default": {
+      "classification": "structural_guard",
+      "evidence_target": "finding_code_registry::public_finding_code_registry_matches_every_emitted_literal",
+      "reason": "The executable source-to-registry equality guard freezes this emitted public code, but no dedicated exact-code behavioral assertion is claimed."
+    },
+    "overrides": [
+      {
+        "code": "proof.verify.artifact.digest",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::canonical_byte_and_digest_tampering_have_stable_container_codes",
+        "reason": "The named mutation test readdresses same-length bytes and asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.artifact.length",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::canonical_byte_and_digest_tampering_have_stable_container_codes",
+        "reason": "The named mutation test changes artifact length and asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.authority.beyond_compromise_cutoff",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::checkpoint_mismatch_and_compromise_cutoff_never_claim_a_pinned_head",
+        "reason": "The named cutoff test asserts this exact finding and an Invalid outcome."
+      },
+      {
+        "code": "proof.verify.authority.causal_state",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::wrong_delegation_issuer_and_recipient_are_rejected",
+        "reason": "The named endpoint-substitution matrix asserts this exact causal-state finding and an Invalid outcome."
+      },
+      {
+        "code": "proof.verify.authority.chain",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::authority_truncation_and_fork_substitution_are_invalid",
+        "reason": "The named fork-substitution test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.authority.record_schema",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::signed_subdelegation_record_is_rejected_by_the_closed_authority_contract",
+        "reason": "The named signed subdelegation test asserts this exact closed-record-schema finding."
+      },
+      {
+        "code": "proof.verify.authority.signature",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::corrupt_authority_signature_is_invalid_and_emits_no_verified_claims",
+        "reason": "The named signature-corruption test asserts this exact finding and suppresses verified claims."
+      },
+      {
+        "code": "proof.verify.binding.inactive",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::signed_binding_sequence_substitution_fails_the_causal_decision_link",
+        "reason": "The named signed-substitution test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.bundle.entrypoint",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::authority_truncation_and_fork_substitution_are_invalid",
+        "reason": "The named authority-truncation test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.bundle.inventory",
+        "classification": "direct_behavioral",
+        "evidence_target": "security_matrix::included_artifact_symlink_substitution_fails_at_container_boundary",
+        "reason": "The named filesystem-substitution test asserts this exact finding at the container boundary."
+      },
+      {
+        "code": "proof.verify.checkpoint.mismatch",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::checkpoint_mismatch_and_compromise_cutoff_never_claim_a_pinned_head",
+        "reason": "The named checkpoint-substitution test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.checkpoint.required",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::required_withheld_opening_and_missing_checkpoint_are_incomplete",
+        "reason": "The named missing-checkpoint test asserts this exact finding and an Incomplete outcome."
+      },
+      {
+        "code": "proof.verify.command.cross_link",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::readdressed_command_substitution_reaches_and_fails_semantic_cross_links",
+        "reason": "The named readdressed-substitution test asserts this exact semantic finding."
+      },
+      {
+        "code": "proof.verify.command.input_missing",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::required_external_preimage_is_incomplete_without_producer_reconstruction",
+        "reason": "The named required-preimage withholding test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.command.signature",
+        "classification": "direct_behavioral",
+        "evidence_target": "security_matrix::readdressed_corrupt_command_signature_reaches_command_verification",
+        "reason": "The named readdressed signature-corruption test asserts this exact semantic finding."
+      },
+      {
+        "code": "proof.verify.consequence.artifact_missing",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::required_external_preimage_is_incomplete_without_producer_reconstruction",
+        "reason": "The named required-preimage withholding test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.consequence.cross_link",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::wrong_localized_consequence_endpoint_is_rejected",
+        "reason": "The named endpoint-substitution test asserts this exact consequence cross-link finding."
+      },
+      {
+        "code": "proof.verify.consequence.deny_has_effect",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::fail_safe_or_effectful_denials_are_invalid",
+        "reason": "The named denial matrix asserts this exact finding when a signed Deny carries an effect."
+      },
+      {
+        "code": "proof.verify.content.delta_state_mismatch",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::historical_policy_key_time_and_signed_v2_delta_tampering_are_invalid",
+        "reason": "The named signed-delta mutation test asserts this exact state-mismatch finding."
+      },
+      {
+        "code": "proof.verify.content.rollback_ancestry",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::complete_rollback_bundle_requires_an_unbroken_predecessor_chain",
+        "reason": "The named broken-predecessor test asserts this exact rollback-ancestry finding."
+      },
+      {
+        "code": "proof.verify.external.missing",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::every_supplied_artifact_tamper_is_invalid_and_required_withholding_is_incomplete",
+        "reason": "The descriptor-wide withholding matrix asserts this exact finding for every required descriptor."
+      },
+      {
+        "code": "proof.verify.input",
+        "classification": "direct_behavioral",
+        "evidence_target": "public_cli::public_cli_freezes_usage_and_input_failures",
+        "reason": "The named subprocess test asserts the exact stderr diagnostic and exit 64."
+      },
+      {
+        "code": "proof.verify.release.key_time",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::release_entrypoint_splice_and_revoked_signer_are_invalid",
+        "reason": "The named revoked-signer boundary test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.release.policy",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::historical_policy_key_time_and_signed_v2_delta_tampering_are_invalid",
+        "reason": "The named re-signed historical policy-denial test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.release.policy_missing",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::required_external_release_policy_is_incomplete_without_semantic_cascade",
+        "reason": "The named required-policy withholding test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.release.signature",
+        "classification": "direct_behavioral",
+        "evidence_target": "security_matrix::readdressed_corrupt_release_signature_reaches_release_verification",
+        "reason": "The named readdressed signature-corruption test asserts this exact semantic finding."
+      },
+      {
+        "code": "proof.verify.release.subject",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::release_entrypoint_splice_and_revoked_signer_are_invalid",
+        "reason": "The named entrypoint-splice test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.subject.opening_invalid",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::included_opening_rejects_a_noncanonical_32_byte_blind_substitution",
+        "reason": "The named opening-substitution test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.subject.opening_required",
+        "classification": "direct_behavioral",
+        "evidence_target": "portable_matrix::required_withheld_opening_and_missing_checkpoint_are_incomplete",
+        "reason": "The named required-opening withholding test asserts this exact finding."
+      },
+      {
+        "code": "proof.verify.usage",
+        "classification": "direct_behavioral",
+        "evidence_target": "public_cli::public_cli_freezes_usage_and_input_failures",
+        "reason": "The named subprocess test asserts the exact stderr diagnostic and exit 64."
+      }
+    ]
+  }
+}

@@ -931,30 +931,42 @@ impl MatrixFixture {
         assert_eq!(after.decisions, baseline.decisions + 1);
         assert_eq!(after.consumptions, baseline.consumptions + 1);
         assert_eq!(after.actor_evidence, baseline.actor_evidence + 1);
+        assert_eq!(
+            after.command_presentations,
+            baseline.command_presentations + 1
+        );
     }
 
     fn durable_state(&self) -> DurableState {
         let connection = self.repository.open_database().unwrap();
-        let (authority_records, decisions, consumptions, actor_evidence, operation_results) =
-            connection
-                .query_row(
-                    "SELECT (SELECT COUNT(*) FROM authority_records),
-                            (SELECT COUNT(*) FROM authorization_decisions_v2),
-                            (SELECT COUNT(*) FROM presentation_consumptions_v1),
-                            (SELECT COUNT(*) FROM authenticated_actor_context_evidence_v1),
-                            (SELECT COUNT(*) FROM authenticated_operation_results_v1)",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get(0)?,
-                            row.get(1)?,
-                            row.get(2)?,
-                            row.get(3)?,
-                            row.get(4)?,
-                        ))
-                    },
-                )
-                .unwrap();
+        let (
+            authority_records,
+            decisions,
+            consumptions,
+            actor_evidence,
+            command_presentations,
+            operation_results,
+        ) = connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM authority_records),
+                        (SELECT COUNT(*) FROM authorization_decisions_v2),
+                        (SELECT COUNT(*) FROM presentation_consumptions_v1),
+                        (SELECT COUNT(*) FROM authenticated_actor_context_evidence_v1),
+                        (SELECT COUNT(*) FROM authenticated_command_presentations_v1),
+                        (SELECT COUNT(*) FROM authenticated_operation_results_v1)",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
         DurableState {
             head_sequence: self
                 .repository
@@ -967,6 +979,7 @@ impl MatrixFixture {
             decisions,
             consumptions,
             actor_evidence,
+            command_presentations,
             operation_results,
         }
     }
@@ -1033,6 +1046,7 @@ struct DurableState {
     decisions: i64,
     consumptions: i64,
     actor_evidence: i64,
+    command_presentations: i64,
     operation_results: i64,
 }
 
@@ -1401,6 +1415,7 @@ fn prepare_localized_release(repository: &LocalWorkspace) {
 fn governed_snapshot(connection: &rusqlite::Connection) -> TableSnapshot {
     const AUTHORITY_TABLES: &[&str] = &[
         "authenticated_actor_context_evidence_v1",
+        "authenticated_command_presentations_v1",
         "authenticated_operation_results_v1",
         "authenticated_subject_commitment_openings_v1",
         "authority_records",

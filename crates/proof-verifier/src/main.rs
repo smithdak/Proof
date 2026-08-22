@@ -47,10 +47,8 @@ fn main() {
         checkpoint_json: checkpoint.as_deref(),
         external_roots: &cli.external_roots,
     });
-    let Ok((bytes, _)) = canonical_report(&report) else {
-        eprintln!("proof-verifier: proof.verify.report");
-        process::exit(EXIT_INVALID);
-    };
+    let (bytes, _) = canonical_report(&report)
+        .expect("the typed verification report must always have a canonical representation");
     let mut stdout = io::stdout().lock();
     if stdout.write_all(&bytes).is_err() || stdout.write_all(b"\n").is_err() {
         process::exit(EXIT_USAGE);

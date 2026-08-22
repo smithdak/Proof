@@ -85,7 +85,7 @@ fn authority_validator(identifier: &'static str) -> Validator {
         .expect("checked-in authority schemas must compile")
 }
 
-fn localized_validator(reference: String) -> Validator {
+fn localized_validator(reference: &str) -> Validator {
     let values = vec![
         parse(include_bytes!(
             "../../../conformance/v2/localized-content/schemas/artifacts.schema.json"
@@ -135,7 +135,7 @@ pub(crate) fn actor_evidence(value: &Value) -> bool {
 pub(crate) fn localized_artifact(value: &Value) -> bool {
     static VALIDATOR: OnceLock<Validator> = OnceLock::new();
     VALIDATOR
-        .get_or_init(|| localized_validator(LOCALIZED_ARTIFACT_ID.to_owned()))
+        .get_or_init(|| localized_validator(LOCALIZED_ARTIFACT_ID))
         .is_valid(value)
 }
 
@@ -170,7 +170,7 @@ fn operation_validators() -> &'static BTreeMap<&'static str, Validator> {
         .map(|definition| {
             (
                 definition,
-                localized_validator(format!("{LOCALIZED_OPERATION_ID}#/$defs/{definition}")),
+                localized_validator(&format!("{LOCALIZED_OPERATION_ID}#/$defs/{definition}")),
             )
         })
         .collect()
@@ -185,6 +185,13 @@ pub(crate) fn localized_operation(definition: &str, value: &Value) -> bool {
 
 pub(crate) fn document_accepts(document: &Value, instance: &Value) -> bool {
     jsonschema::validator_for(document).is_ok_and(|validator| validator.is_valid(instance))
+}
+
+pub(crate) fn draft_2020_12_document(value: &Value) -> bool {
+    value.is_object()
+        && value.get("$schema").and_then(Value::as_str)
+            == Some("https://json-schema.org/draft/2020-12/schema")
+        && jsonschema::draft202012::meta::validator().is_valid(value)
 }
 
 #[cfg(test)]

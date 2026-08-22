@@ -24,9 +24,24 @@ fn run(fixture: &support::GeneratedFixture, trust: &[u8], checkpoint: &[u8]) -> 
 }
 
 fn assert_semantic_result(output: &Output, exit: i32, report: &[u8]) {
-    assert_eq!(output.status.code(), Some(exit));
-    assert_eq!(output.stdout, report);
-    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.status.code(),
+        Some(exit),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output.stdout,
+        report,
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

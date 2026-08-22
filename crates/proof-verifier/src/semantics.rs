@@ -20,8 +20,8 @@ use crate::{
         PublicSigner, domain_digest, parse_dsse_unverified, parse_public_signer, verify_dsse,
     },
     model::{
-        ArtifactKind, CheckpointRequirement, Digest, DimensionStatus, EvidenceRole, HistoryScope,
-        OpeningRequirement, Report, TrustPolicy, TrustedKey,
+        ArtifactKind, ArtifactRef, CheckpointRequirement, Digest, DimensionStatus, EvidenceRole,
+        HistoryScope, OpeningRequirement, Report, TrustPolicy, TrustedKey,
     },
     operation, schema,
     strict_json::canonical_bytes,
@@ -33,17 +33,27 @@ const ROOT_TRANSITION_PAYLOAD: &str =
 const AUTHENTICATED_COMMAND_PAYLOAD: &str = "application/vnd.proof.authenticated-command.v1+json";
 const IN_TOTO_PAYLOAD: &str = "application/vnd.in-toto+json";
 const IN_TOTO_STATEMENT: &str = "https://in-toto.io/Statement/v1";
+const RELEASE_PREDICATE_TYPE_V1: &str = "urn:proof:attestation:release:v1";
+const RELEASE_PREDICATE_TYPE_V2: &str = "urn:proof:attestation:release:v2";
+const HISTORICAL_APPROVAL_UNSUPPORTED: &str = "internal.historical_approval_unsupported";
+const V1_VALIDATION_PROFILE: &str = "proof.local/validation/default/v1";
+const V1_POLICY_PROFILE: &str = "proof.local/policy/default/v1";
+const V1_RELEASE_POLICY_PROFILE: &str = "proof.local/release-policy/v1";
+const V1_RELEASE_TARGET: &str = "proof.local/released-state/v1";
+const V1_SCHEMA_VALIDATOR: &str = "jsonschema/draft-2020-12-meta/0.49.3";
+const V1_OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const MAX_AUTHORITY_PAYLOAD_BYTES: usize = 65_536;
 const MAX_AUTHORITY_ENVELOPE_BYTES: usize = 98_304;
 const MAX_COMMAND_PAYLOAD_BYTES: usize = 4_096;
 const MAX_COMMAND_ENVELOPE_BYTES: usize = 16_384;
+const MAX_COMMAND_FUTURE_SKEW_NANOS: i128 = 30 * 1_000_000_000;
+const MAX_COMMAND_LIFETIME_NANOS: i128 = 300 * 1_000_000_000;
 
 #[derive(Clone)]
 struct VerifiedAuthorityRecord {
     sequence: u64,
     digest: Digest,
     value: Value,
-    recorded_at: OffsetDateTime,
 }
 
 pub(crate) fn parse_timestamp(value: &str) -> Option<OffsetDateTime> {
@@ -54,6 +64,78 @@ pub(crate) fn parse_timestamp(value: &str) -> Option<OffsetDateTime> {
     (parsed.format(&Rfc3339).ok()?.as_str() == value).then_some(parsed)
 }
 
+fn authenticated_command_time_is_valid(
+    evaluated_at: OffsetDateTime,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
+) -> bool {
+    let evaluated_at = evaluated_at.unix_timestamp_nanos();
+    let issued_at = issued_at.unix_timestamp_nanos();
+    let expires_at = expires_at.unix_timestamp_nanos();
+    let lifetime = expires_at - issued_at;
+    lifetime > 0
+        && lifetime <= MAX_COMMAND_LIFETIME_NANOS
+        && issued_at - evaluated_at <= MAX_COMMAND_FUTURE_SKEW_NANOS
+        && evaluated_at < expires_at
+}
+
+fn mapped_context_build_not_found_allows_missing_context(
+    loaded: &LoadedBundle,
+    companion: crate::model::DecisionCompanion,
+    input: &Value,
+    decision: &Value,
+) -> bool {
+    if input.pointer("/operation/name").and_then(Value::as_str) != Some("context.build")
+        || input.pointer("/operation/version").and_then(Value::as_str)
+            != Some("proof.dev/operation/context.build/v2")
+        || decision.get("decision").and_then(Value::as_str) != Some("allow")
+        || !decision.get("reason_code").is_some_and(Value::is_null)
+    {
+        return false;
+    }
+    let Some(((result_ref, consequence_ref), effect_ref)) = companion
+        .result
+        .zip(companion.localized_consequence)
+        .zip(companion.application_effect)
+    else {
+        return false;
+    };
+    if result_ref != effect_ref {
+        return false;
+    }
+    let Some(((result, consequence), effect)) = loaded
+        .artifacts
+        .get(&result_ref)
+        .zip(loaded.artifacts.get(&consequence_ref))
+        .zip(loaded.artifacts.get(&effect_ref))
+    else {
+        return false;
+    };
+    let evidence = &consequence.value;
+    let Some(commitment) = decision.get("localized_consequence_commitment") else {
+        return false;
+    };
+    artifact_has_role(loaded, EvidenceRole::LocalizedResult, result_ref)
+        && artifact_has_role(loaded, EvidenceRole::LocalizedConsequence, consequence_ref)
+        && artifact_has_role(loaded, EvidenceRole::ApplicationEffect, effect_ref)
+        && result.value == effect.value
+        && localized_problem_is_exact(&result.value)
+        && string(&result.value, "code") == Some("proof.resource.not_found")
+        && evidence.get("operation") == input.get("operation")
+        && evidence.pointer("/result/kind").and_then(Value::as_str) == Some("failure")
+        && evidence.pointer("/result/contract").and_then(Value::as_str)
+            == Some("proof.dev/result/localized-operation-problem/v1")
+        && digest_path(evidence, &["result", "digest"]) == Some(result_ref.digest)
+        && digest_field(evidence, "application_effect_digest") == Some(effect_ref.digest)
+        && evidence
+            .pointer("/closure/context")
+            .is_some_and(Value::is_null)
+        && string(commitment, "result_kind") == Some("failure")
+        && string(commitment, "result_contract")
+            == Some("proof.dev/result/localized-operation-problem/v1")
+        && digest_path(commitment, &["result_digest"]) == Some(result_ref.digest)
+}
+
 pub(crate) fn verify_semantics(
     loaded: &LoadedBundle,
     trust: &TrustPolicy,
@@ -61,6 +143,17 @@ pub(crate) fn verify_semantics(
     report: &mut Report,
 ) {
     verify_public_wire_schemas(loaded, report);
+    if loaded.required_external_missing {
+        report_missing_required_external_dependencies(loaded, trust, report);
+    }
+    if loaded
+        .bundle
+        .authority_prefix
+        .iter()
+        .any(|entry| loaded.missing_external.contains(&entry.authority_envelope))
+    {
+        return;
+    }
     let records = verify_authority(loaded, trust, checkpoint, report);
     if records.is_empty() {
         return;
@@ -69,6 +162,100 @@ pub(crate) fn verify_semantics(
     verify_localized_consequences(loaded, &records, report);
     verify_subject_opening(loaded, trust, &records, report);
     verify_release(loaded, trust, &records, report);
+}
+
+fn report_missing_required_external_dependencies(
+    loaded: &LoadedBundle,
+    trust: &TrustPolicy,
+    report: &mut Report,
+) {
+    let missing = |reference: ArtifactRef| loaded.missing_external.contains(&reference);
+    for entry in &loaded.bundle.authority_prefix {
+        if missing(entry.authority_envelope) {
+            incomplete(
+                report,
+                "authority_signatures",
+                "proof.verify.authority.envelope_missing",
+                Some(entry.record_digest),
+                Some(entry.sequence),
+            );
+        }
+        let Some(companion) = entry.decision_companion else {
+            continue;
+        };
+        if missing(companion.command_input) {
+            incomplete(
+                report,
+                "command_authentication",
+                "proof.verify.command.input_missing",
+                Some(entry.record_digest),
+                Some(entry.sequence),
+            );
+            incomplete(
+                report,
+                "localized_consequence",
+                "proof.verify.consequence.artifact_missing",
+                Some(companion.command_input.digest),
+                Some(entry.sequence),
+            );
+        }
+        if missing(companion.authenticated_command_envelope) {
+            incomplete(
+                report,
+                "command_authentication",
+                "proof.verify.command.envelope_missing",
+                Some(entry.record_digest),
+                Some(entry.sequence),
+            );
+        }
+        if missing(companion.actor_context_evidence) {
+            incomplete(
+                report,
+                "principal_binding",
+                "proof.verify.actor.missing",
+                Some(entry.record_digest),
+                Some(entry.sequence),
+            );
+        }
+        if companion.result.is_some_and(missing)
+            || companion.localized_consequence.is_some_and(missing)
+            || companion.application_effect.is_some_and(missing)
+        {
+            incomplete(
+                report,
+                "localized_consequence",
+                "proof.verify.consequence.artifact_missing",
+                Some(entry.record_digest),
+                Some(entry.sequence),
+            );
+        }
+    }
+    for descriptor in &loaded.bundle.artifacts {
+        if !missing(descriptor.artifact) {
+            continue;
+        }
+        match descriptor.role {
+            EvidenceRole::ReleasePolicyDecision => incomplete(
+                report,
+                "policy",
+                "proof.verify.release.policy_missing",
+                Some(descriptor.artifact.digest),
+                None,
+            ),
+            EvidenceRole::SubjectOpening
+                if trust.disclosure.requesting_subject_opening != OpeningRequirement::Optional =>
+            {
+                incomplete(
+                    report,
+                    "subject_opening",
+                    "proof.verify.subject.opening_required",
+                    Some(descriptor.artifact.digest),
+                    None,
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 fn verify_public_wire_schemas(loaded: &LoadedBundle, report: &mut Report) {
@@ -321,14 +508,13 @@ fn verify_authority(
             sequence: entry.sequence,
             digest: entry.record_digest,
             value,
-            recorded_at: record_time,
         });
     }
     if records.len() == loaded.bundle.authority_prefix.len() {
         report.valid("authority_signatures");
         report.valid("authority_sequence");
     }
-    verify_causal_authority_state(&records, trust, report);
+    verify_causal_authority_state(loaded, &records, trust, report);
     let target_sequence = records
         .iter()
         .find(|record| {
@@ -353,14 +539,10 @@ fn verify_authority(
         Some(parsed) => {
             let value = &parsed.checkpoint;
             let head = loaded.bundle.included_authority_head;
-            let last_time = records.last().map(|record| record.recorded_at);
             if value.workspace_id != loaded.bundle.workspace_id
                 || value.authority_sequence != head.sequence
                 || value.authority_record_digest != head.record_digest
                 || value.active_authority_key_id != active.key_id
-                || parse_timestamp(&value.observed_at)
-                    .zip(last_time)
-                    .is_none_or(|(observed, recorded)| observed < recorded)
             {
                 invalid(
                     report,
@@ -400,30 +582,71 @@ struct PrincipalFact<'a> {
 }
 
 fn verify_causal_authority_state(
+    loaded: &LoadedBundle,
     records: &[VerifiedAuthorityRecord],
     trust: &TrustPolicy,
     report: &mut Report,
 ) {
     let mut principals = BTreeMap::<String, PrincipalFact<'_>>::new();
+    let mut bootstrap_human = None::<String>;
     let mut bindings = BTreeMap::<String, &VerifiedAuthorityRecord>::new();
+    let mut active_bindings = BTreeMap::<String, String>::new();
+    let mut asserted_agent_ids = BTreeSet::<String>::new();
     let mut binding_keys = BTreeSet::<String>::new();
+    let mut binding_public_keys = BTreeSet::<[u8; 32]>::new();
     let mut binding_revocations = BTreeMap::<String, &VerifiedAuthorityRecord>::new();
     let mut delegations = BTreeMap::<String, &VerifiedAuthorityRecord>::new();
     let mut delegation_revocations = BTreeMap::<String, &VerifiedAuthorityRecord>::new();
-    let release_key_ids = trust
+    let mut release_key_ids = trust
         .release
         .trusted_signers
         .iter()
-        .map(|key| key.key_id.as_str())
+        .map(|key| key.key_id.clone())
         .collect::<BTreeSet<_>>();
-    let mut valid = true;
+    let mut release_public_keys = trust
+        .release
+        .trusted_signers
+        .iter()
+        .filter_map(|key| parse_public_signer(&key.key_id, &key.public_key).ok())
+        .map(|signer| signer.public_key)
+        .collect::<BTreeSet<_>>();
+    for artifact in artifacts_for_role(loaded, EvidenceRole::ReleaseSigningKey) {
+        if let Some((key_id, public_key, _)) =
+            release_key_wrapper(artifact, &loaded.bundle.workspace_id)
+        {
+            release_key_ids.insert(key_id.to_owned());
+            release_public_keys.insert(public_key);
+        }
+    }
+    let mut authority_key_ids = BTreeSet::from([trust.authority.initial_root.key_id.clone()]);
+    let mut authority_public_keys = parse_public_signer(
+        &trust.authority.initial_root.key_id,
+        &trust.authority.initial_root.public_key,
+    )
+    .map(|signer| BTreeSet::from([signer.public_key]))
+    .unwrap_or_default();
+    let initial_root_separated = !release_key_ids.contains(&trust.authority.initial_root.key_id)
+        && authority_public_keys.is_disjoint(&release_public_keys);
+    let mut valid = initial_root_separated;
+    if !initial_root_separated {
+        invalid(
+            report,
+            "authority_sequence",
+            "proof.verify.authority.causal_state",
+            None,
+            None,
+        );
+    }
+    let mut binding_revocation_ids = BTreeSet::<String>::new();
+    let mut delegation_revocation_ids = BTreeSet::<String>::new();
 
     for record in records {
         let api = string(&record.value, "api_version").unwrap_or_default();
-        let actor_is_enabled_human = |principal_id: Option<&str>| {
-            principal_id
-                .and_then(|principal_id| principals.get(principal_id))
-                .is_some_and(|principal| principal.kind == "human" && principal.enabled)
+        let actor_is_bootstrap_human = |principal_id: Option<&str>| {
+            principal_id == bootstrap_human.as_deref()
+                && principal_id
+                    .and_then(|principal_id| principals.get(principal_id))
+                    .is_some_and(|principal| principal.kind == "human" && principal.enabled)
         };
         let record_valid = match api {
             "proof.dev/principal-status/v1" => {
@@ -435,12 +658,13 @@ fn verify_causal_authority_state(
                     && principal_id == recorder
                     && kind == Some("human")
                     && enabled == Some(true);
-                let administered = !principals.is_empty() && actor_is_enabled_human(recorder);
+                let administered = !principals.is_empty() && actor_is_bootstrap_human(recorder);
                 let transition_valid = principal_id.zip(kind).zip(enabled).is_some_and(
                     |((principal_id, kind), enabled)| {
-                        principals.get(principal_id).is_none_or(|previous| {
-                            previous.kind == kind && !(previous.terminally_disabled && enabled)
-                        })
+                        (!asserted_agent_ids.contains(principal_id) || kind == "agent")
+                            && principals.get(principal_id).is_none_or(|previous| {
+                                previous.kind == kind && !(previous.terminally_disabled && enabled)
+                            })
                     },
                 );
                 if (bootstrap || administered) && transition_valid {
@@ -459,6 +683,9 @@ fn verify_causal_authority_state(
                             terminally_disabled,
                         },
                     );
+                    if bootstrap {
+                        bootstrap_human = Some(principal_id.to_owned());
+                    }
                     true
                 } else {
                     false
@@ -472,6 +699,16 @@ fn verify_causal_authority_state(
                     .value
                     .pointer("/authenticated_subject/subject")
                     .and_then(Value::as_str);
+                let public_key = key_id
+                    .zip(string(&record.value, "public_key"))
+                    .and_then(|(key_id, public_key)| parse_public_signer(key_id, public_key).ok())
+                    .map(|signer| signer.public_key);
+                let principal_valid = principal_id.is_some_and(|principal_id| {
+                    string(&record.value, "principal_type") == Some("agent")
+                        && principals
+                            .get(principal_id)
+                            .is_none_or(|principal| principal.kind == "agent" && principal.enabled)
+                });
                 let time_valid = string(&record.value, "issued_at")
                     .and_then(parse_timestamp)
                     .zip(string(&record.value, "not_before").and_then(parse_timestamp))
@@ -480,15 +717,36 @@ fn verify_causal_authority_state(
                 let candidate = binding_id.zip(key_id).is_some_and(|(binding_id, key_id)| {
                     !bindings.contains_key(binding_id)
                         && !binding_keys.contains(key_id)
-                        && key_id != trust.authority.initial_root.key_id
+                        && !authority_key_ids.contains(key_id)
                         && !release_key_ids.contains(key_id)
+                }) && public_key.is_some_and(|public_key| {
+                    !binding_public_keys.contains(&public_key)
+                        && !authority_public_keys.contains(&public_key)
+                        && !release_public_keys.contains(&public_key)
                 });
-                let principal_valid = principal_id
-                    .and_then(|principal_id| principals.get(principal_id))
-                    .is_some_and(|principal| principal.kind == "agent" && principal.enabled);
-                if actor_is_enabled_human(issuer) && principal_valid && candidate && time_valid {
-                    bindings.insert(binding_id.unwrap_or_default().to_owned(), record);
+                let supersedes = record.value.get("supersedes_binding_id");
+                let active = principal_id.and_then(|id| active_bindings.get(id));
+                let rotation_valid = match (active, supersedes) {
+                    (Some(active), Some(Value::String(supersedes))) => active == supersedes,
+                    (None, Some(Value::Null)) => true,
+                    _ => false,
+                };
+                // A binding may be enrolled before the Agent's first status record. The
+                // binding itself commits `principal_type = agent`; an authorization decision
+                // cannot use it until the causal principal map contains an enabled Agent.
+                if principal_valid
+                    && actor_is_bootstrap_human(issuer)
+                    && candidate
+                    && rotation_valid
+                    && time_valid
+                {
+                    let binding_id = binding_id.unwrap_or_default();
+                    let principal_id = principal_id.unwrap_or_default();
+                    bindings.insert(binding_id.to_owned(), record);
                     binding_keys.insert(key_id.unwrap_or_default().to_owned());
+                    binding_public_keys.insert(public_key.unwrap_or([0; 32]));
+                    asserted_agent_ids.insert(principal_id.to_owned());
+                    active_bindings.insert(principal_id.to_owned(), binding_id.to_owned());
                     true
                 } else {
                     false
@@ -497,16 +755,26 @@ fn verify_causal_authority_state(
             "proof.dev/principal-binding-revocation/v1" => {
                 let binding_id = string(&record.value, "binding_id");
                 let actor = string(&record.value, "revoked_by_principal_id");
+                let revocation_id = string(&record.value, "revocation_id");
                 let target = binding_id.and_then(|binding_id| bindings.get(binding_id).copied());
-                let chronological = target
-                    .zip(string(&record.value, "revoked_at").and_then(parse_timestamp))
-                    .is_some_and(|(binding, revoked)| binding.recorded_at <= revoked);
-                if actor_is_enabled_human(actor)
+                if actor_is_bootstrap_human(actor)
                     && target.is_some()
-                    && chronological
+                    && string(&record.value, "revoked_at")
+                        .and_then(parse_timestamp)
+                        .is_some()
+                    && revocation_id.is_some_and(|id| binding_revocation_ids.insert(id.to_owned()))
                     && binding_id.is_some_and(|id| !binding_revocations.contains_key(id))
                 {
-                    binding_revocations.insert(binding_id.unwrap_or_default().to_owned(), record);
+                    let binding_id = binding_id.unwrap_or_default();
+                    binding_revocations.insert(binding_id.to_owned(), record);
+                    if let Some(principal) = target
+                        .and_then(|binding| string(&binding.value, "principal_id"))
+                        .filter(|principal| {
+                            active_bindings.get(*principal).map(String::as_str) == Some(binding_id)
+                        })
+                    {
+                        active_bindings.remove(principal);
+                    }
                     true
                 } else {
                     false
@@ -524,8 +792,21 @@ fn verify_causal_authority_state(
                     .zip(string(&record.value, "not_before").and_then(parse_timestamp))
                     .zip(string(&record.value, "expires_at").and_then(parse_timestamp))
                     .is_some_and(|((issued, start), end)| issued <= start && start < end);
-                if actor_is_enabled_human(issuer)
+                let active_binding = recipient
+                    .and_then(|recipient| active_bindings.get(recipient))
+                    .and_then(|binding_id| bindings.get(binding_id).copied());
+                let binding_active = active_binding.is_some_and(|binding| {
+                    let issued_at = string(&record.value, "issued_at").and_then(parse_timestamp);
+                    issued_at
+                        .zip(string(&binding.value, "not_before").and_then(parse_timestamp))
+                        .zip(string(&binding.value, "expires_at").and_then(parse_timestamp))
+                        .is_some_and(|((issued, start), end)| start <= issued && issued < end)
+                        && string(&binding.value, "binding_id")
+                            .is_some_and(|id| !binding_revocations.contains_key(id))
+                });
+                if actor_is_bootstrap_human(issuer)
                     && recipient_valid
+                    && binding_active
                     && issuer != recipient
                     && time_valid
                     && delegation_id.is_some_and(|id| !delegations.contains_key(id))
@@ -539,14 +820,16 @@ fn verify_causal_authority_state(
             "proof.dev/delegation-revocation/v1" => {
                 let delegation_id = string(&record.value, "delegation_id");
                 let actor = string(&record.value, "revoked_by_principal_id");
+                let revocation_id = string(&record.value, "revocation_id");
                 let target =
                     delegation_id.and_then(|delegation_id| delegations.get(delegation_id).copied());
-                let chronological = target
-                    .zip(string(&record.value, "revoked_at").and_then(parse_timestamp))
-                    .is_some_and(|(delegation, revoked)| delegation.recorded_at <= revoked);
-                if actor_is_enabled_human(actor)
+                if actor_is_bootstrap_human(actor)
                     && target.is_some()
-                    && chronological
+                    && string(&record.value, "revoked_at")
+                        .and_then(parse_timestamp)
+                        .is_some()
+                    && revocation_id
+                        .is_some_and(|id| delegation_revocation_ids.insert(id.to_owned()))
                     && delegation_id.is_some_and(|id| !delegation_revocations.contains_key(id))
                 {
                     delegation_revocations
@@ -560,12 +843,28 @@ fn verify_causal_authority_state(
                 record,
                 &principals,
                 &bindings,
+                &active_bindings,
                 &binding_revocations,
                 &delegations,
                 &delegation_revocations,
             ),
             "proof.dev/workspace-authority-root-transition/v1" => {
-                actor_is_enabled_human(string(&record.value, "activated_by_principal_id"))
+                let key_id = string(&record.value, "successor_authority_key_id");
+                let public_key = key_id
+                    .zip(string(&record.value, "successor_public_key"))
+                    .and_then(|(key_id, public_key)| parse_public_signer(key_id, public_key).ok())
+                    .map(|signer| signer.public_key);
+                let separated = key_id.is_some_and(|key_id| {
+                    !binding_keys.contains(key_id)
+                        && !release_key_ids.contains(key_id)
+                        && authority_key_ids.insert(key_id.to_owned())
+                }) && public_key.is_some_and(|public_key| {
+                    !binding_public_keys.contains(&public_key)
+                        && !release_public_keys.contains(&public_key)
+                        && authority_public_keys.insert(public_key)
+                });
+                actor_is_bootstrap_human(string(&record.value, "activated_by_principal_id"))
+                    && separated
             }
             _ => false,
         };
@@ -589,6 +888,7 @@ fn decision_matches_causal_state(
     decision: &VerifiedAuthorityRecord,
     principals: &BTreeMap<String, PrincipalFact<'_>>,
     bindings: &BTreeMap<String, &VerifiedAuthorityRecord>,
+    active_bindings: &BTreeMap<String, String>,
     binding_revocations: &BTreeMap<String, &VerifiedAuthorityRecord>,
     delegations: &BTreeMap<String, &VerifiedAuthorityRecord>,
     delegation_revocations: &BTreeMap<String, &VerifiedAuthorityRecord>,
@@ -623,6 +923,11 @@ fn decision_matches_causal_state(
         .and_then(Value::as_str);
     let binding = binding_id.and_then(|id| bindings.get(id).copied());
     let actual_binding_revocation = binding_id.and_then(|id| binding_revocations.get(id).copied());
+    let binding_is_active = operating
+        .zip(binding_id)
+        .is_some_and(|(principal, binding_id)| {
+            active_bindings.get(principal).map(String::as_str) == Some(binding_id)
+        });
     let binding_pointer =
         optional_digest_path(&decision.value, &["binding", "revocation_record_digest"]);
     let binding_matches = binding.is_some_and(|binding| {
@@ -682,7 +987,7 @@ fn decision_matches_causal_state(
     let mut expected_denial = if claimed_requesting != Some(true) || claimed_operating != Some(true)
     {
         Some("proof.authorization.principal_disabled")
-    } else if !binding_time_active || actual_binding_revocation.is_some() {
+    } else if !binding_is_active || !binding_time_active || actual_binding_revocation.is_some() {
         Some("proof.auth.binding_inactive")
     } else if delegation.is_none() {
         Some("proof.authorization.delegation_unavailable")
@@ -695,19 +1000,11 @@ fn decision_matches_causal_state(
         let end = string(&delegation.value, "expires_at").and_then(parse_timestamp);
         let actor_mismatch = string(&delegation.value, "issuer_principal_id") != requesting
             || string(&delegation.value, "recipient_principal_id") != operating;
-        let action_missing = delegation
-            .value
-            .get("actions")
-            .and_then(Value::as_array)
-            .zip(string(&decision.value, "requested_action"))
-            .is_none_or(|(actions, requested)| {
-                !actions
-                    .iter()
-                    .any(|action| action.as_str() == Some(requested))
-            });
+        let action_missing = !decision_action_is_covered(decision, &delegation.value);
         let scope_exceeded = actor_mismatch
             || action_missing
-            || !decision_scope_is_covered(decision, &delegation.value);
+            || !decision_scope_is_covered(decision, &delegation.value)
+            || localized_released_schema_grant_is_missing(decision, &delegation.value);
         let budget_exceeded = !decision_budget_is_covered(decision, &delegation.value);
         expected_denial = if actor_mismatch {
             Some("proof.authorization.scope_exceeded")
@@ -730,6 +1027,10 @@ fn decision_matches_causal_state(
             string(&decision.value, "decision") == Some("deny")
                 && string(&decision.value, "reason_code") == Some(reason)
         }
+        None if string(&decision.value, "decision") == Some("deny") => matches!(
+            string(&decision.value, "reason_code"),
+            Some("proof.authorization.scope_exceeded" | "proof.idempotency.key_reused")
+        ),
         None => {
             string(&decision.value, "decision") == Some("allow")
                 && decision
@@ -1109,15 +1410,13 @@ fn verify_commands(
                 == Some(loaded.bundle.workspace_id.as_str())
             && string(&input.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
             && presentation == string(&record.value, "presentation_id")
+            && presentation == string(&actor.value, "presentation_id")
             && presentation.is_some_and(|value| presentations.insert(value.to_owned()))
             && evaluated
                 .zip(issued)
                 .zip(expires)
                 .is_some_and(|((evaluated, issued), expires)| {
-                    issued <= evaluated
-                        && evaluated < expires
-                        && issued < expires
-                        && (expires - issued).whole_seconds() <= 300
+                    authenticated_command_time_is_valid(evaluated, issued, expires)
                 });
         if !cross_links || actor_contains_raw_uid {
             invalid(
@@ -1128,18 +1427,91 @@ fn verify_commands(
                 Some(entry.sequence),
             );
         }
-        let projection_valid = digest_path(&record.value, &["delegation", "record_digest"])
+        let initial_projection_valid =
+            operation::validate_command_initial_projection(&input.value, &record.value).is_some();
+        let command_valid =
+            operation::validate_command_shape(&input.value, &record.value).is_some();
+        let allow_missing_context_build = mapped_context_build_not_found_allows_missing_context(
+            loaded,
+            companion,
+            &input.value,
+            &record.value,
+        );
+        let full_projection_valid = digest_path(&record.value, &["delegation", "record_digest"])
             .and_then(|digest| by_digest.get(&digest).copied())
             .and_then(|delegation| {
-                operation::validate_command_and_projection(
-                    loaded,
-                    &input.value,
-                    &record.value,
-                    &delegation.value,
-                )
+                if allow_missing_context_build {
+                    operation::validate_command_and_projection_allowing_missing_context_build(
+                        loaded,
+                        &input.value,
+                        &record.value,
+                        &delegation.value,
+                    )
+                } else {
+                    operation::validate_command_and_projection(
+                        loaded,
+                        &input.value,
+                        &record.value,
+                        &delegation.value,
+                    )
+                }
             })
             .is_some();
-        if !projection_valid {
+        let full_projection_resolvable =
+            operation::full_projection_is_resolvable(loaded, &input.value, &record.value);
+        let missing_projection = missing_external_with_any_role(
+            loaded,
+            &[
+                EvidenceRole::ResourceIntent,
+                EvidenceRole::ContextPack,
+                EvidenceRole::ChangeSet,
+                EvidenceRole::Edition,
+                EvidenceRole::ReleaseManifest,
+            ],
+        );
+        let reason_code = reason.and_then(Value::as_str);
+        let (projection_valid, projection_may_need_external) = match (outcome, reason_code) {
+            (Some("allow"), None)
+            | (
+                Some("deny"),
+                Some("proof.authorization.budget_exceeded" | "proof.idempotency.key_reused"),
+            ) => (full_projection_valid, true),
+            (
+                Some("deny"),
+                Some(
+                    "proof.authorization.principal_disabled"
+                    | "proof.auth.binding_inactive"
+                    | "proof.authorization.delegation_unavailable"
+                    | "proof.authorization.delegation_revoked"
+                    | "proof.authorization.delegation_not_yet_valid"
+                    | "proof.authorization.delegation_expired",
+                ),
+            ) => (initial_projection_valid, false),
+            (Some("deny"), Some("proof.authorization.scope_exceeded")) => (
+                initial_projection_valid || full_projection_valid,
+                !initial_projection_valid,
+            ),
+            _ => (false, false),
+        };
+        if !command_valid {
+            invalid(
+                report,
+                "policy",
+                "proof.verify.command.operation_projection",
+                Some(entry.record_digest),
+                Some(entry.sequence),
+            );
+        } else if projection_valid {
+            // The supplied signed projection is exact for the producer stage reached.
+        } else if projection_may_need_external && let Some(digest) = missing_projection {
+            incomplete(
+                report,
+                "policy",
+                "proof.verify.external.missing",
+                Some(digest),
+                Some(entry.sequence),
+            );
+        } else {
             invalid(
                 report,
                 "policy",
@@ -1181,7 +1553,6 @@ fn verify_commands(
             "binding_id",
             string(&binding.value, "binding_id"),
             evaluated_head_sequence,
-            evaluated,
         );
         let allow = string(&record.value, "decision") == Some("allow");
         if !binding_identity
@@ -1197,7 +1568,13 @@ fn verify_commands(
             );
         }
         verify_principal_state(record, &by_digest, report);
-        verify_delegation(record, &by_digest, report);
+        verify_delegation(
+            record,
+            &by_digest,
+            initial_projection_valid,
+            full_projection_resolvable,
+            report,
+        );
         let accepted = trust
             .authority
             .accepted_policy_bundles
@@ -1250,6 +1627,8 @@ fn verify_commands(
 fn verify_delegation(
     decision: &VerifiedAuthorityRecord,
     records: &BTreeMap<Digest, &VerifiedAuthorityRecord>,
+    initial_projection_valid: bool,
+    full_projection_resolvable: bool,
     report: &mut Report,
 ) {
     let resolution = decision
@@ -1287,6 +1666,36 @@ fn verify_delegation(
         .value
         .pointer("/evaluated_authority_head/sequence")
         .and_then(Value::as_u64);
+    let unresolved_hidden_scope = outcome == Some("deny")
+        && reason == Some("proof.authorization.scope_exceeded")
+        && initial_projection_valid
+        && !full_projection_resolvable
+        && delegation.is_some_and(|delegation| {
+            let actors_match = string(&delegation.value, "issuer_principal_id")
+                == string(&decision.value, "requesting_principal_id")
+                && string(&delegation.value, "recipient_principal_id")
+                    == string(&decision.value, "operating_principal_id");
+            let time_active = evaluated
+                .zip(string(&delegation.value, "not_before").and_then(parse_timestamp))
+                .zip(string(&delegation.value, "expires_at").and_then(parse_timestamp))
+                .is_some_and(|((evaluated, start), end)| start <= evaluated && evaluated < end);
+            let revocation = decision_revocation_record(
+                decision
+                    .value
+                    .pointer("/delegation/revocation_record_digest"),
+                records,
+                "proof.dev/delegation-revocation/v1",
+                "delegation_id",
+                string(&delegation.value, "delegation_id"),
+                causal_head,
+            );
+            actors_match
+                && time_active
+                && revocation == Some(false)
+                && decision_action_is_covered(decision, &delegation.value)
+                && decision_scope_is_covered(decision, &delegation.value)
+                && !localized_released_schema_grant_is_missing(decision, &delegation.value)
+        });
     let valid = delegation.is_some_and(|delegation| {
         let time_active = evaluated
             .zip(string(&delegation.value, "not_before").and_then(parse_timestamp))
@@ -1301,33 +1710,15 @@ fn verify_delegation(
             "delegation_id",
             string(&delegation.value, "delegation_id"),
             causal_head,
-            evaluated,
         );
-        let action_allowed = delegation
-            .value
-            .get("actions")
-            .and_then(Value::as_array)
-            .zip(string(&decision.value, "requested_action"))
-            .is_some_and(|(actions, requested)| {
-                actions
-                    .iter()
-                    .any(|action| action.as_str() == Some(requested))
-            });
-        let scope_allowed = [
-            ("environment_ids", "/scope/environment_ids"),
-            ("object_ids", "/scope/object_ids"),
-            ("schema_ids", "/scope/schema_ids"),
-            ("locales", "/scope/locales"),
-        ]
-        .into_iter()
-        .all(|(requested, delegated)| {
-            array_subset(
-                decision
-                    .value
-                    .pointer(&format!("/requested_resources/{requested}")),
-                delegation.value.pointer(delegated),
-            )
-        });
+        let actors_match = string(&delegation.value, "issuer_principal_id")
+            == string(&decision.value, "requesting_principal_id")
+            && string(&delegation.value, "recipient_principal_id")
+                == string(&decision.value, "operating_principal_id");
+        let action_allowed = decision_action_is_covered(decision, &delegation.value);
+        let scope_allowed = decision_scope_is_covered(decision, &delegation.value);
+        let released_schema_grant_missing =
+            localized_released_schema_grant_is_missing(decision, &delegation.value);
         let budgets_allowed = [
             "max_objects",
             "max_context_bytes",
@@ -1348,7 +1739,13 @@ fn verify_delegation(
                 .is_some_and(|(effective, delegated)| effective <= delegated)
         });
         let causal_outcome = match outcome {
-            Some("allow") => time_active && revocation == Some(false),
+            Some("allow") => {
+                time_active
+                    && revocation == Some(false)
+                    && action_allowed
+                    && scope_allowed
+                    && budgets_allowed
+            }
             Some("deny") => match reason {
                 Some("proof.authorization.delegation_revoked") => revocation == Some(true),
                 Some("proof.authorization.delegation_expired") => evaluated
@@ -1357,19 +1754,34 @@ fn verify_delegation(
                 Some("proof.authorization.delegation_not_yet_valid") => evaluated
                     .zip(string(&delegation.value, "not_before").and_then(parse_timestamp))
                     .is_some_and(|(evaluated, start)| evaluated < start),
-                _ => revocation.is_some(),
+                Some("proof.authorization.scope_exceeded") => {
+                    !actors_match
+                        || !action_allowed
+                        || !scope_allowed
+                        || released_schema_grant_missing
+                }
+                Some("proof.authorization.budget_exceeded") => !budgets_allowed,
+                Some("proof.idempotency.key_reused") => {
+                    time_active
+                        && revocation == Some(false)
+                        && action_allowed
+                        && scope_allowed
+                        && budgets_allowed
+                }
+                Some("proof.auth.binding_inactive" | "proof.authorization.principal_disabled") => {
+                    revocation.is_some()
+                }
+                _ => false,
             },
             _ => false,
         };
         string(&delegation.value, "api_version") == Some("proof.dev/delegation/v2")
             && causal_head.is_some_and(|head| delegation.sequence <= head)
-            && evaluated.is_some_and(|evaluated| delegation.recorded_at <= evaluated)
             && string(&delegation.value, "delegation_profile")
                 == Some("proof.local/authority/direct/v1")
-            && string(&delegation.value, "issuer_principal_id")
-                == string(&decision.value, "requesting_principal_id")
-            && string(&delegation.value, "recipient_principal_id")
-                == string(&decision.value, "operating_principal_id")
+            && (actors_match
+                || (outcome == Some("deny")
+                    && reason == Some("proof.authorization.scope_exceeded")))
             && string(&delegation.value, "delegation_id")
                 == decision
                     .value
@@ -1381,20 +1793,57 @@ fn verify_delegation(
                 .pointer("/constraints/allow_subdelegation")
                 .and_then(Value::as_bool)
                 == Some(false)
-            && action_allowed
-            && scope_allowed
-            && budgets_allowed
             && causal_outcome
     });
     if !valid {
-        invalid(
-            report,
-            "delegation",
-            "proof.verify.delegation.invalid",
-            Some(decision.digest),
-            Some(decision.sequence),
-        );
+        if unresolved_hidden_scope {
+            incomplete(
+                report,
+                "delegation",
+                "proof.verify.delegation.hidden",
+                Some(decision.digest),
+                Some(decision.sequence),
+            );
+        } else {
+            invalid(
+                report,
+                "delegation",
+                "proof.verify.delegation.invalid",
+                Some(decision.digest),
+                Some(decision.sequence),
+            );
+        }
     }
+}
+
+fn decision_action_is_covered(decision: &VerifiedAuthorityRecord, delegation: &Value) -> bool {
+    delegation
+        .get("actions")
+        .and_then(Value::as_array)
+        .zip(string(&decision.value, "requested_action"))
+        .is_some_and(|(actions, requested)| {
+            actions
+                .iter()
+                .any(|action| action.as_str() == Some(requested))
+        })
+}
+
+fn localized_released_schema_grant_is_missing(
+    decision: &VerifiedAuthorityRecord,
+    delegation: &Value,
+) -> bool {
+    string(
+        decision.value.pointer("/operation").unwrap_or(&Value::Null),
+        "name",
+    ) == Some("object.query_released")
+        && string(
+            decision.value.pointer("/operation").unwrap_or(&Value::Null),
+            "version",
+        ) == Some("proof.dev/operation/object.query_released/v2")
+        && delegation
+            .pointer("/scope/schema_ids")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
 }
 
 fn verify_principal_state(
@@ -1406,11 +1855,10 @@ fn verify_principal_state(
         .value
         .pointer("/evaluated_authority_head/sequence")
         .and_then(Value::as_u64);
-    let evaluated = string(&decision.value, "evaluated_at").and_then(parse_timestamp);
     let requesting = string(&decision.value, "requesting_principal_id");
     let operating = string(&decision.value, "operating_principal_id");
-    let requesting_status = principal_status_at(records, requesting, head, evaluated);
-    let operating_status = principal_status_at(records, operating, head, evaluated);
+    let requesting_status = principal_status_at(records, requesting, head);
+    let operating_status = principal_status_at(records, operating, head);
     let claimed_requesting = decision
         .value
         .pointer("/principal_state/requesting_principal_enabled")
@@ -1453,16 +1901,35 @@ fn principal_status_at<'a>(
     records: &'a BTreeMap<Digest, &VerifiedAuthorityRecord>,
     principal_id: Option<&str>,
     head: Option<u64>,
-    evaluated: Option<OffsetDateTime>,
 ) -> Option<&'a VerifiedAuthorityRecord> {
     records
         .values()
         .copied()
         .filter(|record| {
             record.sequence <= head.unwrap_or(0)
-                && evaluated.is_some_and(|evaluated| record.recorded_at <= evaluated)
                 && string(&record.value, "api_version") == Some("proof.dev/principal-status/v1")
                 && string(&record.value, "principal_id") == principal_id
+        })
+        .max_by_key(|record| record.sequence)
+}
+
+fn principal_status_at_time<'a>(
+    records: &'a BTreeMap<Digest, &VerifiedAuthorityRecord>,
+    principal_id: Option<&str>,
+    head: Option<u64>,
+    effective_at: Option<OffsetDateTime>,
+) -> Option<&'a VerifiedAuthorityRecord> {
+    let effective_at = effective_at?;
+    records
+        .values()
+        .copied()
+        .filter(|record| {
+            record.sequence <= head.unwrap_or(0)
+                && string(&record.value, "api_version") == Some("proof.dev/principal-status/v1")
+                && string(&record.value, "principal_id") == principal_id
+                && string(&record.value, "recorded_at")
+                    .and_then(parse_timestamp)
+                    .is_some_and(|recorded_at| recorded_at <= effective_at)
         })
         .max_by_key(|record| record.sequence)
 }
@@ -1474,7 +1941,6 @@ fn decision_revocation_record(
     identity_field: &str,
     expected_identity: Option<&str>,
     causal_head: Option<u64>,
-    evaluated: Option<OffsetDateTime>,
 ) -> Option<bool> {
     match value {
         Some(Value::Null) => Some(false),
@@ -1484,7 +1950,7 @@ fn decision_revocation_record(
             (string(&record.value, "api_version") == Some(api_version)
                 && string(&record.value, identity_field) == expected_identity)
                 .then_some(record)?;
-            (record.sequence <= causal_head? && record.recorded_at <= evaluated?).then_some(true)
+            (record.sequence <= causal_head?).then_some(true)
         }
         _ => None,
     }
@@ -1523,6 +1989,19 @@ fn verify_localized_consequences(
         .collect::<BTreeMap<_, _>>();
     let mut keys = BTreeMap::<String, ApplicationLedgerEntry>::new();
     let mut localized = 0_usize;
+    let missing_support = missing_external_with_any_role(
+        loaded,
+        &[
+            EvidenceRole::Approval,
+            EvidenceRole::Submission,
+            EvidenceRole::ChangeSet,
+            EvidenceRole::ValidationAttempt,
+            EvidenceRole::ContextPack,
+            EvidenceRole::ContextPolicyBundle,
+            EvidenceRole::ResourceIntent,
+            EvidenceRole::ReleaseProofEnvelope,
+        ],
+    );
     for entry in &loaded.bundle.authority_prefix {
         let Some(record) = records.get(&entry.record_digest).copied() else {
             continue;
@@ -1547,6 +2026,15 @@ fn verify_localized_consequences(
                         "proof.verify.consequence.deny_has_effect",
                         Some(record.digest),
                         Some(record.sequence),
+                    );
+                }
+                if string(&record.value, "reason_code") == Some("proof.idempotency.key_reused") {
+                    verify_idempotency_denial(
+                        loaded,
+                        record,
+                        &companion.command_input,
+                        &keys,
+                        report,
                     );
                 }
                 continue;
@@ -1621,6 +2109,16 @@ fn verify_localized_consequences(
                         continue;
                     }
                 };
+                if let Some(digest) = missing_support {
+                    incomplete(
+                        report,
+                        "localized_consequence",
+                        "proof.verify.consequence.artifact_missing",
+                        Some(digest),
+                        Some(record.sequence),
+                    );
+                    continue;
+                }
                 let result_digest = digest_path(evidence, &["result", "digest"]);
                 let effect_digest = digest_field(evidence, "application_effect_digest");
                 let consequence_digest = digest_field(evidence, "application_consequence_digest");
@@ -1941,6 +2439,154 @@ fn verify_localized_consequences(
     report.valid("approval");
 }
 
+fn verify_idempotency_denial(
+    loaded: &LoadedBundle,
+    decision: &VerifiedAuthorityRecord,
+    command_ref: &crate::model::ArtifactRef,
+    keys: &BTreeMap<String, ApplicationLedgerEntry>,
+    report: &mut Report,
+) {
+    let input = match loaded.required_artifact(command_ref) {
+        RequiredArtifact::Available(input) => input,
+        RequiredArtifact::MissingRequiredExternal => {
+            incomplete(
+                report,
+                "application_key_history",
+                "proof.verify.application.key_reused",
+                Some(command_ref.digest),
+                Some(decision.sequence),
+            );
+            return;
+        }
+        RequiredArtifact::InvalidOrAbsent => {
+            invalid(
+                report,
+                "application_key_history",
+                "proof.verify.application.key_reused",
+                Some(command_ref.digest),
+                Some(decision.sequence),
+            );
+            return;
+        }
+    };
+    let Some(spec) = operation::validate_command_shape(&input.value, &decision.value) else {
+        invalid(
+            report,
+            "application_key_history",
+            "proof.verify.application.key_reused",
+            Some(decision.digest),
+            Some(decision.sequence),
+        );
+        return;
+    };
+    if spec.idempotency == operation::Idempotency::None {
+        invalid(
+            report,
+            "application_key_history",
+            "proof.verify.application.key_reused",
+            Some(decision.digest),
+            Some(decision.sequence),
+        );
+        return;
+    }
+    let Some(key) = derive_denied_application_key(loaded, spec, input) else {
+        incomplete(
+            report,
+            "application_key_history",
+            "proof.verify.application.key_reused",
+            Some(decision.digest),
+            Some(decision.sequence),
+        );
+        return;
+    };
+    let Some(existing) = keys.get(&key) else {
+        // Portable evidence cannot prove owners held only by the legacy or
+        // direct application tables. Absence from the witnessed prefix is
+        // therefore unknown, never evidence that the signed denial was valid.
+        incomplete(
+            report,
+            "application_key_history",
+            "proof.verify.application.key_reused",
+            Some(decision.digest),
+            Some(decision.sequence),
+        );
+        return;
+    };
+    let same_command = existing.ownership.operation_name == spec.name
+        && existing.ownership.operation_version == spec.version
+        && digest_field(&decision.value, "command_digest")
+            == Some(existing.ownership.command_digest);
+    if same_command {
+        // The producer replays an exact prior tuple; it does not append a new
+        // Deny decision for it.
+        invalid(
+            report,
+            "application_key_history",
+            "proof.verify.application.key_reused",
+            Some(decision.digest),
+            Some(decision.sequence),
+        );
+    }
+}
+
+fn derive_denied_application_key(
+    loaded: &LoadedBundle,
+    spec: &operation::OperationSpec,
+    input: &LoadedArtifact,
+) -> Option<String> {
+    let normalized = input.value.get("normalized_input")?;
+    match spec.idempotency {
+        operation::Idempotency::None => None,
+        operation::Idempotency::Required => string(&input.value, "idempotency_key")
+            .filter(|key| operation::uuid_v7(key))
+            .map(str::to_owned),
+        operation::Idempotency::Derived => {
+            let value = match spec.name {
+                "changeset.submit" => json!({
+                    "api_version": "proof.dev/application-idempotency-key/v1",
+                    "changeset_id": string(normalized, "changeset_id")?,
+                    "operation": "changeset.submit/v2",
+                    "workspace_id": loaded.bundle.workspace_id,
+                }),
+                "changeset.validate" => {
+                    let changeset_id = string(normalized, "changeset_id")?;
+                    let changeset =
+                        unique_role_artifact_by(loaded, EvidenceRole::ChangeSet, |artifact| {
+                            string(&artifact.value, "api_version") == Some("proof.dev/changeset/v2")
+                                && string(&artifact.value, "changeset_id") == Some(changeset_id)
+                        })?;
+                    let context = exact_role_artifact(
+                        loaded,
+                        EvidenceRole::ContextPack,
+                        digest_field(&changeset.value, "context_pack_digest"),
+                    )?;
+                    let edits = changeset.value.get("edits")?.as_array()?;
+                    let snapshot = proposal_snapshot(&changeset.value, edits).ok()?;
+                    if changeset.value.get("effective_leaves") != Some(&snapshot.leaves)
+                        || digest_field(&changeset.value, "effective_leaf_digest")
+                            != Some(snapshot.effective_digest)
+                    {
+                        return None;
+                    }
+                    json!({
+                        "api_version": "proof.dev/application-idempotency-key/v1",
+                        "changeset_id": changeset_id,
+                        "operation": "changeset.validate/v2",
+                        "policy_digest": digest_field(&context.value, "policy_digest")?,
+                        "proposal_digest": snapshot.proposal_digest,
+                        "validator": "proof/localized-content/1",
+                        "workspace_id": loaded.bundle.workspace_id,
+                    })
+                }
+                _ => return None,
+            };
+            canonical_bytes(&value)
+                .ok()
+                .map(|bytes| domain_digest(ArtifactKind::OperationEffectV1, &bytes).to_string())
+        }
+    }
+}
+
 fn artifact_has_role(
     loaded: &LoadedBundle,
     role: EvidenceRole,
@@ -2092,7 +2738,7 @@ fn application_idempotency_is_exact(
             if string(idempotency, "kind") != Some("derived") {
                 return false;
             }
-            let derived = derive_application_key(loaded, spec, input, decision);
+            let derived = derive_application_key(loaded, spec, input, decision, evidence);
             match (result_kind, derived) {
                 (Some("success"), Some(expected)) => key == Some(expected.as_str()),
                 (Some("failure"), Some(expected)) => {
@@ -2111,6 +2757,7 @@ fn derive_application_key(
     spec: &operation::OperationSpec,
     input: &LoadedArtifact,
     _decision: &Value,
+    evidence: &Value,
 ) -> Option<String> {
     let normalized = input.value.get("normalized_input")?;
     let value = match spec.name {
@@ -2131,7 +2778,12 @@ fn derive_application_key(
                 EvidenceRole::ContextPack,
                 digest_field(&changeset.value, "context_pack_digest"),
             )?;
-            let proposal_digest = domain_digest(ArtifactKind::ChangeSetV2, &changeset.bytes);
+            let effect = exact_role_artifact(
+                loaded,
+                EvidenceRole::ApplicationEffect,
+                digest_field(evidence, "application_effect_digest"),
+            )?;
+            let proposal_digest = digest_field(&effect.value, "proposal_digest")?;
             json!({
                 "api_version": "proof.dev/application-idempotency-key/v1",
                 "changeset_id": changeset_id,
@@ -2468,9 +3120,7 @@ fn operation_effect_wrapper_is_exact(
         return false;
     }
     let normalized = input.value.get("normalized_input").unwrap_or(&Value::Null);
-    let request_digest = canonical_bytes(normalized)
-        .ok()
-        .map(|bytes| domain_digest(ArtifactKind::OperationEffectV1, &bytes));
+    let request_digest = operation_request_digest(loaded, spec, normalized, result);
     match spec.consequence {
         operation::Consequence::Context => {
             object_keys_exact(
@@ -2563,6 +3213,50 @@ fn operation_effect_wrapper_is_exact(
     }
 }
 
+fn operation_request_digest(
+    loaded: &LoadedBundle,
+    spec: &operation::OperationSpec,
+    normalized: &Value,
+    result: &Value,
+) -> Option<Digest> {
+    let request = if spec.name == "context.build" {
+        let policy = json!({
+            "api_version": "proof.dev/localized-content-policy/v1",
+            "rules": normalized.get("policy_rules")?,
+        });
+        let policy_bytes = canonical_bytes(&policy).ok()?;
+        let policy_digest = domain_digest(ArtifactKind::PolicyBundleV1, &policy_bytes);
+        let context = exact_role_artifact(
+            loaded,
+            EvidenceRole::ContextPack,
+            digest_field(result, "context_pack_digest"),
+        )?;
+        if digest_field(&context.value, "policy_digest") != Some(policy_digest) {
+            return None;
+        }
+        json!({
+            "api_version": normalized.get("api_version")?,
+            "context_pack_id": normalized.get("context_pack_id")?,
+            "created_at": normalized.get("created_at")?,
+            "expires_at": normalized.get("expires_at")?,
+            "idempotency_key": normalized.get("idempotency_key")?,
+            "limits": normalized.get("limits")?,
+            "policy_digest": policy_digest,
+            "resource_intent_digest": normalized.get("resource_intent_digest")?,
+            "resource_intent_id": normalized.get("resource_intent_id")?,
+        })
+    } else {
+        normalized.clone()
+    };
+    canonical_bytes(&request)
+        .ok()
+        .map(|bytes| domain_digest(ArtifactKind::OperationEffectV1, &bytes))
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the localized closure joins the signed decision, operation input, consequence, and application effect"
+)]
 fn localized_closure_is_exact(
     loaded: &LoadedBundle,
     records: &BTreeMap<Digest, &VerifiedAuthorityRecord>,
@@ -2812,14 +3506,16 @@ fn intent_closure_is_exact(
         "context.build" | "changeset.create" => changeset.is_none(),
         "object.query_released" => true,
         _ => changeset.is_some_and(|changeset| {
-            normalized
-                .get("changeset_id")
-                .or_else(|| effect.get("changeset_id"))
-                .or_else(|| effect.pointer("/changeset/changeset_id"))
-                .or_else(|| effect.pointer("/changeset_id"))
-                .or_else(|| effect.pointer("/result/changeset_id"))
-                .or_else(|| effect.get("changeset_id"))
-                .is_none_or(|expected| changeset.value.get("changeset_id") == Some(expected))
+            [
+                normalized.get("changeset_id"),
+                effect.get("changeset_id"),
+                effect.pointer("/changeset/changeset_id"),
+                effect.pointer("/result/changeset_id"),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|expected| !expected.is_null())
+            .is_none_or(|expected| changeset.value.get("changeset_id") == Some(expected))
         }),
     };
     if !change_set_expectation {
@@ -2872,16 +3568,16 @@ fn signed_approval_is_exact(
     ) else {
         return false;
     };
-    let approved_at = string(approval, "approved_at").and_then(parse_timestamp);
+    let approval_time = string(approval, "approved_at").and_then(parse_timestamp);
     let approver = string(approval, "principal_id");
-    let approval_status = principal_status_at(
+    let approval_status = principal_status_at_time(
         records,
         approver,
         decision
             .get("authority_sequence")
             .and_then(Value::as_u64)
             .and_then(|sequence| sequence.checked_sub(1)),
-        approved_at,
+        approval_time,
     );
     if approval_status.is_none_or(|status| {
         string(&status.value, "principal_type") != Some("human")
@@ -2961,11 +3657,11 @@ fn signed_approval_is_exact(
         .pointer("/result/occurred_at")
         .and_then(Value::as_str)
         .and_then(parse_timestamp);
-    let approved = approved_at;
+    let approval_instant = approval_time;
     let semantic = string(evidence, "semantic_timestamp").and_then(parse_timestamp);
     let effect_time = string(effect, "released_at").and_then(parse_timestamp);
     submitted
-        .zip(approved)
+        .zip(approval_instant)
         .zip(semantic.or(effect_time))
         .is_some_and(|((submitted, approved), consequence)| {
             submitted <= approved && approved <= consequence
@@ -3119,6 +3815,2306 @@ fn verify_subject_opening(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HistoricalEvidenceState {
+    Available,
+    Incomplete,
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct HistoricalV1PrefixBoundary {
+    changeset_count: usize,
+    state_digest: Digest,
+}
+
+fn verify_release_history(
+    loaded: &LoadedBundle,
+    trust: &TrustPolicy,
+    records: &[VerifiedAuthorityRecord],
+    report: &mut Report,
+) {
+    let manifest_descriptors = loaded
+        .bundle
+        .artifacts
+        .iter()
+        .filter(|descriptor| descriptor.role == EvidenceRole::ReleaseManifest)
+        .collect::<Vec<_>>();
+    let proof_descriptors = loaded
+        .bundle
+        .artifacts
+        .iter()
+        .filter(|descriptor| descriptor.role == EvidenceRole::ReleaseProofEnvelope)
+        .collect::<Vec<_>>();
+    let mut proofs_by_release = BTreeMap::<Digest, Vec<(ArtifactRef, &LoadedArtifact)>>::new();
+    let max_envelope_bytes = usize::try_from(trust.limits.max_artifact_bytes)
+        .unwrap_or(crate::model::MAX_ARTIFACT_BYTES);
+
+    for descriptor in &proof_descriptors {
+        match loaded.required_artifact(&descriptor.artifact) {
+            RequiredArtifact::Available(artifact) => match parse_dsse_unverified(
+                &artifact.bytes,
+                trust.limits.max_json_depth as usize,
+                max_envelope_bytes,
+                max_envelope_bytes,
+            ) {
+                Ok(envelope) => {
+                    let release_digest = envelope
+                        .payload
+                        .pointer("/predicate/release/release_digest")
+                        .and_then(Value::as_str)
+                        .and_then(Digest::parse);
+                    if let Some(release_digest) = release_digest {
+                        proofs_by_release
+                            .entry(release_digest)
+                            .or_default()
+                            .push((descriptor.artifact, artifact));
+                    } else {
+                        invalid(
+                            report,
+                            "release_subjects",
+                            "proof.verify.release.subject",
+                            Some(descriptor.artifact.digest),
+                            None,
+                        );
+                    }
+                }
+                Err(_) => invalid(
+                    report,
+                    "release_signature",
+                    "proof.verify.release.envelope",
+                    Some(descriptor.artifact.digest),
+                    None,
+                ),
+            },
+            RequiredArtifact::MissingRequiredExternal => incomplete(
+                report,
+                "release_signature",
+                "proof.verify.external.missing",
+                Some(descriptor.artifact.digest),
+                None,
+            ),
+            RequiredArtifact::InvalidOrAbsent => {}
+        }
+    }
+
+    let mut release_references = BTreeSet::new();
+    for descriptor in &manifest_descriptors {
+        if !release_references.insert(descriptor.artifact) {
+            invalid(
+                report,
+                "release_subjects",
+                "proof.verify.release.subject",
+                Some(descriptor.artifact.digest),
+                None,
+            );
+            continue;
+        }
+        let manifest = match loaded.required_artifact(&descriptor.artifact) {
+            RequiredArtifact::Available(artifact) => artifact,
+            RequiredArtifact::MissingRequiredExternal => {
+                incomplete(
+                    report,
+                    "release_subjects",
+                    "proof.verify.external.missing",
+                    Some(descriptor.artifact.digest),
+                    None,
+                );
+                continue;
+            }
+            RequiredArtifact::InvalidOrAbsent => continue,
+        };
+        let proof = proofs_by_release.remove(&descriptor.artifact.digest);
+        let Some([(proof_ref, proof)]) = proof.as_deref() else {
+            if proof_descriptors
+                .iter()
+                .any(|proof| loaded.missing_external.contains(&proof.artifact))
+            {
+                incomplete(
+                    report,
+                    "release_signature",
+                    "proof.verify.external.missing",
+                    Some(descriptor.artifact.digest),
+                    None,
+                );
+            } else {
+                invalid(
+                    report,
+                    "release_signature",
+                    "proof.verify.release.signature",
+                    Some(descriptor.artifact.digest),
+                    None,
+                );
+            }
+            continue;
+        };
+        if descriptor.artifact == loaded.bundle.entrypoints.target_release_manifest
+            && *proof_ref != loaded.bundle.entrypoints.target_release_proof_envelope
+        {
+            invalid(
+                report,
+                "release_subjects",
+                "proof.verify.release.subject",
+                Some(descriptor.artifact.digest),
+                None,
+            );
+        }
+        verify_historical_release_pair(
+            loaded,
+            trust,
+            records,
+            descriptor.artifact,
+            manifest,
+            *proof_ref,
+            proof,
+            report,
+        );
+    }
+    for (release_digest, unmatched) in proofs_by_release {
+        let manifest_is_external = manifest_descriptors.iter().any(|descriptor| {
+            descriptor.artifact.digest == release_digest
+                && loaded.missing_external.contains(&descriptor.artifact)
+        });
+        for (proof_ref, _) in unmatched {
+            if manifest_is_external {
+                incomplete(
+                    report,
+                    "release_subjects",
+                    "proof.verify.external.missing",
+                    Some(release_digest),
+                    None,
+                );
+            } else {
+                invalid(
+                    report,
+                    "release_subjects",
+                    "proof.verify.release.subject",
+                    Some(proof_ref.digest),
+                    None,
+                );
+            }
+        }
+    }
+    verify_release_history_graph(loaded, report);
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "historical Release verification binds the descriptor pair, verified authority prefix, trust, and report"
+)]
+fn verify_historical_release_pair(
+    loaded: &LoadedBundle,
+    trust: &TrustPolicy,
+    records: &[VerifiedAuthorityRecord],
+    manifest_ref: ArtifactRef,
+    manifest: &LoadedArtifact,
+    proof_ref: ArtifactRef,
+    proof: &LoadedArtifact,
+    report: &mut Report,
+) {
+    let max_envelope_bytes = usize::try_from(trust.limits.max_artifact_bytes)
+        .unwrap_or(crate::model::MAX_ARTIFACT_BYTES);
+    let peek = match parse_dsse_unverified(
+        &proof.bytes,
+        trust.limits.max_json_depth as usize,
+        max_envelope_bytes,
+        max_envelope_bytes,
+    ) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    let key_id = peek
+        .payload
+        .pointer("/predicate/release/key_id")
+        .and_then(Value::as_str);
+    let trusted = key_id.and_then(|key_id| {
+        trust
+            .release
+            .trusted_signers
+            .iter()
+            .find(|key| key.key_id == key_id)
+    });
+    let signer = trusted.and_then(|key| parse_public_signer(&key.key_id, &key.public_key).ok());
+    let Some((trusted, signer)) = trusted.zip(signer) else {
+        invalid(
+            report,
+            "release_key_trust",
+            "proof.verify.release.key_untrusted",
+            Some(manifest_ref.digest),
+            None,
+        );
+        return;
+    };
+    let verified = match verify_dsse(
+        &proof.bytes,
+        ArtifactKind::ProofEnvelopeV1,
+        &[IN_TOTO_PAYLOAD],
+        &[signer],
+        trust.limits.max_json_depth as usize,
+        max_envelope_bytes,
+        max_envelope_bytes,
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            invalid(
+                report,
+                "release_signature",
+                "proof.verify.release.signature",
+                Some(proof_ref.digest),
+                None,
+            );
+            return;
+        }
+    };
+    let statement = &verified.payload;
+    let predicate = statement.get("predicate").unwrap_or(&Value::Null);
+    let release = predicate.get("release").unwrap_or(&Value::Null);
+    let released_at = string(release, "released_at").and_then(parse_timestamp);
+    if released_at.is_none_or(|at| !key_active_at(trusted, at, &trusted.key_id)) {
+        invalid(
+            report,
+            "release_key_trust",
+            "proof.verify.release.key_time",
+            Some(manifest_ref.digest),
+            None,
+        );
+    }
+    match release_key_evidence_state(loaded, trusted, key_id, released_at) {
+        HistoricalEvidenceState::Available => {}
+        HistoricalEvidenceState::Incomplete => incomplete(
+            report,
+            "release_key_trust",
+            "proof.verify.external.missing",
+            Some(manifest_ref.digest),
+            None,
+        ),
+        HistoricalEvidenceState::Invalid => invalid(
+            report,
+            "release_key_trust",
+            "proof.verify.release.producer_key",
+            Some(manifest_ref.digest),
+            None,
+        ),
+    }
+    let predicate_type = statement.get("predicateType").and_then(Value::as_str);
+    let predicate_shape = match string(predicate, "api_version") {
+        Some("proof.dev/release-proof-predicate/v1") => true,
+        Some("proof.dev/release-proof-predicate/v2") => v2_predicate_shape_is_exact(predicate),
+        _ => false,
+    };
+    if string(statement, "_type") != Some(IN_TOTO_STATEMENT)
+        || !predicate_shape
+        || !release_predicate_type_matches(
+            predicate_type,
+            string(predicate, "api_version"),
+            string(&manifest.value, "api_version"),
+        )
+        || predicate_type.is_none_or(|predicate_type| {
+            !trust
+                .release
+                .accepted_predicate_types
+                .iter()
+                .any(|accepted| accepted == predicate_type)
+        })
+    {
+        invalid(
+            report,
+            "release_signature",
+            "proof.verify.release.statement_profile",
+            Some(proof_ref.digest),
+            None,
+        );
+    }
+    if !historical_release_subjects_and_manifest_match(
+        loaded,
+        statement,
+        predicate,
+        release,
+        manifest_ref,
+        &manifest.value,
+    ) {
+        invalid(
+            report,
+            "release_subjects",
+            "proof.verify.release.subject",
+            Some(manifest_ref.digest),
+            None,
+        );
+    }
+    match historical_release_policy(loaded, trust, predicate, release, &manifest.value) {
+        HistoricalEvidenceState::Available => {}
+        HistoricalEvidenceState::Incomplete => incomplete(
+            report,
+            "policy",
+            "proof.verify.release.policy_missing",
+            Some(manifest_ref.digest),
+            None,
+        ),
+        HistoricalEvidenceState::Invalid => invalid(
+            report,
+            "policy",
+            "proof.verify.release.policy",
+            Some(manifest_ref.digest),
+            None,
+        ),
+    }
+    match string(&manifest.value, "api_version") {
+        Some("proof.dev/release/v1") => {
+            match historical_v1_predicate_closure(loaded, predicate, &manifest.value) {
+                HistoricalEvidenceState::Available => {}
+                HistoricalEvidenceState::Incomplete => incomplete(
+                    report,
+                    "content_delta",
+                    "proof.verify.external.missing",
+                    Some(manifest_ref.digest),
+                    None,
+                ),
+                HistoricalEvidenceState::Invalid => invalid(
+                    report,
+                    "content_delta",
+                    "proof.verify.content.references",
+                    Some(manifest_ref.digest),
+                    None,
+                ),
+            }
+        }
+        Some("proof.dev/release/v2") => {
+            verify_historical_v2_content(
+                loaded,
+                records,
+                predicate,
+                &manifest.value,
+                manifest_ref,
+                report,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn historical_release_subjects_and_manifest_match(
+    loaded: &LoadedBundle,
+    statement: &Value,
+    predicate: &Value,
+    release: &Value,
+    manifest_ref: ArtifactRef,
+    manifest: &Value,
+) -> bool {
+    let edition_id = match string(manifest, "api_version") {
+        Some("proof.dev/release/v1") => string(release, "edition_id"),
+        Some("proof.dev/release/v2") => release
+            .pointer("/edition/edition_id")
+            .and_then(Value::as_str),
+        _ => None,
+    };
+    let edition_digest = match string(manifest, "api_version") {
+        Some("proof.dev/release/v1") => digest_field(release, "edition_digest"),
+        Some("proof.dev/release/v2") => digest_path(release, &["edition", "digest"]),
+        _ => None,
+    };
+    let common = statement_subjects_are_exact(
+        statement,
+        string(release, "release_id"),
+        Some(manifest_ref.digest),
+        edition_id,
+        edition_digest,
+    ) && digest_field(release, "release_digest") == Some(manifest_ref.digest)
+        && string(manifest, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && manifest.get("release_id") == release.get("release_id")
+        && manifest.get("release_sequence") == release.get("release_sequence")
+        && manifest.get("released_at") == release.get("released_at")
+        && manifest.get("environment_id") == release.get("environment_id")
+        && manifest.get("key_id") == release.get("key_id")
+        && manifest.get("kind") == release.get("kind")
+        && manifest.get("rollback_target_release_id") == release.get("rollback_target_release_id")
+        && manifest.get("principal_id") == predicate.pointer("/authority/human_principal_id")
+        && digest_field(manifest, "authorization_decision_digest")
+            == predicate
+                .pointer("/authority/authorization_decision_digest")
+                .and_then(Value::as_str)
+                .and_then(Digest::parse);
+    match string(manifest, "api_version") {
+        Some("proof.dev/release/v1") => {
+            common
+                && v1_release_manifest_shape_is_exact(manifest)
+                && string(predicate, "api_version") == Some("proof.dev/release-proof-predicate/v1")
+                && predicate
+                    .pointer("/authority/delegation_chain")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+                && manifest.get("edition_id") == release.get("edition_id")
+                && manifest.get("edition_digest") == release.get("edition_digest")
+                && manifest.get("previous_release_id") == release.get("previous_release_id")
+                && predicate.pointer("/origin/workspace_id") == manifest.get("workspace_id")
+        }
+        Some("proof.dev/release/v2") => {
+            common
+                && string(predicate, "api_version") == Some("proof.dev/release-proof-predicate/v2")
+                && string(predicate, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+                && manifest.get("base_release") == release.get("base_release")
+                && manifest.get("changeset_id") == release.get("changeset_id")
+                && manifest.get("edition") == release.get("edition")
+                && manifest.get("resource_intent_id") == release.get("resource_intent_id")
+                && manifest.get("exact_delta_digest") == predicate.get("exact_delta_digest")
+        }
+        _ => false,
+    }
+}
+
+fn v1_release_manifest_shape_is_exact(manifest: &Value) -> bool {
+    let exact = object_keys_exact(
+        manifest,
+        &[
+            "api_version",
+            "authorization_decision_digest",
+            "delegation_id",
+            "edition_digest",
+            "edition_id",
+            "environment_config_digest",
+            "environment_config_version",
+            "environment_id",
+            "key_id",
+            "kind",
+            "previous_release_id",
+            "principal_id",
+            "proof_id",
+            "release_id",
+            "release_sequence",
+            "released_at",
+            "rollback_target_release_id",
+            "workspace_id",
+        ],
+    ) && string(manifest, "api_version") == Some("proof.dev/release/v1")
+        && digest_field(manifest, "authorization_decision_digest").is_some()
+        && manifest.get("delegation_id").is_some_and(Value::is_null)
+        && digest_field(manifest, "edition_digest").is_some()
+        && digest_field(manifest, "environment_config_digest").is_some()
+        && u64_field(manifest, "environment_config_version").is_some()
+        && u64_field(manifest, "release_sequence").is_some()
+        && string(manifest, "released_at")
+            .and_then(parse_timestamp)
+            .is_some()
+        && [
+            "edition_id",
+            "environment_id",
+            "key_id",
+            "principal_id",
+            "proof_id",
+            "release_id",
+            "workspace_id",
+        ]
+        .iter()
+        .all(|field| string(manifest, field).is_some())
+        && manifest
+            .get("previous_release_id")
+            .is_some_and(|value| value.is_null() || value.as_str().is_some());
+    let kind = match string(manifest, "kind") {
+        Some("promotion") => manifest
+            .get("rollback_target_release_id")
+            .is_some_and(Value::is_null),
+        Some("rollback") => {
+            string(manifest, "previous_release_id").is_some()
+                && string(manifest, "rollback_target_release_id").is_some()
+        }
+        _ => false,
+    };
+    exact && kind
+}
+
+fn v2_predicate_shape_is_exact(predicate: &Value) -> bool {
+    let authority = predicate.get("authority").unwrap_or(&Value::Null);
+    let implementation = predicate.get("implementation").unwrap_or(&Value::Null);
+    let release = predicate.get("release").unwrap_or(&Value::Null);
+    let state = predicate.get("state").unwrap_or(&Value::Null);
+    let base_release = release.get("base_release").unwrap_or(&Value::Null);
+    let edition = release.get("edition").unwrap_or(&Value::Null);
+    let implementation_matches = object_keys_exact(
+        implementation,
+        &[
+            "canonical_json",
+            "digest",
+            "dsse",
+            "known_state",
+            "signature",
+            "statement",
+        ],
+    ) && string(implementation, "canonical_json") == Some("RFC 8785")
+        && string(implementation, "digest") == Some("BLAKE3-256 domain-separated")
+        && string(implementation, "dsse") == Some("DSSE v1 PAE")
+        && implementation.get("known_state") == state.get("api_version")
+        && string(implementation, "signature") == Some("Ed25519")
+        && string(implementation, "statement") == Some("in-toto Statement v1");
+    let release_shape =
+        object_keys_exact(
+            release,
+            &[
+                "base_release",
+                "changeset_id",
+                "edition",
+                "environment_id",
+                "key_id",
+                "kind",
+                "release_digest",
+                "release_id",
+                "release_sequence",
+                "released_at",
+                "resource_intent_id",
+                "rollback_target_release_id",
+            ],
+        ) && object_keys_exact(base_release, &["api_version", "digest", "release_id"])
+            && object_keys_exact(edition, &["api_version", "digest", "edition_id"])
+            && object_keys_exact(state, &["api_version", "authoritative_sequence", "digest"]);
+    let kind_shape = match string(release, "kind") {
+        Some("promotion") => {
+            release.get("changeset_id").is_some_and(Value::is_string)
+                && release
+                    .get("resource_intent_id")
+                    .is_some_and(Value::is_string)
+                && release
+                    .get("rollback_target_release_id")
+                    .is_some_and(Value::is_null)
+                && predicate
+                    .get("content_evidence")
+                    .is_some_and(Value::is_object)
+        }
+        Some("rollback") => {
+            release.get("changeset_id").is_some_and(Value::is_null)
+                && release
+                    .get("resource_intent_id")
+                    .is_some_and(Value::is_null)
+                && release
+                    .get("rollback_target_release_id")
+                    .is_some_and(Value::is_string)
+                && predicate
+                    .get("content_evidence")
+                    .is_some_and(Value::is_null)
+        }
+        _ => false,
+    };
+    object_keys_exact(
+        predicate,
+        &[
+            "api_version",
+            "authority",
+            "content_evidence",
+            "exact_delta",
+            "exact_delta_digest",
+            "implementation",
+            "release",
+            "state",
+            "workspace_id",
+        ],
+    ) && object_keys_exact(
+        authority,
+        &[
+            "authorization_decision_digest",
+            "human_principal_id",
+            "policy_profile",
+        ],
+    ) && string(predicate, "api_version") == Some("proof.dev/release-proof-predicate/v2")
+        && implementation_matches
+        && release_shape
+        && kind_shape
+}
+
+fn release_predicate_type_matches(
+    predicate_type: Option<&str>,
+    predicate_api_version: Option<&str>,
+    manifest_api_version: Option<&str>,
+) -> bool {
+    matches!(
+        (predicate_type, predicate_api_version, manifest_api_version,),
+        (
+            Some(RELEASE_PREDICATE_TYPE_V1),
+            Some("proof.dev/release-proof-predicate/v1"),
+            Some("proof.dev/release/v1"),
+        ) | (
+            Some(RELEASE_PREDICATE_TYPE_V2),
+            Some("proof.dev/release-proof-predicate/v2"),
+            Some("proof.dev/release/v2"),
+        )
+    )
+}
+
+fn promotion_content_evidence_shape_is_exact(content: &Value) -> bool {
+    let base = content.get("base").unwrap_or(&Value::Null);
+    let changeset = content.get("changeset").unwrap_or(&Value::Null);
+    let resource_intent = content.get("resource_intent").unwrap_or(&Value::Null);
+    let base_edition = base.get("edition").unwrap_or(&Value::Null);
+    let base_state = base.get("known_state").unwrap_or(&Value::Null);
+    let base_release = base.get("release").unwrap_or(&Value::Null);
+    let resulting_state = content.get("resulting_state").unwrap_or(&Value::Null);
+    object_keys_exact(
+        content,
+        &[
+            "base",
+            "changeset",
+            "context_pack_digest",
+            "renditions",
+            "resource_intent",
+            "resulting_state",
+            "validations",
+        ],
+    ) && object_keys_exact(base, &["edition", "known_state", "release"])
+        && object_keys_exact(base_edition, &["api_version", "digest", "edition_id"])
+        && object_keys_exact(
+            base_state,
+            &["api_version", "authoritative_sequence", "digest"],
+        )
+        && object_keys_exact(base_release, &["api_version", "digest", "release_id"])
+        && object_keys_exact(
+            changeset,
+            &[
+                "changeset_id",
+                "effective_leaf_digest",
+                "proposal_digest",
+                "sealed_changeset_digest",
+            ],
+        )
+        && object_keys_exact(resource_intent, &["digest", "intent_id", "targets"])
+        && resource_intent
+            .get("targets")
+            .and_then(Value::as_array)
+            .is_some_and(|targets| {
+                targets
+                    .iter()
+                    .all(|target| object_keys_exact(target, &["locale", "object_id", "schema_id"]))
+            })
+        && object_keys_exact(
+            resulting_state,
+            &["api_version", "authoritative_sequence", "digest"],
+        )
+        && content
+            .get("validations")
+            .and_then(Value::as_array)
+            .is_some_and(|validations| {
+                validations.iter().all(|validation| {
+                    object_keys_exact(
+                        validation,
+                        &[
+                            "attempt",
+                            "previous_validation_result_digest",
+                            "proposal_digest",
+                            "results_digest",
+                            "valid",
+                        ],
+                    )
+                })
+            })
+        && content
+            .get("renditions")
+            .and_then(Value::as_array)
+            .is_some_and(|renditions| {
+                renditions.iter().all(|rendition| {
+                    object_keys_exact(
+                        rendition,
+                        &[
+                            "edit_id",
+                            "locale",
+                            "object_id",
+                            "rendition_digest",
+                            "schema_id",
+                            "schema_version",
+                            "source_object_digest",
+                        ],
+                    )
+                })
+            })
+}
+
+fn statement_subjects_are_exact(
+    statement: &Value,
+    release_id: Option<&str>,
+    release_digest: Option<Digest>,
+    edition_id: Option<&str>,
+    edition_digest: Option<Digest>,
+) -> bool {
+    let Some((release_id, release_digest, edition_id, edition_digest)) = release_id
+        .zip(release_digest)
+        .zip(edition_id.zip(edition_digest))
+        .map(
+            |((release_id, release_digest), (edition_id, edition_digest))| {
+                (release_id, release_digest, edition_id, edition_digest)
+            },
+        )
+    else {
+        return false;
+    };
+    if !object_keys_exact(
+        statement,
+        &["_type", "predicate", "predicateType", "subject"],
+    ) {
+        return false;
+    }
+    let expected = BTreeMap::from([
+        (format!("proof:edition:{edition_id}"), edition_digest.hex()),
+        (format!("proof:release:{release_id}"), release_digest.hex()),
+    ]);
+    let Some(subjects) = statement
+        .get("subject")
+        .and_then(Value::as_array)
+        .filter(|subjects| subjects.len() == 2)
+    else {
+        return false;
+    };
+    let actual = subjects
+        .iter()
+        .map(|subject| {
+            if !object_keys_exact(subject, &["digest", "name"])
+                || !subject
+                    .get("digest")
+                    .is_some_and(|digest| object_keys_exact(digest, &["blake3"]))
+            {
+                return None;
+            }
+            Some((
+                string(subject, "name")?.to_owned(),
+                subject.pointer("/digest/blake3")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect::<Option<BTreeMap<_, _>>>();
+    actual == Some(expected)
+}
+
+fn required_historical_role_artifact(
+    loaded: &LoadedBundle,
+    role: EvidenceRole,
+    kind: ArtifactKind,
+    digest: Digest,
+) -> Result<&LoadedArtifact, HistoricalEvidenceState> {
+    match loaded.required_role_artifact(role, digest) {
+        RequiredArtifact::Available(artifact) => {
+            let reference = ArtifactRef {
+                artifact_kind: kind,
+                digest,
+            };
+            artifact_has_role(loaded, role, reference)
+                .then_some(artifact)
+                .ok_or(HistoricalEvidenceState::Invalid)
+        }
+        RequiredArtifact::MissingRequiredExternal => Err(HistoricalEvidenceState::Incomplete),
+        RequiredArtifact::InvalidOrAbsent => Err(HistoricalEvidenceState::Invalid),
+    }
+}
+
+fn v1_known_state_shape_is_exact(value: &Value) -> bool {
+    let schemas_present = match value.get("schemas") {
+        Some(Value::Array(schemas)) if !schemas.is_empty() => true,
+        None => false,
+        _ => return false,
+    };
+    let objects_present = match value.get("objects") {
+        Some(Value::Array(objects)) if !objects.is_empty() => true,
+        None => false,
+        _ => return false,
+    };
+    let mut expected = vec!["api_version", "authoritative_sequence", "workspace_id"];
+    if objects_present {
+        expected.push("objects");
+    }
+    if schemas_present {
+        expected.push("schemas");
+    }
+    object_keys_exact(value, &expected)
+}
+
+fn v1_edition_shape_is_exact(value: &Value) -> bool {
+    let objects_present = match value.get("objects") {
+        Some(Value::Array(objects)) if !objects.is_empty() => true,
+        None => false,
+        _ => return false,
+    };
+    let mut expected = vec![
+        "api_version",
+        "authoritative_sequence",
+        "changesets",
+        "schema_set_digest",
+        "schemas",
+        "state_digest",
+        "workspace_id",
+    ];
+    if objects_present {
+        expected.extend(["object_set_digest", "objects"]);
+    }
+    object_keys_exact(value, &expected)
+        && string(value, "api_version") == Some("proof.dev/edition/v1")
+        && u64_field(value, "authoritative_sequence").is_some()
+        && value.get("changesets").is_some_and(Value::is_array)
+        && digest_field(value, "schema_set_digest").is_some()
+        && value.get("schemas").is_some_and(Value::is_array)
+        && digest_field(value, "state_digest").is_some()
+        && string(value, "workspace_id").is_some()
+        && (!objects_present || digest_field(value, "object_set_digest").is_some())
+}
+
+fn v1_object_revision_shape_is_exact(value: &Value) -> bool {
+    object_keys_exact(
+        value,
+        &[
+            "api_version",
+            "content",
+            "lifecycle_state",
+            "object_id",
+            "relationships",
+            "revision",
+            "schema_id",
+            "schema_version",
+        ],
+    ) && string(value, "api_version") == Some("proof.dev/object-revision/v1")
+        && value.get("content").is_some_and(Value::is_object)
+        && string(value, "lifecycle_state") == Some("active")
+        && value
+            .get("relationships")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+        && u64_field(value, "revision") == Some(1)
+}
+
+fn historical_v1_ancestry_boundary(
+    loaded: &LoadedBundle,
+    manifest: &Value,
+    base_state: &Value,
+    target_edition: &Value,
+) -> Result<Option<HistoricalV1PrefixBoundary>, HistoricalEvidenceState> {
+    let previous_release_id = match manifest.get("previous_release_id") {
+        Some(Value::Null) => {
+            let canonical_genesis = string(manifest, "kind") == Some("promotion")
+                && v1_known_state_shape_is_exact(base_state)
+                && string(base_state, "api_version") == Some("proof.dev/known-state/v1")
+                && string(base_state, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+                && u64_field(base_state, "authoritative_sequence") == Some(0)
+                && array_field(base_state, "schemas").is_some_and(<[Value]>::is_empty)
+                && array_field(base_state, "objects").is_some_and(<[Value]>::is_empty);
+            return if canonical_genesis {
+                Ok(None)
+            } else {
+                Err(HistoricalEvidenceState::Invalid)
+            };
+        }
+        Some(Value::String(value)) => value.as_str(),
+        _ => return Err(HistoricalEvidenceState::Invalid),
+    };
+    let mut previous_releases = artifacts_for_role(loaded, EvidenceRole::ReleaseManifest)
+        .filter(|artifact| string(&artifact.value, "release_id") == Some(previous_release_id));
+    let Some(previous_release) = previous_releases.next() else {
+        return Err(
+            if missing_external_with_any_role(loaded, &[EvidenceRole::ReleaseManifest]).is_some() {
+                HistoricalEvidenceState::Incomplete
+            } else {
+                HistoricalEvidenceState::Invalid
+            },
+        );
+    };
+    if previous_releases.next().is_some()
+        || string(&previous_release.value, "workspace_id")
+            != Some(loaded.bundle.workspace_id.as_str())
+        || string(&previous_release.value, "environment_id") != string(manifest, "environment_id")
+        || u64_field(&previous_release.value, "release_sequence")
+            .zip(u64_field(manifest, "release_sequence"))
+            .is_none_or(|(previous, current)| previous >= current)
+    {
+        return Err(HistoricalEvidenceState::Invalid);
+    }
+    if string(manifest, "kind") == Some("rollback") {
+        return Ok(None);
+    }
+    if string(manifest, "kind") != Some("promotion")
+        || string(&previous_release.value, "api_version") != Some("proof.dev/release/v1")
+    {
+        return Err(HistoricalEvidenceState::Invalid);
+    }
+    let previous_release_digest = domain_digest(ArtifactKind::ReleaseV1, &previous_release.bytes);
+    if !artifact_has_role(
+        loaded,
+        EvidenceRole::ReleaseManifest,
+        ArtifactRef {
+            artifact_kind: ArtifactKind::ReleaseV1,
+            digest: previous_release_digest,
+        },
+    ) {
+        return Err(HistoricalEvidenceState::Invalid);
+    }
+    let Some(edition_digest) = digest_field(&previous_release.value, "edition_digest") else {
+        return Err(HistoricalEvidenceState::Invalid);
+    };
+    let edition = required_historical_role_artifact(
+        loaded,
+        EvidenceRole::Edition,
+        ArtifactKind::EditionV1,
+        edition_digest,
+    )?;
+    let Some((previous_changesets, target_changesets, previous_state)) = edition
+        .value
+        .get("changesets")
+        .and_then(Value::as_array)
+        .zip(target_edition.get("changesets").and_then(Value::as_array))
+        .zip(digest_field(&edition.value, "state_digest"))
+        .map(|((previous, target), state)| (previous, target, state))
+    else {
+        return Err(HistoricalEvidenceState::Invalid);
+    };
+    if !v1_edition_shape_is_exact(&edition.value)
+        || string(&edition.value, "workspace_id") != Some(loaded.bundle.workspace_id.as_str())
+        || u64_field(&edition.value, "authoritative_sequence")
+            .zip(u64_field(target_edition, "authoritative_sequence"))
+            .is_none_or(|(previous, current)| previous > current)
+        || previous_changesets.len() > target_changesets.len()
+        || previous_changesets != &target_changesets[..previous_changesets.len()]
+    {
+        return Err(HistoricalEvidenceState::Invalid);
+    }
+    Ok(Some(HistoricalV1PrefixBoundary {
+        changeset_count: previous_changesets.len(),
+        state_digest: previous_state,
+    }))
+}
+
+fn historical_v1_changeset_shape_is_exact(value: &Value) -> bool {
+    object_keys_exact(
+        value,
+        &[
+            "api_version",
+            "base_authoritative_sequence",
+            "base_state",
+            "changeset_id",
+            "created_at",
+            "edits",
+            "idempotency_key",
+            "intent",
+            "policy_profile",
+            "principal_id",
+            "requested_base_state",
+            "validation_profile",
+            "workspace_id",
+        ],
+    ) && string(value, "api_version") == Some("proof.dev/changeset/v1")
+        && value
+            .get("edits")
+            .and_then(Value::as_array)
+            .is_some_and(|edits| {
+                !edits.is_empty()
+                    && edits.iter().enumerate().all(|(index, edit)| {
+                        let shape = match string(edit, "kind") {
+                            Some("schema.create") => object_keys_exact(
+                                edit,
+                                &[
+                                    "document_digest",
+                                    "edit_id",
+                                    "kind",
+                                    "ordinal",
+                                    "schema_id",
+                                    "schema_version",
+                                ],
+                            ),
+                            Some("object.create") => object_keys_exact(
+                                edit,
+                                &[
+                                    "edit_id",
+                                    "kind",
+                                    "object_digest",
+                                    "object_id",
+                                    "ordinal",
+                                    "schema_id",
+                                    "schema_version",
+                                ],
+                            ),
+                            _ => false,
+                        };
+                        shape
+                            && u64_field(edit, "ordinal")
+                                == index
+                                    .checked_add(1)
+                                    .and_then(|ordinal| u64::try_from(ordinal).ok())
+                    })
+            })
+        && digest_field(value, "base_state").is_some()
+        && string(value, "changeset_id").is_some()
+        && string(value, "created_at")
+            .and_then(parse_timestamp)
+            .is_some()
+        && string(value, "idempotency_key").is_some()
+        && string(value, "intent").is_some()
+        && string(value, "policy_profile") == Some(V1_POLICY_PROFILE)
+        && string(value, "principal_id").is_some()
+        && value.get("requested_base_state").is_some_and(|requested| {
+            requested.is_null() || requested.as_str().and_then(Digest::parse).is_some()
+        })
+        && string(value, "validation_profile") == Some(V1_VALIDATION_PROFILE)
+        && string(value, "workspace_id").is_some()
+}
+
+fn historical_v1_validation_shape_is_exact(value: &Value) -> bool {
+    object_keys_exact(
+        value,
+        &[
+            "api_version",
+            "base_state",
+            "changeset_digest",
+            "changeset_id",
+            "findings",
+            "valid",
+            "validation_profile",
+            "validator",
+        ],
+    ) && string(value, "api_version") == Some("proof.dev/validation-results/v1")
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "historical v1 evidence binds the signed lifecycle to its exact origin, principal, and policy"
+)]
+fn historical_v1_evidence_state(
+    loaded: &LoadedBundle,
+    evidence: Option<&Value>,
+    changesets: Option<&Value>,
+    released_at: Option<OffsetDateTime>,
+    origin_base_state: Digest,
+    origin_base_sequence: u64,
+    origin_sequence: u64,
+    manifest: &Value,
+    required_approval: Option<&str>,
+    base_state: &Value,
+    target_state: &Value,
+    target_edition: &Value,
+    target_state_digest: Digest,
+    previous_boundary: Option<HistoricalV1PrefixBoundary>,
+) -> HistoricalEvidenceState {
+    let Some((evidence, changesets, released_at)) = evidence
+        .and_then(Value::as_array)
+        .zip(changesets.and_then(Value::as_array))
+        .zip(released_at)
+        .map(|((evidence, changesets), released_at)| (evidence, changesets, released_at))
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    if evidence.len() != changesets.len()
+        || !v1_known_state_shape_is_exact(base_state)
+        || !v1_known_state_shape_is_exact(target_state)
+        || string(base_state, "api_version") != Some("proof.dev/known-state/v1")
+        || string(target_state, "api_version") != Some("proof.dev/known-state/v1")
+        || string(base_state, "workspace_id") != Some(loaded.bundle.workspace_id.as_str())
+        || string(target_state, "workspace_id") != Some(loaded.bundle.workspace_id.as_str())
+        || string(manifest, "principal_id").is_none()
+    {
+        return HistoricalEvidenceState::Invalid;
+    }
+    let Some(mut expected_schemas) = array_field(base_state, "schemas")
+        .and_then(|schemas| ordered_value_map(schemas, schema_key))
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let Some(mut expected_objects) = array_field(base_state, "objects")
+        .and_then(|objects| ordered_value_map(objects, object_key))
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let target_schemas = array_field(target_state, "schemas")
+        .and_then(|schemas| ordered_value_map(schemas, schema_key));
+    let target_objects = array_field(target_state, "objects")
+        .and_then(|objects| ordered_value_map(objects, object_key));
+    let edition_schemas = array_field(target_edition, "schemas")
+        .and_then(|schemas| ordered_value_map(schemas, schema_key));
+    let edition_objects = array_field(target_edition, "objects")
+        .and_then(|objects| ordered_value_map(objects, object_key));
+    if target_schemas.is_none()
+        || target_objects.is_none()
+        || edition_schemas.is_none()
+        || edition_objects.is_none()
+    {
+        return HistoricalEvidenceState::Invalid;
+    }
+    let Some(required_approval) = required_approval else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let mut current_sequence = origin_base_sequence;
+    let mut current_state_digest = origin_base_state;
+    for (index, (signed, origin_changeset)) in evidence.iter().zip(changesets).enumerate() {
+        if previous_boundary.is_some_and(|boundary| {
+            boundary.changeset_count == index && boundary.state_digest != current_state_digest
+        }) {
+            return HistoricalEvidenceState::Invalid;
+        }
+        let approval = signed.get("approval").unwrap_or(&Value::Null);
+        let submission = signed.get("submission").unwrap_or(&Value::Null);
+        let validation = signed.get("validation").unwrap_or(&Value::Null);
+        if !object_keys_exact(origin_changeset, &["changeset_digest", "changeset_id"])
+            || !object_keys_exact(
+                signed,
+                &[
+                    "approval",
+                    "authoritative_sequence",
+                    "changeset_digest",
+                    "changeset_id",
+                    "committed_at",
+                    "created_at",
+                    "submission",
+                    "validation",
+                ],
+            )
+            || !object_keys_exact(approval, &["approval_name", "approved_at", "principal_id"])
+            || !object_keys_exact(submission, &["submitted_at"])
+            || !object_keys_exact(
+                validation,
+                &["results_digest", "validation_profile", "validator"],
+            )
+            || signed.get("changeset_id") != origin_changeset.get("changeset_id")
+            || signed.get("changeset_digest") != origin_changeset.get("changeset_digest")
+            || string(approval, "approval_name") != Some(required_approval)
+            || string(approval, "principal_id").is_none()
+        {
+            return HistoricalEvidenceState::Invalid;
+        }
+        let Some(changeset_digest) = digest_field(signed, "changeset_digest") else {
+            return HistoricalEvidenceState::Invalid;
+        };
+        let changeset = match required_historical_role_artifact(
+            loaded,
+            EvidenceRole::ChangeSet,
+            ArtifactKind::ChangeSetV1,
+            changeset_digest,
+        ) {
+            Ok(artifact) => artifact,
+            Err(HistoricalEvidenceState::Incomplete) => return HistoricalEvidenceState::Incomplete,
+            Err(HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available) => {
+                return HistoricalEvidenceState::Invalid;
+            }
+        };
+        let signed_sequence = u64_field(signed, "authoritative_sequence");
+        let requested_base_matches =
+            changeset
+                .value
+                .get("requested_base_state")
+                .is_some_and(|requested| {
+                    requested.is_null()
+                        || requested == changeset.value.get("base_state").unwrap_or(&Value::Null)
+                });
+        if !historical_v1_changeset_shape_is_exact(&changeset.value)
+            || string(&changeset.value, "workspace_id") != Some(loaded.bundle.workspace_id.as_str())
+            || string(&changeset.value, "principal_id") != string(approval, "principal_id")
+            || changeset.value.get("changeset_id") != signed.get("changeset_id")
+            || changeset.value.get("created_at") != signed.get("created_at")
+            || changeset.value.get("validation_profile") != validation.get("validation_profile")
+            || u64_field(&changeset.value, "base_authoritative_sequence") != Some(current_sequence)
+            || digest_field(&changeset.value, "base_state") != Some(current_state_digest)
+            || !requested_base_matches
+            || signed_sequence.is_none_or(|sequence| sequence > origin_sequence)
+        {
+            return HistoricalEvidenceState::Invalid;
+        }
+        let Some(validation_digest) = digest_field(validation, "results_digest") else {
+            return HistoricalEvidenceState::Invalid;
+        };
+        let results = match required_historical_role_artifact(
+            loaded,
+            EvidenceRole::ValidationAttempt,
+            ArtifactKind::ValidationResultsV1,
+            validation_digest,
+        ) {
+            Ok(artifact) => artifact,
+            Err(HistoricalEvidenceState::Incomplete) => return HistoricalEvidenceState::Incomplete,
+            Err(HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available) => {
+                return HistoricalEvidenceState::Invalid;
+            }
+        };
+        let Some(edits) = changeset.value.get("edits").and_then(Value::as_array) else {
+            return HistoricalEvidenceState::Invalid;
+        };
+        let expected_validator = if edits
+            .iter()
+            .any(|edit| string(edit, "kind") == Some("object.create"))
+        {
+            V1_OBJECT_VALIDATOR
+        } else {
+            V1_SCHEMA_VALIDATOR
+        };
+        let timestamps = string(signed, "created_at")
+            .and_then(parse_timestamp)
+            .zip(string(submission, "submitted_at").and_then(parse_timestamp))
+            .zip(string(approval, "approved_at").and_then(parse_timestamp))
+            .zip(string(signed, "committed_at").and_then(parse_timestamp));
+        if !historical_v1_validation_shape_is_exact(&results.value)
+            || results.value.get("base_state") != changeset.value.get("base_state")
+            || digest_field(&results.value, "changeset_digest") != Some(changeset_digest)
+            || results.value.get("changeset_id") != signed.get("changeset_id")
+            || results.value.get("validation_profile") != validation.get("validation_profile")
+            || results.value.get("validator") != validation.get("validator")
+            || string(&results.value, "validation_profile") != Some(V1_VALIDATION_PROFILE)
+            || string(&results.value, "validator") != Some(expected_validator)
+            || results.value.get("valid") != Some(&Value::Bool(true))
+            || !results
+                .value
+                .get("findings")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+            || timestamps.is_none_or(|(((created, submitted), approved), committed)| {
+                created > submitted
+                    || submitted > approved
+                    || approved > committed
+                    || committed > released_at
+            })
+        {
+            return HistoricalEvidenceState::Invalid;
+        }
+        for edit in edits {
+            match string(edit, "kind") {
+                Some("schema.create") => {
+                    let Some(document_digest) = digest_field(edit, "document_digest") else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    match required_historical_role_artifact(
+                        loaded,
+                        EvidenceRole::Schema,
+                        ArtifactKind::SchemaVersionV1,
+                        document_digest,
+                    ) {
+                        Ok(document) if schema::draft_2020_12_document(&document.value) => {}
+                        Ok(_) => return HistoricalEvidenceState::Invalid,
+                        Err(HistoricalEvidenceState::Incomplete) => {
+                            return HistoricalEvidenceState::Incomplete;
+                        }
+                        Err(
+                            HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available,
+                        ) => {
+                            return HistoricalEvidenceState::Invalid;
+                        }
+                    }
+                    let entry = json!({
+                        "document_digest": document_digest,
+                        "schema_id": edit.get("schema_id"),
+                        "schema_version": edit.get("schema_version"),
+                    });
+                    let Some(key) = schema_key(&entry) else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    if expected_schemas.insert(key, entry).is_some() {
+                        return HistoricalEvidenceState::Invalid;
+                    }
+                }
+                Some("object.create") => {
+                    let Some(object_digest) = digest_field(edit, "object_digest") else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    let object = match required_historical_role_artifact(
+                        loaded,
+                        EvidenceRole::Object,
+                        ArtifactKind::ObjectRevisionV1,
+                        object_digest,
+                    ) {
+                        Ok(artifact) => artifact,
+                        Err(HistoricalEvidenceState::Incomplete) => {
+                            return HistoricalEvidenceState::Incomplete;
+                        }
+                        Err(
+                            HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available,
+                        ) => {
+                            return HistoricalEvidenceState::Invalid;
+                        }
+                    };
+                    if !v1_object_revision_shape_is_exact(&object.value)
+                        || object.value.get("object_id") != edit.get("object_id")
+                        || object.value.get("schema_id") != edit.get("schema_id")
+                        || object.value.get("schema_version") != edit.get("schema_version")
+                    {
+                        return HistoricalEvidenceState::Invalid;
+                    }
+                    let schema_identity = json!({
+                        "schema_id": edit.get("schema_id"),
+                        "schema_version": edit.get("schema_version"),
+                    });
+                    let Some(schema_identity) = schema_key(&schema_identity) else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    let Some(schema_state) = expected_schemas.get(&schema_identity) else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    let Some(schema_digest) = digest_field(schema_state, "document_digest") else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    let schema_document = match required_historical_role_artifact(
+                        loaded,
+                        EvidenceRole::Schema,
+                        ArtifactKind::SchemaVersionV1,
+                        schema_digest,
+                    ) {
+                        Ok(artifact) => artifact,
+                        Err(HistoricalEvidenceState::Incomplete) => {
+                            return HistoricalEvidenceState::Incomplete;
+                        }
+                        Err(
+                            HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available,
+                        ) => return HistoricalEvidenceState::Invalid,
+                    };
+                    if !schema::draft_2020_12_document(&schema_document.value)
+                        || !schema::document_accepts(
+                            &schema_document.value,
+                            object.value.get("content").unwrap_or(&Value::Null),
+                        )
+                    {
+                        return HistoricalEvidenceState::Invalid;
+                    }
+                    let entry = json!({
+                        "lifecycle_state": "active",
+                        "object_digest": object_digest,
+                        "object_id": edit.get("object_id"),
+                        "revision": 1,
+                        "schema_id": edit.get("schema_id"),
+                        "schema_version": edit.get("schema_version"),
+                    });
+                    let Some(key) = object_key(&entry) else {
+                        return HistoricalEvidenceState::Invalid;
+                    };
+                    if expected_objects.insert(key, entry).is_some() {
+                        return HistoricalEvidenceState::Invalid;
+                    }
+                }
+                _ => return HistoricalEvidenceState::Invalid,
+            }
+        }
+        let Some(next_sequence) = u64::try_from(edits.len())
+            .ok()
+            .and_then(|count| current_sequence.checked_add(count))
+        else {
+            return HistoricalEvidenceState::Invalid;
+        };
+        if signed_sequence != Some(next_sequence) {
+            return HistoricalEvidenceState::Invalid;
+        }
+        current_sequence = next_sequence;
+        let mut next_state = serde_json::Map::from_iter([
+            (
+                "api_version".to_owned(),
+                Value::String("proof.dev/known-state/v1".to_owned()),
+            ),
+            (
+                "authoritative_sequence".to_owned(),
+                Value::from(current_sequence),
+            ),
+            (
+                "workspace_id".to_owned(),
+                Value::String(loaded.bundle.workspace_id.clone()),
+            ),
+        ]);
+        if !expected_objects.is_empty() {
+            next_state.insert(
+                "objects".to_owned(),
+                Value::Array(expected_objects.values().cloned().collect()),
+            );
+        }
+        if !expected_schemas.is_empty() {
+            next_state.insert(
+                "schemas".to_owned(),
+                Value::Array(expected_schemas.values().cloned().collect()),
+            );
+        }
+        let next_state = Value::Object(next_state);
+        let Some(bytes) = canonical_bytes(&next_state).ok() else {
+            return HistoricalEvidenceState::Invalid;
+        };
+        current_state_digest = domain_digest(ArtifactKind::KnownStateV1, &bytes);
+    }
+    if previous_boundary.is_some_and(|boundary| {
+        boundary.changeset_count == evidence.len() && boundary.state_digest != current_state_digest
+    }) {
+        return HistoricalEvidenceState::Invalid;
+    }
+    let expected_schema_set = json!({
+        "api_version": "proof.dev/schema-set/v1",
+        "schemas": expected_schemas.values().cloned().collect::<Vec<_>>(),
+    });
+    let expected_object_set = json!({
+        "api_version": "proof.dev/object-set/v1",
+        "objects": expected_objects.values().cloned().collect::<Vec<_>>(),
+    });
+    let schema_set_digest = canonical_bytes(&expected_schema_set)
+        .ok()
+        .map(|bytes| domain_digest(ArtifactKind::SchemaSetV1, &bytes));
+    let object_set_digest = canonical_bytes(&expected_object_set)
+        .ok()
+        .map(|bytes| domain_digest(ArtifactKind::ObjectSetV1, &bytes));
+    let object_set_matches = if expected_objects.is_empty() {
+        digest_field(target_edition, "object_set_digest")
+            .is_none_or(|digest| Some(digest) == object_set_digest)
+    } else {
+        digest_field(target_edition, "object_set_digest") == object_set_digest
+    };
+    if current_sequence != origin_sequence
+        || current_state_digest != target_state_digest
+        || Some(&expected_schemas) != target_schemas.as_ref()
+        || Some(&expected_objects) != target_objects.as_ref()
+        || Some(&expected_schemas) != edition_schemas.as_ref()
+        || Some(&expected_objects) != edition_objects.as_ref()
+        || digest_field(target_edition, "schema_set_digest") != schema_set_digest
+        || !object_set_matches
+    {
+        HistoricalEvidenceState::Invalid
+    } else {
+        HistoricalEvidenceState::Available
+    }
+}
+
+fn historical_v1_predicate_closure(
+    loaded: &LoadedBundle,
+    predicate: &Value,
+    manifest: &Value,
+) -> HistoricalEvidenceState {
+    let Some(edition_digest) = digest_field(manifest, "edition_digest") else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let edition = match loaded.required_role_artifact(EvidenceRole::Edition, edition_digest) {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let Some(state_digest) = predicate
+        .pointer("/origin/edition_state")
+        .and_then(Value::as_str)
+        .and_then(Digest::parse)
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let state = match loaded.required_role_artifact(EvidenceRole::KnownState, state_digest) {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let Some(base_state_digest) = predicate
+        .pointer("/origin/base_state")
+        .and_then(Value::as_str)
+        .and_then(Digest::parse)
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let base_state = match loaded
+        .required_role_artifact(EvidenceRole::KnownState, base_state_digest)
+    {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let Some(decision_digest) = digest_field(manifest, "authorization_decision_digest") else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let decision = match loaded
+        .required_role_artifact(EvidenceRole::ReleasePolicyDecision, decision_digest)
+    {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let Some(environment_digest) = digest_field(manifest, "environment_config_digest") else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let environment = match loaded
+        .required_role_artifact(EvidenceRole::EnvironmentConfig, environment_digest)
+    {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let origin = predicate.get("origin").unwrap_or(&Value::Null);
+    let policy = predicate.get("policy").unwrap_or(&Value::Null);
+    let authority = predicate.get("authority").unwrap_or(&Value::Null);
+    let release = predicate.get("release").unwrap_or(&Value::Null);
+    let implementation = predicate.get("implementation").unwrap_or(&Value::Null);
+    let exact_shapes = object_keys_exact(
+        predicate,
+        &[
+            "api_version",
+            "authority",
+            "evidence",
+            "implementation",
+            "origin",
+            "policy",
+            "release",
+        ],
+    ) && object_keys_exact(
+        authority,
+        &[
+            "authorization_decision_digest",
+            "delegation_chain",
+            "human_principal_id",
+            "policy_profile",
+        ],
+    ) && object_keys_exact(
+        origin,
+        &[
+            "authoritative_sequence",
+            "base_state",
+            "changesets",
+            "edition_state",
+            "workspace_id",
+        ],
+    ) && object_keys_exact(
+        policy,
+        &[
+            "decision",
+            "environment_config_digest",
+            "environment_config_version",
+            "required_approval",
+        ],
+    ) && object_keys_exact(
+        release,
+        &[
+            "edition_digest",
+            "edition_id",
+            "environment_id",
+            "key_id",
+            "kind",
+            "previous_release_id",
+            "release_digest",
+            "release_id",
+            "release_sequence",
+            "released_at",
+            "rollback_target_release_id",
+        ],
+    ) && object_keys_exact(
+        implementation,
+        &[
+            "canonical_json",
+            "digest",
+            "dsse",
+            "known_state",
+            "signature",
+            "statement",
+        ],
+    ) && implementation
+        == &json!({
+            "canonical_json": "RFC 8785",
+            "digest": "BLAKE3-256 domain-separated",
+            "dsse": "DSSE v1 PAE",
+            "known_state": "proof.dev/known-state/v1",
+            "signature": "Ed25519",
+            "statement": "in-toto Statement v1",
+        });
+    let origin_matches = v1_edition_shape_is_exact(&edition.value)
+        && string(&edition.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && digest_field(&edition.value, "state_digest") == Some(state_digest)
+        && edition.value.get("authoritative_sequence") == origin.get("authoritative_sequence")
+        && edition.value.get("changesets") == origin.get("changesets")
+        && string(origin, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && string(&state.value, "api_version") == Some("proof.dev/known-state/v1")
+        && string(&state.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && state.value.get("authoritative_sequence") == origin.get("authoritative_sequence")
+        && string(&base_state.value, "api_version") == Some("proof.dev/known-state/v1")
+        && string(&base_state.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && u64_field(&base_state.value, "authoritative_sequence")
+            .zip(u64_field(&state.value, "authoritative_sequence"))
+            .is_some_and(|(base, target)| base <= target);
+    let evidence_is_signed = predicate.get("evidence") == decision.value.get("evidence");
+    let policy_matches = string(policy, "decision") == Some("allow")
+        && policy.get("environment_config_digest")
+            == decision.value.get("environment_config_digest")
+        && policy.get("environment_config_version")
+            == decision.value.get("environment_config_version")
+        && policy.get("required_approval") == decision.value.get("required_approval")
+        && policy.get("environment_config_digest") == manifest.get("environment_config_digest")
+        && policy.get("environment_config_version") == manifest.get("environment_config_version")
+        && policy.get("required_approval") == environment.value.get("required_approval");
+    if !exact_shapes || !origin_matches || !evidence_is_signed || !policy_matches {
+        return HistoricalEvidenceState::Invalid;
+    }
+    let Some((origin_base_sequence, origin_sequence)) =
+        u64_field(&base_state.value, "authoritative_sequence")
+            .zip(u64_field(origin, "authoritative_sequence"))
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let ancestry =
+        historical_v1_ancestry_boundary(loaded, manifest, &base_state.value, &edition.value);
+    let previous_boundary = match ancestry {
+        Ok(boundary) => boundary,
+        Err(HistoricalEvidenceState::Incomplete) => return HistoricalEvidenceState::Incomplete,
+        Err(HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available) => {
+            return HistoricalEvidenceState::Invalid;
+        }
+    };
+    historical_v1_evidence_state(
+        loaded,
+        predicate.get("evidence"),
+        origin.get("changesets"),
+        string(release, "released_at").and_then(parse_timestamp),
+        base_state_digest,
+        origin_base_sequence,
+        origin_sequence,
+        manifest,
+        string(policy, "required_approval"),
+        &base_state.value,
+        &state.value,
+        &edition.value,
+        state_digest,
+        previous_boundary,
+    )
+}
+
+fn v1_release_decision_shape_is_exact(value: &Value) -> bool {
+    object_keys_exact(
+        value,
+        &[
+            "action",
+            "allowed",
+            "api_version",
+            "delegation_chain",
+            "edition_digest",
+            "edition_id",
+            "environment_config_digest",
+            "environment_config_version",
+            "environment_id",
+            "evaluated_at",
+            "evidence",
+            "operating_principal_id",
+            "policy_profile",
+            "previous_release_id",
+            "required_approval",
+            "rollback_target_release_id",
+            "workspace_id",
+        ],
+    ) && string(value, "api_version") == Some("proof.dev/release-authorization-decision/v1")
+}
+
+fn v2_release_decision_shape_is_exact(value: &Value) -> bool {
+    object_keys_exact(
+        value,
+        &[
+            "action",
+            "allowed",
+            "api_version",
+            "base_release",
+            "changeset_id",
+            "edition",
+            "environment_config_digest",
+            "environment_config_version",
+            "environment_id",
+            "evaluated_at",
+            "exact_delta_digest",
+            "kind",
+            "operating_principal_id",
+            "policy_profile",
+            "required_approval",
+            "resource_intent_id",
+            "rollback_target_release_id",
+            "workspace_id",
+        ],
+    ) && string(value, "api_version") == Some("proof.dev/release-authorization-decision/v2")
+}
+
+fn v1_environment_shape_is_exact(value: &Value) -> bool {
+    object_keys_exact(
+        value,
+        &[
+            "api_version",
+            "config_version",
+            "environment_id",
+            "policy_digest",
+            "policy_profile",
+            "required_approval",
+            "target_kind",
+            "workspace_id",
+        ],
+    ) && string(value, "api_version") == Some("proof.dev/environment/v1")
+        && u64_field(value, "config_version").is_some()
+        && string(value, "environment_id").is_some()
+        && digest_field(value, "policy_digest").is_some()
+        && string(value, "policy_profile") == Some(V1_RELEASE_POLICY_PROFILE)
+        && string(value, "required_approval").is_some()
+        && string(value, "target_kind") == Some(V1_RELEASE_TARGET)
+        && string(value, "workspace_id").is_some()
+}
+
+fn v1_policy_bundle_matches_environment(policy: &Value, environment: &Value) -> bool {
+    object_keys_exact(
+        policy,
+        &[
+            "api_version",
+            "profile",
+            "require_approved_changesets",
+            "require_signed_proof",
+            "required_approval",
+        ],
+    ) && string(policy, "api_version") == Some("proof.dev/release-policy/v1")
+        && policy.get("profile") == environment.get("policy_profile")
+        && policy.get("required_approval") == environment.get("required_approval")
+        && policy.get("require_approved_changesets") == Some(&Value::Bool(true))
+        && policy.get("require_signed_proof") == Some(&Value::Bool(true))
+}
+
+fn historical_release_policy(
+    loaded: &LoadedBundle,
+    trust: &TrustPolicy,
+    predicate: &Value,
+    release: &Value,
+    manifest: &Value,
+) -> HistoricalEvidenceState {
+    let Some(decision_digest) = predicate
+        .pointer("/authority/authorization_decision_digest")
+        .and_then(Value::as_str)
+        .and_then(Digest::parse)
+    else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let decision = match loaded
+        .required_role_artifact(EvidenceRole::ReleasePolicyDecision, decision_digest)
+    {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let Some(environment_digest) = digest_field(manifest, "environment_config_digest") else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let environment = match loaded
+        .required_role_artifact(EvidenceRole::EnvironmentConfig, environment_digest)
+    {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let Some(policy_digest) = digest_field(&environment.value, "policy_digest") else {
+        return HistoricalEvidenceState::Invalid;
+    };
+    let policy_bundle = match loaded
+        .required_role_artifact(EvidenceRole::EnvironmentPolicyBundle, policy_digest)
+    {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => return HistoricalEvidenceState::Incomplete,
+        RequiredArtifact::InvalidOrAbsent => return HistoricalEvidenceState::Invalid,
+    };
+    let policy_profile = predicate
+        .pointer("/authority/policy_profile")
+        .and_then(Value::as_str);
+    let accepted = trust.release.accepted_policy_profiles.iter().any(|policy| {
+        Some(policy.policy_profile.as_str()) == policy_profile
+            && policy.environment_config_digest == environment_digest
+    });
+    let common = accepted
+        && v1_environment_shape_is_exact(&environment.value)
+        && v1_policy_bundle_matches_environment(&policy_bundle.value, &environment.value)
+        && decision.value.get("allowed").and_then(Value::as_bool) == Some(true)
+        && string(&decision.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && decision.value.get("environment_id") == manifest.get("environment_id")
+        && decision.value.get("environment_config_digest")
+            == manifest.get("environment_config_digest")
+        && decision.value.get("environment_config_version")
+            == manifest.get("environment_config_version")
+        && string(&decision.value, "policy_profile") == policy_profile
+        && decision.value.get("evaluated_at") == release.get("released_at")
+        && decision.value.get("operating_principal_id") == manifest.get("principal_id")
+        && string(&environment.value, "api_version") == Some("proof.dev/environment/v1")
+        && string(&environment.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
+        && environment.value.get("environment_id") == manifest.get("environment_id")
+        && environment.value.get("config_version") == manifest.get("environment_config_version")
+        && string(&environment.value, "policy_profile") == policy_profile
+        && environment.value.get("required_approval") == decision.value.get("required_approval");
+    let version_specific = match string(manifest, "api_version") {
+        Some("proof.dev/release/v1") => {
+            let expected_action = match string(manifest, "kind") {
+                Some("promotion") => Some("release.promote"),
+                Some("rollback") => Some("release.rollback"),
+                _ => None,
+            };
+            v1_release_decision_shape_is_exact(&decision.value)
+                && string(&decision.value, "action") == expected_action
+                && decision
+                    .value
+                    .get("delegation_chain")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+                && decision.value.get("edition_id") == manifest.get("edition_id")
+                && decision.value.get("edition_digest") == manifest.get("edition_digest")
+                && decision.value.get("previous_release_id") == manifest.get("previous_release_id")
+                && decision.value.get("rollback_target_release_id")
+                    == manifest.get("rollback_target_release_id")
+        }
+        Some("proof.dev/release/v2") => {
+            v2_release_decision_shape_is_exact(&decision.value)
+                && string(&decision.value, "action") == Some("release.create")
+                && decision.value.get("base_release") == manifest.get("base_release")
+                && decision.value.get("changeset_id") == manifest.get("changeset_id")
+                && decision.value.get("edition") == manifest.get("edition")
+                && decision.value.get("exact_delta_digest") == manifest.get("exact_delta_digest")
+                && decision.value.get("kind") == manifest.get("kind")
+                && decision.value.get("resource_intent_id") == manifest.get("resource_intent_id")
+                && decision.value.get("rollback_target_release_id")
+                    == manifest.get("rollback_target_release_id")
+        }
+        _ => false,
+    };
+    if common && version_specific {
+        HistoricalEvidenceState::Available
+    } else {
+        HistoricalEvidenceState::Invalid
+    }
+}
+
+fn verify_historical_v2_content(
+    loaded: &LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
+    predicate: &Value,
+    manifest: &Value,
+    manifest_ref: ArtifactRef,
+    report: &mut Report,
+) {
+    if let Some(digest) = missing_external_with_any_role(
+        loaded,
+        &[
+            EvidenceRole::ReleasePolicyDecision,
+            EvidenceRole::EnvironmentConfig,
+            EvidenceRole::EnvironmentPolicyBundle,
+            EvidenceRole::ReleaseProofEnvelope,
+            EvidenceRole::ReleaseSigningKey,
+            EvidenceRole::ReleaseSigningKeyRevocation,
+            EvidenceRole::ReleaseManifest,
+            EvidenceRole::Edition,
+            EvidenceRole::KnownState,
+            EvidenceRole::EditionDelta,
+            EvidenceRole::ChangeSet,
+            EvidenceRole::Edit,
+            EvidenceRole::ValidationAttempt,
+            EvidenceRole::Submission,
+            EvidenceRole::Approval,
+            EvidenceRole::ContextPack,
+            EvidenceRole::ContextPolicyBundle,
+            EvidenceRole::ResourceIntent,
+            EvidenceRole::Object,
+            EvidenceRole::Schema,
+            EvidenceRole::LocaleRevision,
+            EvidenceRole::LocalizedConsequence,
+            EvidenceRole::LocalizedResult,
+            EvidenceRole::ApplicationEffect,
+        ],
+    ) {
+        incomplete(
+            report,
+            "content_delta",
+            "proof.verify.external.missing",
+            Some(digest),
+            None,
+        );
+        return;
+    }
+    let Some(delta_digest) = digest_field(predicate, "exact_delta_digest") else {
+        invalid(
+            report,
+            "content_delta",
+            "proof.verify.release.delta",
+            Some(manifest_ref.digest),
+            None,
+        );
+        return;
+    };
+    let delta = match loaded.required_role_artifact(EvidenceRole::EditionDelta, delta_digest) {
+        RequiredArtifact::Available(artifact) => artifact,
+        RequiredArtifact::MissingRequiredExternal => {
+            incomplete(
+                report,
+                "content_delta",
+                "proof.verify.external.missing",
+                Some(delta_digest),
+                None,
+            );
+            return;
+        }
+        RequiredArtifact::InvalidOrAbsent => {
+            invalid(
+                report,
+                "content_delta",
+                "proof.verify.release.delta",
+                Some(manifest_ref.digest),
+                None,
+            );
+            return;
+        }
+    };
+    let embedded_matches = predicate.get("exact_delta") == Some(&delta.value)
+        && canonical_bytes(&delta.value)
+            .ok()
+            .map(|bytes| domain_digest(ArtifactKind::ReleaseV2, &bytes))
+            == Some(delta_digest);
+    let policy = digest_field(manifest, "authorization_decision_digest").and_then(|digest| {
+        match loaded.required_role_artifact(EvidenceRole::ReleasePolicyDecision, digest) {
+            RequiredArtifact::Available(artifact) => Some(&artifact.value),
+            _ => None,
+        }
+    });
+    let environment = digest_field(manifest, "environment_config_digest").and_then(|digest| {
+        match loaded.required_role_artifact(EvidenceRole::EnvironmentConfig, digest) {
+            RequiredArtifact::Available(artifact) => Some(&artifact.value),
+            _ => None,
+        }
+    });
+    let content = verify_release_content_result(
+        loaded,
+        records,
+        predicate,
+        manifest,
+        &delta.value,
+        policy,
+        environment,
+    );
+    if !embedded_matches {
+        invalid(
+            report,
+            "content_delta",
+            "proof.verify.release.delta",
+            Some(manifest_ref.digest),
+            None,
+        );
+    }
+    if let Err(code) = content {
+        if code == HISTORICAL_APPROVAL_UNSUPPORTED {
+            incomplete(
+                report,
+                "content_delta",
+                "proof.verify.content.approval",
+                Some(manifest_ref.digest),
+                None,
+            );
+        } else {
+            invalid(
+                report,
+                "content_delta",
+                code,
+                Some(manifest_ref.digest),
+                None,
+            );
+        }
+    }
+}
+
+fn verify_release_history_graph(loaded: &LoadedBundle, report: &mut Report) {
+    let manifests = loaded
+        .bundle
+        .artifacts
+        .iter()
+        .filter(|descriptor| descriptor.role == EvidenceRole::ReleaseManifest)
+        .filter_map(|descriptor| {
+            loaded
+                .artifacts
+                .get(&descriptor.artifact)
+                .map(|artifact| (descriptor.artifact, artifact))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut by_id = BTreeMap::<String, Vec<ArtifactRef>>::new();
+    for (reference, artifact) in &manifests {
+        let Some(release_id) = string(&artifact.value, "release_id") else {
+            invalid(
+                report,
+                "content_delta",
+                "proof.verify.content.release_predecessor",
+                Some(reference.digest),
+                None,
+            );
+            continue;
+        };
+        by_id
+            .entry(release_id.to_owned())
+            .or_default()
+            .push(*reference);
+    }
+    if by_id.values().any(|references| references.len() != 1) {
+        invalid(
+            report,
+            "content_delta",
+            "proof.verify.content.release_predecessor",
+            None,
+            None,
+        );
+        return;
+    }
+    let target = loaded.bundle.entrypoints.target_release_manifest;
+    if !manifests.contains_key(&target) {
+        return;
+    }
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    if !walk_release_history(
+        loaded,
+        &manifests,
+        &by_id,
+        target,
+        &mut visiting,
+        &mut visited,
+        report,
+    ) {
+        invalid(
+            report,
+            "content_delta",
+            "proof.verify.content.release_predecessor",
+            Some(target.digest),
+            None,
+        );
+    }
+    let missing_release_manifest = loaded.bundle.artifacts.iter().any(|descriptor| {
+        descriptor.role == EvidenceRole::ReleaseManifest
+            && loaded.missing_external.contains(&descriptor.artifact)
+    });
+    if visited.len() != manifests.len() && !missing_release_manifest {
+        invalid(
+            report,
+            "content_delta",
+            "proof.verify.content.release_predecessor",
+            Some(target.digest),
+            None,
+        );
+    }
+}
+
+fn walk_release_history(
+    loaded: &LoadedBundle,
+    manifests: &BTreeMap<ArtifactRef, &LoadedArtifact>,
+    by_id: &BTreeMap<String, Vec<ArtifactRef>>,
+    current: ArtifactRef,
+    visiting: &mut BTreeSet<ArtifactRef>,
+    visited: &mut BTreeSet<ArtifactRef>,
+    report: &mut Report,
+) -> bool {
+    if visited.contains(&current) {
+        return true;
+    }
+    if !visiting.insert(current) {
+        return false;
+    }
+    let Some(manifest) = manifests.get(&current) else {
+        return false;
+    };
+    if string(&manifest.value, "api_version") == Some("proof.dev/release/v1") {
+        match v1_release_kind_state(loaded, &manifest.value, manifests, by_id) {
+            HistoricalEvidenceState::Available => {}
+            HistoricalEvidenceState::Incomplete => {
+                incomplete(
+                    report,
+                    "content_delta",
+                    "proof.verify.external.missing",
+                    Some(current.digest),
+                    None,
+                );
+                visiting.remove(&current);
+                visited.insert(current);
+                return true;
+            }
+            HistoricalEvidenceState::Invalid => return false,
+        }
+    }
+    let mut predecessors = Vec::new();
+    match string(&manifest.value, "api_version") {
+        Some("proof.dev/release/v2") => {
+            let Some(reference) = manifest.value.get("base_release") else {
+                return false;
+            };
+            let Some(reference_digest) = reference_digest(reference) else {
+                return false;
+            };
+            let reference = ArtifactRef {
+                artifact_kind: match string(reference, "api_version") {
+                    Some("proof.dev/release/v1") => ArtifactKind::ReleaseV1,
+                    Some("proof.dev/release/v2") => ArtifactKind::ReleaseV2,
+                    _ => return false,
+                },
+                digest: reference_digest,
+            };
+            if let Some(predecessor) = manifests.get(&reference) {
+                if predecessor.value.get("release_id")
+                    != manifest.value.pointer("/base_release/release_id")
+                {
+                    return false;
+                }
+                predecessors.push(reference);
+            } else if loaded.missing_external.contains(&reference) {
+                incomplete(
+                    report,
+                    "content_delta",
+                    "proof.verify.external.missing",
+                    Some(reference.digest),
+                    None,
+                );
+                visiting.remove(&current);
+                visited.insert(current);
+                return true;
+            } else {
+                return false;
+            }
+        }
+        Some("proof.dev/release/v1") => match manifest.value.get("previous_release_id") {
+            Some(Value::Null) => {}
+            Some(Value::String(previous)) => {
+                let Some([reference]) = by_id.get(previous).map(Vec::as_slice) else {
+                    if loaded.bundle.artifacts.iter().any(|descriptor| {
+                        descriptor.role == EvidenceRole::ReleaseManifest
+                            && loaded.missing_external.contains(&descriptor.artifact)
+                    }) {
+                        incomplete(
+                            report,
+                            "content_delta",
+                            "proof.verify.external.missing",
+                            Some(current.digest),
+                            None,
+                        );
+                        visiting.remove(&current);
+                        visited.insert(current);
+                        return true;
+                    }
+                    return false;
+                };
+                predecessors.push(*reference);
+            }
+            _ => return false,
+        },
+        _ => return false,
+    }
+    if let Some(rollback_id) = string(&manifest.value, "rollback_target_release_id") {
+        let Some([reference]) = by_id.get(rollback_id).map(Vec::as_slice) else {
+            if loaded.bundle.artifacts.iter().any(|descriptor| {
+                descriptor.role == EvidenceRole::ReleaseManifest
+                    && loaded.missing_external.contains(&descriptor.artifact)
+            }) {
+                incomplete(
+                    report,
+                    "content_delta",
+                    "proof.verify.external.missing",
+                    Some(current.digest),
+                    None,
+                );
+                visiting.remove(&current);
+                visited.insert(current);
+                return true;
+            }
+            return false;
+        };
+        predecessors.push(*reference);
+    }
+    for predecessor in predecessors {
+        let Some(predecessor_manifest) = manifests.get(&predecessor) else {
+            return false;
+        };
+        let edge_valid = u64_field(&predecessor_manifest.value, "release_sequence")
+            .zip(u64_field(&manifest.value, "release_sequence"))
+            .is_some_and(|(earlier, later)| earlier < later)
+            && string(&predecessor_manifest.value, "released_at")
+                .and_then(parse_timestamp)
+                .zip(string(&manifest.value, "released_at").and_then(parse_timestamp))
+                .is_some_and(|(earlier, later)| earlier <= later)
+            && predecessor_manifest.value.get("environment_id")
+                == manifest.value.get("environment_id")
+            && predecessor_manifest.value.get("workspace_id") == manifest.value.get("workspace_id");
+        if !edge_valid
+            || !walk_release_history(
+                loaded,
+                manifests,
+                by_id,
+                predecessor,
+                visiting,
+                visited,
+                report,
+            )
+        {
+            return false;
+        }
+    }
+    visiting.remove(&current);
+    visited.insert(current);
+    true
+}
+
+fn v1_release_kind_state(
+    loaded: &LoadedBundle,
+    manifest: &Value,
+    manifests: &BTreeMap<ArtifactRef, &LoadedArtifact>,
+    by_id: &BTreeMap<String, Vec<ArtifactRef>>,
+) -> HistoricalEvidenceState {
+    let unresolved = || {
+        if loaded.bundle.artifacts.iter().any(|descriptor| {
+            descriptor.role == EvidenceRole::ReleaseManifest
+                && loaded.missing_external.contains(&descriptor.artifact)
+        }) {
+            HistoricalEvidenceState::Incomplete
+        } else {
+            HistoricalEvidenceState::Invalid
+        }
+    };
+    match string(manifest, "kind") {
+        Some("promotion") => {
+            if manifest
+                .get("rollback_target_release_id")
+                .is_some_and(Value::is_null)
+            {
+                HistoricalEvidenceState::Available
+            } else {
+                HistoricalEvidenceState::Invalid
+            }
+        }
+        Some("rollback") => {
+            let Some(target_id) = string(manifest, "rollback_target_release_id") else {
+                return HistoricalEvidenceState::Invalid;
+            };
+            let Some(previous_id) = string(manifest, "previous_release_id") else {
+                return HistoricalEvidenceState::Invalid;
+            };
+            let Some([first]) = by_id.get(previous_id).map(Vec::as_slice) else {
+                return unresolved();
+            };
+            let mut current = *first;
+            let mut visited = BTreeSet::new();
+            loop {
+                if !visited.insert(current) {
+                    return HistoricalEvidenceState::Invalid;
+                }
+                let Some(candidate) = manifests.get(&current) else {
+                    return unresolved();
+                };
+                if string(&candidate.value, "release_id") == Some(target_id) {
+                    let matches = string(&candidate.value, "api_version")
+                        == Some("proof.dev/release/v1")
+                        && candidate.value.get("edition_id") == manifest.get("edition_id")
+                        && candidate.value.get("edition_digest") == manifest.get("edition_digest");
+                    return if matches {
+                        HistoricalEvidenceState::Available
+                    } else {
+                        HistoricalEvidenceState::Invalid
+                    };
+                }
+                current = match string(&candidate.value, "api_version") {
+                    Some("proof.dev/release/v1") => {
+                        let Some(previous) = string(&candidate.value, "previous_release_id") else {
+                            return HistoricalEvidenceState::Invalid;
+                        };
+                        let Some([reference]) = by_id.get(previous).map(Vec::as_slice) else {
+                            return unresolved();
+                        };
+                        *reference
+                    }
+                    Some("proof.dev/release/v2") => {
+                        let Some(digest) = candidate
+                            .value
+                            .pointer("/base_release/digest")
+                            .and_then(Value::as_str)
+                            .and_then(Digest::parse)
+                        else {
+                            return HistoricalEvidenceState::Invalid;
+                        };
+                        let Some(reference) = manifests.keys().find(|reference| {
+                            let expected_api = match reference.artifact_kind {
+                                ArtifactKind::ReleaseV1 => Some("proof.dev/release/v1"),
+                                ArtifactKind::ReleaseV2 => Some("proof.dev/release/v2"),
+                                _ => None,
+                            };
+                            reference.digest == digest
+                                && candidate
+                                    .value
+                                    .pointer("/base_release/api_version")
+                                    .and_then(Value::as_str)
+                                    == expected_api
+                        }) else {
+                            return unresolved();
+                        };
+                        *reference
+                    }
+                    _ => return HistoricalEvidenceState::Invalid,
+                };
+            }
+        }
+        _ => HistoricalEvidenceState::Invalid,
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "release verification joins caller trust, producer key history, Statement subjects, and content closure"
@@ -3129,6 +6125,7 @@ fn verify_release(
     records: &[VerifiedAuthorityRecord],
     report: &mut Report,
 ) {
+    verify_release_history(loaded, trust, records, report);
     let manifest_ref = loaded.bundle.entrypoints.target_release_manifest;
     if manifest_ref.artifact_kind != ArtifactKind::ReleaseV2 {
         invalid(
@@ -3223,8 +6220,32 @@ fn verify_release(
         }
     };
     report.valid("release_signature");
+    if let Some(digest) = missing_external_with_any_role(
+        loaded,
+        &[
+            EvidenceRole::ReleaseSigningKey,
+            EvidenceRole::ReleaseSigningKeyRevocation,
+        ],
+    ) {
+        incomplete(
+            report,
+            "release_key_trust",
+            "proof.verify.external.missing",
+            Some(digest),
+            None,
+        );
+        return;
+    }
     let statement = &verified.payload;
     if string(statement, "_type") != Some(IN_TOTO_STATEMENT)
+        || !v2_predicate_shape_is_exact(statement.get("predicate").unwrap_or(&Value::Null))
+        || !release_predicate_type_matches(
+            statement.get("predicateType").and_then(Value::as_str),
+            statement
+                .pointer("/predicate/api_version")
+                .and_then(Value::as_str),
+            Some("proof.dev/release/v2"),
+        )
         || statement
             .get("predicateType")
             .and_then(Value::as_str)
@@ -3268,19 +6289,6 @@ fn verify_release(
     }
     report.valid("release_key_trust");
     let release_id = string(release, "release_id");
-    let release_subject_matches = statement
-        .get("subject")
-        .and_then(Value::as_array)
-        .is_some_and(|subjects| {
-            subjects.iter().any(|subject| {
-                string(subject, "name")
-                    == release_id
-                        .map(|id| format!("proof:release:{id}"))
-                        .as_deref()
-                    && subject.pointer("/digest/blake3").and_then(Value::as_str)
-                        == Some(manifest_ref.digest.hex().as_str())
-            })
-        });
     let edition_id = release
         .pointer("/edition/edition_id")
         .and_then(Value::as_str);
@@ -3288,19 +6296,13 @@ fn verify_release(
         .pointer("/edition/digest")
         .and_then(Value::as_str)
         .and_then(Digest::parse);
-    let edition_subject_matches = statement
-        .get("subject")
-        .and_then(Value::as_array)
-        .is_some_and(|subjects| {
-            subjects.iter().any(|subject| {
-                string(subject, "name")
-                    == edition_id
-                        .map(|id| format!("proof:edition:{id}"))
-                        .as_deref()
-                    && subject.pointer("/digest/blake3").and_then(Value::as_str)
-                        == edition_digest.map(Digest::hex).as_deref()
-            })
-        });
+    let subjects_match = statement_subjects_are_exact(
+        statement,
+        release_id,
+        Some(manifest_ref.digest),
+        edition_id,
+        edition_digest,
+    );
     let release_fields_match = string(&manifest.value, "api_version")
         == Some("proof.dev/release/v2")
         && string(&manifest.value, "workspace_id") == string(predicate, "workspace_id")
@@ -3328,8 +6330,7 @@ fn verify_release(
         .pointer("/authority/authorization_decision_digest")
         .and_then(Value::as_str)
         .and_then(Digest::parse);
-    if !release_subject_matches
-        || !edition_subject_matches
+    if !subjects_match
         || !release_fields_match
         || !release_digest_matches
         || human_decision == Some(loaded.bundle.entrypoints.target_authorization_record_digest)
@@ -3381,9 +6382,24 @@ fn verify_release(
         }
         Some(RequiredArtifact::InvalidOrAbsent) | None => None,
     };
+    if let Some(digest) = missing_external_with_any_role(
+        loaded,
+        &[
+            EvidenceRole::EnvironmentConfig,
+            EvidenceRole::EnvironmentPolicyBundle,
+        ],
+    ) {
+        incomplete(
+            report,
+            "policy",
+            "proof.verify.external.missing",
+            Some(digest),
+            None,
+        );
+        return;
+    }
     let policy_decision_matches = exact_policy_decision.is_some_and(|artifact| {
-        string(&artifact.value, "api_version")
-            == Some("proof.dev/release-authorization-decision/v2")
+        v2_release_decision_shape_is_exact(&artifact.value)
             && artifact.value.get("allowed").and_then(Value::as_bool) == Some(true)
             && string(&artifact.value, "action") == Some("release.create")
             && string(&artifact.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
@@ -3415,7 +6431,7 @@ fn verify_release(
             .and_then(|descriptor| loaded.artifacts.get(&descriptor.artifact))
     });
     let environment_matches = exact_environment.is_some_and(|artifact| {
-        string(&artifact.value, "api_version") == Some("proof.dev/environment/v1")
+        v1_environment_shape_is_exact(&artifact.value)
             && string(&artifact.value, "workspace_id") == Some(loaded.bundle.workspace_id.as_str())
             && string(&artifact.value, "environment_id") == environment_id
             && u64_field(&artifact.value, "config_version") == environment_version
@@ -3427,11 +6443,12 @@ fn verify_release(
     let policy_bundle_digest =
         exact_environment.and_then(|artifact| digest_field(&artifact.value, "policy_digest"));
     let policy_bundle_matches = policy_bundle_digest.is_some_and(|digest| {
-        loaded.bundle.artifacts.iter().any(|descriptor| {
-            descriptor.role == EvidenceRole::EnvironmentPolicyBundle
-                && descriptor.artifact.digest == digest
-                && loaded.artifacts.contains_key(&descriptor.artifact)
-        })
+        exact_role_artifact(loaded, EvidenceRole::EnvironmentPolicyBundle, Some(digest))
+            .is_some_and(|policy| {
+                exact_environment.is_some_and(|environment| {
+                    v1_policy_bundle_matches_environment(&policy.value, &environment.value)
+                })
+            })
     });
     if !accepted || !policy_decision_matches || !environment_matches || !policy_bundle_matches {
         invalid(
@@ -3441,6 +6458,41 @@ fn verify_release(
             Some(manifest_ref.digest),
             None,
         );
+    }
+
+    if let Some(digest) = missing_external_with_any_role(
+        loaded,
+        &[
+            EvidenceRole::ReleaseManifest,
+            EvidenceRole::Edition,
+            EvidenceRole::KnownState,
+            EvidenceRole::EditionDelta,
+            EvidenceRole::ChangeSet,
+            EvidenceRole::Edit,
+            EvidenceRole::ValidationAttempt,
+            EvidenceRole::Submission,
+            EvidenceRole::Approval,
+            EvidenceRole::ContextPack,
+            EvidenceRole::ContextPolicyBundle,
+            EvidenceRole::ResourceIntent,
+            EvidenceRole::Object,
+            EvidenceRole::Schema,
+            EvidenceRole::LocaleRevision,
+            EvidenceRole::LocalizedConsequence,
+            EvidenceRole::LocalizedResult,
+            EvidenceRole::ApplicationEffect,
+        ],
+    ) {
+        for dimension in ["content_delta", "approval"] {
+            incomplete(
+                report,
+                dimension,
+                "proof.verify.external.missing",
+                Some(digest),
+                None,
+            );
+        }
+        return;
     }
 
     let exact_delta_digest = digest_field(predicate, "exact_delta_digest");
@@ -3474,6 +6526,7 @@ fn verify_release(
     let content_matches = delta_artifact.is_some_and(|(_, artifact)| {
         verify_release_content_closure(
             loaded,
+            records,
             predicate,
             &manifest.value,
             &artifact.value,
@@ -3512,8 +6565,20 @@ fn verify_release(
     }
 }
 
+fn missing_external_with_any_role(loaded: &LoadedBundle, roles: &[EvidenceRole]) -> Option<Digest> {
+    loaded.bundle.artifacts.iter().find_map(|descriptor| {
+        (roles.contains(&descriptor.role) && loaded.missing_external.contains(&descriptor.artifact))
+            .then_some(descriptor.artifact.digest)
+    })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Release content closure binds the signed predicate, manifest, delta, authority prefix, and policy"
+)]
 fn verify_release_content_closure(
     loaded: &LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
     predicate: &Value,
     manifest: &Value,
     delta: &Value,
@@ -3523,6 +6588,7 @@ fn verify_release_content_closure(
 ) -> bool {
     verify_release_content_closure_v1(
         loaded,
+        records,
         predicate,
         manifest,
         delta,
@@ -3532,8 +6598,13 @@ fn verify_release_content_closure(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Release content closure binds the signed predicate, manifest, delta, authority prefix, and policy"
+)]
 fn verify_release_content_closure_v1(
     loaded: &LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
     predicate: &Value,
     manifest: &Value,
     delta: &Value,
@@ -3541,21 +6612,23 @@ fn verify_release_content_closure_v1(
     environment: Option<&Value>,
     report: &mut Report,
 ) -> bool {
-    let result = match string(manifest, "kind") {
-        Some("promotion") => verify_promotion_content(
-            loaded,
-            predicate,
-            manifest,
-            delta,
-            policy_decision,
-            environment,
-        ),
-        Some("rollback") => verify_rollback_content(loaded, predicate, manifest, delta),
-        _ => Err("proof.verify.content.release_kind"),
-    };
+    let result = verify_release_content_result(
+        loaded,
+        records,
+        predicate,
+        manifest,
+        delta,
+        policy_decision,
+        environment,
+    );
     match result {
         Ok(()) => true,
         Err(code) => {
+            let code = if code == HISTORICAL_APPROVAL_UNSUPPORTED {
+                "proof.verify.content.approval"
+            } else {
+                code
+            };
             invalid(
                 report,
                 "content_delta",
@@ -3570,6 +6643,56 @@ fn verify_release_content_closure_v1(
             );
             false
         }
+    }
+}
+
+fn verify_release_content_result(
+    loaded: &LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
+    predicate: &Value,
+    manifest: &Value,
+    delta: &Value,
+    policy_decision: Option<&Value>,
+    environment: Option<&Value>,
+) -> ContentVerificationResult {
+    verify_release_edition_chronology(loaded, manifest)?;
+    match string(manifest, "kind") {
+        Some("promotion") => verify_promotion_content(
+            loaded,
+            records,
+            predicate,
+            manifest,
+            delta,
+            policy_decision,
+            environment,
+        ),
+        Some("rollback") => verify_rollback_content(loaded, predicate, manifest, delta),
+        _ => Err("proof.verify.content.release_kind"),
+    }
+}
+
+fn verify_release_edition_chronology(
+    loaded: &LoadedBundle,
+    manifest: &Value,
+) -> ContentVerificationResult {
+    let edition_reference = manifest
+        .get("edition")
+        .ok_or("proof.verify.content.reference_artifacts")?;
+    let edition = exact_role_artifact(
+        loaded,
+        EvidenceRole::Edition,
+        reference_digest(edition_reference),
+    )
+    .ok_or("proof.verify.content.reference_artifacts")?;
+    match string(&edition.value, "api_version") {
+        Some("proof.dev/edition/v1") => Ok(()),
+        Some("proof.dev/edition/v2") => string(&edition.value, "created_at")
+            .and_then(parse_timestamp)
+            .zip(string(manifest, "released_at").and_then(parse_timestamp))
+            .filter(|(created, released)| created <= released)
+            .map(|_| ())
+            .ok_or("proof.verify.content.reference_artifacts"),
+        _ => Err("proof.verify.content.reference_artifacts"),
     }
 }
 
@@ -3700,6 +6823,7 @@ fn verify_content_references<'a>(
 
 fn verify_promotion_content(
     loaded: &LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
     predicate: &Value,
     manifest: &Value,
     delta: &Value,
@@ -3722,11 +6846,15 @@ fn verify_promotion_content(
     let content = predicate
         .get("content_evidence")
         .ok_or("proof.verify.content.evidence")?;
+    if !promotion_content_evidence_shape_is_exact(content) {
+        return Err("proof.verify.content.evidence");
+    }
     let changeset = content
         .get("changeset")
         .ok_or("proof.verify.content.changeset")?;
     if manifest.get("changeset_id") != changeset.get("changeset_id")
         || manifest.get("resource_intent_id") != content.pointer("/resource_intent/intent_id")
+        || target_edition.value.get("principal_id") != manifest.get("principal_id")
         || target_edition.value.pointer("/changeset/changeset_id") != changeset.get("changeset_id")
         || target_edition.value.pointer("/changeset/proposal_digest")
             != changeset.get("proposal_digest")
@@ -3747,7 +6875,7 @@ fn verify_promotion_content(
         digest_field(changeset, "proposal_digest"),
     )
     .ok_or("proof.verify.content.changeset_proposal")?;
-    verify_intent_and_context(loaded, content, &proposal.value)?;
+    verify_intent_and_context(loaded, manifest, content, &proposal.value)?;
     let final_validation =
         verify_changeset_and_validations(loaded, content, changeset, &proposal.value)?;
     if target_edition
@@ -3760,11 +6888,14 @@ fn verify_promotion_content(
     verify_rendition_closure(loaded, content, delta, changeset, &proposal.value)?;
     verify_submission_and_approval(
         loaded,
+        records,
         changeset,
+        &proposal.value,
         final_validation,
         policy_decision,
         environment,
         predicate,
+        manifest,
     )
 }
 
@@ -4043,6 +7174,16 @@ fn array_field<'a>(value: &'a Value, field: &str) -> Option<&'a [Value]> {
     }
 }
 
+fn string_array_is_exact(value: Option<&Value>, expected: &[&str]) -> bool {
+    value.and_then(Value::as_array).is_some_and(|values| {
+        values.len() == expected.len()
+            && values
+                .iter()
+                .zip(expected)
+                .all(|(value, expected)| value.as_str() == Some(*expected))
+    })
+}
+
 fn ordered_value_map<F>(values: &[Value], key: F) -> Option<BTreeMap<String, Value>>
 where
     F: Fn(&Value) -> Option<String>,
@@ -4189,13 +7330,10 @@ fn verify_delta_against_states(
 
 fn verify_intent_and_context(
     loaded: &LoadedBundle,
+    release: &Value,
     content: &Value,
     proposal: &Value,
 ) -> ContentVerificationResult {
-    let release = loaded
-        .artifacts
-        .get(&loaded.bundle.entrypoints.target_release_manifest)
-        .ok_or("proof.verify.content.release_state")?;
     let intent_evidence = content
         .get("resource_intent")
         .ok_or("proof.verify.content.intent")?;
@@ -4211,8 +7349,8 @@ fn verify_intent_and_context(
         || intent.value.get("targets") != intent_evidence.get("targets")
         || intent.value.get("base") != content.get("base")
         || intent.value.get("intent_id") != proposal.get("resource_intent_id")
-        || intent.value.get("environment_id") != release.value.get("environment_id")
-        || intent.value.get("issued_by_principal_id") != release.value.get("principal_id")
+        || intent.value.get("environment_id") != release.get("environment_id")
+        || intent.value.get("issued_by_principal_id") != release.get("principal_id")
         || digest_field(proposal, "resource_intent_digest")
             != digest_field(intent_evidence, "digest")
     {
@@ -4246,7 +7384,7 @@ fn verify_intent_and_context(
         .and_then(parse_timestamp)
         .zip(string(&context_pack.value, "created_at").and_then(parse_timestamp))
         .zip(string(&context_pack.value, "expires_at").and_then(parse_timestamp))
-        .zip(string(&release.value, "released_at").and_then(parse_timestamp))
+        .zip(string(release, "released_at").and_then(parse_timestamp))
         .is_some_and(|(((issued, created), expires), released)| {
             issued <= created && created <= released && released < expires
         });
@@ -4631,25 +7769,31 @@ fn edit_content_is_localized_only(source: &Value, edited: &Value, pointers: &[Va
         .iter()
         .filter_map(Value::as_str)
         .collect::<BTreeSet<_>>();
-    fn compare(source: &Value, edited: &Value, pointer: &str, allowed: &BTreeSet<&str>) -> bool {
-        if allowed.contains(pointer) {
-            return true;
-        }
-        match (source, edited) {
-            (Value::Object(source), Value::Object(edited)) => {
-                source.len() == edited.len()
-                    && source.iter().all(|(key, value)| {
-                        let escaped = key.replace('~', "~0").replace('/', "~1");
-                        let child = format!("{pointer}/{escaped}");
-                        edited
-                            .get(key)
-                            .is_some_and(|edited| compare(value, edited, &child, allowed))
-                    })
-            }
-            _ => source == edited,
-        }
+    localized_values_match_except(source, edited, "", &allowed)
+}
+
+fn localized_values_match_except(
+    source: &Value,
+    edited: &Value,
+    pointer: &str,
+    allowed: &BTreeSet<&str>,
+) -> bool {
+    if allowed.contains(pointer) {
+        return true;
     }
-    compare(source, edited, "", &allowed)
+    match (source, edited) {
+        (Value::Object(source), Value::Object(edited)) => {
+            source.len() == edited.len()
+                && source.iter().all(|(key, value)| {
+                    let escaped = key.replace('~', "~0").replace('/', "~1");
+                    let child = format!("{pointer}/{escaped}");
+                    edited.get(key).is_some_and(|edited| {
+                        localized_values_match_except(value, edited, &child, allowed)
+                    })
+                })
+        }
+        _ => source == edited,
+    }
 }
 
 fn release_is_on_predecessor_chain(
@@ -5292,27 +8436,268 @@ fn verify_rendition_closure(
     Ok(())
 }
 
+fn unique_release_proof_envelope_digest(
+    loaded: &LoadedBundle,
+    release_digest: Digest,
+) -> Option<Digest> {
+    let mut matches = loaded
+        .bundle
+        .artifacts
+        .iter()
+        .filter(|descriptor| descriptor.role == EvidenceRole::ReleaseProofEnvelope)
+        .filter_map(|descriptor| {
+            let artifact = loaded.artifacts.get(&descriptor.artifact)?;
+            let envelope = parse_dsse_unverified(
+                &artifact.bytes,
+                crate::model::MAX_JSON_DEPTH,
+                crate::model::MAX_ARTIFACT_BYTES,
+                crate::model::MAX_ARTIFACT_BYTES,
+            )
+            .ok()?;
+            (digest_path(
+                &envelope.payload,
+                &["predicate", "release", "release_digest"],
+            ) == Some(release_digest))
+            .then_some(descriptor.artifact.digest)
+        });
+    let digest = matches.next()?;
+    matches.next().is_none().then_some(digest)
+}
+
+fn verified_release_consequence<'a>(
+    loaded: &'a LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
+    predicate: &Value,
+    manifest: &Value,
+    release_digest: Digest,
+) -> Result<&'a LoadedArtifact, HistoricalEvidenceState> {
+    let records_by_digest = records
+        .iter()
+        .map(|record| (record.digest, record))
+        .collect::<BTreeMap<_, _>>();
+    let expected_principal = predicate
+        .pointer("/authority/human_principal_id")
+        .and_then(Value::as_str)
+        .ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_workspace =
+        string(predicate, "workspace_id").ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_changeset =
+        string(manifest, "changeset_id").ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_edition = manifest
+        .pointer("/edition/edition_id")
+        .and_then(Value::as_str)
+        .ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_environment =
+        string(manifest, "environment_id").ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_release =
+        string(manifest, "release_id").ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_base_release = manifest
+        .pointer("/base_release/release_id")
+        .and_then(Value::as_str)
+        .ok_or(HistoricalEvidenceState::Invalid)?;
+    let released_at = string(manifest, "released_at").ok_or(HistoricalEvidenceState::Invalid)?;
+    let proof_envelope_digest = unique_release_proof_envelope_digest(loaded, release_digest)
+        .ok_or(HistoricalEvidenceState::Invalid)?;
+    let expected_effect = ArtifactRef {
+        artifact_kind: ArtifactKind::ReleaseV2,
+        digest: release_digest,
+    };
+    let has_relevant_companion = loaded.bundle.authority_prefix.iter().any(|entry| {
+        entry
+            .decision_companion
+            .and_then(|companion| companion.application_effect)
+            == Some(expected_effect)
+    });
+    let mut candidates = loaded.bundle.authority_prefix.iter().filter_map(|entry| {
+        let record = records_by_digest.get(&entry.record_digest).copied()?;
+        let companion = entry.decision_companion?;
+        let result_ref = companion.result?;
+        let consequence_ref = companion.localized_consequence?;
+        let effect_ref = companion.application_effect?;
+        let result = loaded.artifacts.get(&result_ref)?;
+        let consequence = loaded.artifacts.get(&consequence_ref)?;
+        let effect = loaded.artifacts.get(&effect_ref)?;
+        let evidence = &consequence.value;
+        let commitment = record.value.get("localized_consequence_commitment")?;
+        let consequence_digest = digest_field(evidence, "application_consequence_digest")?;
+        let composite = json!({
+            "api_version": "proof.dev/authenticated-localized-consequence-commitment/v1",
+            "application_effect_digest": evidence.get("application_effect_digest"),
+            "application_idempotency": evidence.get("application_idempotency"),
+            "closure": evidence.get("closure"),
+            "command_digest": evidence.get("command_digest"),
+            "delegation_id": evidence.get("delegation_id"),
+            "operating_principal_id": evidence.get("operating_principal_id"),
+            "operation": evidence.get("operation"),
+            "requesting_principal_id": evidence.get("requesting_principal_id"),
+            "result": evidence.get("result"),
+            "selectors": evidence.get("selectors"),
+            "semantic_timestamp": evidence.get("semantic_timestamp"),
+            "workspace_id": evidence.get("workspace_id"),
+        });
+        let reproduced = canonical_bytes(&composite)
+            .ok()
+            .map(|bytes| domain_digest(ArtifactKind::OperationEffectV1, &bytes));
+        let approver = evidence
+            .pointer("/closure/approval/principal_id")
+            .and_then(Value::as_str);
+        let approved_at = evidence
+            .pointer("/closure/approval/approved_at")
+            .and_then(Value::as_str)
+            .and_then(parse_timestamp);
+        let approver_active = principal_status_at_time(
+            &records_by_digest,
+            approver,
+            record.sequence.checked_sub(1),
+            approved_at,
+        )
+        .is_some_and(|status| {
+            string(&status.value, "principal_type") == Some("human")
+                && status.value.get("enabled") == Some(&Value::Bool(true))
+        });
+        let record_matches = string(&record.value, "api_version")
+            == Some("proof.dev/authorization-decision/v2")
+            && string(&record.value, "decision") == Some("allow")
+            && record.value.get("reason_code").is_some_and(Value::is_null)
+            && string(&record.value, "requested_action") == Some("release:create")
+            && record.value.get("operation") == evidence.get("operation")
+            && string(&record.value, "workspace_id") == Some(expected_workspace)
+            && string(&record.value, "requesting_principal_id") == Some(expected_principal)
+            && record
+                .value
+                .pointer("/principal_state/requesting_principal_enabled")
+                == Some(&Value::Bool(true))
+            && record
+                .value
+                .pointer("/principal_state/operating_principal_enabled")
+                == Some(&Value::Bool(true))
+            && string_array_is_exact(
+                record.value.pointer("/requested_resources/changeset_ids"),
+                &[expected_changeset],
+            )
+            && string_array_is_exact(
+                record.value.pointer("/requested_resources/edition_ids"),
+                &[expected_edition],
+            )
+            && string_array_is_exact(
+                record.value.pointer("/requested_resources/environment_ids"),
+                &[expected_environment],
+            )
+            && string_array_is_exact(
+                record.value.pointer("/requested_resources/release_ids"),
+                &[expected_base_release, expected_release],
+            )
+            && string_array_is_exact(
+                record.value.pointer("/requested_resources/workspace_ids"),
+                &[expected_workspace],
+            );
+        let consequence_matches = string(evidence, "api_version")
+            == Some("proof.dev/authenticated-localized-consequence/v1")
+            && digest_field(evidence, "authorization_decision_digest") == Some(record.digest)
+            && digest_field(evidence, "command_digest")
+                == digest_field(&record.value, "command_digest")
+            && digest_field(evidence, "application_effect_digest") == Some(release_digest)
+            && string(evidence, "workspace_id") == Some(expected_workspace)
+            && string(evidence, "requesting_principal_id") == Some(expected_principal)
+            && approver_active
+            && string(evidence, "semantic_timestamp") == Some(released_at)
+            && evidence.pointer("/operation/name").and_then(Value::as_str)
+                == Some("release.create")
+            && evidence
+                .pointer("/operation/version")
+                .and_then(Value::as_str)
+                == Some("proof.dev/operation/release.create/v2")
+            && evidence.pointer("/selectors/changeset_ids")
+                == record.value.pointer("/requested_resources/changeset_ids")
+            && evidence.pointer("/selectors/edition_ids")
+                == record.value.pointer("/requested_resources/edition_ids")
+            && evidence.pointer("/selectors/release_ids")
+                == record.value.pointer("/requested_resources/release_ids")
+            && digest_path(evidence, &["result", "digest"]) == Some(result_ref.digest)
+            && evidence.pointer("/result/kind").and_then(Value::as_str) == Some("success")
+            && reproduced == Some(consequence_digest)
+            && digest_path(commitment, &["application_consequence_digest"])
+                == Some(consequence_digest)
+            && digest_path(commitment, &["result_digest"]) == Some(result_ref.digest);
+        let companion_matches = effect_ref == expected_effect
+            && artifact_has_role(loaded, EvidenceRole::ReleaseManifest, effect_ref)
+            && artifact_has_role(loaded, EvidenceRole::ApplicationEffect, effect_ref)
+            && artifact_has_role(loaded, EvidenceRole::LocalizedConsequence, consequence_ref)
+            && artifact_has_role(loaded, EvidenceRole::LocalizedResult, result_ref)
+            && effect.value == *manifest
+            && result.value.get("release_manifest") == Some(manifest)
+            && digest_field(&result.value, "release_digest") == Some(release_digest)
+            && string(&result.value, "release_id") == Some(expected_release)
+            && result.value.get("proof_id") == manifest.get("proof_id")
+            && digest_field(&result.value, "proof_envelope_digest") == Some(proof_envelope_digest);
+        (record_matches && consequence_matches && companion_matches).then_some(consequence)
+    });
+    match (candidates.next(), candidates.next(), has_relevant_companion) {
+        (Some(candidate), None, _) => Ok(candidate),
+        (None, None, false) => Err(HistoricalEvidenceState::Incomplete),
+        _ => Err(HistoricalEvidenceState::Invalid),
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "promotion approval joins the signed Release, authority companion, proposal, validation, and policy"
+)]
 fn verify_submission_and_approval(
     loaded: &LoadedBundle,
+    records: &[VerifiedAuthorityRecord],
     changeset: &Value,
+    proposal: &Value,
     final_validation: &Value,
     policy_decision: Option<&Value>,
     environment: Option<&Value>,
     predicate: &Value,
+    manifest: &Value,
 ) -> ContentVerificationResult {
     let changeset_id = string(changeset, "changeset_id").ok_or("proof.verify.content.approval")?;
     let sealed = digest_field(changeset, "sealed_changeset_digest")
         .ok_or("proof.verify.content.approval")?;
     let validation =
         digest_field(final_validation, "results_digest").ok_or("proof.verify.content.approval")?;
-    let signed_approval = loaded
-        .artifacts
-        .get(&loaded.bundle.entrypoints.target_localized_consequence)
-        .and_then(|consequence| consequence.value.pointer("/closure/approval"))
+    let release_digest = digest_path(predicate, &["release", "release_digest"])
+        .ok_or("proof.verify.content.approval")?;
+    let consequence =
+        match verified_release_consequence(loaded, records, predicate, manifest, release_digest) {
+            Ok(consequence) => consequence,
+            Err(HistoricalEvidenceState::Incomplete) => {
+                return Err(HISTORICAL_APPROVAL_UNSUPPORTED);
+            }
+            Err(HistoricalEvidenceState::Invalid | HistoricalEvidenceState::Available) => {
+                return Err("proof.verify.content.approval");
+            }
+        };
+    let signed_approval = consequence
+        .value
+        .pointer("/closure/approval")
         .filter(|approval| !approval.is_null())
         .ok_or("proof.verify.content.approval")?;
     let signed_approval_digest =
         digest_field(signed_approval, "effect_digest").ok_or("proof.verify.content.approval")?;
+    let principal = string(manifest, "principal_id").ok_or("proof.verify.content.approval")?;
+    if predicate
+        .pointer("/authority/human_principal_id")
+        .and_then(Value::as_str)
+        != Some(principal)
+        || string(proposal, "principal_id") != Some(principal)
+        || string(proposal, "workspace_id") != Some(loaded.bundle.workspace_id.as_str())
+        || string(proposal, "changeset_id") != Some(changeset_id)
+        || consequence
+            .value
+            .pointer("/closure/changeset/changeset_id")
+            .and_then(Value::as_str)
+            != Some(changeset_id)
+        || consequence
+            .value
+            .pointer("/closure/changeset/context_pack_digest")
+            != proposal.get("context_pack_digest")
+    {
+        return Err("proof.verify.content.approval");
+    }
     let mut submissions = artifacts_for_role(loaded, EvidenceRole::Submission).filter(|artifact| {
         operation_effect_shape(&artifact.value, "changeset.submit/v2")
             && artifact
@@ -5327,6 +8712,11 @@ fn verify_submission_and_approval(
                 .value
                 .pointer("/result/approval")
                 .is_some_and(Value::is_null)
+            && artifact
+                .value
+                .pointer("/result/principal_id")
+                .and_then(Value::as_str)
+                == Some(principal)
     });
     let submission = submissions
         .next()
@@ -5423,6 +8813,29 @@ fn parse_hex_key(value: &str) -> Option<[u8; 32]> {
         *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).ok()?;
     }
     Some(output)
+}
+
+fn release_key_evidence_state(
+    loaded: &LoadedBundle,
+    trusted: &TrustedKey,
+    key_id: Option<&str>,
+    released_at: Option<OffsetDateTime>,
+) -> HistoricalEvidenceState {
+    if missing_external_with_any_role(
+        loaded,
+        &[
+            EvidenceRole::ReleaseSigningKey,
+            EvidenceRole::ReleaseSigningKeyRevocation,
+        ],
+    )
+    .is_some()
+    {
+        HistoricalEvidenceState::Incomplete
+    } else if verify_release_key_evidence(loaded, trusted, key_id, released_at) {
+        HistoricalEvidenceState::Available
+    } else {
+        HistoricalEvidenceState::Invalid
+    }
 }
 
 fn verify_release_key_evidence(
@@ -6359,6 +9772,7 @@ mod tests {
             manifest_digest: Digest([0xf5; 32]),
             artifacts: BTreeMap::new(),
             missing_external: BTreeSet::new(),
+            required_external_missing: false,
         }
     }
 
@@ -6526,6 +9940,7 @@ mod tests {
             "released_at": "2026-08-21T12:00:00Z",
             "resource_intent_id": null,
             "rollback_target_release_id": "019c0000-0000-7000-8000-000000000021",
+            "workspace_id": WORKSPACE,
         });
         let predicate = json!({
             "content_evidence": null,
@@ -6593,6 +10008,121 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_command_time_uses_exact_skew_lifetime_and_expiry_boundaries() {
+        let timestamp = |value| parse_timestamp(value).expect("test timestamp is canonical");
+        let issued_at = timestamp("2026-08-17T20:02:00Z");
+        let exact_expiry = timestamp("2026-08-17T20:07:00Z");
+
+        assert!(authenticated_command_time_is_valid(
+            timestamp("2026-08-17T20:01:30Z"),
+            issued_at,
+            exact_expiry,
+        ));
+        assert!(!authenticated_command_time_is_valid(
+            timestamp("2026-08-17T20:01:29.999999999Z"),
+            issued_at,
+            exact_expiry,
+        ));
+        assert!(authenticated_command_time_is_valid(
+            issued_at,
+            issued_at,
+            exact_expiry,
+        ));
+        assert!(!authenticated_command_time_is_valid(
+            issued_at,
+            issued_at,
+            timestamp("2026-08-17T20:07:00.000000001Z"),
+        ));
+        assert!(authenticated_command_time_is_valid(
+            timestamp("2026-08-17T20:06:59.999999999Z"),
+            issued_at,
+            exact_expiry,
+        ));
+        assert!(!authenticated_command_time_is_valid(
+            exact_expiry,
+            issued_at,
+            exact_expiry,
+        ));
+    }
+
+    #[test]
+    fn missing_context_projection_is_gated_by_the_signed_not_found_failure() {
+        let mut loaded = empty_loaded();
+        let result_ref = reference(ArtifactKind::OperationEffectV1, 0x41);
+        let consequence_ref = reference(ArtifactKind::AuthenticatedLocalizedConsequenceV1, 0x42);
+        let result = json!({
+            "code": "proof.resource.not_found",
+            "detail": null,
+            "retryable": false,
+            "title": "The exact localized-content resource was not found",
+            "type": "urn:proof:problem:resource-not-found",
+        });
+        insert(
+            &mut loaded,
+            EvidenceRole::LocalizedResult,
+            result_ref,
+            result.clone(),
+        );
+        insert(
+            &mut loaded,
+            EvidenceRole::ApplicationEffect,
+            result_ref,
+            result,
+        );
+        let operation = json!({
+            "name": "context.build",
+            "version": "proof.dev/operation/context.build/v2",
+        });
+        insert(
+            &mut loaded,
+            EvidenceRole::LocalizedConsequence,
+            consequence_ref,
+            json!({
+                "application_effect_digest": result_ref.digest,
+                "closure": { "context": null },
+                "operation": operation,
+                "result": {
+                    "contract": "proof.dev/result/localized-operation-problem/v1",
+                    "digest": result_ref.digest,
+                    "kind": "failure",
+                },
+            }),
+        );
+        let input = json!({ "operation": operation });
+        let decision = json!({
+            "decision": "allow",
+            "localized_consequence_commitment": {
+                "result_contract": "proof.dev/result/localized-operation-problem/v1",
+                "result_digest": result_ref.digest,
+                "result_kind": "failure",
+            },
+            "reason_code": null,
+        });
+        let companion = crate::model::DecisionCompanion {
+            command_input: reference(ArtifactKind::CommandV1, 0x43),
+            authenticated_command_envelope: reference(
+                ArtifactKind::AuthenticatedCommandEnvelopeV1,
+                0x44,
+            ),
+            actor_context_evidence: reference(ArtifactKind::AuthenticatedActorContextV1, 0x45),
+            result: Some(result_ref),
+            localized_consequence: Some(consequence_ref),
+            application_effect: Some(result_ref),
+        };
+
+        assert!(mapped_context_build_not_found_allows_missing_context(
+            &loaded, companion, &input, &decision,
+        ));
+
+        let mut success = decision;
+        success["localized_consequence_commitment"]["result_kind"] =
+            Value::String("success".to_owned());
+        assert!(!mapped_context_build_not_found_allows_missing_context(
+            &loaded, companion, &input, &success,
+        ));
+    }
+
+    #[test]
     fn authority_root_rotation_rejects_reuse_and_release_key_collision() {
         fn signer(seed: u8) -> PublicSigner {
             let public_key = SigningKey::from_bytes(&[seed; 32])
@@ -6628,7 +10158,30 @@ mod tests {
     }
 
     #[test]
-    fn revocation_resolution_is_restricted_to_the_decision_causal_head_and_time() {
+    fn causal_status_and_revocation_resolution_ignore_cross_clock_ordering() {
+        let principal_id = "019c0000-0000-7000-8000-000000000003";
+        let enabled_digest = Digest([0x41; 32]);
+        let disabled_digest = Digest([0x42; 32]);
+        let enabled = VerifiedAuthorityRecord {
+            sequence: 2,
+            digest: enabled_digest,
+            value: json!({
+                "api_version": "proof.dev/principal-status/v1",
+                "enabled": true,
+                "principal_id": principal_id,
+                "principal_type": "agent",
+            }),
+        };
+        let disabled = VerifiedAuthorityRecord {
+            sequence: 4,
+            digest: disabled_digest,
+            value: json!({
+                "api_version": "proof.dev/principal-status/v1",
+                "enabled": false,
+                "principal_id": principal_id,
+                "principal_type": "agent",
+            }),
+        };
         let revocation_digest = Digest([0x55; 32]);
         let revocation = VerifiedAuthorityRecord {
             sequence: 6,
@@ -6637,11 +10190,23 @@ mod tests {
                 "api_version": "proof.dev/principal-binding-revocation/v1",
                 "binding_id": "019c0000-0000-7000-8000-000000000004",
             }),
-            recorded_at: parse_timestamp("2026-08-21T10:12:00Z").unwrap(),
         };
-        let records = BTreeMap::from([(revocation_digest, &revocation)]);
+        let records = BTreeMap::from([
+            (enabled_digest, &enabled),
+            (disabled_digest, &disabled),
+            (revocation_digest, &revocation),
+        ]);
         let reference = Value::String(revocation_digest.to_string());
         let expected = Some("019c0000-0000-7000-8000-000000000004");
+
+        assert_eq!(
+            principal_status_at(&records, Some(principal_id), Some(3)).map(|record| record.digest),
+            Some(enabled_digest)
+        );
+        assert_eq!(
+            principal_status_at(&records, Some(principal_id), Some(4)).map(|record| record.digest),
+            Some(disabled_digest)
+        );
 
         assert_eq!(
             decision_revocation_record(
@@ -6651,7 +10216,6 @@ mod tests {
                 "binding_id",
                 expected,
                 Some(5),
-                parse_timestamp("2026-08-21T10:13:00Z"),
             ),
             None
         );
@@ -6663,19 +10227,6 @@ mod tests {
                 "binding_id",
                 expected,
                 Some(6),
-                parse_timestamp("2026-08-21T10:11:00Z"),
-            ),
-            None
-        );
-        assert_eq!(
-            decision_revocation_record(
-                Some(&reference),
-                &records,
-                "proof.dev/principal-binding-revocation/v1",
-                "binding_id",
-                expected,
-                Some(6),
-                parse_timestamp("2026-08-21T10:13:00Z"),
             ),
             Some(true)
         );
