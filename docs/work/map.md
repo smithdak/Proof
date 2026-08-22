@@ -10,8 +10,12 @@ interface.
 
 P-0005 candidate `c6f6ca8` and Engineering evidence `03fd4ea` are the clean,
 qualified delegated-mutation baseline for P-0006 portable verification and
-Milestone 2 closure. Collaboration-server and enterprise deployment work begin
-only after the Milestone 2 exit scenario passes.
+Milestone 2 closure. P-0006 candidate `ea35e09`, bound by Engineering evidence
+`7df66d9` (initial packet `029f803`), is engineering-qualified and awaiting
+project-owner review. Milestone 2 is not complete. Collaboration-server and
+enterprise deployment work begin
+only after the project owner accepts the Milestone 2 exit evidence and residual
+risks.
 
 ## Operating notes
 
@@ -60,19 +64,21 @@ only after the Milestone 2 exit scenario passes.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `claimed` | P-0005 | Prove repair, abuse resistance, adapter parity, portable closure, containment, and independent verification. |
+| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `review` | P-0005 | Review engineering-qualified repair, abuse-resistance, adapter-parity, portable-closure, containment, and independent-verification evidence. |
 
 ## Next
 
-No later item is promoted. Milestone 3 remains in fog until P-0006 completes
-the independently verifiable exit and exposes the next decision boundary.
+No later item is promoted. P-0006 remains the sole active frontier while its
+engineering-qualified candidate awaits project-owner disposition. Milestone 3
+remains in fog until P-0006 completes the independently verifiable exit and
+exposes the next decision boundary.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | P-0006 is the sole ready frontier. |
+| None | n/a | n/a | No successor is promoted while P-0006 is in project-owner review. |
 
 ## Completed
 
@@ -92,8 +98,9 @@ relabeled by completion. P-0004 candidate `8788847`, bound through Engineering
 evidence `e6843ad`, passed the bounded local authorization-kernel gate and is
 `done` under `review_gate: none`. P-0005 candidate `c6f6ca8`, bound through
 Engineering evidence `03fd4ea`, passed the bounded delegated-mutation gate and
-is `done` under `review_gate: none`; P-0006 is the ready, unclaimed Milestone 2
-closure frontier.
+is `done` under `review_gate: none`; P-0006 candidate `ea35e09`, bound by
+Engineering evidence `7df66d9` (initial packet `029f803`), is the Milestone 2
+closure frontier awaiting project-owner review.
 
 ## Decisions so far
 
@@ -110,8 +117,8 @@ baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
 `DelegationV2` resource dimension is required. P-0007 implements and qualifies
 that foundation through the Human path. P-0004 implements authenticated Agent
-reads, P-0005 implements delegated localized mutation, and P-0006 is ready to
-verify the portable Milestone 2 closure.
+reads, P-0005 implements delegated localized mutation, and the P-0006 candidate
+under review verifies the portable Milestone 2 closure.
 
 ### Ratified P-0003 profile
 
@@ -119,11 +126,12 @@ P-0003 defines local per-Agent Ed25519 proof of possession,
 adapter-derived `AuthenticatedActorContextV1`, single-use
 `AuthenticatedCommandV1` DSSE presentations, direct Human-to-Agent
 `DelegationV2`, `AuthorizationDecisionV2`, a separately rooted authority log of
-`AuthorityRecordV1`, and a future P-0006 `AuthorityEvidenceBundleV1`. CLI and
+`AuthorityRecordV1`, and a P-0006-selected `AuthorityEvidenceBundleV1`. CLI and
 both MCP eras treat Principal and Delegation identifiers as cross-checks or
 selectors rather than authority. This is accepted architecture, not an
 implementation-status claim by itself. P-0004 implements its bounded local read
-profile, P-0005 implements the 11 localized v2 operations, and P-0006 is ready.
+profile, P-0005 implements the 11 localized v2 operations, and P-0006 has an
+engineering-qualified candidate under project-owner review.
 
 Candidate `38999d0` was qualified and accepted by project owner `smithdak` at
 `2026-08-20T19:52:12.756Z`. It aligns
@@ -142,10 +150,11 @@ The controlling contract is the
 - The collaboration-server decomposition: HTTP surface, PostgreSQL adapter,
   outbox, OIDC, SDKs, and human console. It sharpens only after P-0006.
 - Environment configuration update, disablement, and signing-key lifecycle.
-- The **Ratified P-0003 profile** names a future
-  `AuthorityEvidenceBundleV1`; P-0006 still owns its exact container, supplied
+- The **Ratified P-0003 profile** names an `AuthorityEvidenceBundleV1`; P-0006
+  candidate `ea35e09` selects and implements its exact container, supplied
   artifact layout, independent serialization path, disclosure behavior, and
-  golden vectors after P-0005.
+  golden vectors. That selection remains unratified until project-owner
+  acceptance.
 - Windows identity, protected key storage, crash semantics, and live runtime
   qualification.
 - Cross-worktree claim locking, GitHub mirroring, and lifecycle automation

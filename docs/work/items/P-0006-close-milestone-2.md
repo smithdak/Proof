@@ -1,7 +1,7 @@
 ---
 id: P-0006
 title: Close Milestone 2 with independently verifiable evidence and conformance
-status: claimed
+status: review
 wave: now
 kind: qualification
 blocked_by: [P-0005]
@@ -41,7 +41,8 @@ controlling contract is the
 P-0002 and P-0007 have closed the Human-path write-resource contract, P-0003
 is accepted with its exact operation/projection registry, P-0004 implements
 the bounded local authenticated read profile, and P-0005 implements the
-complete delegated localized-write path. P-0006 is now ready and unclaimed.
+complete delegated localized-write path. P-0006 now has an engineering-qualified
+candidate awaiting project-owner review.
 
 ## P-0005 consequence and Release reshape
 
@@ -155,26 +156,26 @@ projection-reconstruction or serialization path.
 
 ## Acceptance criteria
 
-- [ ] The exact Milestone 2 scenario includes bounded context, a prohibited
+- [x] The exact Milestone 2 scenario includes bounded context, a prohibited
       change, structured repair, separate Human approval, delegated consequence,
       Release, and independent verification.
-- [ ] The verifier independently proves that the released Edition differs from
+- [x] The verifier independently proves that the released Edition differs from
       the unchanged baseline Release by exactly the authorized committed
       localized-rendition closure, with no ambient or same-resource hitchhiking
       commit and no fabricated locale fallback.
-- [ ] Clean-directory verification succeeds with explicit caller-supplied
+- [x] Clean-directory verification succeeds with explicit caller-supplied
       Release and separate authority public trust roots and trust policy, but
       without the producing Workspace
       database, network resolution, private key, or trust in self-described
       envelope keys. It reports cryptographic, canonical, authority, policy,
       approval, subject, and evidence completeness separately.
-- [ ] Signing-key validity and revocation are evaluated at signing time; later
+- [x] Signing-key validity and revocation are evaluated at signing time; later
       rotation or revocation does not invalidate historically valid Proofs.
-- [ ] Authority validity is evaluated at each recorded consequential action's
+- [x] Authority validity is evaluated at each recorded consequential action's
       causal position and timestamp. Expiration or revocation effective
       afterward is not retroactive; revocation, disablement, or invalid chain
       state effective before the action makes the authority verdict invalid.
-- [ ] Under the **Ratified P-0003 profile**, verification proves the subject
+- [x] Under the **Ratified P-0003 profile**, verification proves the subject
       commitment using the canonical 32-byte-blind hiding-commitment vectors,
       exact immutable `binding_id` plus its issuing authority sequence and
       record digest, single consumption of the signed
@@ -183,48 +184,48 @@ projection-reconstruction or serialization path.
       chain or subdelegation input is rejected as unsupported. Actor-context
       evidence uses only the public commitment; any private opening is disclosed
       only under audit policy.
-- [ ] Portable closure carries or resolves the exact
+- [x] Portable closure carries or resolves the exact
       `AuthenticatedActorContextEvidenceV1` canonical preimage persisted by
       P-0004 and proves it contains no raw UID. It treats `authenticated_at` as
       authentication completion time, not as authorization `evaluated_at`.
-- [ ] A complete authority/trust verdict requires every Principal binding,
+- [x] A complete authority/trust verdict requires every Principal binding,
       Delegation issuer, policy, and revocation record either to be covered by
       authenticated signed evidence or validated through explicit
       caller-supplied trust roots and policy. Producer-exported
       self-consistency alone never establishes trust.
-- [ ] Tampering or withholding each required supplied component fails
+- [x] Tampering or withholding each required supplied component fails
       deterministically or yields an explicit incomplete verdict; it never
       overclaims validity.
-- [ ] `AuthorityEvidenceBundleV1` verification is implemented independently of
+- [x] `AuthorityEvidenceBundleV1` verification is implemented independently of
       the producer's authority-log reconstruction and serialization path. A
       valid Release signature without the required authority closure cannot
       yield a complete authority verdict.
-- [ ] A verifier without an independently pinned expected authority head reports
+- [x] A verifier without an independently pinned expected authority head reports
       only internal validity of the supplied signed prefix. Rollback,
       truncation, fork, latest-history, or completeness claims require that
       checkpoint and fail closed when it is absent or mismatched.
-- [ ] Capability discovery, errors, idempotency, and side-effect semantics match
+- [x] Capability discovery, errors, idempotency, and side-effect semantics match
       across application, CLI, and both MCP eras.
-- [ ] C4 idempotent-result disclosure occurs only after fresh C5 authentication
+- [x] C4 idempotent-result disclosure occurs only after fresh C5 authentication
       and current C6 authorization; revocation, Principal/binding disablement,
       or policy denial after the original effect blocks its result on retry.
-- [ ] Under the **Ratified P-0003 profile**, authenticated Agent status/query
+- [x] Under the **Ratified P-0003 profile**, authenticated Agent status/query
       capabilities are `evidence_write` and omit MCP `readOnlyHint: true`, while
       conformance independently proves that governed content remains unchanged.
-- [ ] The north-star evidence records a distinct-UID/container/sandbox Agent
+- [x] The north-star evidence records a distinct-UID/container/sandbox Agent
       denied repository, raw CLI, and private Workspace access and constrained
       to the Human-owned broker/adapter channel. A same-UID run cannot satisfy
       this criterion. It proves the signer cannot open the Workspace, authority
       keys, or ambient Human CLI and cannot induce either broker surface to open
       an Agent-selected path.
-- [ ] A traceability matrix enumerates C1-C24 with executable accepted/rejected
+- [x] A traceability matrix enumerates C1-C24 with executable accepted/rejected
       coverage or a justified `not applicable` result, and covers every public
       error added or materially affected by Milestone 2.
 - [ ] Abuse tests and a final falsification review find no open Milestone 2
       blocker; residual risks are explicitly accepted or moved to map fog.
 - [ ] The project owner explicitly accepts the exit evidence and residual risks
       before this item moves from `review` to `done`.
-- [ ] The full Linux quality gate passes and durable evidence is recorded.
+- [x] The full Linux quality gate passes and durable evidence is recorded.
 - [ ] Only then are Milestone 2 status claims changed to complete and the first
       Milestone 3 discovery items created.
 
@@ -248,6 +249,21 @@ P-0006 implementation or Milestone 2 completion is claimed by this promotion.
 Claimed by `codex:/root:p-0006` at `2026-08-21T16:36:33.390Z` from completed
 P-0005 commit `0a5becaf9794d81c9a5b1d7118e190b16dd247d2` on
 `proof-engineering/p-0006-milestone-2-closure`.
+
+Engineering qualified immutable candidate
+`ea35e093daed50017684f7da53373cbb70af753a` at
+`2026-08-22T22:31:15Z`. Initial Engineering evidence packet commit
+`029f8032ff7492cb3f3d49d9d73b874bd5113467` is followed by schema-aligned
+Engineering evidence commit `7df66d98b38155f9c6fec1549dbb1c17ebabdb3c`,
+which binds the
+[receipt](../evidence/P-0006/receipt.md),
+[manifest](../evidence/P-0006/manifest.json), and
+[C1-C24 traceability matrix](../evidence/P-0006/traceability.md). Moved from
+`claimed` to `review` at `2026-08-22T22:58:18Z`. Project-owner disposition
+remains pending: `accepted_by` and `accepted_at` remain null, and neither
+P-0006 nor Milestone 2 is complete. The abuse tests and falsification review
+found no Engineering blocker; their combined acceptance checkbox remains open
+because residual-risk disposition is part of the pending owner review.
 
 ## Residual risks and next-wave update
 
