@@ -112,7 +112,7 @@
     "node": "v22.23.2",
     "git": "2.43.0"
   },
-  "exact_candidate_commands": [
+  "commands": [
     {
       "command": "rtk cargo fmt --all -- --check",
       "exit_code": 0,
