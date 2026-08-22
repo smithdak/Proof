@@ -1,0 +1,347 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0006",
+  "base_sha": "0a5becaf9794d81c9a5b1d7118e190b16dd247d2",
+  "claim_commit": "4c613972edf290d3ecd2f9e012241da7ee631c02",
+  "intermediate_commits": [
+    "86006ac7dfbc84c1d04db6a997dcf646d209ca65",
+    "50fef1d5244ddee5aac02a70422f722d37ab1f12"
+  ],
+  "candidate_parent_sha": "50fef1d5244ddee5aac02a70422f722d37ab1f12",
+  "candidate_commit": "ea35e093daed50017684f7da53373cbb70af753a",
+  "candidate_tree": "744884146924b555101f0995827fa3e987776e34",
+  "item_work_commit": "ea35e093daed50017684f7da53373cbb70af753a",
+  "branch": "proof-engineering/p-0006-milestone-2-closure",
+  "qualified_at": "2026-08-22T22:31:15Z",
+  "qualification_state": "engineering-qualified-review-eligible",
+  "review_gate": "project-owner",
+  "owner_acceptance_recorded": false,
+  "milestone_complete": false,
+  "live_remote_verified": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "base_to_candidate_commit_count": 4,
+    "candidate_path_count": 54,
+    "insertions": 31469,
+    "deletions": 75,
+    "candidate_parent_path_count": 34,
+    "candidate_parent_insertions": 9676,
+    "candidate_parent_deletions": 656,
+    "artifact_digest_status": "54 of 54 exact Git blobs bound by SHA-256",
+    "storage_source_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    "storage_target_version": 14,
+    "workspace_packages_added": [
+      "proof-agent-signer",
+      "proof-verifier"
+    ],
+    "third_party_lock_packages_added": [],
+    "candidate_paths": [
+      "Cargo.lock",
+      "Cargo.toml",
+      "conformance/v1/portable-proof/README.md",
+      "conformance/v1/portable-proof/bundle.json",
+      "conformance/v1/portable-proof/checkpoint.json",
+      "conformance/v1/portable-proof/hashes.json",
+      "conformance/v1/portable-proof/report.complete.json",
+      "conformance/v1/portable-proof/report.incomplete.json",
+      "conformance/v1/portable-proof/report.invalid.json",
+      "conformance/v1/portable-proof/trust.complete.json",
+      "conformance/v1/portable-proof/trust.required-opening.json",
+      "conformance/v1/verifier-finding-codes.json",
+      "crates/proof-agent-signer/Cargo.toml",
+      "crates/proof-agent-signer/src/main.rs",
+      "crates/proof-application/src/evidence.rs",
+      "crates/proof-application/src/lib.rs",
+      "crates/proof-cli/Cargo.toml",
+      "crates/proof-cli/src/evidence_cli.rs",
+      "crates/proof-cli/src/main.rs",
+      "crates/proof-cli/tests/architecture.rs",
+      "crates/proof-cli/tests/auth_transport_parity.rs",
+      "crates/proof-cli/tests/cli.rs",
+      "crates/proof-cli/tests/p0006_containment.rs",
+      "crates/proof-cli/tests/p0006_evidence_cli.rs",
+      "crates/proof-cli/tests/p0006_north_star.rs",
+      "crates/proof-cli/tests/p0006_support/mod.rs",
+      "crates/proof-domain/src/lib.rs",
+      "crates/proof-local/src/authority.rs",
+      "crates/proof-local/src/evidence.rs",
+      "crates/proof-local/src/lib.rs",
+      "crates/proof-local/tests/initialize.rs",
+      "crates/proof-local/tests/p0004_authority_falsification.rs",
+      "crates/proof-local/tests/p0004_authority_matrix.rs",
+      "crates/proof-local/tests/p0005_delegated_lifecycle.rs",
+      "crates/proof-local/tests/p0005_delegated_matrix.rs",
+      "crates/proof-local/tests/p0005_local_kernel.rs",
+      "crates/proof-local/tests/p0007_assurance_g6_g9.rs",
+      "crates/proof-verifier/Cargo.toml",
+      "crates/proof-verifier/src/container.rs",
+      "crates/proof-verifier/src/crypto.rs",
+      "crates/proof-verifier/src/lib.rs",
+      "crates/proof-verifier/src/main.rs",
+      "crates/proof-verifier/src/model.rs",
+      "crates/proof-verifier/src/operation.rs",
+      "crates/proof-verifier/src/schema.rs",
+      "crates/proof-verifier/src/semantics.rs",
+      "crates/proof-verifier/src/strict_json.rs",
+      "crates/proof-verifier/tests/finding_code_registry.rs",
+      "crates/proof-verifier/tests/portable_matrix.rs",
+      "crates/proof-verifier/tests/public_cli.rs",
+      "crates/proof-verifier/tests/security_matrix.rs",
+      "crates/proof-verifier/tests/support/mod.rs",
+      "docs/work/items/P-0006-close-milestone-2.md",
+      "docs/work/map.md"
+    ]
+  },
+  "implementation_scope": [
+    "AuthorityEvidenceBundleV1 export with included artifacts or explicit external commitments",
+    "independent proof-verifier parsing, canonicalization, signature verification, authority replay, policy evaluation, content reconstruction, and Complete/Incomplete/Invalid reporting",
+    "producer-independent frozen portable vectors and a closed public verifier finding-code registry",
+    "storage v14 canonical authenticated command-input and signed-envelope presentation persistence with atomic v1-v13 migration",
+    "separate Workspace-blind proof-agent-signer and fixed-input broker boundaries",
+    "application, proof CLI, modern MCP, and legacy MCP north-star semantic parity",
+    "Linux distinct-UID bubblewrap containment for Agent signer and clean-directory verifier"
+  ],
+  "environment": {
+    "operating_system": "Ubuntu 24.04.4 LTS",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64-unknown-linux-gnu",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "llvm": "22.1.6",
+    "cargo": "1.97.1 (c980f4866 2026-06-30)",
+    "bubblewrap": "0.9.0",
+    "node": "v22.23.2",
+    "git": "2.43.0"
+  },
+  "exact_candidate_commands": [
+    {
+      "command": "rtk cargo fmt --all -- --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "rtk cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "no issues"
+    },
+    {
+      "command": "rtk cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "604 passed across 36 suites; 0 failed; 366.90s; namespace-capable execution included retained bubblewrap tests"
+    },
+    {
+      "command": "rtk cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "7 doc-test executables; 0 tests; 0 failures"
+    },
+    {
+      "command": "rtk node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "168 internal documentation links passed"
+    },
+    {
+      "command": "rtk node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "7 work items passed metadata, lifecycle, dependencies, map parity, transitions, and evidence contracts"
+    },
+    {
+      "command": "rtk git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "rtk git status --short --branch",
+      "exit_code": 0,
+      "result": "clean proof-engineering/p-0006-milestone-2-closure worktree"
+    },
+    {
+      "command": "rtk git rev-parse HEAD",
+      "exit_code": 0,
+      "result": "ea35e093daed50017684f7da53373cbb70af753a"
+    }
+  ],
+  "same_content_focused_observations": [
+    {
+      "surface": "proof-verifier",
+      "result": "79 passed across 6 suites; 0 failed"
+    },
+    {
+      "surface": "north-star and distinct-UID containment",
+      "result": "2 passed across 2 suites; 0 failed; 58.69s"
+    },
+    {
+      "surface": "P-0004/P-0005 authority, storage migration, and P-0007 assurance block",
+      "result": "323 passed across 10 suites; 0 failed; 295.89s"
+    },
+    {
+      "surface": "CLI, transport parity, and architecture",
+      "result": "32 passed across 4 suites; 0 failed"
+    }
+  ],
+  "portable_conformance": {
+    "descriptor_count": 44,
+    "included_descriptor_count": 43,
+    "external_commitment_count": 1,
+    "external_commitment_role": "optional requesting-subject opening",
+    "workspace_id": "019c0000-0000-7000-8000-000000000001",
+    "release_id": "019c0000-0000-7000-8000-00000000000f",
+    "release_digest": "blake3:2dec157adc8a2cc54253ba3cb47514c3acf02b37eccdcd785014f7d3e743cc00",
+    "authorization_decision_digest": "blake3:1dce91932a61582c01cbe9bbb654c5fc53a26997c8e2289406cccafb49e524ef",
+    "authority_head_sequence": 5,
+    "authority_head_digest": "blake3:21a2acfb93757cedab30d83796f518957c388d655543148ccace8b27fecfd46a",
+    "checkpoint_digest": "blake3:547bc64adb06fbe51e6cea46178bc9264f25d0351b193634f82bf0cbf49f291d",
+    "outcomes": {
+      "complete": {
+        "bundle_manifest_digest": "blake3:3db6b86c7b2d5cd83c3deda353d049f65634ce2518b198d49ae5cb72deae1aaa",
+        "trust_policy_digest": "blake3:4399579437187e55169c87a5f819fe5684c562a6a059018d2e8f8f407e618518",
+        "report_digest": "blake3:0a8345a9494144d66345c79779fe74a8d0bb781d0e4a9b5f84b5e133901f2c06"
+      },
+      "incomplete": {
+        "bundle_manifest_digest": "blake3:3db6b86c7b2d5cd83c3deda353d049f65634ce2518b198d49ae5cb72deae1aaa",
+        "trust_policy_digest": "blake3:9061d60697183b04270351c902fcdf1628fd56975cba6b4f43d71c4e6644f492",
+        "report_digest": "blake3:53f03ecceb7871fe02fb611418ce6e2fff66aba653ed66f6b15fd51439a61709"
+      },
+      "invalid": {
+        "bundle_manifest_digest": "blake3:23ab44c867424fe080c9ebae3928c7e43d15023fdf43cff82a8827d3efc3db3a",
+        "trust_policy_digest": "blake3:4399579437187e55169c87a5f819fe5684c562a6a059018d2e8f8f407e618518",
+        "report_digest": "blake3:16c7e5984838546ea90bf058dbff5164efd14a6441c0160795e0c97112a2b9bd"
+      }
+    }
+  },
+  "finding_code_registry": {
+    "namespace": "proof.verify.",
+    "structured_report_codes": 156,
+    "cli_diagnostic_codes": 2,
+    "total_codes": 158,
+    "direct_behavioral": 30,
+    "structural_guard": 128,
+    "claim_boundary": "structural registry coverage proves source-to-registry equality, not an independent branch-level behavioral test for every guard"
+  },
+  "storage_v14": {
+    "cutover": "MAX(authority_sequence)+1 recorded immutably during migration",
+    "new_presentations": "canonical CommandInput and parsed signed authenticated-command envelope bytes and digests persist before their signed decision in one immediate transaction",
+    "historical_presentations": "v1-v13 migration fabricates no historical presentation bytes; unavailable pre-cutover preimages export as external commitments",
+    "failure_semantics": "injected migration or consequence-persistence failures roll back atomically; retry converges to stable v14"
+  },
+  "containment": {
+    "platform": "Linux bubblewrap",
+    "agent_uid": 65534,
+    "agent_gid": 65534,
+    "namespace_flags": ["--unshare-all", "--new-session", "--die-with-parent"],
+    "network": "different network namespace and no /etc/resolv.conf",
+    "agent_boundary": "no repository, host Workspace, private Workspace keys, ambient Human CLI, Agent-selected path, or Agent-selected argv; fixed framed stdin and typed MCP inputs only",
+    "verifier_boundary": "read-only bundle and a two-file caller-input directory containing trust and checkpoint; producer .proof state and Agent credentials deleted before verification",
+    "same_uid_claim": false,
+    "windows_runtime_claim": false
+  },
+  "independent_audits": [
+    {
+      "scope": "producer/verifier parity after exact v1/v2 policy, ancestry, approval, validation, and chronology hardening",
+      "result": "no remaining producer-rejection or false-Complete blocker found"
+    },
+    {
+      "scope": "storage v14 migration, persistence, rollback, replay, and historical external commitments",
+      "result": "no code blocker found"
+    },
+    {
+      "scope": "complete base-to-candidate diff, test weakening, debug code, scope, containment, and overclaim",
+      "result": "two verifier parity blockers found, repaired, regression-tested, and included in the exact-candidate gate"
+    }
+  ],
+  "falsification": {
+    "fixed_blockers": [
+      "Incomplete evidence could be contaminated by later semantic Invalid findings instead of preserving a conservative Incomplete verdict",
+      "historical v1 Release evidence could be trusted structurally instead of reconstructing cumulative state, ancestry, exact producer shapes, approvals, and schema/object validation",
+      "Release policy decisions and Environment/PolicyBundle artifacts could accept extra or under-validated fields",
+      "command time verification rejected producer-valid 30-second future skew and truncated fractional lifetimes",
+      "a legitimate mapped context.build NotFound consequence with context:null was rejected by the projection verifier",
+      "the retained north-star fixture backdated approval before bootstrap Human enablement"
+    ],
+    "result": "all concrete blockers were repaired without relaxing the claimed trust or containment boundary; retained adversarial and exact-candidate gates pass",
+    "strongest_counterargument": "A self-consistent signed bundle can still overclaim if the verifier trusts producer labels, omits a causal or content cross-link, treats unavailable evidence as valid, or runs with producer Workspace authority.",
+    "candidate_response": "The verifier independently reconstructs the supplied authority, policy, command, consequence, historical Release, Edition, ChangeSet, schema/object, and disclosure closure under caller trust and a pinned authority checkpoint, while clean-directory distinct-UID tests remove producer state and private keys."
+  },
+  "limitations": [
+    "The checkpoint pins the supplied authority head; it does not prove that no omitted same-Environment signed Release exists or that the supplied Release is globally latest or the true immediate Release history.",
+    "EnvironmentConfig does not export Environment created_at; the verifier checks Release chronology against v2 Edition creation but cannot independently prove Release-after-Environment-creation.",
+    "A signed v2 approval has an approver and approved_at but no exact authority causal-head reference; enabled-Human status is checked by time, while backdating and cross-clock causal ambiguity remain bounded residuals.",
+    "Historical direct-Human v2 evidence without the delegated Agent consequence companion is conservatively Incomplete.",
+    "Missing or unresolved required evidence, unavailable pre-v14 command presentations, and some malformed idempotency reconstructions may resolve conservatively to Incomplete.",
+    "The 128 structural finding codes have exact source/registry equality coverage but no dedicated branch-level behavior claim.",
+    "Distinct-UID bubblewrap qualification is Linux-specific; mutually hostile same-UID isolation and Windows identity/runtime containment are not claimed.",
+    "Legacy EditBatchV1 is redundant producer output; authoritative v1 replay uses signed ChangeSet edits, digests, and reconstructed state.",
+    "No collaboration server, HTTP/PostgreSQL parity, live remote verification, push, tag, release, publication, deployment, production mutation, or customer proof is claimed.",
+    "Project-owner acceptance and Milestone 2 completion are not claimed by this Engineering packet."
+  ],
+  "artifact_digests": [
+    {"path":"Cargo.lock","git_blob_oid":"f8038ecb89b3cf341809ef7e1142393c0fc812c1","algorithm":"sha256","digest":"3ee783e0f463ba776ee23577c5580c0f8669b2f75b8895592bd10567b75e7c1e"},
+    {"path":"Cargo.toml","git_blob_oid":"697b1278032dfa9fb572b78178d14645a45d55c7","algorithm":"sha256","digest":"73443e0635e1fe4e6e8a1dc0d22e47db7b807e5aec21f5fa54f371d32dc23147"},
+    {"path":"conformance/v1/portable-proof/README.md","git_blob_oid":"7f504cfd6bb6ad552cebc8c91c638f79e5f26150","algorithm":"sha256","digest":"afb7cfe0ee8108bf6e0d93033c74b02effeb51c0a317fda679cdea2bfd55229f"},
+    {"path":"conformance/v1/portable-proof/bundle.json","git_blob_oid":"7ec8679c7b1bbc753965c6f79e4ab71bfc361826","algorithm":"sha256","digest":"a2db5964f010145030a14016b2f1a3d22a1203a4490ea5f88c3ca90a6e60ce27"},
+    {"path":"conformance/v1/portable-proof/checkpoint.json","git_blob_oid":"457430bd126a25e2c1f959961b1859f4c02e39cb","algorithm":"sha256","digest":"cd1e16fe50d26532c0ee0e158a4b2360d763251b81c0e6e7eb94cf48897d3871"},
+    {"path":"conformance/v1/portable-proof/hashes.json","git_blob_oid":"0a4a6eef5b5250f83fd237454ac510a00de5fab2","algorithm":"sha256","digest":"ca1d9391f880dc3f8dac44c51db60c7a3dec7343e6ef10655c522399b32954bd"},
+    {"path":"conformance/v1/portable-proof/report.complete.json","git_blob_oid":"be9e055584ceef56974bd5494a46b407782077c1","algorithm":"sha256","digest":"8c0a79ed548792708e99d1b2b38fd00de5dd8533ed2fc7f653d88eee2bac83c6"},
+    {"path":"conformance/v1/portable-proof/report.incomplete.json","git_blob_oid":"b02d57092379979deaebefd10ce1faa78be88962","algorithm":"sha256","digest":"aaf09161d3ae5708de622b98a994659b1e2ac4051c08dfa5848dd670dc2b58c7"},
+    {"path":"conformance/v1/portable-proof/report.invalid.json","git_blob_oid":"8633b73aaa482bf4f149f8d5b41a842b441a0550","algorithm":"sha256","digest":"71c5017614bcaa10d4dc5966e7bf7e01d6bcd7b25bef618d621df70412571615"},
+    {"path":"conformance/v1/portable-proof/trust.complete.json","git_blob_oid":"1cf6ec017a9f5aec35dfdcca6e4b2c5de6768cf8","algorithm":"sha256","digest":"3d799c30ccde51f577f999b01c95d68470fb2540f9ecd7050863d386d1e24c82"},
+    {"path":"conformance/v1/portable-proof/trust.required-opening.json","git_blob_oid":"0111c7b577c4ae334d693d2f13a1ab2ec0e48b7e","algorithm":"sha256","digest":"ffffac2dd38315582132929e464376a7443e5cd5647963803bfec4a7dd54bcf5"},
+    {"path":"conformance/v1/verifier-finding-codes.json","git_blob_oid":"2b610dd351e79c1be72116624905df5501a3671e","algorithm":"sha256","digest":"db6eaf4f7f420270d766d3cac848f90c38348024dec463b0f1c48ba6489a7040"},
+    {"path":"crates/proof-agent-signer/Cargo.toml","git_blob_oid":"bf5f43eaabf3d84ab1e786875515f129ac3c0ba3","algorithm":"sha256","digest":"2d8e062ed4c132c265010333a800e4030a40e40ef8f36c10d140c07515d3621d"},
+    {"path":"crates/proof-agent-signer/src/main.rs","git_blob_oid":"662d33e8829d206b124bbd24a954069a9730112d","algorithm":"sha256","digest":"35060fa0aacb021baf94ebfa6eb4484463683abb016aa5e1faf0da5bd86b2524"},
+    {"path":"crates/proof-application/src/evidence.rs","git_blob_oid":"b34d6fe5888a7acea41e2ae635cd048226111b4e","algorithm":"sha256","digest":"3283a453e161678c4531125c9bcdc789ca56ddfa6a5e5c1e4ac7f8de3a93e59d"},
+    {"path":"crates/proof-application/src/lib.rs","git_blob_oid":"58e67f956573597fc19d49a3d9c98958de1a094c","algorithm":"sha256","digest":"4a0ba4294e54c1c05baa5c8801049f9066828a2d0f993671ff1961bc0ca97401"},
+    {"path":"crates/proof-cli/Cargo.toml","git_blob_oid":"a179cf66b2312442758ef11841ae797c249f1aeb","algorithm":"sha256","digest":"faed11351092686e3be8fcf10c1a1a2d7443b9126564bc0bbb88141702b34e4b"},
+    {"path":"crates/proof-cli/src/evidence_cli.rs","git_blob_oid":"4cd1907dc48775eea910433eb0c68cd750d743bb","algorithm":"sha256","digest":"2fcefbda9766b047dc21ed1df773b8c0c4400f698243773648e6d356deee7bdc"},
+    {"path":"crates/proof-cli/src/main.rs","git_blob_oid":"8d9e12f156a911e87f03d584cd4c737d0848d089","algorithm":"sha256","digest":"89e5e8961be4e504d184d61bd6200b8870e3454b72929c579f30cd1a54e6e6f5"},
+    {"path":"crates/proof-cli/tests/architecture.rs","git_blob_oid":"6142008e35d6a3dd51723d0b352405dffe6de452","algorithm":"sha256","digest":"2d03de87837bb057f32032c3d4030e568233b80407546d26c2daf8e1c5b16e8b"},
+    {"path":"crates/proof-cli/tests/auth_transport_parity.rs","git_blob_oid":"424f16dbe390547e3f6cf0fccb527f3e701dbb8d","algorithm":"sha256","digest":"f03ec949eb7c651a3ea46b48f306372684b9ef2f266c78628d269fa921d5319f"},
+    {"path":"crates/proof-cli/tests/cli.rs","git_blob_oid":"49381a2aba94be65c14a0f5313204c3434005568","algorithm":"sha256","digest":"835781ae3d085508b0582eeb297a8e00e3e67bd62a118b634f71cebe799b0bdc"},
+    {"path":"crates/proof-cli/tests/p0006_containment.rs","git_blob_oid":"eaa65c6e342bfeb0c4ab2731274d9f8c47a9b074","algorithm":"sha256","digest":"2958ce510dc8813215628c518ee9109b4be9c0c4d6dc536da718f833e2581f21"},
+    {"path":"crates/proof-cli/tests/p0006_evidence_cli.rs","git_blob_oid":"ceefad3c6440e36d85ea85f6d8be643007ae5993","algorithm":"sha256","digest":"3417a422767a9d8f65900c8cb988dc097675f9430aa3eb7bcd8b059f045b6722"},
+    {"path":"crates/proof-cli/tests/p0006_north_star.rs","git_blob_oid":"0139de81823e063d88da84d87858fefc05cb46da","algorithm":"sha256","digest":"ff7831a9c7b1ef652dc0eb458a17e3c594601bbd1965cab44539f04b14c45c72"},
+    {"path":"crates/proof-cli/tests/p0006_support/mod.rs","git_blob_oid":"e71d98f4aa8b3acdd03e072d391731932c5c71da","algorithm":"sha256","digest":"320d82279efd802e8e56f5bc08996a439c8029a7eb04f28f99f10338b7deb4b6"},
+    {"path":"crates/proof-domain/src/lib.rs","git_blob_oid":"464017f0eb6f9b255a0a91e6360d91e6a7205eb3","algorithm":"sha256","digest":"c4c1175221e91f61128db160b5836a46508744025a8dfc4ec022156f38d12af1"},
+    {"path":"crates/proof-local/src/authority.rs","git_blob_oid":"9091c8814b7dfbdb14b5382633b9e23fa3a45120","algorithm":"sha256","digest":"803089e32c87a77d058f8f53e9576437586c6dc7c7e37267635ac465b500601b"},
+    {"path":"crates/proof-local/src/evidence.rs","git_blob_oid":"cc9d4076d8fe1908d7225fd50f250e758a4ddb7c","algorithm":"sha256","digest":"8dabbe83d1e154a25e2d3366eafd169ec88a9aa10735a3270849c2a5f8489db2"},
+    {"path":"crates/proof-local/src/lib.rs","git_blob_oid":"5a3108e3a41394df5c4e66ea6ad335b642922c34","algorithm":"sha256","digest":"b3214a5b07cf19dd5bfd850df39683d3d93facdea70ec09555a3b3b36b20e185"},
+    {"path":"crates/proof-local/tests/initialize.rs","git_blob_oid":"1e274f71c1b446d33652cadbb6c614481706fd50","algorithm":"sha256","digest":"6b3402765c630e9edab2d46e08cb4efd188a529e235581b44e782bf69756c7f6"},
+    {"path":"crates/proof-local/tests/p0004_authority_falsification.rs","git_blob_oid":"5835ae94905407a8ed9b916686355b505d7adf24","algorithm":"sha256","digest":"2eaf037b2523d8fafc12ee536ab6aa12714906ca421e75918d589ef42b3c06d6"},
+    {"path":"crates/proof-local/tests/p0004_authority_matrix.rs","git_blob_oid":"88cf3a3fdd959f8594ae0d27331b5e5a7392f2f6","algorithm":"sha256","digest":"6feb9bc025e87fe5dbb8b7ea07143cef07acfb4d15bf31c89c9846fd958106e6"},
+    {"path":"crates/proof-local/tests/p0005_delegated_lifecycle.rs","git_blob_oid":"a138873d235320b8fb9c1181236320631aefd2fc","algorithm":"sha256","digest":"e9336f21a867dd4528eb00724c893060b53502aa70ccbe01ad2b84258ff194e4"},
+    {"path":"crates/proof-local/tests/p0005_delegated_matrix.rs","git_blob_oid":"f0f6192f8272d2de3361b57b346bf21a70716960","algorithm":"sha256","digest":"21e7a5be3293c2fe78d4ba0441c4fca06de38abb415c4db786fc2af3478a0ac1"},
+    {"path":"crates/proof-local/tests/p0005_local_kernel.rs","git_blob_oid":"4b96087f7b697b31df14decc12eb6f8f6ea27fba","algorithm":"sha256","digest":"01c9f8913017868052fe08ca6f44d71f4b91059759387a64475820e65558dda8"},
+    {"path":"crates/proof-local/tests/p0007_assurance_g6_g9.rs","git_blob_oid":"9ebf3c48fa116c91eed80ab74914cb94995e1b42","algorithm":"sha256","digest":"c081bdcc0f430cc0534645e5bbe56bd7c68223b08b9aa4dfb28d2b9d9552e6c4"},
+    {"path":"crates/proof-verifier/Cargo.toml","git_blob_oid":"6b9f454ba2e3ebed146884af7c2a523661e20353","algorithm":"sha256","digest":"31cc917a82a8dee5709dbbf50bf2aa3f38a652064e157b75ad930dc2c6846efd"},
+    {"path":"crates/proof-verifier/src/container.rs","git_blob_oid":"b2157f8b12b6f0de0a2e5d42d6587a0b58be69d5","algorithm":"sha256","digest":"3c493803939989f949e63d8c1294094dbced7310bc011c6a7a1e58aad7fc9d7f"},
+    {"path":"crates/proof-verifier/src/crypto.rs","git_blob_oid":"8a646d8bc08f6d3c531e607f1e56b69095d40016","algorithm":"sha256","digest":"d5446d909c521b83b7f1aac7f0ca84454cebfba60c849968f005c2205d3dd96d"},
+    {"path":"crates/proof-verifier/src/lib.rs","git_blob_oid":"c264bfe022906c51aa16d255f79f1fb2de0a1e60","algorithm":"sha256","digest":"99e96d166b14b59c43cc80afe08d40611ca3146d75c6cfba991a5fc410d9fd0f"},
+    {"path":"crates/proof-verifier/src/main.rs","git_blob_oid":"0437e8a32f1613450ce426e500b449a6e389bb07","algorithm":"sha256","digest":"e02bbb97ae8c9b4ba718cd278c7600c3f78a96d1a766780e4fd202853ff54797"},
+    {"path":"crates/proof-verifier/src/model.rs","git_blob_oid":"aaecc59e5780d66b4de58abfb284ec2f5539d3ee","algorithm":"sha256","digest":"352bde656f7202ab8dc2fd81c0ecacf23dc39216f0a596c26b7fb5dd2cacd59c"},
+    {"path":"crates/proof-verifier/src/operation.rs","git_blob_oid":"27bf55ab31b944f7ace2d887a735f2e8e122deb6","algorithm":"sha256","digest":"ce912d7a56c2451385cc02778d1ef5b29adbbce3060d6ba4e252ca5f672970d5"},
+    {"path":"crates/proof-verifier/src/schema.rs","git_blob_oid":"ef50607ce99f698b9efcd315598e9aa63cd772c3","algorithm":"sha256","digest":"2f6d0dc7226135435a72e69cf997877e1ef319f061d9f536eeb2d7c3c59d32cc"},
+    {"path":"crates/proof-verifier/src/semantics.rs","git_blob_oid":"db5045320ac722111c91a83274ce7f0a7d1b619f","algorithm":"sha256","digest":"f1b700322cdfffcec1274b29af0a29e48d74b5368802a491bdb7f47fcf38072a"},
+    {"path":"crates/proof-verifier/src/strict_json.rs","git_blob_oid":"847f6bc0b36aad00e8a9719b1a0fe06d1a06abbf","algorithm":"sha256","digest":"061b094f9fd9dadb01287cd489e7ec9b692bb68f94766494e048184f90d9053e"},
+    {"path":"crates/proof-verifier/tests/finding_code_registry.rs","git_blob_oid":"afe7a94c83e4290b0d63af34ec6ef6db7a1d67e4","algorithm":"sha256","digest":"d7bfb3078f283c16973350ebd511fba95e9857d5c40de8fb1826743043452e63"},
+    {"path":"crates/proof-verifier/tests/portable_matrix.rs","git_blob_oid":"bc2347bf8334d4cb8a7d5f3ef0345806c6dcfd17","algorithm":"sha256","digest":"ad33e8e07204868bb109410bfaaeca3ffc2dafb1bbd9b10759637411311d163a"},
+    {"path":"crates/proof-verifier/tests/public_cli.rs","git_blob_oid":"c64dddab7b1f211b7ff3d6225e5b08cebd2720fa","algorithm":"sha256","digest":"27469a90455f8addbda527f8a6a2f527365afe3b48465f551965b4c9d278efb1"},
+    {"path":"crates/proof-verifier/tests/security_matrix.rs","git_blob_oid":"12531469af6a3cb3d5bfbb00bf23d732b315371b","algorithm":"sha256","digest":"0734c7d112e4bc4e03741b6917903b94b4a61f1c8e1fe33cca0e6ec0b8e24a41"},
+    {"path":"crates/proof-verifier/tests/support/mod.rs","git_blob_oid":"837ef1d521ba3ac41fa8837b0185c02a487a801e","algorithm":"sha256","digest":"c3a3eb14f1fb1adcc08a85cfbfd3c9a11a2f2572f90a8eabeed02cec5305ad8d"},
+    {"path":"docs/work/items/P-0006-close-milestone-2.md","git_blob_oid":"3e603cb66b0df1c61711331b39b82fef217ef471","algorithm":"sha256","digest":"7b682d51c45e5f1a0c0b677e6e00fe4fd4a0f9af6ebae17d621a557d2e11227c"},
+    {"path":"docs/work/map.md","git_blob_oid":"30782cdabae04450eaafe6db949005991c8d1f9b","algorithm":"sha256","digest":"95b4c24ae0625f1ec8480d907c9d6e56b586782af28060107339a2ceddc503b2"}
+  ],
+  "artifact_digest_note": "SHA-256 was computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; evidence files are intentionally outside the candidate inventory and are not self-referenced.",
+  "evidence_paths": [
+    "docs/work/evidence/P-0006/receipt.md",
+    "docs/work/evidence/P-0006/manifest.json",
+    "docs/work/evidence/P-0006/traceability.md"
+  ],
+  "gate_state": {
+    "engineering_local_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "focused_falsification_review": "supported",
+    "project_owner_review_eligible": true,
+    "owner_disposition_executed": false,
+    "milestone_completion_executed": false
+  }
+}
