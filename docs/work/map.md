@@ -16,6 +16,11 @@ caller trust, and distinct-UID broker containment. It does not qualify a
 collaboration server, HTTP/PostgreSQL parity, Windows runtime, deployment, or
 public release.
 
+P-0008 candidate `c461b1b`, bound by decision evidence `4ac62e9`, is
+decision-qualified and awaiting project-owner review. ADR-0013 remains
+Proposed, the successor count remains zero, and no collaboration-server
+implementation, provider, deployment, or live remote result is claimed.
+
 ## Operating notes
 
 - Follow the [work-control protocol](README.md).
@@ -63,20 +68,21 @@ public release.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `claimed` | P-0006 | Fix the remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance boundaries before implementation. |
+| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `review` | P-0006 | Review the exact remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance decision candidate and residuals. |
 
 ## Next
 
-No implementation item is promoted. P-0008 must ratify the smallest server
-slice and expose its dependency order before any framework, database, identity,
-worker, SDK, or console work becomes claimable.
+No implementation item is promoted. P-0008 candidate `c461b1b`, bound by
+decision evidence `4ac62e9`, awaits project-owner disposition. No framework,
+database, identity, worker, SDK, console, provider, or deployment work becomes
+claimable before that acceptance.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | P-0008 must make the first implementation successor decision-complete. |
+| None | n/a | n/a | P-0008 is decision-qualified in owner review; no successor exists or is promoted. |
 
 ## Completed
 
@@ -105,7 +111,9 @@ Linux gate and was accepted with its bounded residual risks by project owner
 ## Decisions so far
 
 P-0001 closed baseline qualification. P-0002 and P-0003 are closed product and
-architecture decisions; later decision results accumulate here.
+architecture decisions. P-0008 candidate `c461b1b`, bound by decision evidence
+`4ac62e9`, is qualified but remains Proposed pending owner disposition; later
+accepted decision results accumulate here.
 
 ### Ratified P-0002 profile
 

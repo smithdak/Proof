@@ -1,7 +1,7 @@
 ---
 id: P-0008
 title: Ratify the single-Workspace Milestone 3 collaboration-server contract
-status: claimed
+status: review
 wave: now
 kind: decision
 blocked_by: [P-0006]
@@ -118,43 +118,43 @@ server slice and its immediate successors sharp.
 
 ## Acceptance criteria
 
-- [ ] One exact remote north-star identifies the requesting Human, operating
+- [x] One exact remote north-star identifies the requesting Human, operating
       Agent, distinct reviewer/approver, publisher, transactions, artifacts,
       responses, and independent verifier inputs.
-- [ ] Remote subjects, Principals, bindings, tokens or sessions, and transport
+- [x] Remote subjects, Principals, bindings, tokens or sessions, and transport
       connections are distinct; untrusted input cannot select identity or
       authority.
-- [ ] OIDC issuer, audience, time, and subject validation; binding lifecycle;
+- [x] OIDC issuer, audience, time, and subject validation; binding lifecycle;
       public evidence/redaction; session and CSRF boundaries; and
       disclosure-neutral failures are specified.
-- [ ] Every required HTTP operation maps to the shared application contract
+- [x] Every required HTTP operation maps to the shared application contract
       with stable Schemas, Problems, idempotency, concurrency, versioning,
       discovery, and no HTTP-only mutation.
-- [ ] Review, approval, policy administration, and separation-of-duties
+- [x] Review, approval, policy administration, and separation-of-duties
       semantics are exact and cannot be supplied by UI convention.
-- [ ] PostgreSQL transaction, isolation, retry, migration, rebuild, and crash
+- [x] PostgreSQL transaction, isolation, retry, migration, rebuild, and crash
       behavior preserve the same observable state transitions as SQLite.
-- [ ] Artifact and outbox boundaries cannot publish or deliver an effect before
+- [x] Artifact and outbox boundaries cannot publish or deliver an effect before
       its authoritative transaction commits; delivery is idempotent without an
       exactly-once claim.
-- [ ] Remote evidence export keeps untrusted references separate from
+- [x] Remote evidence export keeps untrusted references separate from
       independently obtained caller trust and checkpoint inputs and does not
       overclaim a globally latest or immediate Release.
-- [ ] Every P-0006 residual is classified as a retained Milestone 3 nonclaim,
+- [x] Every P-0006 residual is classified as a retained Milestone 3 nonclaim,
       required Milestone 3 closure, or later fog item, especially direct-Human
       v2 completeness, Environment and approval chronology, and latest-Release
       completeness.
-- [ ] A local/server conformance matrix covers accepted and rejected
+- [x] A local/server conformance matrix covers accepted and rejected
       operations, concurrency, crash recovery, OIDC abuse, network boundaries,
       outbox replay, artifact substitution, and independent verification.
-- [ ] The threat model covers network attackers, confused deputies, session and
+- [x] The threat model covers network attackers, confused deputies, session and
       CSRF attacks, token replay, database/operator tamper, SSRF and webhooks,
       and Workspace isolation.
-- [ ] The strongest rejected decomposition and its kill or pivot triggers are
+- [x] The strongest rejected decomposition and its kill or pivot triggers are
       recorded.
 - [ ] The project owner accepts the decision before any implementation
       successor becomes `ready`.
-- [ ] Only decision-complete successors are created; SDK, console, deployment,
+- [x] Only decision-complete successors are created; SDK, console, deployment,
       and other uncertainty remain in fog.
 
 ## Evidence contract
@@ -176,6 +176,22 @@ release is claimed by this promotion.
 Claimed by `codex:/root:p-0008` at `2026-08-23T01:03:25.765Z` from completed
 P-0006 acceptance commit `bea0075a74237626848e1c2f8bb070248b773863`
 on `proof-architecture/p-0008-collaboration-server-contract`.
+
+Decision-qualified immutable candidate
+`c461b1b60bece277b88c6a5aee55c200658ab327` at
+`2026-08-23T11:29:42.553Z`. Engineering evidence commit
+`4ac62e9e2c42d7a586785095b58f060648975649` binds the
+[receipt](../evidence/P-0008/receipt.md),
+[manifest](../evidence/P-0008/manifest.json), and
+[AC1-AC14 traceability matrix](../evidence/P-0008/traceability.md). Moved from
+`claimed` to `review` at `2026-08-23T11:50:00.907Z`.
+
+Project-owner disposition remains pending: `accepted_by` and `accepted_at`
+remain null, ADR-0013 remains Proposed, and no implementation successor was
+created or promoted. This review handoff claims no server, PostgreSQL, OIDC,
+artifact-store, worker, preview, SDK, console, provider, deployment, live
+remote verification, publication, production mutation, or Milestone 3
+completion.
 
 ## Residual risks and next-wave update
 
