@@ -1,0 +1,29 @@
+{
+  "api_version": "proof.dev/remote-application-consequence/v1",
+  "application_key": "019e0000-0000-7000-8000-000000000074",
+  "application_key_kind": "required-uuidv7",
+  "application_effect_digest": "blake3:cfa65f376f46fa29d5dc723102197442be2d9c84708251edb3153936a77632a1",
+  "application_effect_authority_head": null,
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 72,
+  "consequence_id": "019e0000-0000-7000-8000-000000000073",
+  "decision_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+  "decision_id": "019e0000-0000-7000-8000-000000000071",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+    "sequence": 71
+  },
+  "operation": {
+    "name": "release.create",
+    "version": "proof.dev/operation/release.create/v2"
+  },
+  "operation_registry_sha256": "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf",
+  "outcome": "success",
+  "previous_authority_record_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+  "prior_result_digest": null,
+  "problem_code": null,
+  "public_input_projection_digest": "blake3:6ffc28e381aee7dad6de55504453bedf5c5412b08af383f3517c92fcbf5fb184",
+  "recorded_at": "2026-08-23T03:10:01Z",
+  "result_digest": "blake3:31523caf536aa25719fba4395176700b56d7316ce594fe18be1263a62fe781f4",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

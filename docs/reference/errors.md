@@ -10,7 +10,7 @@ Proof uses one conceptual error model across CLI, HTTP, SDK, and MCP adapters. H
 ```json
 {
   "type": "urn:proof:problem:validation-failed",
-  "title": "The ChangeSet did not pass validation",
+  "title": "Validation failed",
   "status": 422,
   "detail": "Two blocking findings must be repaired before submission.",
   "instance": "urn:proof:operation:019c...",
@@ -53,6 +53,129 @@ The controlled HTTPS problem-type URI is finalized before the first public compa
 
 HTTP adds `status`; local interfaces may omit it when no transport status exists. `detail`, `instance`, and extension fields are problem-specific.
 
+## Proposed P-0008 HTTP projection
+
+The proposed collaboration server defines a versioned, disclosure-neutral HTTP
+projection. It preserves a stable post-authentication application code as the
+public `code` when that code is safe for the exact row, but deliberately
+collapses unknown issuer/subject/binding/key, invalid token/signature, disabled
+Principal before proof, and other sensitive pre-proof failures to
+`proof.auth.denied`. This is an explicit projection, not a claim that every
+internal Problem tuple is byte-for-byte identical at the HTTP boundary.
+
+The HTTP Problem carries the exact operation name/version pair, a server UUIDv7
+`operation_id`, nullable caller UUIDv7 `correlation_id`, and `retryable`.
+Authorized cases may also carry `retry_after_ms`, `current_digest`, or an
+accepted typed finding. No Problem exposes a token, raw OIDC subject or
+opening, hidden selector, policy internals, SQL, or stack trace.
+
+The final public set is composed machine-readably, never inferred from a global
+transport list:
+
+- a transport/session route emits exactly its route `problem_profile`;
+- a Human application/data row emits the union of its route profile, row
+  transaction profile, and exact `application_problem_codes`;
+- an Agent row emits the union of its route profile, row transaction profile,
+  exact disclosure projection in `agent_error_profiles`, and exact post-Allow
+  `application_problem_codes`.
+
+Thus bodyless GET, callback GET, JSON POST, authenticated data GET, Human, and
+Human-plus-Agent routes can advertise different sets. A code's presence in the
+global tuple registry does not make it reachable from every route or row.
+
+### P-0008 HTTP Problem registry
+
+The collaboration-server registry contains exactly the following 41
+`(code, status, type, title, retryable)` tuples. This table mirrors the
+normative
+[`http-operation-registry.valid.json`](../../conformance/v1/collaboration-server/vectors/http-operation-registry.valid.json)
+machine vector; an adapter cannot substitute a different title, status, type,
+or retry flag.
+
+| Code | HTTP | Type | Exact title | Retryable |
+| --- | ---: | --- | --- | :---: |
+| `proof.auth.csrf_denied` | 403 | `urn:proof:problem:csrf-denied` | CSRF validation denied | false |
+| `proof.auth.denied` | 401 | `urn:proof:problem:authentication-denied` | Authentication denied | false |
+| `proof.auth.replay` | 401 | `urn:proof:problem:authentication-replay` | Authentication replay denied | false |
+| `proof.authority.integrity` | 500 | `urn:proof:problem:authority-integrity` | Authority integrity failure | false |
+| `proof.authorization.budget_exceeded` | 403 | `urn:proof:problem:authorization-budget-exceeded` | Authorization budget exceeded | false |
+| `proof.authorization.delegation_expired` | 403 | `urn:proof:problem:authorization-delegation-expired` | Authorization delegation expired | false |
+| `proof.authorization.delegation_not_yet_valid` | 403 | `urn:proof:problem:authorization-delegation-not-yet-valid` | Authorization delegation not yet valid | false |
+| `proof.authorization.delegation_revoked` | 403 | `urn:proof:problem:authorization-delegation-revoked` | Authorization delegation revoked | false |
+| `proof.authorization.denied` | 403 | `urn:proof:problem:authorization-denied` | Authorization denied | false |
+| `proof.authorization.scope_exceeded` | 403 | `urn:proof:problem:authorization-scope-exceeded` | Authorization scope exceeded | false |
+| `proof.changeset.duplicate_target` | 409 | `urn:proof:problem:changeset-duplicate-target` | ChangeSet duplicate target | false |
+| `proof.changeset.invalid_supersession` | 409 | `urn:proof:problem:changeset-invalid-supersession` | ChangeSet invalid supersession | false |
+| `proof.changeset.not_approved` | 409 | `urn:proof:problem:changeset-not-approved` | ChangeSet not approved | false |
+| `proof.changeset.not_draft` | 409 | `urn:proof:problem:changeset-not-draft` | ChangeSet not draft | false |
+| `proof.changeset.not_ready` | 409 | `urn:proof:problem:changeset-not-ready` | ChangeSet not ready | false |
+| `proof.changeset.not_submitted` | 409 | `urn:proof:problem:changeset-not-submitted` | ChangeSet not submitted | false |
+| `proof.delegation.expired` | 403 | `urn:proof:problem:delegation-expired` | Delegation expired | false |
+| `proof.dependency.unavailable` | 503 | `urn:proof:problem:dependency-unavailable` | Dependency unavailable | true |
+| `proof.digest.mismatch` | 500 | `urn:proof:problem:digest-mismatch` | Digest mismatch | false |
+| `proof.evidence.incomplete` | 409 | `urn:proof:problem:evidence-incomplete` | Evidence incomplete | false |
+| `proof.idempotency.key_reused` | 409 | `urn:proof:problem:idempotency-key-reused` | Idempotency key reused | false |
+| `proof.input.invalid_json` | 400 | `urn:proof:problem:invalid-json` | Invalid JSON | false |
+| `proof.input.intent_mismatch` | 409 | `urn:proof:problem:intent-mismatch` | Input intent mismatch | false |
+| `proof.input.limit_exceeded` | 413 | `urn:proof:problem:input-limit-exceeded` | Input limit exceeded | false |
+| `proof.input.schema_mismatch` | 400 | `urn:proof:problem:schema-mismatch` | Schema mismatch | false |
+| `proof.input.too_large` | 413 | `urn:proof:problem:input-too-large` | Input too large | false |
+| `proof.input.unsupported_media_type` | 415 | `urn:proof:problem:unsupported-media-type` | Unsupported media type | false |
+| `proof.input.unsupported_version` | 400 | `urn:proof:problem:unsupported-version` | Unsupported version | false |
+| `proof.integrity.failure` | 500 | `urn:proof:problem:integrity-failure` | Integrity failure | false |
+| `proof.internal` | 500 | `urn:proof:problem:internal` | Internal error | false |
+| `proof.operation.timeout` | 504 | `urn:proof:problem:operation-timeout` | Operation timed out | true |
+| `proof.operation.unknown_outcome` | 504 | `urn:proof:problem:unknown-outcome` | Operation outcome unknown | true |
+| `proof.policy.denied` | 403 | `urn:proof:problem:policy-denied` | Policy denied | false |
+| `proof.rate_limit.exceeded` | 429 | `urn:proof:problem:rate-limit-exceeded` | Rate limit exceeded | true |
+| `proof.resource.not_found` | 404 | `urn:proof:problem:resource-not-found` | Resource not found | false |
+| `proof.state.conflict` | 409 | `urn:proof:problem:state-conflict` | State conflict | false |
+| `proof.state.source_conflict` | 409 | `urn:proof:problem:source-state-conflict` | Source state conflict | false |
+| `proof.state.target_conflict` | 409 | `urn:proof:problem:target-state-conflict` | Target state conflict | false |
+| `proof.storage.conflict` | 503 | `urn:proof:problem:storage-conflict` | Storage conflict | true |
+| `proof.validation.failed` | 422 | `urn:proof:problem:validation-failed` | Validation failed | false |
+| `proof.validation.repair_evidence_invalid` | 422 | `urn:proof:problem:repair-evidence-invalid` | Repair evidence invalid | false |
+
+The exact route-and-row composition above is normative. In particular,
+bodyless login/session/capability requests do not advertise JSON Schema
+mismatch; authenticated GETs do not advertise CSRF denial; callback and Agent
+presentation routes can advertise replay; and JSON POST profiles alone carry
+invalid-JSON/media-type/body-size failures. `proof.auth.csrf_denied` is
+available only after a Human session is established. A 429 response carries
+only the authorized retry delay. Dependency and storage conflicts are
+retryable; application state and reused idempotency keys are not.
+
+Every Agent row separately lists the errors that may be committed as an
+`application-failure` after an Allow. All 11 localized v2 rows use the exact
+17-code `LocalizedOperationFailureV1` set. The retained
+`object.query_released/v1` row uses `proof.input.unsupported_version` and
+`proof.resource.not_found`; `context.build/v1` uses `proof.auth.denied`,
+`proof.delegation.expired`, `proof.input.too_large`, and
+`proof.resource.not_found`; `workspace.status/v1` has none. The two legacy
+prefixes are application outcomes in that accepted contract, not pre-proof
+authentication or authorization decisions. No absent authz-only, transport,
+idempotency, or infrastructure code may be signed as that row's application
+failure.
+
+Either 504 result can follow a deadline or lost commit acknowledgement.
+`proof.operation.timeout` says the server deadline was exhausted;
+`proof.operation.unknown_outcome` says the client-visible commit outcome is
+ambiguous. A keyed operation reconciles with its original application key and
+equivalent input; an Agent also supplies a fresh one-use presentation. A
+no-key read has no stored-result replay promise: any permitted retry is a fresh
+authenticated and authorized attempt, may append distinct evidence, and may
+observe newer state. Its first outcome remains internally auditable but is not
+disclosed by treating `null` as a key. OIDC login/callback ambiguity abandons or
+expires that attempt/state and starts a fresh login. Logout uses no application
+key: a bounded revocation tombstone validates exact session-bound CSRF replay,
+always expires the HttpOnly cookie, and converges on `200` with
+`logged_out:true` for the exact replay/already-revoked handle.
+
+Before identity or Agent proof, unknown issuer, subject, key, binding, and
+invalid token/signature all project to `proof.auth.denied`. Protected audit
+evidence may retain the exact reason. This proposed mapping is a decision
+contract only; P-0008 implements no HTTP endpoint.
+
 ## Findings
 
 Validation and policy problems can contain multiple homogeneous findings.
@@ -77,12 +200,14 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.input.invalid_json`
 - `proof.input.schema_mismatch`
 - `proof.input.too_large`
+- `proof.input.unsupported_media_type` (proposed P-0008 HTTP projection)
 - `proof.input.unsupported_version`
 
 ### Authentication and authority
 
 - `proof.auth.unauthenticated`
 - `proof.auth.denied`
+- `proof.auth.csrf_denied` (proposed P-0008 HTTP projection)
 - `proof.delegation.expired`
 - `proof.delegation.revoked`
 - `proof.delegation.scope_exceeded`
@@ -238,14 +363,17 @@ or a superseding same-target Edit, but never a scope expansion, fallback,
 source mutation, or policy bypass. Possessing policy or ContextPack evidence
 does not grant authority.
 
-For an authenticated localized application failure, the public Problem is also
-the canonical signed result preimage under
-`proof.dev/result/localized-operation-problem/v1`. Its stable operation, code,
-title, retry class, and findings determine the result digest; transport-only
-detail does not. The signed Allow means the application operation was
-authorized and produced that failure result, not that content mutation
-succeeded. The failure consequence commits atomically but does not reserve a
-Workspace-global application idempotency key.
+For a P-0008 authenticated application failure, the signed consequence result
+digest uses BLAKE3-256 derive-key `proof:operation-effect:v1` over RFC 8785 of
+exactly
+`{api_version:"proof.dev/application-problem-digest-preimage/v1",code,operation}`.
+HTTP type, title, status, retryability, findings, detail, instance, correlation,
+and private diagnostics do not enter that authority preimage. The selected
+registry row must list the code in its exact post-Allow
+`application_problem_codes`. The signed Allow means the application operation
+was authorized and produced that failure, not that its governed mutation
+succeeded; a failure consequence has no application effect and does not
+reserve a successful idempotency result.
 
 ### State and concurrency
 
@@ -266,11 +394,15 @@ Workspace-global application idempotency key.
 - `proof.signature.untrusted_key`
 - `proof.evidence.incomplete`
 - `proof.artifact.unsupported_algorithm`
+- `proof.integrity.failure` (proposed P-0008 disclosure-neutral server stop)
 
 ### Availability and internal
 
 - `proof.dependency.unavailable`
+- `proof.rate_limit.exceeded` (proposed P-0008 HTTP adapter control)
 - `proof.operation.timeout`
+- `proof.operation.unknown_outcome` (proposed P-0008 ambiguous commit result)
+- `proof.storage.conflict` (proposed P-0008 exhausted serializable retry)
 - `proof.operation.cancelled`
 - `proof.internal`
 
@@ -288,12 +420,18 @@ application Problem responses.
 
 ## Retry guidance
 
-`retryable: true` means a retry with the same idempotency key may succeed without semantic input changes. It does not guarantee success.
+`retryable: true` means the caller may follow the exact retry protocol for that
+route or operation; it does not guarantee success and does not imply that every
+operation has an idempotency key.
 
 Examples:
 
 - Temporary dependency failure: retryable.
-- Timeout with unknown result: retryable with same idempotency key.
+- Keyed timeout with unknown result: reconcile with the same application key
+  and equivalent input.
+- No-key timeout with unknown result: make a fresh authenticated/authorized
+  attempt only where the operation is safe; there is no original-result replay
+  promise.
 - Concurrency conflict: not directly retryable; rebuild against current state.
 - Validation failure: not retryable until input changes.
 - Authorization denial: not retryable until authority or policy changes.
@@ -301,7 +439,9 @@ Examples:
 Under the **Ratified P-0003 profile**, an expired or replayed
 `AuthenticatedCommandV1` is not retryable as that presentation. The logical
 operation may be attempted with a fresh signed presentation and the same
-idempotency key when its normalized input is unchanged. A disabled binding,
+application key when the selected row is keyed and its normalized input is
+unchanged. A no-key row instead uses a fresh authenticated and authorized
+attempt and may observe newer state. A disabled binding,
 wrong Principal, wrong Delegation endpoint, or unsupported chain requires an
 authority/input change and fails before any stored result is disclosed.
 Fresh C5 authentication and current C6 authorization always precede C4

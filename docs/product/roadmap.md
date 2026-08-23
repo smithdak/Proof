@@ -163,9 +163,24 @@ under explicit caller trust. See the accepted
 
 **Outcome:** A team can review, approve, publish, and verify changes remotely while preserving local semantics.
 
-**Status:** Contract discovery is ready in
-[P-0008](../work/items/P-0008-ratify-collaboration-server-contract.md). No
-server implementation or provider choice is yet promoted.
+**Status:** [P-0008](../work/items/P-0008-ratify-collaboration-server-contract.md)
+has a proposed single-Workspace decision candidate awaiting project-owner
+review. Its boundary requires a same-origin OIDC Human session plus the
+existing Agent signature, one serialized PostgreSQL authority unit, causal
+approval/configuration evidence, immutable artifact staging, and an
+at-least-once outbox. Project-owner acceptance is pending; no server
+implementation or provider choice is promoted. Its retained contract fixtures
+are decision examples, not evidence that a server route, database, provider,
+worker, or deployment exists or passes qualification.
+
+The server does not create a second application model. Every operation/version
+shared with local mode is evaluated by one retained application-semantic
+oracle: equivalent normalized input and authoritative state must produce the
+same typed application result, governed facts, stable Problem code, and
+idempotency/concurrency outcome. OIDC/session evidence, remote authority
+successors, PostgreSQL transactions, artifact persistence, and delivery are
+versioned topology-specific envelopes around that oracle; they cannot
+reinterpret a local state transition.
 
 - HTTP API and PostgreSQL persistence adapter.
 - Collaborative review and approval.
@@ -176,7 +191,10 @@ server implementation or provider choice is yet promoted.
 - Initial human web console.
 - Preview Environment integration.
 
-**Exit condition:** The same conformance suite passes against local and server modes.
+**Exit condition:** Local and server adapters pass the same retained
+application-semantic oracle for every shared operation, plus their respective
+topology-specific authentication, persistence, delivery, and evidence
+conformance suites.
 
 ## Milestone 4 — Enterprise readiness
 

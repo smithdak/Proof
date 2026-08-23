@@ -1,0 +1,1231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/collaboration-server/http-operation-registry/v1",
+  "title": "Proof collaboration-server closed HTTP and transport operation registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agent_error_profiles",
+    "agent_authorization_projection",
+    "api_version",
+    "authorization_resource_projection",
+    "authorization_registry_commitment",
+    "authorization_rule_definitions",
+    "human_authorization_projection",
+    "limits",
+    "problem_definitions",
+    "problem_profiles",
+    "problem_statuses",
+    "routes",
+    "source_problem_projection",
+    "typed_limit_semantics"
+  ],
+  "properties": {
+    "agent_error_profiles": { "$ref": "#/$defs/agentErrorProfiles" },
+    "agent_authorization_projection": { "$ref": "#/$defs/agentAuthorizationProjection" },
+    "api_version": { "const": "proof.dev/http-operation-registry/v1" },
+    "authorization_resource_projection": { "$ref": "#/$defs/authorizationResourceProjection" },
+    "authorization_registry_commitment": { "$ref": "#/$defs/authorizationRegistryCommitment" },
+    "authorization_rule_definitions": { "$ref": "#/$defs/authorizationRuleDefinitions" },
+    "human_authorization_projection": { "$ref": "#/$defs/humanAuthorizationProjection" },
+    "limits": { "$ref": "#/$defs/limits" },
+    "problem_definitions": { "$ref": "#/$defs/problemDefinitions" },
+    "problem_profiles": { "$ref": "#/$defs/problemProfiles" },
+    "problem_statuses": { "$ref": "#/$defs/problemStatuses" },
+    "routes": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/oidcLoginRoute" },
+        { "$ref": "#/$defs/oidcCallbackRoute" },
+        { "$ref": "#/$defs/sessionGetRoute" },
+        { "$ref": "#/$defs/sessionLogoutRoute" },
+        { "$ref": "#/$defs/capabilitiesRoute" },
+        { "$ref": "#/$defs/humanRoute" },
+        { "$ref": "#/$defs/agentRoute" },
+        { "$ref": "#/$defs/evidenceArtifactRoute" },
+        { "$ref": "#/$defs/previewRoute" }
+      ],
+      "items": false
+    },
+    "source_problem_projection": { "$ref": "#/$defs/sourceProblemProjection" },
+    "typed_limit_semantics": { "$ref": "#/$defs/typedLimitSemantics" }
+  },
+  "$defs": {
+    "schemaRef": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "pattern": "^https://proof\\.dev/\\S+$"
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$" },
+        "version": { "type": "string", "pattern": "^proof\\.dev/operation/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$" }
+      }
+    },
+    "transportOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$" },
+        "version": { "type": "string", "pattern": "^proof\\.dev/transport/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_command_lifetime_seconds",
+        "agent_envelope_canonical_bytes",
+        "agent_payload_canonical_bytes",
+        "application_deadline_seconds",
+        "authority_records_per_prefix",
+        "export_artifacts",
+        "http_request_bytes",
+        "http_request_canonical_bytes",
+        "included_export_total_bytes",
+        "oidc_clock_skew_seconds",
+        "ordinary_response_bytes",
+        "page_default_items",
+        "page_max_items",
+        "portable_artifact_bytes",
+        "portable_manifest_bytes",
+        "streamed_export_download_deadline"
+      ],
+      "properties": {
+        "http_request_bytes": { "const": 1048576 },
+        "http_request_canonical_bytes": { "const": 1048576 },
+        "agent_payload_canonical_bytes": { "const": 4096 },
+        "agent_envelope_canonical_bytes": { "const": 16384 },
+        "ordinary_response_bytes": { "const": 4194304 },
+        "portable_manifest_bytes": { "const": 4194304 },
+        "portable_artifact_bytes": { "const": 4194304 },
+        "included_export_total_bytes": { "const": 268435456 },
+        "export_artifacts": { "const": 4096 },
+        "authority_records_per_prefix": { "const": 512 },
+        "page_default_items": { "const": 50 },
+        "page_max_items": { "const": 100 },
+        "oidc_clock_skew_seconds": { "const": 30 },
+        "agent_command_lifetime_seconds": { "const": 300 },
+        "application_deadline_seconds": { "const": 30 },
+        "streamed_export_download_deadline": { "const": "excluded" }
+      }
+    },
+    "problemDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "retryable", "status", "title", "type"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^proof(?:\\.[a-z][a-z0-9_]*){1,8}$" },
+        "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+        "type": { "type": "string", "pattern": "^urn:proof:problem:[a-z0-9-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "problemDefinitions": {
+      "type": "array",
+      "minItems": 41,
+      "maxItems": 41,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "const": { "code": "proof.auth.csrf_denied", "status": 403, "type": "urn:proof:problem:csrf-denied", "title": "CSRF validation denied", "retryable": false } },
+        { "const": { "code": "proof.auth.denied", "status": 401, "type": "urn:proof:problem:authentication-denied", "title": "Authentication denied", "retryable": false } },
+        { "const": { "code": "proof.auth.replay", "status": 401, "type": "urn:proof:problem:authentication-replay", "title": "Authentication replay denied", "retryable": false } },
+        { "const": { "code": "proof.authority.integrity", "status": 500, "type": "urn:proof:problem:authority-integrity", "title": "Authority integrity failure", "retryable": false } },
+        { "const": { "code": "proof.authorization.budget_exceeded", "status": 403, "type": "urn:proof:problem:authorization-budget-exceeded", "title": "Authorization budget exceeded", "retryable": false } },
+        { "const": { "code": "proof.authorization.delegation_expired", "status": 403, "type": "urn:proof:problem:authorization-delegation-expired", "title": "Authorization delegation expired", "retryable": false } },
+        { "const": { "code": "proof.authorization.delegation_not_yet_valid", "status": 403, "type": "urn:proof:problem:authorization-delegation-not-yet-valid", "title": "Authorization delegation not yet valid", "retryable": false } },
+        { "const": { "code": "proof.authorization.delegation_revoked", "status": 403, "type": "urn:proof:problem:authorization-delegation-revoked", "title": "Authorization delegation revoked", "retryable": false } },
+        { "const": { "code": "proof.authorization.denied", "status": 403, "type": "urn:proof:problem:authorization-denied", "title": "Authorization denied", "retryable": false } },
+        { "const": { "code": "proof.authorization.scope_exceeded", "status": 403, "type": "urn:proof:problem:authorization-scope-exceeded", "title": "Authorization scope exceeded", "retryable": false } },
+        { "const": { "code": "proof.changeset.duplicate_target", "status": 409, "type": "urn:proof:problem:changeset-duplicate-target", "title": "ChangeSet duplicate target", "retryable": false } },
+        { "const": { "code": "proof.changeset.invalid_supersession", "status": 409, "type": "urn:proof:problem:changeset-invalid-supersession", "title": "ChangeSet invalid supersession", "retryable": false } },
+        { "const": { "code": "proof.changeset.not_approved", "status": 409, "type": "urn:proof:problem:changeset-not-approved", "title": "ChangeSet not approved", "retryable": false } },
+        { "const": { "code": "proof.changeset.not_draft", "status": 409, "type": "urn:proof:problem:changeset-not-draft", "title": "ChangeSet not draft", "retryable": false } },
+        { "const": { "code": "proof.changeset.not_ready", "status": 409, "type": "urn:proof:problem:changeset-not-ready", "title": "ChangeSet not ready", "retryable": false } },
+        { "const": { "code": "proof.changeset.not_submitted", "status": 409, "type": "urn:proof:problem:changeset-not-submitted", "title": "ChangeSet not submitted", "retryable": false } },
+        { "const": { "code": "proof.delegation.expired", "status": 403, "type": "urn:proof:problem:delegation-expired", "title": "Delegation expired", "retryable": false } },
+        { "const": { "code": "proof.dependency.unavailable", "status": 503, "type": "urn:proof:problem:dependency-unavailable", "title": "Dependency unavailable", "retryable": true } },
+        { "const": { "code": "proof.digest.mismatch", "status": 500, "type": "urn:proof:problem:digest-mismatch", "title": "Digest mismatch", "retryable": false } },
+        { "const": { "code": "proof.evidence.incomplete", "status": 409, "type": "urn:proof:problem:evidence-incomplete", "title": "Evidence incomplete", "retryable": false } },
+        { "const": { "code": "proof.idempotency.key_reused", "status": 409, "type": "urn:proof:problem:idempotency-key-reused", "title": "Idempotency key reused", "retryable": false } },
+        { "const": { "code": "proof.input.invalid_json", "status": 400, "type": "urn:proof:problem:invalid-json", "title": "Invalid JSON", "retryable": false } },
+        { "const": { "code": "proof.input.intent_mismatch", "status": 409, "type": "urn:proof:problem:intent-mismatch", "title": "Input intent mismatch", "retryable": false } },
+        { "const": { "code": "proof.input.limit_exceeded", "status": 413, "type": "urn:proof:problem:input-limit-exceeded", "title": "Input limit exceeded", "retryable": false } },
+        { "const": { "code": "proof.input.schema_mismatch", "status": 400, "type": "urn:proof:problem:schema-mismatch", "title": "Schema mismatch", "retryable": false } },
+        { "const": { "code": "proof.input.too_large", "status": 413, "type": "urn:proof:problem:input-too-large", "title": "Input too large", "retryable": false } },
+        { "const": { "code": "proof.input.unsupported_media_type", "status": 415, "type": "urn:proof:problem:unsupported-media-type", "title": "Unsupported media type", "retryable": false } },
+        { "const": { "code": "proof.input.unsupported_version", "status": 400, "type": "urn:proof:problem:unsupported-version", "title": "Unsupported version", "retryable": false } },
+        { "const": { "code": "proof.integrity.failure", "status": 500, "type": "urn:proof:problem:integrity-failure", "title": "Integrity failure", "retryable": false } },
+        { "const": { "code": "proof.internal", "status": 500, "type": "urn:proof:problem:internal", "title": "Internal error", "retryable": false } },
+        { "const": { "code": "proof.operation.timeout", "status": 504, "type": "urn:proof:problem:operation-timeout", "title": "Operation timed out", "retryable": true } },
+        { "const": { "code": "proof.operation.unknown_outcome", "status": 504, "type": "urn:proof:problem:unknown-outcome", "title": "Operation outcome unknown", "retryable": true } },
+        { "const": { "code": "proof.policy.denied", "status": 403, "type": "urn:proof:problem:policy-denied", "title": "Policy denied", "retryable": false } },
+        { "const": { "code": "proof.rate_limit.exceeded", "status": 429, "type": "urn:proof:problem:rate-limit-exceeded", "title": "Rate limit exceeded", "retryable": true } },
+        { "const": { "code": "proof.resource.not_found", "status": 404, "type": "urn:proof:problem:resource-not-found", "title": "Resource not found", "retryable": false } },
+        { "const": { "code": "proof.state.conflict", "status": 409, "type": "urn:proof:problem:state-conflict", "title": "State conflict", "retryable": false } },
+        { "const": { "code": "proof.state.source_conflict", "status": 409, "type": "urn:proof:problem:source-state-conflict", "title": "Source state conflict", "retryable": false } },
+        { "const": { "code": "proof.state.target_conflict", "status": 409, "type": "urn:proof:problem:target-state-conflict", "title": "Target state conflict", "retryable": false } },
+        { "const": { "code": "proof.storage.conflict", "status": 503, "type": "urn:proof:problem:storage-conflict", "title": "Storage conflict", "retryable": true } },
+        { "const": { "code": "proof.validation.failed", "status": 422, "type": "urn:proof:problem:validation-failed", "title": "Validation failed", "retryable": false } },
+        { "const": { "code": "proof.validation.repair_evidence_invalid", "status": 422, "type": "urn:proof:problem:repair-evidence-invalid", "title": "Repair evidence invalid", "retryable": false } }
+      ],
+      "items": false
+    },
+    "problemStatuses": {
+      "const": {
+        "proof.auth.csrf_denied": 403,
+        "proof.auth.denied": 401,
+        "proof.auth.replay": 401,
+        "proof.authority.integrity": 500,
+        "proof.authorization.budget_exceeded": 403,
+        "proof.authorization.delegation_expired": 403,
+        "proof.authorization.delegation_not_yet_valid": 403,
+        "proof.authorization.delegation_revoked": 403,
+        "proof.authorization.denied": 403,
+        "proof.authorization.scope_exceeded": 403,
+        "proof.changeset.duplicate_target": 409,
+        "proof.changeset.invalid_supersession": 409,
+        "proof.changeset.not_approved": 409,
+        "proof.changeset.not_draft": 409,
+        "proof.changeset.not_ready": 409,
+        "proof.changeset.not_submitted": 409,
+        "proof.delegation.expired": 403,
+        "proof.dependency.unavailable": 503,
+        "proof.digest.mismatch": 500,
+        "proof.evidence.incomplete": 409,
+        "proof.idempotency.key_reused": 409,
+        "proof.input.invalid_json": 400,
+        "proof.input.intent_mismatch": 409,
+        "proof.input.limit_exceeded": 413,
+        "proof.input.schema_mismatch": 400,
+        "proof.input.too_large": 413,
+        "proof.input.unsupported_media_type": 415,
+        "proof.input.unsupported_version": 400,
+        "proof.integrity.failure": 500,
+        "proof.internal": 500,
+        "proof.operation.timeout": 504,
+        "proof.operation.unknown_outcome": 504,
+        "proof.policy.denied": 403,
+        "proof.rate_limit.exceeded": 429,
+        "proof.resource.not_found": 404,
+        "proof.state.conflict": 409,
+        "proof.state.source_conflict": 409,
+        "proof.state.target_conflict": 409,
+        "proof.storage.conflict": 503,
+        "proof.validation.failed": 422,
+        "proof.validation.repair_evidence_invalid": 422
+      }
+    },
+    "sourceProblemProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "policy", "rules", "source_contract"],
+      "properties": {
+        "api_version": { "const": "proof.dev/source-problem-projection/v1" },
+        "source_contract": { "const": "proof_application::CAPABILITY_REGISTRY" },
+        "policy": { "const": "collapse-pre-proof-authentication-preserve-post-authentication-primary-code" },
+        "rules": {
+          "const": {
+            "proof.auth.actor_mismatch": "proof.auth.denied",
+            "proof.auth.audience_mismatch": "proof.auth.denied",
+            "proof.auth.binding_inactive": "proof.auth.denied",
+            "proof.auth.denied": "proof.auth.denied",
+            "proof.auth.expired": "proof.auth.denied",
+            "proof.auth.malformed": "proof.auth.denied",
+            "proof.auth.not_yet_valid": "proof.auth.denied",
+            "proof.auth.replay": "proof.auth.replay",
+            "proof.auth.unauthenticated": "proof.auth.denied",
+            "proof.authority.integrity": "proof.authority.integrity",
+            "proof.authorization.budget_exceeded": "proof.authorization.budget_exceeded",
+            "proof.authorization.delegation_expired": "proof.authorization.delegation_expired",
+            "proof.authorization.delegation_not_yet_valid": "proof.authorization.delegation_not_yet_valid",
+            "proof.authorization.delegation_revoked": "proof.authorization.delegation_revoked",
+            "proof.authorization.denied": "proof.authorization.denied",
+            "proof.authorization.principal_disabled": "proof.auth.denied",
+            "proof.authorization.scope_exceeded": "proof.authorization.scope_exceeded",
+            "proof.changeset.duplicate_target": "proof.changeset.duplicate_target",
+            "proof.changeset.invalid_supersession": "proof.changeset.invalid_supersession",
+            "proof.changeset.not_approved": "proof.changeset.not_approved",
+            "proof.changeset.not_draft": "proof.changeset.not_draft",
+            "proof.changeset.not_ready": "proof.changeset.not_ready",
+            "proof.changeset.not_submitted": "proof.changeset.not_submitted",
+            "proof.delegation.expired": "proof.delegation.expired",
+            "proof.dependency.unavailable": "proof.dependency.unavailable",
+            "proof.digest.mismatch": "proof.digest.mismatch",
+            "proof.evidence.incomplete": "proof.evidence.incomplete",
+            "proof.idempotency.key_reused": "proof.idempotency.key_reused",
+            "proof.input.intent_mismatch": "proof.input.intent_mismatch",
+            "proof.input.limit_exceeded": "proof.input.limit_exceeded",
+            "proof.input.schema_mismatch": "proof.input.schema_mismatch",
+            "proof.input.too_large": "proof.input.too_large",
+            "proof.input.unsupported_version": "proof.input.unsupported_version",
+            "proof.internal": "proof.internal",
+            "proof.policy.denied": "proof.policy.denied",
+            "proof.resource.not_found": "proof.resource.not_found",
+            "proof.state.conflict": "proof.state.conflict",
+            "proof.state.source_conflict": "proof.state.source_conflict",
+            "proof.state.target_conflict": "proof.state.target_conflict",
+            "proof.validation.failed": "proof.validation.failed",
+            "proof.validation.repair_evidence_invalid": "proof.validation.repair_evidence_invalid"
+          }
+        }
+      }
+    },
+    "agentErrorProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ambient_error_codes", "authenticated_error_codes", "error_codes", "public_problem_codes", "source_contract", "unreachable_error_codes"],
+      "properties": {
+        "source_contract": { "const": "proof_application::CAPABILITY_REGISTRY" },
+        "error_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "ambient_error_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "authenticated_error_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "unreachable_error_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "public_problem_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "workspaceStatusErrorProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/agentErrorProfile" },
+        { "properties": {
+          "error_codes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.auth.unauthenticated", "proof.authority.integrity", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.dependency.unavailable", "proof.digest.mismatch", "proof.internal"] },
+          "ambient_error_codes": { "const": ["proof.auth.denied", "proof.auth.unauthenticated", "proof.dependency.unavailable", "proof.digest.mismatch"] },
+          "authenticated_error_codes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.internal"] },
+          "unreachable_error_codes": { "const": [] },
+          "public_problem_codes": { "const": ["proof.auth.denied", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.scope_exceeded", "proof.internal"] }
+        } }
+      ]
+    },
+    "objectQueryReleasedV1ErrorProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/agentErrorProfile" },
+        { "properties": {
+          "error_codes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.auth.unauthenticated", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.dependency.unavailable", "proof.digest.mismatch", "proof.input.unsupported_version", "proof.internal", "proof.resource.not_found", "proof.validation.failed"] },
+          "ambient_error_codes": { "const": ["proof.auth.denied", "proof.auth.unauthenticated", "proof.dependency.unavailable", "proof.digest.mismatch", "proof.input.unsupported_version", "proof.resource.not_found", "proof.validation.failed"] },
+          "authenticated_error_codes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.input.unsupported_version", "proof.internal", "proof.resource.not_found"] },
+          "unreachable_error_codes": { "const": [] },
+          "public_problem_codes": { "const": ["proof.auth.denied", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.scope_exceeded", "proof.input.unsupported_version", "proof.internal", "proof.resource.not_found"] }
+        } }
+      ]
+    },
+    "contextBuildV1ErrorProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/agentErrorProfile" },
+        { "properties": {
+          "error_codes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.auth.unauthenticated", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.delegation.expired", "proof.dependency.unavailable", "proof.evidence.incomplete", "proof.idempotency.key_reused", "proof.input.too_large", "proof.internal", "proof.resource.not_found"] },
+          "ambient_error_codes": { "const": ["proof.auth.denied", "proof.auth.unauthenticated", "proof.delegation.expired", "proof.dependency.unavailable", "proof.evidence.incomplete", "proof.idempotency.key_reused", "proof.input.too_large", "proof.resource.not_found"] },
+          "authenticated_error_codes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.delegation.expired", "proof.idempotency.key_reused", "proof.input.too_large", "proof.internal", "proof.resource.not_found"] },
+          "unreachable_error_codes": { "const": [] },
+          "public_problem_codes": { "const": ["proof.auth.denied", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.scope_exceeded", "proof.delegation.expired", "proof.idempotency.key_reused", "proof.input.too_large", "proof.internal", "proof.resource.not_found"] }
+        } }
+      ]
+    },
+    "localizedKeyedV2ErrorProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/agentErrorProfile" },
+        { "properties": {
+          "error_codes": { "$ref": "#/$defs/localizedSourceErrorCodes" },
+          "ambient_error_codes": { "const": [] },
+          "authenticated_error_codes": { "$ref": "#/$defs/localizedSourceErrorCodes" },
+          "unreachable_error_codes": { "const": [] },
+          "public_problem_codes": { "$ref": "#/$defs/localizedKeyedPublicProblemCodes" }
+        } }
+      ]
+    },
+    "localizedNoKeyV2ErrorProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/agentErrorProfile" },
+        { "properties": {
+          "error_codes": { "$ref": "#/$defs/localizedSourceErrorCodes" },
+          "ambient_error_codes": { "const": [] },
+          "authenticated_error_codes": { "$ref": "#/$defs/localizedSourceErrorCodes" },
+          "unreachable_error_codes": { "const": ["proof.idempotency.key_reused"] },
+          "public_problem_codes": { "$ref": "#/$defs/localizedNoKeyPublicProblemCodes" }
+        } }
+      ]
+    },
+    "localizedSourceErrorCodes": { "const": ["proof.auth.actor_mismatch", "proof.auth.audience_mismatch", "proof.auth.binding_inactive", "proof.auth.denied", "proof.auth.expired", "proof.auth.malformed", "proof.auth.not_yet_valid", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.principal_disabled", "proof.authorization.scope_exceeded", "proof.changeset.duplicate_target", "proof.changeset.invalid_supersession", "proof.changeset.not_approved", "proof.changeset.not_draft", "proof.changeset.not_ready", "proof.changeset.not_submitted", "proof.evidence.incomplete", "proof.idempotency.key_reused", "proof.input.intent_mismatch", "proof.input.limit_exceeded", "proof.input.schema_mismatch", "proof.input.unsupported_version", "proof.internal", "proof.policy.denied", "proof.resource.not_found", "proof.state.conflict", "proof.state.source_conflict", "proof.state.target_conflict", "proof.validation.repair_evidence_invalid"] },
+    "localizedKeyedPublicProblemCodes": { "const": ["proof.auth.denied", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.scope_exceeded", "proof.changeset.duplicate_target", "proof.changeset.invalid_supersession", "proof.changeset.not_approved", "proof.changeset.not_draft", "proof.changeset.not_ready", "proof.changeset.not_submitted", "proof.evidence.incomplete", "proof.idempotency.key_reused", "proof.input.intent_mismatch", "proof.input.limit_exceeded", "proof.input.schema_mismatch", "proof.input.unsupported_version", "proof.internal", "proof.policy.denied", "proof.resource.not_found", "proof.state.conflict", "proof.state.source_conflict", "proof.state.target_conflict", "proof.validation.repair_evidence_invalid"] },
+    "localizedNoKeyPublicProblemCodes": { "const": ["proof.auth.denied", "proof.auth.replay", "proof.authority.integrity", "proof.authorization.budget_exceeded", "proof.authorization.delegation_expired", "proof.authorization.delegation_not_yet_valid", "proof.authorization.delegation_revoked", "proof.authorization.denied", "proof.authorization.scope_exceeded", "proof.changeset.duplicate_target", "proof.changeset.invalid_supersession", "proof.changeset.not_approved", "proof.changeset.not_draft", "proof.changeset.not_ready", "proof.changeset.not_submitted", "proof.evidence.incomplete", "proof.input.intent_mismatch", "proof.input.limit_exceeded", "proof.input.schema_mismatch", "proof.input.unsupported_version", "proof.internal", "proof.policy.denied", "proof.resource.not_found", "proof.state.conflict", "proof.state.source_conflict", "proof.state.target_conflict", "proof.validation.repair_evidence_invalid"] },
+    "agentErrorProfiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_build_v1", "localized_keyed_v2", "localized_no_key_v2", "object_query_released_v1", "workspace_status_v1"],
+      "properties": {
+        "context_build_v1": { "$ref": "#/$defs/contextBuildV1ErrorProfile" },
+        "localized_keyed_v2": { "$ref": "#/$defs/localizedKeyedV2ErrorProfile" },
+        "localized_no_key_v2": { "$ref": "#/$defs/localizedNoKeyV2ErrorProfile" },
+        "object_query_released_v1": { "$ref": "#/$defs/objectQueryReleasedV1ErrorProfile" },
+        "workspace_status_v1": { "$ref": "#/$defs/workspaceStatusErrorProfile" }
+      }
+    },
+    "problemProfiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_keyed_evidence",
+        "agent_no_key_evidence",
+        "artifact_read",
+        "human_keyed_write",
+        "human_no_key_evidence",
+        "human_no_key_projection",
+        "preview_read",
+        "public_discovery",
+        "route_agent_json_post",
+        "route_capabilities_get",
+        "route_evidence_artifact_get",
+        "route_human_json_post",
+        "route_oidc_callback_get",
+        "route_oidc_login_get",
+        "route_preview_get",
+        "route_session_get",
+        "route_session_logout_json_post"
+      ],
+      "properties": {
+        "public_discovery": { "const": [] },
+        "human_keyed_write": { "const": ["proof.authorization.denied", "proof.idempotency.key_reused", "proof.integrity.failure", "proof.operation.unknown_outcome", "proof.storage.conflict"] },
+        "human_no_key_evidence": { "const": ["proof.authorization.denied", "proof.integrity.failure", "proof.operation.unknown_outcome", "proof.storage.conflict"] },
+        "human_no_key_projection": { "const": ["proof.authorization.denied", "proof.integrity.failure", "proof.operation.unknown_outcome", "proof.storage.conflict"] },
+        "agent_keyed_evidence": { "const": ["proof.integrity.failure", "proof.operation.unknown_outcome", "proof.storage.conflict"] },
+        "agent_no_key_evidence": { "const": ["proof.integrity.failure", "proof.operation.unknown_outcome", "proof.storage.conflict"] },
+        "artifact_read": { "const": ["proof.authorization.denied", "proof.integrity.failure", "proof.operation.unknown_outcome", "proof.resource.not_found", "proof.storage.conflict"] },
+        "preview_read": { "const": ["proof.authorization.denied", "proof.integrity.failure", "proof.operation.unknown_outcome", "proof.resource.not_found", "proof.storage.conflict"] },
+        "route_oidc_login_get": { "const": ["proof.dependency.unavailable", "proof.internal", "proof.operation.timeout", "proof.operation.unknown_outcome", "proof.rate_limit.exceeded"] },
+        "route_oidc_callback_get": { "const": ["proof.auth.denied", "proof.auth.replay", "proof.dependency.unavailable", "proof.input.schema_mismatch", "proof.integrity.failure", "proof.internal", "proof.operation.timeout", "proof.operation.unknown_outcome", "proof.rate_limit.exceeded"] },
+        "route_session_get": { "const": ["proof.auth.denied", "proof.dependency.unavailable", "proof.internal", "proof.operation.timeout", "proof.rate_limit.exceeded"] },
+        "route_session_logout_json_post": { "const": ["proof.auth.csrf_denied", "proof.auth.denied", "proof.dependency.unavailable", "proof.input.invalid_json", "proof.input.schema_mismatch", "proof.input.too_large", "proof.input.unsupported_media_type", "proof.internal", "proof.operation.timeout", "proof.operation.unknown_outcome", "proof.rate_limit.exceeded"] },
+        "route_capabilities_get": { "const": ["proof.dependency.unavailable", "proof.internal", "proof.operation.timeout", "proof.rate_limit.exceeded"] },
+        "route_human_json_post": { "const": ["proof.auth.csrf_denied", "proof.auth.denied", "proof.dependency.unavailable", "proof.input.invalid_json", "proof.input.schema_mismatch", "proof.input.too_large", "proof.input.unsupported_media_type", "proof.input.unsupported_version", "proof.internal", "proof.operation.timeout", "proof.rate_limit.exceeded"] },
+        "route_agent_json_post": { "const": ["proof.auth.csrf_denied", "proof.auth.denied", "proof.auth.replay", "proof.dependency.unavailable", "proof.input.invalid_json", "proof.input.schema_mismatch", "proof.input.too_large", "proof.input.unsupported_media_type", "proof.input.unsupported_version", "proof.internal", "proof.operation.timeout", "proof.rate_limit.exceeded"] },
+        "route_evidence_artifact_get": { "const": ["proof.auth.denied", "proof.dependency.unavailable", "proof.input.schema_mismatch", "proof.internal", "proof.operation.timeout", "proof.rate_limit.exceeded"] },
+        "route_preview_get": { "const": ["proof.auth.denied", "proof.dependency.unavailable", "proof.input.schema_mismatch", "proof.internal", "proof.operation.timeout", "proof.rate_limit.exceeded"] }
+      }
+    },
+    "humanRole": {
+      "enum": [
+        "authority.admin",
+        "content.publisher",
+        "content.requester",
+        "content.reviewer",
+        "environment.activator",
+        "environment.admin",
+        "evidence.auditor",
+        "identity.admin"
+      ]
+    },
+    "humanAuthorizationProjectionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorization_rule", "requested_action", "roles_any_of"],
+      "properties": {
+        "authorization_rule": { "type": "string", "pattern": "^proof\\.server/authorization/[a-z][a-z0-9-]*/v1$" },
+        "requested_action": { "type": "string", "pattern": "^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$" },
+        "roles_any_of": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/humanRole" } }
+      }
+    },
+    "humanAuthorizationProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operations"],
+      "properties": {
+        "api_version": { "const": "proof.dev/human-authorization-projection/v1" },
+        "operations": {
+          "type": "object",
+          "minProperties": 26,
+          "maxProperties": 26,
+          "propertyNames": { "pattern": "^proof\\.dev/operation/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$" },
+          "additionalProperties": { "$ref": "#/$defs/humanAuthorizationProjectionEntry" }
+        }
+      }
+    },
+    "agentAuthorizationProjectionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "budget_projection", "closure_anchor", "consequence", "requested_action", "resource_projection_profile", "selector_projection"],
+      "properties": {
+        "requested_action": { "type": "string", "pattern": "^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$" },
+        "closure_anchor": { "enum": ["command", "normalized-input-resource-intent", "resolved-current-release", "verified-changeset-resource-intent", "verified-committed-changeset-resource-intent", "verified-edition-changeset-resource-intent"] },
+        "resource_projection_profile": { "enum": ["legacy-object-selection/v1", "localized-intent-closure/v1", "localized-released-selection/v1", "workspace-only/v1"] },
+        "budget_projection": { "enum": ["bound-context-limits", "delegation-only", "normalized-v1-context-limits", "normalized-v2-context-limits", "requested-object-count"] },
+        "selector_projection": { "$ref": "#/$defs/selectorProjection" },
+        "consequence": { "enum": ["authority-evidence-only", "draft-localized-changeset", "immutable-context-pack", "immutable-localized-edition", "localized-edit-batch", "localized-release-pointer-and-proof", "localized-rendition-commit", "localized-submission", "localized-validation-attempt"] },
+        "availability": { "enum": ["implemented-v1-read", "p0005-delegated-localized"] }
+      }
+    },
+    "agentAuthorizationProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "authority_registry_contract", "authority_registry_file", "authority_registry_sha256", "operations", "resolution_rule"],
+      "properties": {
+        "api_version": { "const": "proof.dev/agent-authorization-projection/v1" },
+        "authority_registry_contract": { "const": "https://proof.dev/schema/authority/operation-registry/v1" },
+        "authority_registry_file": { "const": "conformance/v1/authority/vectors/authority-operation-registry.valid.json" },
+        "authority_registry_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "resolution_rule": { "const": "exact-operation-name-and-version-row-without-reinterpretation" },
+        "operations": {
+          "type": "object",
+          "minProperties": 14,
+          "maxProperties": 14,
+          "propertyNames": { "pattern": "^proof\\.dev/operation/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$" },
+          "additionalProperties": { "$ref": "#/$defs/agentAuthorizationProjectionEntry" }
+        }
+      }
+    },
+    "typedItemLimit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dimension", "maximum", "measure", "schema_path"],
+      "properties": {
+        "dimension": { "enum": ["artifacts", "edits", "effective_leaves", "environment_ids", "findings", "locales", "objects", "renditions", "schema_ids", "schemas", "targets"] },
+        "maximum": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "measure": { "enum": ["array-length", "scalar-count", "singleton-field"] },
+        "schema_path": { "type": "string", "pattern": "^(?:/(?:[^~/]|~[01])*)+$", "maxLength": 256 }
+      }
+    },
+    "typedItemLimits": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/typedItemLimit" }
+    },
+    "typedLimitSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "empty_array_meaning", "path_subject", "schema_path_syntax", "scope"],
+      "properties": {
+        "api_version": { "const": "proof.dev/typed-operation-limits/v1" },
+        "scope": { "const": "additional-advertised-cardinality-quota" },
+        "schema_path_syntax": { "const": "RFC6901" },
+        "path_subject": { "const": "exact-input-or-result-schema-instance" },
+        "empty_array_meaning": { "const": "no-additional-registry-item-quota;closed-schema-and-canonical-byte-limits-still-apply" }
+      }
+    },
+    "problemCodeArray": {
+      "type": "array",
+      "maxItems": 41,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^proof(?:\\.[a-z][a-z0-9_]*){1,8}$" }
+    },
+    "applicationProblemCodeArray": {
+      "description": "Exact post-Allow failure vocabulary shared with RemoteApplicationConsequenceV1; each row narrows this global closed set.",
+      "type": "array",
+      "maxItems": 23,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/applicationProblemCode"
+      }
+    },
+    "effectDigestRule": {
+      "description": "Exact post-success application_effect_digest contract. none requires a null consequence effect; the other mode fixes BLAKE3-256 derive-key over the selected RFC 8785 preimage and context. effect_timestamp_field is null except for a remote-authority-record effect, where it selects the exact persisted timestamp member used to order the following consequence.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest_context", "effect_timestamp_field", "mode", "preimage_source", "source_contract"],
+      "properties": {
+        "mode": { "enum": ["blake3-256-derive-key-rfc8785", "none"] },
+        "digest_context": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["proof:content-resource-intent:v1", "proof:context-pack:v1", "proof:delivery-management-fact:v1", "proof:evidence-export-capture:v2", "proof:operation-effect:v1", "proof:release:v2", "proof:remote-authority-record:v1", "proof:validation-results:v2"] }
+          ]
+        },
+        "effect_timestamp_field": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["activated_at", "approved_at", "assigned_at", "issued_at", "proposed_at", "recorded_at", "revoked_at"] }
+          ]
+        },
+        "preimage_source": {
+          "enum": [
+            "agent-binding-issue-v1-remote-authority-record",
+            "agent-binding-revoke-v1-remote-authority-record",
+            "changeset-approval-v1-remote-authority-record",
+            "content-resource-intent-v1-artifact",
+            "delegation-issue-v2-remote-authority-record",
+            "delegation-revoke-v1-remote-authority-record",
+            "delivery-abandon-v1-management-fact",
+            "delivery-replay-v1-management-fact",
+            "environment-config-activation-v1-remote-authority-record",
+            "environment-config-proposal-v1-remote-authority-record",
+            "evidence-export-capture-v2-artifact",
+            "localized-changeset-add-v2-operation-effect-v1",
+            "localized-changeset-commit-v2-operation-effect-v1",
+            "localized-changeset-create-v2-operation-effect-v1",
+            "localized-changeset-submit-v2-operation-effect-v1",
+            "localized-context-build-v2-operation-effect-v1",
+            "localized-edition-create-v2-operation-effect-v1",
+            "localized-release-v2-manifest",
+            "localized-validation-results-v2-artifact",
+            "none",
+            "oidc-binding-issue-v1-remote-authority-record",
+            "oidc-binding-revoke-v1-remote-authority-record",
+            "principal-status-v2-remote-authority-record",
+            "retained-context-pack-v1-manifest-json",
+            "workspace-role-assignment-v1-remote-authority-record",
+            "workspace-role-revocation-v1-remote-authority-record"
+          ]
+        },
+        "source_contract": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/schemaRef" }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "mode": { "const": "none" },
+            "digest_context": { "type": "null" },
+            "preimage_source": { "const": "none" },
+            "source_contract": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "agent-binding-issue-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/authority/principal-binding/v1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "agent-binding-revoke-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/authority/principal-binding-revocation/v1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "changeset-approval-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/changeSetApprovalV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:content-resource-intent:v1" },
+            "preimage_source": { "const": "content-resource-intent-v1-artifact" },
+            "source_contract": { "const": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contentResourceIntentV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "delegation-issue-v2-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/authority/delegation/v2" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "delegation-revoke-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/authority/delegation-revocation/v1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:delivery-management-fact:v1" },
+            "preimage_source": { "const": "delivery-abandon-v1-management-fact" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryManagementFactV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:delivery-management-fact:v1" },
+            "preimage_source": { "const": "delivery-replay-v1-management-fact" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryManagementFactV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "environment-config-activation-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/environmentConfigActivationV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "environment-config-proposal-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/environmentConfigProposalV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:evidence-export-capture:v2" },
+            "preimage_source": { "const": "evidence-export-capture-v2-artifact" },
+            "source_contract": { "const": "https://proof.dev/schema/conformance/collaboration-server/remote-evidence/v2#/$defs/evidenceExportCaptureV2" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "oidc-binding-issue-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "oidc-binding-revoke-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingRevocationV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "principal-status-v2-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/remotePrincipalStatusV2" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "workspace-role-assignment-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/workspaceRoleAssignmentV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:remote-authority-record:v1" },
+            "preimage_source": { "const": "workspace-role-revocation-v1-remote-authority-record" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/workspaceRoleRevocationV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:operation-effect:v1" },
+            "preimage_source": { "const": "localized-changeset-add-v2-operation-effect-v1" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/localizedChangeSetAddOperationEffectV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:operation-effect:v1" },
+            "preimage_source": { "const": "localized-changeset-commit-v2-operation-effect-v1" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/localizedChangeSetCommitOperationEffectV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:operation-effect:v1" },
+            "preimage_source": { "const": "localized-changeset-create-v2-operation-effect-v1" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/localizedChangeSetCreateOperationEffectV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:operation-effect:v1" },
+            "preimage_source": { "const": "localized-changeset-submit-v2-operation-effect-v1" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/localizedChangeSetSubmitOperationEffectV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:operation-effect:v1" },
+            "preimage_source": { "const": "localized-context-build-v2-operation-effect-v1" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/localizedContextBuildOperationEffectV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:operation-effect:v1" },
+            "preimage_source": { "const": "localized-edition-create-v2-operation-effect-v1" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/localizedEditionCreateOperationEffectV1" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:release:v2" },
+            "preimage_source": { "const": "localized-release-v2-manifest" },
+            "source_contract": { "const": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/releaseV2" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:validation-results:v2" },
+            "preimage_source": { "const": "localized-validation-results-v2-artifact" },
+            "source_contract": { "const": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/validationResultsV2" }
+          }
+        },
+        {
+          "properties": {
+            "mode": { "const": "blake3-256-derive-key-rfc8785" },
+            "digest_context": { "const": "proof:context-pack:v1" },
+            "preimage_source": { "const": "retained-context-pack-v1-manifest-json" },
+            "source_contract": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/contextPackManifestV1" }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "digest_context": { "const": "proof:remote-authority-record:v1" } },
+            "required": ["digest_context"]
+          },
+          "then": { "properties": { "effect_timestamp_field": { "type": "string" } } },
+          "else": { "properties": { "effect_timestamp_field": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "preimage_source": {
+                "enum": [
+                  "agent-binding-issue-v1-remote-authority-record",
+                  "delegation-issue-v2-remote-authority-record",
+                  "oidc-binding-issue-v1-remote-authority-record"
+                ]
+              }
+            },
+            "required": ["preimage_source"]
+          },
+          "then": { "properties": { "effect_timestamp_field": { "const": "issued_at" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "preimage_source": {
+                "enum": [
+                  "agent-binding-revoke-v1-remote-authority-record",
+                  "delegation-revoke-v1-remote-authority-record",
+                  "oidc-binding-revoke-v1-remote-authority-record",
+                  "workspace-role-revocation-v1-remote-authority-record"
+                ]
+              }
+            },
+            "required": ["preimage_source"]
+          },
+          "then": { "properties": { "effect_timestamp_field": { "const": "revoked_at" } } }
+        },
+        {
+          "if": { "properties": { "preimage_source": { "const": "changeset-approval-v1-remote-authority-record" } }, "required": ["preimage_source"] },
+          "then": { "properties": { "effect_timestamp_field": { "const": "approved_at" } } }
+        },
+        {
+          "if": { "properties": { "preimage_source": { "const": "environment-config-activation-v1-remote-authority-record" } }, "required": ["preimage_source"] },
+          "then": { "properties": { "effect_timestamp_field": { "const": "activated_at" } } }
+        },
+        {
+          "if": { "properties": { "preimage_source": { "const": "environment-config-proposal-v1-remote-authority-record" } }, "required": ["preimage_source"] },
+          "then": { "properties": { "effect_timestamp_field": { "const": "proposed_at" } } }
+        },
+        {
+          "if": { "properties": { "preimage_source": { "const": "principal-status-v2-remote-authority-record" } }, "required": ["preimage_source"] },
+          "then": { "properties": { "effect_timestamp_field": { "const": "recorded_at" } } }
+        },
+        {
+          "if": { "properties": { "preimage_source": { "const": "workspace-role-assignment-v1-remote-authority-record" } }, "required": ["preimage_source"] },
+          "then": { "properties": { "effect_timestamp_field": { "const": "assigned_at" } } }
+        }
+      ]
+    },
+    "humanAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorization_rule", "roles_any_of"],
+      "properties": {
+        "authorization_rule": {
+          "type": "string",
+          "pattern": "^proof\\.server/authorization/[a-z][a-z0-9-]*/v1$"
+        },
+        "roles_any_of": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/humanRole" }
+        }
+      }
+    },
+    "authorizationResourceProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_direct_requested_resources", "api_version", "binding_digest_algorithm", "binding_digest_context", "binding_preimage", "canonicalization", "requested_resources_digest_algorithm", "requested_resources_digest_context", "requested_resources_preimage", "sort_order"],
+      "properties": {
+        "agent_direct_requested_resources": { "const": { "authority_profile": "proof.local/authority/direct/v1", "source_contract": "https://proof.dev/schema/authority/authorization-decision/v2#/properties/requested_resources", "authority_registry_resolution": "exact operation name+version row from proof.dev/authority-operation-registry/v1", "fields": ["workspace_ids", "environment_ids", "object_ids", "schema_ids", "locales", "changeset_ids", "edition_ids", "release_ids"], "array_rule": "copy every accepted AuthorizationDecisionV2 requested_resources array exactly after its required canonical ordering and uniqueness checks; workspace_ids is the singleton command Workspace; no field may be dropped, added, coarsened, or reinterpreted" } },
+        "api_version": { "const": "proof.dev/requested-resources-projection/v1" },
+        "canonicalization": { "const": "RFC8785" },
+        "sort_order": { "const": "binding_name_utf8_ascending" },
+        "binding_digest_algorithm": { "const": "BLAKE3-256-derive-key" },
+        "binding_digest_context": { "const": "proof:authorization-resource-binding:v1" },
+        "binding_preimage": { "const": { "api_version": "proof.dev/authorization-resource-binding/v1", "fields": ["name", "value"], "rule": "name equals registry binding_name; value is the exact typed public-safe projection; null only for declared nullable value_type" } },
+        "requested_resources_digest_algorithm": { "const": "BLAKE3-256-derive-key" },
+        "requested_resources_digest_context": { "const": "proof:requested-authorization-resources:v1" },
+        "requested_resources_preimage": { "const": { "api_version": "proof.dev/requested-authorization-resources/v1", "fields": ["authorization_registry_sha256", "authorization_rule", "operation", "requested_action", "bindings"], "bindings": "UTF-8 name-sorted exact {name,value_digest} array; value_digest is the binding digest above; no raw private OIDC issuer, subject, blind, token, or provider diagnostic" } }
+      }
+    },
+    "authorizationRegistryCommitment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "authorization_registry_sha256", "canonicalization", "digest_algorithm", "projection_fields"],
+      "properties": {
+        "api_version": { "const": "proof.dev/authorization-registry-commitment/v1" },
+        "canonicalization": { "const": "RFC8785" },
+        "digest_algorithm": { "const": "sha-256" },
+        "projection_fields": { "const": ["agent_authorization_projection", "authorization_resource_projection", "authorization_rule_definitions", "human_authorization_projection"] },
+        "authorization_registry_sha256": { "const": "e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b" }
+      }
+    },
+    "authorizationResourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_name", "source_kind", "source_path", "value_type"],
+      "properties": {
+        "binding_name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "source_kind": { "enum": ["input-field", "path-parameter", "registry-commitment", "resolved-authoritative", "server-derived-private-commitment"] },
+        "source_path": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,159}$" },
+        "value_type": { "enum": ["action-array", "digest", "enum", "integer", "logical-id", "nullable-digest", "nullable-integer", "object", "object-array", "string", "string-array", "uuidv7", "uuidv7-array"] }
+      }
+    },
+    "authorizationRuleDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consequence_constraints", "denial_public_code", "lifecycle_predicates", "operation_resource_bindings", "operations", "ownership_sod_predicates", "resource_input_bindings", "role_head_evaluation", "subject_source"],
+      "properties": {
+        "operations": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/operation" } },
+        "subject_source": { "const": "oidc_session.principal_id" },
+        "role_head_evaluation": { "const": "active_workspace_role_at_transaction_authority_head" },
+        "resource_input_bindings": { "type": "array", "minItems": 1, "maxItems": 24, "uniqueItems": true, "items": { "$ref": "#/$defs/authorizationResourceBinding" } },
+        "operation_resource_bindings": { "type": "object", "minProperties": 1, "maxProperties": 4, "propertyNames": { "pattern": "^proof\\.dev/operation/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$" }, "additionalProperties": { "type": "array", "minItems": 1, "maxItems": 24, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" } } },
+        "lifecycle_predicates": { "type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+        "ownership_sod_predicates": { "type": "array", "maxItems": 12, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "denial_public_code": { "const": "proof.authorization.denied" },
+        "consequence_constraints": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } }
+      }
+    },
+    "publicAuthorizationRuleDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consequence_constraints", "denial_public_code", "lifecycle_predicates", "operation_resource_bindings", "operations", "ownership_sod_predicates", "resource_input_bindings", "role_head_evaluation", "subject_source"],
+      "properties": {
+        "operations": { "const": [{ "name": "capabilities.discover", "version": "proof.dev/operation/capabilities.discover/v1" }] },
+        "subject_source": { "const": "anonymous_public_request" },
+        "role_head_evaluation": { "const": "not_applicable" },
+        "resource_input_bindings": { "const": [{ "binding_name": "approved_registry_sha256", "source_kind": "registry-commitment", "source_path": "registry_sha256", "value_type": "string" }] },
+        "operation_resource_bindings": { "const": { "proof.dev/operation/capabilities.discover/v1": ["approved_registry_sha256"] } },
+        "lifecycle_predicates": { "const": ["served_registry_sha256=approved_registry_sha256"] },
+        "ownership_sod_predicates": { "const": [] },
+        "denial_public_code": { "type": "null" },
+        "consequence_constraints": { "const": ["read_only_approved_registry_projection"] }
+      }
+    },
+    "authorizationRuleDefinitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proof.server/authorization/agent-binding-admin/v1",
+        "proof.server/authorization/changeset-closure-reader/v1",
+        "proof.server/authorization/changeset-distinct-reviewer/v1",
+        "proof.server/authorization/delegation-issuer-or-authority-admin/v1",
+        "proof.server/authorization/delegation-requester/v1",
+        "proof.server/authorization/delivery-dead-letter-replay-admin/v1",
+        "proof.server/authorization/delivery-poison-abandon-activator/v1",
+        "proof.server/authorization/delivery-reader/v1",
+        "proof.server/authorization/environment-config-distinct-activator/v1",
+        "proof.server/authorization/environment-config-proposer/v1",
+        "proof.server/authorization/evidence-export-reader/v1",
+        "proof.server/authorization/export-artifact-reader/v1",
+        "proof.server/authorization/initial-context-requester/v1",
+        "proof.server/authorization/oidc-binding-admin/v1",
+        "proof.server/authorization/preview-reader/v1",
+        "proof.server/authorization/principal-disable-admin/v1",
+        "proof.server/authorization/public-capability-discovery/v1",
+        "proof.server/authorization/release-reader/v1",
+        "proof.server/authorization/resource-intent-requester/v1",
+        "proof.server/authorization/workspace-role-admin/v1"
+      ],
+      "properties": {
+        "proof.server/authorization/agent-binding-admin/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/changeset-closure-reader/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/changeset-distinct-reviewer/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/delegation-issuer-or-authority-admin/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/delegation-requester/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/delivery-dead-letter-replay-admin/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/delivery-poison-abandon-activator/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/delivery-reader/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/environment-config-distinct-activator/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/environment-config-proposer/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/evidence-export-reader/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/export-artifact-reader/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/initial-context-requester/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/oidc-binding-admin/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/preview-reader/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/principal-disable-admin/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/public-capability-discovery/v1": { "$ref": "#/$defs/publicAuthorizationRuleDefinition" },
+        "proof.server/authorization/release-reader/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/resource-intent-requester/v1": { "$ref": "#/$defs/authorizationRuleDefinition" },
+        "proof.server/authorization/workspace-role-admin/v1": { "$ref": "#/$defs/authorizationRuleDefinition" }
+      }
+    },
+    "humanMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application_idempotency", "application_problem_codes", "authorization", "concurrency", "consequence", "effect_digest_rule", "input_schema", "max_canonical_request_bytes", "operation", "problem_profile", "request_limits", "result_limits", "result_schema"],
+      "properties": {
+        "operation": { "$ref": "#/$defs/operation" },
+        "authorization": { "$ref": "#/$defs/humanAuthorization" },
+        "input_schema": { "$ref": "#/$defs/schemaRef" },
+        "result_schema": { "$ref": "#/$defs/schemaRef" },
+        "application_problem_codes": { "$ref": "#/$defs/applicationProblemCodeArray" },
+        "problem_profile": { "enum": ["artifact_read", "human_keyed_write", "human_no_key_evidence", "human_no_key_projection", "preview_read", "public_discovery"] },
+        "application_idempotency": { "enum": ["derived-changeset", "derived-proposal-policy-validator", "none", "required-uuidv7"] },
+        "concurrency": { "enum": ["exact-artifact-digest", "exact-authority-head", "exact-changeset-and-authority", "exact-config-predecessor-and-authority", "exact-delivery-generation", "exact-release", "none", "registry-digest"] },
+        "consequence": { "enum": ["authority-evidence-only", "immutable-application-fact", "immutable-authority-fact", "immutable-content-fact", "immutable-evidence-export", "none", "private-release-rendition", "transport-projection"] },
+        "effect_digest_rule": { "$ref": "#/$defs/effectDigestRule" },
+        "max_canonical_request_bytes": { "const": 1048576 },
+        "request_limits": { "$ref": "#/$defs/typedItemLimits" },
+        "result_limits": { "$ref": "#/$defs/typedItemLimits" }
+      }
+    },
+    "selectorProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changeset_ids", "edition_ids", "release_ids"],
+      "properties": {
+        "changeset_ids": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "edition_ids": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "release_ids": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "agentMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application_error_profile", "application_idempotency", "application_problem_codes", "availability", "budget_projection", "closure_anchor", "concurrency", "consequence", "effect_digest_rule", "input_projection", "input_schema", "input_schema_subject", "localized_contract", "max_canonical_request_bytes", "operation", "problem_profile", "requested_action", "request_limits", "resource_projection_profile", "result_limits", "result_schema", "selector_projection"],
+      "properties": {
+        "operation": { "$ref": "#/$defs/operation" },
+        "application_error_profile": { "enum": ["context_build_v1", "localized_keyed_v2", "localized_no_key_v2", "object_query_released_v1", "workspace_status_v1"] },
+        "application_problem_codes": { "$ref": "#/$defs/applicationProblemCodeArray" },
+        "requested_action": { "type": "string", "pattern": "^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$" },
+        "localized_contract": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/schemaRef" }] },
+        "application_idempotency": { "enum": ["derived-changeset", "derived-proposal-policy-validator", "none", "required-uuidv7"] },
+        "closure_anchor": { "enum": ["command", "normalized-input-resource-intent", "resolved-current-release", "verified-changeset-resource-intent", "verified-committed-changeset-resource-intent", "verified-edition-changeset-resource-intent"] },
+        "resource_projection_profile": { "enum": ["legacy-object-selection/v1", "localized-intent-closure/v1", "localized-released-selection/v1", "workspace-only/v1"] },
+        "budget_projection": { "enum": ["bound-context-limits", "delegation-only", "normalized-v1-context-limits", "normalized-v2-context-limits", "requested-object-count"] },
+        "selector_projection": { "$ref": "#/$defs/selectorProjection" },
+        "consequence": { "enum": ["authority-evidence-only", "draft-localized-changeset", "immutable-context-pack", "immutable-localized-edition", "localized-edit-batch", "localized-release-pointer-and-proof", "localized-rendition-commit", "localized-submission", "localized-validation-attempt"] },
+        "effect_digest_rule": { "$ref": "#/$defs/effectDigestRule" },
+        "availability": { "enum": ["implemented-v1-read", "p0005-delegated-localized"] },
+        "input_schema": { "$ref": "#/$defs/schemaRef" },
+        "result_schema": { "$ref": "#/$defs/schemaRef" },
+        "input_schema_subject": { "enum": ["effective-capability-input", "normalized-application-input"] },
+        "input_projection": { "enum": ["capability-guards-equal-outer-then-application-input/v1", "normalized-input-with-outer-actor-equality/v1", "outer-actor-fields-plus-empty-normalized-input/v1"] },
+        "problem_profile": { "enum": ["agent_keyed_evidence", "agent_no_key_evidence"] },
+        "concurrency": { "enum": ["exact-authority-head", "exact-changeset-and-authority", "exact-release"] },
+        "max_canonical_request_bytes": { "const": 1048576 },
+        "request_limits": { "$ref": "#/$defs/typedItemLimits" },
+        "result_limits": { "$ref": "#/$defs/typedItemLimits" }
+      }
+    },
+    "transportRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authentication", "cors", "csrf", "input_schema", "method", "operation_deadline_seconds", "path_template", "problem_profile", "request_media_type", "response_media_types", "result_schema", "route_id", "success_status", "transport_operation"],
+      "properties": {
+        "route_id": { "type": "string" },
+        "method": { "enum": ["GET", "POST"] },
+        "path_template": { "type": "string", "pattern": "^/" },
+        "authentication": { "enum": ["proof.server/authentication/oidc-human/v1", "proof.server/authentication/oidc-transaction/v1", "public"] },
+        "csrf": { "enum": ["none", "origin-and-session-bound-header"] },
+        "cors": { "const": "disabled" },
+        "request_media_type": { "oneOf": [{ "type": "null" }, { "const": "application/json" }] },
+        "response_media_types": { "type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": { "enum": ["application/json", "application/problem+json"] } },
+        "success_status": { "enum": [200, 204, 302, 303] },
+        "transport_operation": { "$ref": "#/$defs/transportOperation" },
+        "input_schema": { "$ref": "#/$defs/schemaRef" },
+        "result_schema": { "$ref": "#/$defs/schemaRef" },
+        "problem_profile": {
+          "enum": [
+            "route_oidc_callback_get",
+            "route_oidc_login_get",
+            "route_session_get",
+            "route_session_logout_json_post"
+          ]
+        },
+        "operation_deadline_seconds": { "const": 30 }
+      }
+    },
+    "applicationRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authentication", "cors", "csrf", "method", "operation_deadline_seconds", "operations", "path_template", "problem_profile", "request_media_type", "response_media_types", "route_id"],
+      "properties": {
+        "route_id": { "type": "string" },
+        "authority_registry_contract": { "$ref": "#/$defs/schemaRef" },
+        "authority_registry_file": { "type": "string", "pattern": "^conformance/v1/authority/vectors/[a-z0-9._-]+\\.json$" },
+        "authority_registry_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "method": { "enum": ["GET", "POST"] },
+        "path_template": { "type": "string", "pattern": "^/" },
+        "authentication": { "enum": ["proof.server/authentication/oidc-human-agent/v1", "proof.server/authentication/oidc-human/v1", "public"] },
+        "csrf": { "enum": ["none", "origin-and-session-bound-header"] },
+        "cors": { "const": "disabled" },
+        "request_media_type": { "oneOf": [{ "type": "null" }, { "const": "application/json" }] },
+        "response_media_types": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true },
+        "problem_profile": {
+          "enum": [
+            "route_agent_json_post",
+            "route_capabilities_get",
+            "route_evidence_artifact_get",
+            "route_human_json_post",
+            "route_preview_get"
+          ]
+        },
+        "operation_deadline_seconds": { "const": 30 },
+        "max_response_bytes": { "const": 4194304 },
+        "required_success_headers": { "type": "array", "uniqueItems": true },
+        "streamed_download_deadline": { "enum": ["excluded", "not-applicable"] },
+        "operations": { "type": "array" }
+      }
+    },
+    "oidcLoginRoute": {
+      "allOf": [{ "$ref": "#/$defs/transportRoute" }, { "properties": {
+        "route_id": { "const": "oidc-login" }, "method": { "const": "GET" }, "path_template": { "const": "/auth/oidc/login" }, "authentication": { "const": "public" }, "csrf": { "const": "none" }, "request_media_type": { "type": "null" }, "response_media_types": { "const": ["application/problem+json"] }, "success_status": { "const": 303 }, "transport_operation": { "const": { "name": "oidc.login.start", "version": "proof.dev/transport/oidc.login.start/v1" } }, "input_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/oidcLoginStartInputV1" }, "result_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/oidcLoginStartResultV1" }, "problem_profile": { "const": "route_oidc_login_get" }
+      } }]
+    },
+    "oidcCallbackRoute": {
+      "allOf": [{ "$ref": "#/$defs/transportRoute" }, { "properties": {
+        "route_id": { "const": "oidc-callback" }, "method": { "const": "GET" }, "path_template": { "const": "/auth/oidc/callback" }, "authentication": { "const": "proof.server/authentication/oidc-transaction/v1" }, "csrf": { "const": "none" }, "request_media_type": { "type": "null" }, "response_media_types": { "const": ["application/problem+json"] }, "success_status": { "const": 303 }, "transport_operation": { "const": { "name": "oidc.login.callback", "version": "proof.dev/transport/oidc.login.callback/v1" } }, "input_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/oidcCallbackInputV1" }, "result_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/oidcCallbackResultV1" }, "problem_profile": { "const": "route_oidc_callback_get" }
+      } }]
+    },
+    "sessionGetRoute": {
+      "allOf": [{ "$ref": "#/$defs/transportRoute" }, { "properties": {
+        "route_id": { "const": "session-get" }, "method": { "const": "GET" }, "path_template": { "const": "/api/v1/session" }, "authentication": { "const": "proof.server/authentication/oidc-human/v1" }, "csrf": { "const": "none" }, "request_media_type": { "type": "null" }, "response_media_types": { "const": ["application/json", "application/problem+json"] }, "success_status": { "const": 200 }, "transport_operation": { "const": { "name": "session.get", "version": "proof.dev/transport/session.get/v1" } }, "input_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/sessionGetInputV1" }, "result_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/sessionGetResultV1" }, "problem_profile": { "const": "route_session_get" }
+      } }]
+    },
+    "sessionLogoutRoute": {
+      "allOf": [{ "$ref": "#/$defs/transportRoute" }, { "properties": {
+        "route_id": { "const": "session-logout" }, "method": { "const": "POST" }, "path_template": { "const": "/api/v1/session/logout" }, "authentication": { "const": "proof.server/authentication/oidc-human/v1" }, "csrf": { "const": "origin-and-session-bound-header" }, "request_media_type": { "const": "application/json" }, "response_media_types": { "const": ["application/json", "application/problem+json"] }, "success_status": { "const": 200 }, "transport_operation": { "const": { "name": "session.logout", "version": "proof.dev/transport/session.logout/v1" } }, "input_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/sessionLogoutInputV1" }, "result_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/sessionLogoutResultV1" }, "problem_profile": { "const": "route_session_logout_json_post" }
+      } }]
+    },
+    "capabilitiesRoute": {
+      "allOf": [{ "$ref": "#/$defs/applicationRoute" }, { "properties": {
+        "route_id": { "const": "public-capabilities" }, "method": { "const": "GET" }, "path_template": { "const": "/api/v1/capabilities" }, "authentication": { "const": "public" }, "csrf": { "const": "none" }, "request_media_type": { "type": "null" }, "response_media_types": { "const": ["application/json", "application/problem+json"] }, "problem_profile": { "const": "route_capabilities_get" }, "streamed_download_deadline": { "const": "not-applicable" }, "operations": { "type": "array", "minItems": 1, "maxItems": 1, "prefixItems": [{ "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/public-capability-discovery/v1", "roles_any_of": [] } }, "operation": { "const": { "name": "capabilities.discover", "version": "proof.dev/operation/capabilities.discover/v1" } } } }] }], "items": false }
+      } }]
+    },
+    "humanRows": {
+      "type": "array", "minItems": 23, "maxItems": 23, "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/humanAgentBindingIssue" },
+        { "$ref": "#/$defs/humanAgentBindingRevoke" },
+        { "$ref": "#/$defs/humanContentResourceIntentIssue" },
+        { "$ref": "#/$defs/humanContextBuild" },
+        { "$ref": "#/$defs/humanChangesetGet" },
+        { "$ref": "#/$defs/humanChangesetDiff" },
+        { "$ref": "#/$defs/humanChangesetApprove" },
+        { "$ref": "#/$defs/humanDelegationIssue" },
+        { "$ref": "#/$defs/humanDelegationRevoke" },
+        { "$ref": "#/$defs/humanDeliveryGet" },
+        { "$ref": "#/$defs/humanDeliveryReplay" },
+        { "$ref": "#/$defs/humanDeliveryAbandon" },
+        { "$ref": "#/$defs/humanEnvironmentConfigPropose" },
+        { "$ref": "#/$defs/humanEnvironmentConfigActivate" },
+        { "$ref": "#/$defs/humanEvidenceExport" },
+        { "$ref": "#/$defs/humanEvidenceExportGet" },
+        { "$ref": "#/$defs/humanOidcBindingIssue" },
+        { "$ref": "#/$defs/humanOidcBindingRevoke" },
+        { "$ref": "#/$defs/humanPrincipalStatusSet" },
+        { "$ref": "#/$defs/humanReleaseGet" },
+        { "$ref": "#/$defs/humanReleaseVerify" },
+        { "$ref": "#/$defs/humanWorkspaceRoleAssign" },
+        { "$ref": "#/$defs/humanWorkspaceRoleRevoke" }
+      ],
+      "items": false
+    },
+    "humanAgentBindingIssue": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/agent-binding-admin/v1", "roles_any_of": ["authority.admin"] } }, "operation": { "const": { "name": "agent-binding.issue", "version": "proof.dev/operation/agent-binding.issue/v1" } } } }] },
+    "humanAgentBindingRevoke": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/agent-binding-admin/v1", "roles_any_of": ["authority.admin"] } }, "operation": { "const": { "name": "agent-binding.revoke", "version": "proof.dev/operation/agent-binding.revoke/v1" } } } }] },
+    "humanContentResourceIntentIssue": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/resource-intent-requester/v1", "roles_any_of": ["content.requester"] } }, "operation": { "const": { "name": "content-resource-intent.issue", "version": "proof.dev/operation/content-resource-intent.issue/v1" } } } }] },
+    "humanContextBuild": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/initial-context-requester/v1", "roles_any_of": ["content.requester"] } }, "operation": { "const": { "name": "context.build", "version": "proof.dev/operation/context.build/v2" } } } }] },
+    "humanChangesetGet": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/changeset-closure-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer"] } }, "operation": { "const": { "name": "changeset.get", "version": "proof.dev/operation/changeset.get/v2" } } } }] },
+    "humanChangesetDiff": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/changeset-closure-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer"] } }, "operation": { "const": { "name": "changeset.diff", "version": "proof.dev/operation/changeset.diff/v2" } } } }] },
+    "humanChangesetApprove": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/changeset-distinct-reviewer/v1", "roles_any_of": ["content.reviewer"] } }, "operation": { "const": { "name": "changeset.approve", "version": "proof.dev/operation/changeset.approve/v3" } } } }] },
+    "humanDelegationIssue": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/delegation-requester/v1", "roles_any_of": ["content.requester"] } }, "operation": { "const": { "name": "delegation.issue", "version": "proof.dev/operation/delegation.issue/v2" } } } }] },
+    "humanDelegationRevoke": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/delegation-issuer-or-authority-admin/v1", "roles_any_of": ["authority.admin", "content.requester"] } }, "operation": { "const": { "name": "delegation.revoke", "version": "proof.dev/operation/delegation.revoke/v1" } } } }] },
+    "humanDeliveryGet": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/delivery-reader/v1", "roles_any_of": ["content.publisher", "environment.admin", "evidence.auditor"] } }, "operation": { "const": { "name": "delivery.get", "version": "proof.dev/operation/delivery.get/v1" } } } }] },
+    "humanDeliveryReplay": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/delivery-dead-letter-replay-admin/v1", "roles_any_of": ["environment.admin"] } }, "operation": { "const": { "name": "delivery.replay", "version": "proof.dev/operation/delivery.replay/v1" } } } }] },
+    "humanDeliveryAbandon": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/delivery-poison-abandon-activator/v1", "roles_any_of": ["environment.activator"] } }, "operation": { "const": { "name": "delivery.abandon", "version": "proof.dev/operation/delivery.abandon/v1" } } } }] },
+    "humanEnvironmentConfigPropose": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/environment-config-proposer/v1", "roles_any_of": ["environment.admin"] } }, "operation": { "const": { "name": "environment-config.propose", "version": "proof.dev/operation/environment-config.propose/v2" } } } }] },
+    "humanEnvironmentConfigActivate": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/environment-config-distinct-activator/v1", "roles_any_of": ["environment.activator"] } }, "operation": { "const": { "name": "environment-config.activate", "version": "proof.dev/operation/environment-config.activate/v2" } } } }] },
+    "humanEvidenceExport": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/evidence-export-reader/v1", "roles_any_of": ["content.publisher", "evidence.auditor"] } }, "operation": { "const": { "name": "evidence.export", "version": "proof.dev/operation/evidence.export/v2" } } } }] },
+    "humanEvidenceExportGet": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/evidence-export-reader/v1", "roles_any_of": ["content.publisher", "evidence.auditor"] } }, "operation": { "const": { "name": "evidence.export.get", "version": "proof.dev/operation/evidence.export.get/v1" } } } }] },
+    "humanOidcBindingIssue": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/oidc-binding-admin/v1", "roles_any_of": ["identity.admin"] } }, "operation": { "const": { "name": "oidc-binding.issue", "version": "proof.dev/operation/oidc-binding.issue/v1" } } } }] },
+    "humanOidcBindingRevoke": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/oidc-binding-admin/v1", "roles_any_of": ["identity.admin"] } }, "operation": { "const": { "name": "oidc-binding.revoke", "version": "proof.dev/operation/oidc-binding.revoke/v1" } } } }] },
+    "humanPrincipalStatusSet": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/principal-disable-admin/v1", "roles_any_of": ["identity.admin"] } }, "operation": { "const": { "name": "principal.status.set", "version": "proof.dev/operation/principal.status.set/v2" } } } }] },
+    "humanReleaseGet": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/release-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] } }, "operation": { "const": { "name": "release.get", "version": "proof.dev/operation/release.get/v2" } } } }] },
+    "humanReleaseVerify": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/release-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] } }, "operation": { "const": { "name": "release.verify", "version": "proof.dev/operation/release.verify/v2" } } } }] },
+    "humanWorkspaceRoleAssign": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/workspace-role-admin/v1", "roles_any_of": ["identity.admin"] } }, "operation": { "const": { "name": "workspace-role.assign", "version": "proof.dev/operation/workspace-role.assign/v1" } } } }] },
+    "humanWorkspaceRoleRevoke": { "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/workspace-role-admin/v1", "roles_any_of": ["identity.admin"] } }, "operation": { "const": { "name": "workspace-role.revoke", "version": "proof.dev/operation/workspace-role.revoke/v1" } } } }] },
+    "agentRows": {
+      "type": "array", "minItems": 14, "maxItems": 14, "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/agentChangesetAdd" }, { "$ref": "#/$defs/agentChangesetCommit" }, { "$ref": "#/$defs/agentChangesetCreate" }, { "$ref": "#/$defs/agentChangesetDiff" }, { "$ref": "#/$defs/agentChangesetGet" }, { "$ref": "#/$defs/agentChangesetSubmit" }, { "$ref": "#/$defs/agentChangesetValidate" }, { "$ref": "#/$defs/agentContextBuildV1" }, { "$ref": "#/$defs/agentContextBuildV2" }, { "$ref": "#/$defs/agentEditionCreate" }, { "$ref": "#/$defs/agentObjectQueryV1" }, { "$ref": "#/$defs/agentObjectQueryV2" }, { "$ref": "#/$defs/agentReleaseCreate" }, { "$ref": "#/$defs/agentWorkspaceStatus" }
+      ],
+      "items": false
+    },
+    "agentChangesetAdd": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.add", "version": "proof.dev/operation/changeset.add/v2" } } } }] },
+    "agentChangesetCommit": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.commit", "version": "proof.dev/operation/changeset.commit/v2" } } } }] },
+    "agentChangesetCreate": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.create", "version": "proof.dev/operation/changeset.create/v2" } } } }] },
+    "agentChangesetDiff": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.diff", "version": "proof.dev/operation/changeset.diff/v2" } } } }] },
+    "agentChangesetGet": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.get", "version": "proof.dev/operation/changeset.get/v2" } } } }] },
+    "agentChangesetSubmit": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.submit", "version": "proof.dev/operation/changeset.submit/v2" } } } }] },
+    "agentChangesetValidate": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "changeset.validate", "version": "proof.dev/operation/changeset.validate/v2" } } } }] },
+    "agentContextBuildV1": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "context.build", "version": "proof.dev/operation/context.build/v1" } } } }] },
+    "agentContextBuildV2": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "context.build", "version": "proof.dev/operation/context.build/v2" } } } }] },
+    "agentEditionCreate": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "edition.create", "version": "proof.dev/operation/edition.create/v2" } } } }] },
+    "agentObjectQueryV1": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "object.query_released", "version": "proof.dev/operation/object.query_released/v1" } } } }] },
+    "agentObjectQueryV2": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "object.query_released", "version": "proof.dev/operation/object.query_released/v2" } } } }] },
+    "agentReleaseCreate": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "release.create", "version": "proof.dev/operation/release.create/v2" } } } }] },
+    "agentWorkspaceStatus": { "allOf": [{ "$ref": "#/$defs/agentMapping" }, { "properties": { "operation": { "const": { "name": "workspace.status", "version": "proof.dev/operation/workspace.status/v1" } } } }] },
+    "humanRoute": {
+      "allOf": [{ "$ref": "#/$defs/applicationRoute" }, { "properties": {
+        "route_id": { "const": "human-operations" }, "method": { "const": "POST" }, "path_template": { "const": "/api/v1/human/operations/{name}/{major}" }, "authentication": { "const": "proof.server/authentication/oidc-human/v1" }, "csrf": { "const": "origin-and-session-bound-header" }, "request_media_type": { "const": "application/json" }, "response_media_types": { "const": ["application/json", "application/problem+json"] }, "problem_profile": { "const": "route_human_json_post" }, "streamed_download_deadline": { "const": "not-applicable" }, "operations": { "$ref": "#/$defs/humanRows" }
+      } }]
+    },
+    "agentRoute": {
+      "allOf": [{ "$ref": "#/$defs/applicationRoute" }, { "required": ["authority_registry_contract", "authority_registry_file", "authority_registry_sha256"], "properties": {
+        "authority_registry_contract": { "const": "https://proof.dev/schema/authority/operation-registry/v1" }, "authority_registry_file": { "const": "conformance/v1/authority/vectors/authority-operation-registry.valid.json" }, "authority_registry_sha256": { "const": "b4e67916e0d1cae8e7b73ce681057edcad7f83bc953487ccf127333a3340bca7" }, "route_id": { "const": "agent-operations" }, "method": { "const": "POST" }, "path_template": { "const": "/api/v1/agent/operations/{name}/{major}" }, "authentication": { "const": "proof.server/authentication/oidc-human-agent/v1" }, "csrf": { "const": "origin-and-session-bound-header" }, "request_media_type": { "const": "application/json" }, "response_media_types": { "const": ["application/json", "application/problem+json"] }, "problem_profile": { "const": "route_agent_json_post" }, "streamed_download_deadline": { "const": "not-applicable" }, "operations": { "$ref": "#/$defs/agentRows" }
+      } }]
+    },
+    "evidenceArtifactRoute": {
+      "allOf": [{ "$ref": "#/$defs/applicationRoute" }, { "required": ["max_response_bytes", "required_success_headers", "streamed_download_deadline"], "properties": {
+        "route_id": { "const": "evidence-export-artifact" }, "method": { "const": "GET" }, "path_template": { "const": "/api/v1/evidence-exports/{export_id}/artifacts/{artifact_kind}/{digest}" }, "authentication": { "const": "proof.server/authentication/oidc-human/v1" }, "csrf": { "const": "none" }, "request_media_type": { "type": "null" }, "response_media_types": { "const": ["application/octet-stream", "application/problem+json"] }, "problem_profile": { "const": "route_evidence_artifact_get" }, "required_success_headers": { "const": ["Content-Digest", "Content-Length", "Content-Type", "ETag", "X-Proof-Artifact-Digest", "X-Proof-Artifact-Kind"] }, "streamed_download_deadline": { "const": "excluded" }, "operations": { "type": "array", "minItems": 1, "maxItems": 1, "prefixItems": [{ "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/export-artifact-reader/v1", "roles_any_of": ["content.publisher", "evidence.auditor"] } }, "operation": { "const": { "name": "evidence.artifact.get", "version": "proof.dev/operation/evidence.artifact.get/v2" } }, "input_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/evidenceArtifactGetInputV2" }, "result_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/evidenceArtifactMetadataV2" }, "problem_profile": { "const": "artifact_read" } } }] }], "items": false }
+      } }]
+    },
+    "previewRoute": {
+      "allOf": [{ "$ref": "#/$defs/applicationRoute" }, { "required": ["max_response_bytes", "streamed_download_deadline"], "properties": {
+        "route_id": { "const": "preview-release-rendition" }, "method": { "const": "GET" }, "path_template": { "const": "/preview/{environment}/releases/{release_id}/objects/{object_id}/locales/{locale}" }, "authentication": { "const": "proof.server/authentication/oidc-human/v1" }, "csrf": { "const": "none" }, "request_media_type": { "type": "null" }, "response_media_types": { "const": ["application/json", "application/problem+json"] }, "problem_profile": { "const": "route_preview_get" }, "streamed_download_deadline": { "const": "not-applicable" }, "operations": { "type": "array", "minItems": 1, "maxItems": 1, "prefixItems": [{ "allOf": [{ "$ref": "#/$defs/humanMapping" }, { "properties": { "authorization": { "const": { "authorization_rule": "proof.server/authorization/preview-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] } }, "operation": { "const": { "name": "preview.object.get", "version": "proof.dev/operation/preview.object.get/v1" } }, "input_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/previewObjectGetInputV1" }, "result_schema": { "const": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/previewObjectGetResultV1" }, "problem_profile": { "const": "preview_read" } } }] }], "items": false }
+      } }]
+    }
+  }
+}

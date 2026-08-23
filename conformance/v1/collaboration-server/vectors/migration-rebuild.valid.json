@@ -1,0 +1,54 @@
+{
+  "api_version": "proof.dev/migration-rebuild-suite/v1",
+  "evidence_class": "decision-contract",
+  "runtime_qualified": false,
+  "contract": {
+    "script_digest": "domain-separated BLAKE3 over exact script bytes",
+    "coordination": "fixed PostgreSQL advisory lock plus singleton migration head; one migrator",
+    "ledger_append_only": true,
+    "request_write_refusal_reasons": ["incompatible", "checksum-mismatch", "dirty", "failed", "newer"],
+    "phases": ["expand", "backfill", "verify", "cutover", "contract"],
+    "transactional_phase_rule": "DDL, backfill, verification, and version advancement in one transaction",
+    "nontransactional_phase_rule": "resumable and does not advance schema version until verified",
+    "historical_canonical_rewrite_allowed": false,
+    "destructive_down_migration_promised": false,
+    "network_writes_before_verified_import_cutover": false,
+    "projection_rebuild_write_availability": "offline",
+    "non_rebuildable_authority": ["facts", "authority_records", "idempotency", "artifact_catalog", "outbox_events", "delivery_attempts", "delivery_receipts"]
+  },
+  "migration_ledger": [
+    {
+      "ledger_sequence": 41, "migration_version": 13, "migration_name": "backfill_release_projection",
+      "script_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+      "phase": "backfill", "status": "started", "actor_tool": "proof-migrator/2.0.0",
+      "database_time": "2026-08-23T12:00:00Z"
+    },
+    {
+      "ledger_sequence": 42, "migration_version": 13, "migration_name": "verify_release_projection",
+      "script_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+      "phase": "verify", "status": "verified", "actor_tool": "proof-migrator/2.0.0",
+      "database_time": "2026-08-23T12:05:00Z"
+    },
+    {
+      "ledger_sequence": 43, "migration_version": 14, "migration_name": "contract_legacy_columns",
+      "script_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+      "phase": "contract", "status": "failed", "actor_tool": "proof-migrator/2.0.0",
+      "database_time": "2026-08-23T12:10:00Z"
+    }
+  ],
+  "projection_rebuild": {
+    "workspace_id": "019e0000-0000-7000-8000-000000000001",
+    "lock": "SERIALIZABLE workspace_write_head FOR UPDATE",
+    "source_chains_verified": true,
+    "old_generation": 7,
+    "candidate_generation": 8,
+    "comparisons": {
+      "identities": "matched", "counts": "matched", "foreign_keys": "matched",
+      "versions": "matched", "sequences": "matched", "state_digest": "matched"
+    },
+    "atomic_pointer_swap": true,
+    "partial_candidate_exposed": false,
+    "reader_generation_pinned": true,
+    "retired_generation_retained_until_no_readers": true
+  }
+}

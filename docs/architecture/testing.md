@@ -63,12 +63,59 @@ authority/Release key, ambient CLI, or network-resolution access; the verifier
 receives no private key. Server tests will run the same scenarios over HTTP
 after the Milestone 3 contract is ratified.
 
+### Proposed P-0008 local/server conformance
+
+P-0008 separates three evidence classes: retained local executable evidence,
+decision-contract Schemas/vectors validated with the proposal, and future
+server executable evidence that remains unrun. “The same suite” means one
+shared application/domain oracle plus adapter-specific coverage, not identical
+test inventories or comparison of SQLite and PostgreSQL rows.
+
+The retained P8 decision and `RemoteApplicationConsequenceV1` instances are
+decoded, canonicalizable, signable candidate payloads, not a retained matching
+signed pair. Its three normative Complete/Incomplete/Invalid scenarios are unobserved
+requirements. A runtime `RemoteVerificationReportV2` is the general closed
+outcome type; the exact three-scenario `conformanceReport` is its narrower
+qualification subtype.
+
+The proposed server matrix requires:
+
+- local and HTTP adapters to normalize to the same operation input, result,
+  Problem, state digest, and evidence consequence for every accepted and
+  rejected row;
+- exact registry equality among HTTP path/version, capability discovery,
+  application and authority operations, input/result Schemas, idempotency,
+  concurrency, Problems, limits, and consequence classes;
+- deterministic OIDC issuer/JWKS, session, CSRF, remote-Human binding, dual
+  Human-plus-Agent authentication, role, and separation-of-duties vectors;
+- PostgreSQL two-writer, revocation, Environment-pointer, same/different-key,
+  savepoint, serialization/deadlock retry, ambiguous-commit, migration, and
+  projection-generation cases;
+- crash points before/after artifact staging, authoritative commit, outbox
+  claim/send/acknowledgement, lease expiry, poison/replay, and monotonic preview
+  application, including rejection of a leaked signed pre-commit orphan/fork
+  and enforcement of one lowest-eligible lease per stream;
+- clean remote logical-member-map verification with exact kind-and-digest
+  acquisition, first-profile producer hint arrays fixed empty, and separate
+  caller `VerificationTrustPolicyV2`, checkpoint, opening, and external-byte
+  inputs; and
+- immutable keyed export-create replay that always returns the same pending
+  result while the no-key lifecycle read independently observes pending or
+  ready producer state.
+
+No row is considered passed until its later implementation successor runs the
+test. The normative proposed matrix is in the
+[collaboration-server contract](collaboration-server.md).
+
 ### Security tests
 
 - Fuzz parsers, canonicalization, patch application, Proof envelopes, and import formats.
 - Exercise prompt injection, tool confusion, scope escalation, stale ContextPacks, and malicious content.
 - Test denial behavior for revoked, expired, malformed, and cyclic Delegations.
-- Test archive traversal, symlink, URL-resolution, and decompression limits.
+- Test logical-map absolute/dot-segment/backslash paths, duplicate normalized
+  paths, undeclared or missing entries, wrong-kind digest aliases, and running
+  count/byte limits. P8 defines no archive, symlink, compression, or
+  decompression input to accept.
 - Test crash consistency and recovery at transaction boundaries.
 - Tamper or withhold every supplied portable-evidence component and verify
   deterministic Complete, Incomplete, or Invalid classification without

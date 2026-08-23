@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/outbox-delivery/v1",
+  "title": "Transactional outbox and delivery decision contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "evidence_class", "runtime_qualified", "contract", "scenarios"],
+  "properties": {
+    "api_version": { "const": "proof.dev/outbox-delivery-suite/v1" },
+    "evidence_class": { "const": "decision-contract" },
+    "runtime_qualified": { "const": false },
+    "contract": { "$ref": "#/$defs/contract" },
+    "scenarios": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/scenario" },
+      "allOf": [
+        { "contains": { "properties": { "scenario": { "const": "lost-ack-redelivery" } }, "required": ["scenario"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "scenario": { "const": "poison-abandonment" } }, "required": ["scenario"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$" },
+    "iJsonSequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "delivery_semantics", "exactly_once_claim", "at_most_once_claim", "event_and_delivery_id_stability",
+        "logical_uniqueness_fields", "transaction_position_uniqueness_fields", "claim_isolation", "claim_locking",
+        "selection_rule", "live_leases_per_stream", "lease_seconds", "lease_clock", "attempt_deadline_seconds",
+        "lease_renewal_allowed", "claim_or_crash_consumes_attempt", "ack_compare_and_swap_fields",
+        "backoff", "dead_letter_attempts_per_generation", "dead_letter_generation_age_seconds",
+        "permanent_failure_dead_letters_immediately", "poison_blocks_stream", "management_authority",
+        "replay_identity_rule", "abandonment_rule", "receipt_claim", "next_attempt_storage",
+        "history_facts_append_only"
+      ],
+      "properties": {
+        "delivery_semantics": { "const": "at-least-once" },
+        "exactly_once_claim": { "const": false },
+        "at_most_once_claim": { "const": false },
+        "event_and_delivery_id_stability": { "const": "preallocated UUIDv7 values never change across attempts or generations" },
+        "logical_uniqueness_fields": { "const": ["workspace_id", "effect_digest", "event_type", "event_version", "destination_configuration_digest"] },
+        "transaction_position_uniqueness_fields": { "const": ["workspace_id", "workspace_transaction_sequence", "ordinal"] },
+        "claim_isolation": { "const": "READ COMMITTED" },
+        "claim_locking": { "const": "FOR UPDATE SKIP LOCKED" },
+        "selection_rule": { "const": "lowest nonterminal stream sequence whose predecessors are delivered or abandoned" },
+        "live_leases_per_stream": { "const": 1 },
+        "lease_seconds": { "const": 60 },
+        "lease_clock": { "const": "PostgreSQL clock_timestamp()" },
+        "attempt_deadline_seconds": { "const": 30 },
+        "lease_renewal_allowed": { "const": false },
+        "claim_or_crash_consumes_attempt": { "const": true },
+        "ack_compare_and_swap_fields": { "const": ["delivery_id", "lease_token", "generation"] },
+        "backoff": { "const": "uniform random in upper half of min(5 * 2^(attempt - 1), 3600) seconds" },
+        "dead_letter_attempts_per_generation": { "const": 12 },
+        "dead_letter_generation_age_seconds": { "const": 604800 },
+        "permanent_failure_dead_letters_immediately": { "const": true },
+        "poison_blocks_stream": { "const": true },
+        "management_authority": { "const": "authenticated Human only" },
+        "replay_identity_rule": { "const": "new generation and bounded retry window; same event, delivery, payload, and stream sequence" },
+        "abandonment_rule": { "const": "advance management cursor only; preserve immutable event and delivery history" },
+        "receipt_claim": { "const": "adapter observation only, never proof of remote side effect" },
+        "next_attempt_storage": { "const": "database timestamp" },
+        "history_facts_append_only": { "const": ["attempt", "receipt", "management"] }
+      }
+    },
+    "uniquenessInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace_id", "effect_digest", "event_type", "event_version", "destination_configuration_digest"],
+      "properties": {
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "effect_digest": { "$ref": "#/$defs/digest" },
+        "event_type": { "const": "preview.release" },
+        "event_version": { "const": 1 },
+        "destination_configuration_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id", "workspace_id", "workspace_transaction_sequence", "ordinal", "event_type", "event_version",
+        "ordering_key", "stream_sequence", "effect_identity", "uniqueness_inputs", "payload_digest", "payload_ref",
+        "destination_configuration_version", "destination_configuration_digest", "correlation_id", "causation_id", "created_at"
+      ],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuid" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "workspace_transaction_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "ordinal": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "event_type": { "const": "preview.release" },
+        "event_version": { "const": 1 },
+        "ordering_key": { "type": "string", "pattern": "^preview:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:[a-z][a-z0-9._-]{0,127}$" },
+        "stream_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "effect_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["consequence_digest", "stable_semantic_identity", "effect_digest"],
+          "properties": {
+            "consequence_digest": { "$ref": "#/$defs/digest" },
+            "stable_semantic_identity": { "type": "string", "pattern": "^release:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+            "effect_digest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "uniqueness_inputs": { "$ref": "#/$defs/uniquenessInputs" },
+        "payload_digest": { "$ref": "#/$defs/digest" },
+        "payload_ref": { "type": "string", "pattern": "^artifact:art_[0-9a-f]{32}$" },
+        "destination_configuration_version": { "$ref": "#/$defs/generation" },
+        "destination_configuration_digest": { "$ref": "#/$defs/digest" },
+        "correlation_id": { "$ref": "#/$defs/uuid" },
+        "causation_id": { "$ref": "#/$defs/uuid" },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "state": {
+      "description": "One exact current delivery-row projection at a transaction snapshot; immutable attempts, receipts and management facts remain separate append-only history.",
+      "x-proof-state-identity-rule": "delivery_id/event_id never change. A replay increments generation exactly once, resets attempts_in_generation to zero, clears lease/receipt, enters pending and installs its bounded next attempt. Abandon preserves generation/attempt count, clears lease/next attempt/receipt and enters abandoned.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "delivery_id", "event_id", "status", "next_attempt_at", "attempts_in_generation", "lease_token",
+        "lease_expires_at", "generation", "generation_started_at", "receipt_id"
+      ],
+      "properties": {
+        "delivery_id": { "$ref": "#/$defs/uuid" },
+        "event_id": { "$ref": "#/$defs/uuid" },
+        "status": { "enum": ["pending", "in-flight", "delivered", "dead-letter", "abandoned"] },
+        "next_attempt_at": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "attempts_in_generation": { "type": "integer", "minimum": 0, "maximum": 12 },
+        "lease_token": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "lease_expires_at": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "generation": { "$ref": "#/$defs/generation" },
+        "generation_started_at": { "$ref": "#/$defs/timestamp" },
+        "receipt_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "pending" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "next_attempt_at": { "$ref": "#/$defs/timestamp" },
+              "attempts_in_generation": { "type": "integer", "minimum": 0, "maximum": 11 },
+              "lease_token": { "type": "null" },
+              "lease_expires_at": { "type": "null" },
+              "receipt_id": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "in-flight" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "next_attempt_at": { "type": "null" },
+              "attempts_in_generation": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "lease_token": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "lease_expires_at": { "$ref": "#/$defs/timestamp" },
+              "receipt_id": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "delivered" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "next_attempt_at": { "type": "null" },
+              "attempts_in_generation": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "lease_token": { "type": "null" },
+              "lease_expires_at": { "type": "null" },
+              "receipt_id": { "$ref": "#/$defs/uuid" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "enum": ["dead-letter", "abandoned"] } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "next_attempt_at": { "type": "null" },
+              "attempts_in_generation": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "lease_token": { "type": "null" },
+              "lease_expires_at": { "type": "null" },
+              "receipt_id": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fact_sequence", "delivery_id", "generation", "attempt_number", "lease_token", "claimed_at",
+        "lease_seconds", "attempt_deadline_seconds", "outcome", "ack_cas_result"
+      ],
+      "properties": {
+        "fact_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "delivery_id": { "$ref": "#/$defs/uuid" },
+        "generation": { "$ref": "#/$defs/generation" },
+        "attempt_number": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "lease_token": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "claimed_at": { "$ref": "#/$defs/timestamp" },
+        "lease_seconds": { "const": 60 },
+        "attempt_deadline_seconds": { "const": 30 },
+        "outcome": { "enum": ["remote-accepted-ack-lost", "recipient-duplicate-no-op", "permanent-failure"] },
+        "ack_cas_result": { "enum": ["not-observed", "accepted", "not-applicable"] }
+      }
+    },
+    "receipt": {
+      "description": "Immutable adapter-observation receipt fact. It is not proof of a remote side effect.",
+      "x-proof-digest-context": "proof:delivery-receipt:v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fact_sequence", "receipt_id", "delivery_id", "generation", "attempt_number", "adapter_observation", "observed_at", "remote_side_effect_proven"],
+      "properties": {
+        "fact_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "receipt_id": { "$ref": "#/$defs/uuid" },
+        "delivery_id": { "$ref": "#/$defs/uuid" },
+        "generation": { "$ref": "#/$defs/generation" },
+        "attempt_number": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "adapter_observation": { "const": "recipient acknowledged stable delivery identity" },
+        "observed_at": { "$ref": "#/$defs/timestamp" },
+        "remote_side_effect_proven": { "const": false }
+      }
+    },
+    "managementHistoryEntry": {
+      "description": "Delivery-history projection of one committed delivery management operation. application_fact is the sole digestable management fact; operation_input, operation_result, committed_delivery_state and digest fields are exact audit projections and do not define a second authority or application-fact format.",
+      "x-proof-management-fact-digest-rule": "management_fact_digest == BLAKE3-256 derive-key proof:delivery-management-fact:v1 over RFC 8785(application_fact), byte-for-byte.",
+      "x-proof-operation-result-digest-rule": "operation_result_digest == BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(operation_result), using the accepted application success-result contract shared by replay and abandonment. operation_result.management_fact_digest equals management_fact_digest.",
+      "x-proof-input-result-state-rule": "event_id/delivery_id/idempotency_key and expected_generation agree across operation_input and application_fact. Replay locks a dead-letter state at expected_generation, requires fact.reason dead-letter-replay, fact.from_generation == input.expected_generation, fact.to_generation == from_generation + 1, result from/to generations equal the fact, and commits pending state at to_generation with attempts zero, a bounded schedule and no lease/receipt. Abandon locks a dead-letter state at expected_generation, requires fact.reason == input.reason byte-for-byte, fact.from_generation == input.expected_generation, fact.to_generation null, result.generation == input.expected_generation, and commits abandoned state at the preserved generation/generation_started_at/attempt count with no lease/next attempt/receipt. Every identity equals the enclosing scenario event/delivery.",
+      "x-proof-remote-consequence-rule": "A separate signed RemoteApplicationConsequenceV1, never this outbox projection, records the exact delivery.replay/v1 or delivery.abandon/v1 operation with outcome success, application_key_kind required-uuidv7 and application_key equal to operation_input.idempotency_key; its result_digest equals operation_result_digest, application_effect_digest equals management_fact_digest, and prior_result_digest/problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_fact",
+        "committed_delivery_state",
+        "fact_sequence",
+        "immutable_identity_preserved",
+        "management_cursor_advanced",
+        "management_fact_digest",
+        "operation_input",
+        "operation_result",
+        "operation_result_digest"
+      ],
+      "properties": {
+        "application_fact": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryManagementFactV1" },
+        "operation_input": {
+          "oneOf": [
+            { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryReplayInputV1" },
+            { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryAbandonInputV1" }
+          ]
+        },
+        "operation_result": {
+          "oneOf": [
+            { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryReplayResultV1" },
+            { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryAbandonResultV1" }
+          ]
+        },
+        "committed_delivery_state": { "$ref": "#/$defs/state" },
+        "management_fact_digest": { "$ref": "#/$defs/digest" },
+        "operation_result_digest": { "$ref": "#/$defs/digest" },
+        "fact_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "immutable_identity_preserved": { "const": true },
+        "management_cursor_advanced": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "application_fact": { "properties": { "action": { "const": "replay" } }, "required": ["action"] } }, "required": ["application_fact"] },
+          "then": {
+            "properties": {
+              "operation_input": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryReplayInputV1" },
+              "operation_result": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryReplayResultV1" },
+              "committed_delivery_state": {
+                "properties": {
+                  "status": { "const": "pending" },
+                  "attempts_in_generation": { "const": 0 },
+                  "next_attempt_at": { "$ref": "#/$defs/timestamp" },
+                  "lease_token": { "type": "null" },
+                  "lease_expires_at": { "type": "null" },
+                  "receipt_id": { "type": "null" }
+                }
+              },
+              "management_cursor_advanced": { "const": false }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "application_fact": { "properties": { "action": { "const": "abandon" } }, "required": ["action"] } }, "required": ["application_fact"] },
+          "then": {
+            "properties": {
+              "operation_input": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryAbandonInputV1" },
+              "operation_result": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/deliveryAbandonResultV1" },
+              "committed_delivery_state": {
+                "properties": {
+                  "status": { "const": "abandoned" },
+                  "next_attempt_at": { "type": "null" },
+                  "lease_token": { "type": "null" },
+                  "lease_expires_at": { "type": "null" },
+                  "receipt_id": { "type": "null" }
+                }
+              },
+              "management_cursor_advanced": { "const": true }
+            }
+          }
+        }
+      ]
+    },
+    "scenario": {
+      "x-proof-management-scenario-rule": "Every management operation input/result/fact/current-state tuple satisfies managementHistoryEntry semantic rules; the last committed_delivery_state equals scenario.delivery_state, while an earlier replay state may be followed only by append-only later attempts and management facts with increasing fact_sequence and time.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "event", "delivery_state", "attempt_facts", "receipt_facts", "management_facts"],
+      "properties": {
+        "scenario": { "enum": ["lost-ack-redelivery", "poison-abandonment"] },
+        "event": { "$ref": "#/$defs/event" },
+        "delivery_state": { "$ref": "#/$defs/state" },
+        "attempt_facts": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "#/$defs/attempt" } },
+        "receipt_facts": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/receipt" } },
+        "management_facts": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/managementHistoryEntry" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "scenario": { "const": "lost-ack-redelivery" } }, "required": ["scenario"] },
+          "then": {
+            "properties": {
+              "delivery_state": { "properties": { "status": { "const": "delivered" }, "attempts_in_generation": { "const": 2 }, "generation": { "const": 1 } } },
+              "attempt_facts": {
+                "minItems": 2, "maxItems": 2,
+                "prefixItems": [
+                  { "properties": { "attempt_number": { "const": 1 }, "outcome": { "const": "remote-accepted-ack-lost" }, "ack_cas_result": { "const": "not-observed" } } },
+                  { "properties": { "attempt_number": { "const": 2 }, "outcome": { "const": "recipient-duplicate-no-op" }, "ack_cas_result": { "const": "accepted" } } }
+                ]
+              },
+              "receipt_facts": { "minItems": 1, "maxItems": 1 },
+              "management_facts": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scenario": { "const": "poison-abandonment" } }, "required": ["scenario"] },
+          "then": {
+            "properties": {
+              "delivery_state": { "properties": { "status": { "const": "abandoned" }, "attempts_in_generation": { "const": 1 }, "generation": { "const": 2 }, "receipt_id": { "type": "null" } } },
+              "attempt_facts": {
+                "minItems": 2, "maxItems": 2,
+                "prefixItems": [
+                  { "properties": { "generation": { "const": 1 }, "attempt_number": { "const": 1 }, "outcome": { "const": "permanent-failure" }, "ack_cas_result": { "const": "not-applicable" } } },
+                  { "properties": { "generation": { "const": 2 }, "attempt_number": { "const": 1 }, "outcome": { "const": "permanent-failure" }, "ack_cas_result": { "const": "not-applicable" } } }
+                ]
+              },
+              "receipt_facts": { "maxItems": 0 },
+              "management_facts": {
+                "minItems": 2, "maxItems": 2,
+                "prefixItems": [
+                  { "properties": { "application_fact": { "properties": { "action": { "const": "replay" }, "from_generation": { "const": 1 }, "to_generation": { "const": 2 } } } } },
+                  { "properties": { "application_fact": { "properties": { "action": { "const": "abandon" }, "from_generation": { "const": 2 }, "to_generation": { "type": "null" } } } } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

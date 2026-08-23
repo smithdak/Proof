@@ -1,0 +1,15 @@
+{
+  "api_version": "proof.dev/http-problem/v1",
+  "code": "proof.auth.denied",
+  "correlation_id": "019e0000-0000-7000-8000-000000000023",
+  "instance": "urn:proof:operation:019e0000-0000-7000-8000-000000000024",
+  "operation": {
+    "name": "workspace.status",
+    "version": "proof.dev/operation/workspace.status/v1"
+  },
+  "operation_id": "019e0000-0000-7000-8000-000000000024",
+  "retryable": false,
+  "status": 401,
+  "title": "Authentication denied",
+  "type": "urn:proof:problem:authentication-denied"
+}

@@ -1,0 +1,548 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/rejected-requirements/v1",
+  "title": "Collaboration-server normative falsification-requirements matrix v1",
+  "description": "Non-executable requirements for rejected inputs, internal safety stops, crash recovery, and reconciliation. A row reserves a future test; it does not claim the behavior is implemented.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "cases", "execution_status", "status"],
+  "properties": {
+    "api_version": {
+      "const": "proof.dev/conformance/collaboration-server-rejected-requirements/v1"
+    },
+    "status": { "const": "proposed" },
+    "execution_status": { "const": "normative-requirements-only" },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/requirement" }
+    }
+  },
+  "$defs": {
+    "proofCode": {
+      "type": "string",
+      "pattern": "^proof(?:\\.[a-z][a-z0-9_]*){1,8}$",
+      "maxLength": 128
+    },
+    "nullableProofCode": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/proofCode" }
+      ]
+    },
+    "nullableHttpStatus": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "integer",
+          "enum": [400, 401, 403, 404, 409, 412, 413, 415, 422, 429, 500, 503, 504]
+        }
+      ]
+    },
+    "routeId": {
+      "enum": [
+        "agent-operations",
+        "evidence-export-artifact",
+        "human-operations",
+        "oidc-callback",
+        "oidc-login",
+        "preview-release-rendition",
+        "public-capabilities",
+        "session-get",
+        "session-logout"
+      ]
+    },
+    "operationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$",
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^proof\\.dev/(?:operation|transport)/[a-z][a-z0-9_.-]*/v[1-9][0-9]*$",
+          "maxLength": 192
+        }
+      }
+    },
+    "humanOperation": {
+      "enum": [
+        { "name": "agent-binding.issue", "version": "proof.dev/operation/agent-binding.issue/v1" },
+        { "name": "agent-binding.revoke", "version": "proof.dev/operation/agent-binding.revoke/v1" },
+        { "name": "changeset.approve", "version": "proof.dev/operation/changeset.approve/v3" },
+        { "name": "changeset.diff", "version": "proof.dev/operation/changeset.diff/v2" },
+        { "name": "changeset.get", "version": "proof.dev/operation/changeset.get/v2" },
+        { "name": "content-resource-intent.issue", "version": "proof.dev/operation/content-resource-intent.issue/v1" },
+        { "name": "context.build", "version": "proof.dev/operation/context.build/v2" },
+        { "name": "delegation.issue", "version": "proof.dev/operation/delegation.issue/v2" },
+        { "name": "delegation.revoke", "version": "proof.dev/operation/delegation.revoke/v1" },
+        { "name": "delivery.abandon", "version": "proof.dev/operation/delivery.abandon/v1" },
+        { "name": "delivery.get", "version": "proof.dev/operation/delivery.get/v1" },
+        { "name": "delivery.replay", "version": "proof.dev/operation/delivery.replay/v1" },
+        { "name": "environment-config.activate", "version": "proof.dev/operation/environment-config.activate/v2" },
+        { "name": "environment-config.propose", "version": "proof.dev/operation/environment-config.propose/v2" },
+        { "name": "evidence.export", "version": "proof.dev/operation/evidence.export/v2" },
+        { "name": "evidence.export.get", "version": "proof.dev/operation/evidence.export.get/v1" },
+        { "name": "oidc-binding.issue", "version": "proof.dev/operation/oidc-binding.issue/v1" },
+        { "name": "oidc-binding.revoke", "version": "proof.dev/operation/oidc-binding.revoke/v1" },
+        { "name": "principal.status.set", "version": "proof.dev/operation/principal.status.set/v2" },
+        { "name": "release.get", "version": "proof.dev/operation/release.get/v2" },
+        { "name": "release.verify", "version": "proof.dev/operation/release.verify/v2" },
+        { "name": "workspace-role.assign", "version": "proof.dev/operation/workspace-role.assign/v1" },
+        { "name": "workspace-role.revoke", "version": "proof.dev/operation/workspace-role.revoke/v1" }
+      ]
+    },
+    "agentOperation": {
+      "enum": [
+        { "name": "changeset.add", "version": "proof.dev/operation/changeset.add/v2" },
+        { "name": "changeset.commit", "version": "proof.dev/operation/changeset.commit/v2" },
+        { "name": "changeset.create", "version": "proof.dev/operation/changeset.create/v2" },
+        { "name": "changeset.diff", "version": "proof.dev/operation/changeset.diff/v2" },
+        { "name": "changeset.get", "version": "proof.dev/operation/changeset.get/v2" },
+        { "name": "changeset.submit", "version": "proof.dev/operation/changeset.submit/v2" },
+        { "name": "changeset.validate", "version": "proof.dev/operation/changeset.validate/v2" },
+        { "name": "context.build", "version": "proof.dev/operation/context.build/v1" },
+        { "name": "context.build", "version": "proof.dev/operation/context.build/v2" },
+        { "name": "edition.create", "version": "proof.dev/operation/edition.create/v2" },
+        { "name": "object.query_released", "version": "proof.dev/operation/object.query_released/v1" },
+        { "name": "object.query_released", "version": "proof.dev/operation/object.query_released/v2" },
+        { "name": "release.create", "version": "proof.dev/operation/release.create/v2" },
+        { "name": "workspace.status", "version": "proof.dev/operation/workspace.status/v1" }
+      ]
+    },
+    "registeredOperation": {
+      "anyOf": [
+        { "$ref": "#/$defs/humanOperation" },
+        { "$ref": "#/$defs/agentOperation" },
+        { "const": { "name": "capabilities.discover", "version": "proof.dev/operation/capabilities.discover/v1" } },
+        { "const": { "name": "evidence.artifact.get", "version": "proof.dev/operation/evidence.artifact.get/v2" } },
+        { "const": { "name": "preview.object.get", "version": "proof.dev/operation/preview.object.get/v1" } }
+      ]
+    },
+    "registeredOperationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "route_id"],
+      "properties": {
+        "route_id": { "$ref": "#/$defs/routeId" },
+        "operation": { "$ref": "#/$defs/registeredOperation" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "route_id": { "const": "human-operations" },
+            "operation": { "$ref": "#/$defs/humanOperation" }
+          }
+        },
+        {
+          "properties": {
+            "route_id": { "const": "agent-operations" },
+            "operation": { "$ref": "#/$defs/agentOperation" }
+          }
+        },
+        {
+          "properties": {
+            "route_id": { "const": "public-capabilities" },
+            "operation": { "const": { "name": "capabilities.discover", "version": "proof.dev/operation/capabilities.discover/v1" } }
+          }
+        },
+        {
+          "properties": {
+            "route_id": { "const": "evidence-export-artifact" },
+            "operation": { "const": { "name": "evidence.artifact.get", "version": "proof.dev/operation/evidence.artifact.get/v2" } }
+          }
+        },
+        {
+          "properties": {
+            "route_id": { "const": "preview-release-rendition" },
+            "operation": { "const": { "name": "preview.object.get", "version": "proof.dev/operation/preview.object.get/v1" } }
+          }
+        }
+      ]
+    },
+    "staticRouteBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "route_id"],
+      "properties": {
+        "route_id": {
+          "enum": ["oidc-callback", "oidc-login", "session-get", "session-logout"]
+        },
+        "operation": { "const": "static-route" }
+      }
+    },
+    "unresolvedOperationBinding": {
+      "description": "The route is known, but decoding or admission fails before a registered operation pair can be selected; only the route Problem profile applies.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "route_id"],
+      "properties": {
+        "route_id": { "enum": ["agent-operations", "human-operations"] },
+        "operation": { "const": "unresolved-before-operation-selection" }
+      }
+    },
+    "selectionFailure": {
+      "description": "Closed operation-selection failure. Semantic validation also proves registered-on-different-route against the registry and proves path_operation differs from envelope_operation.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attempted_operation", "reason"],
+          "properties": {
+            "reason": { "const": "not-registered" },
+            "attempted_operation": { "$ref": "#/$defs/operationReference" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attempted_operation", "reason"],
+          "properties": {
+            "reason": { "const": "registered-on-different-route" },
+            "attempted_operation": { "$ref": "#/$defs/registeredOperation" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["envelope_operation", "path_operation", "reason"],
+          "properties": {
+            "reason": { "const": "path-envelope-mismatch" },
+            "path_operation": { "$ref": "#/$defs/registeredOperation" },
+            "envelope_operation": { "$ref": "#/$defs/registeredOperation" }
+          }
+        }
+      ]
+    },
+    "selectionFailureBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "route_id", "selection_failure"],
+      "properties": {
+        "route_id": { "enum": ["agent-operations", "human-operations"] },
+        "operation": { "const": "selection-failure" },
+        "selection_failure": { "$ref": "#/$defs/selectionFailure" }
+      }
+    },
+    "httpBinding": {
+      "oneOf": [
+        { "$ref": "#/$defs/registeredOperationBinding" },
+        { "$ref": "#/$defs/staticRouteBinding" },
+        { "$ref": "#/$defs/unresolvedOperationBinding" },
+        { "$ref": "#/$defs/selectionFailureBinding" }
+      ]
+    },
+    "httpApplicability": {
+      "description": "Exact HTTP closure. Each registered binding expands to its route profile plus exact operation profile and application/actor projection; unresolved, static, and selection-failure bindings use only the attempted route profile.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bindings", "kind"],
+      "properties": {
+        "kind": { "const": "http" },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/httpBinding" }
+        }
+      }
+    },
+    "nonHttpApplicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope"],
+      "properties": {
+        "kind": { "const": "non-http" },
+        "scope": {
+          "enum": [
+            "adapter-startup",
+            "artifact-store-invariant",
+            "authoritative-transaction-invariant",
+            "authority-log-invariant",
+            "evidence-export-invariant",
+            "http-adapter-invariant",
+            "migration-startup",
+            "offline-verifier",
+            "outbox-worker",
+            "preview-worker",
+            "projection-rebuild",
+            "session-store-invariant",
+            "transaction-recovery"
+          ]
+        }
+      }
+    },
+    "applicability": {
+      "oneOf": [
+        { "$ref": "#/$defs/httpApplicability" },
+        { "$ref": "#/$defs/nonHttpApplicability" }
+      ]
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "artifacts",
+        "authority",
+        "idempotency",
+        "outbox",
+        "presentation"
+      ],
+      "properties": {
+        "authority": {
+          "enum": [
+            "append-allow-decision-and-failure-consequence",
+            "append-allow-decision-and-replay-record",
+            "append-one-allow-decision",
+            "append-one-deny-decision",
+            "none",
+            "outcome-unknown",
+            "preserve-committed",
+            "rollback-attempt"
+          ]
+        },
+        "application": {
+          "enum": [
+            "commit-once",
+            "dead-letter-observable",
+            "none",
+            "outcome-unknown",
+            "preserve-committed",
+            "read-only-exact-result",
+            "retry-complete-transaction",
+            "return-equivalent-stored-result",
+            "rollback-governed-mutation"
+          ]
+        },
+        "presentation": {
+          "enum": [
+            "consume-once",
+            "not-applicable",
+            "not-consumed",
+            "outcome-unknown",
+            "preserve-prior-consumption",
+            "rollback-attempt"
+          ]
+        },
+        "idempotency": {
+          "enum": [
+            "conflict-no-result-disclosure",
+            "not-consulted",
+            "not-reserved",
+            "outcome-unknown",
+            "preserve-committed",
+            "reserve-success-once",
+            "return-equivalent-stored-result",
+            "rollback-attempt"
+          ]
+        },
+        "artifacts": {
+          "enum": [
+            "catalog-new-signed-authority-records-and-read-exact",
+            "catalog-new-signed-authority-records-and-reject-substitution",
+            "catalog-new-signed-authority-records-once",
+            "catalog-once-after-verification",
+            "exact-committed-read",
+            "none",
+            "outcome-unknown",
+            "preserve-committed",
+            "reject-reference-or-byte-substitution",
+            "unreachable-staged-orphan-only"
+          ]
+        },
+        "outbox": {
+          "enum": [
+            "abandon-after-committed-management-fact",
+            "dead-letter-once",
+            "enqueue-once-at-commit",
+            "none",
+            "outcome-unknown",
+            "preserve-committed",
+            "replay-after-committed-management-fact",
+            "retry-same-delivery-id",
+            "rollback-attempt"
+          ]
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicability",
+        "condition",
+        "effects",
+        "expected_phase",
+        "future_test_id",
+        "id",
+        "layer",
+        "public_code",
+        "public_disclosure",
+        "public_status",
+        "stimulus",
+        "test_status"
+      ],
+      "properties": {
+        "applicability": { "$ref": "#/$defs/applicability" },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{2,95}$"
+        },
+        "future_test_id": {
+          "type": "string",
+          "pattern": "^p0008\\.[a-z][a-z0-9-]{2,95}$"
+        },
+        "test_status": { "const": "required-not-yet-implemented" },
+        "layer": {
+          "enum": [
+            "authentication",
+            "authorization",
+            "configuration",
+            "csrf",
+            "disclosure",
+            "export",
+            "http",
+            "idempotency",
+            "migration",
+            "outbox",
+            "preview",
+            "rebuild",
+            "review",
+            "schema",
+            "storage",
+            "transaction"
+          ]
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1024
+        },
+        "stimulus": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1024
+        },
+        "expected_phase": {
+          "enum": [
+            "adapter-configuration",
+            "application-validation",
+            "artifact-catalog-read",
+            "artifact-preparation",
+            "authorization",
+            "commit-reconciliation",
+            "credential-proof",
+            "export-construction",
+            "identity-derivation",
+            "independent-verification",
+            "migration-startup",
+            "oidc-callback-validation",
+            "outbox-claim",
+            "outbox-delivery",
+            "precommit-integrity",
+            "projection-rebuild",
+            "request-decoding",
+            "session-resolution",
+            "transaction-execution",
+            "transport-admission"
+          ]
+        },
+        "public_code": { "$ref": "#/$defs/nullableProofCode" },
+        "public_status": { "$ref": "#/$defs/nullableHttpStatus" },
+        "public_disclosure": {
+          "enum": [
+            "none",
+            "not-applicable-internal",
+            "not-applicable-report",
+            "safe-authenticated",
+            "uniform-auth-denial"
+          ]
+        },
+        "report_status": {
+          "enum": ["Incomplete", "Invalid"]
+        },
+        "effects": { "$ref": "#/$defs/effects" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "applicability": {
+                "properties": { "kind": { "const": "http" } },
+                "required": ["kind"]
+              }
+            },
+            "required": ["applicability"]
+          },
+          "then": {
+            "properties": {
+              "public_disclosure": {
+                "enum": ["none", "safe-authenticated", "uniform-auth-denial"]
+              },
+              "public_code": { "$ref": "#/$defs/proofCode" },
+              "public_status": { "type": "integer" }
+            }
+          },
+          "else": {
+            "properties": {
+              "public_disclosure": {
+                "enum": ["not-applicable-internal", "not-applicable-report"]
+              },
+              "public_code": { "type": "null" },
+              "public_status": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "public_disclosure": {
+                "enum": ["not-applicable-internal", "not-applicable-report"]
+              }
+            },
+            "required": ["public_disclosure"]
+          },
+          "then": {
+            "properties": {
+              "public_code": { "type": "null" },
+              "public_status": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "public_code": { "$ref": "#/$defs/proofCode" },
+              "public_status": { "type": "integer" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "public_disclosure": { "const": "not-applicable-report" }
+            },
+            "required": ["public_disclosure"]
+          },
+          "then": {
+            "required": ["report_status"],
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "kind": { "const": "non-http" },
+                  "scope": { "const": "offline-verifier" }
+                },
+                "required": ["kind", "scope"]
+              }
+            }
+          },
+          "else": { "not": { "required": ["report_status"] } }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "api_version": "proof.dev/environment-config-proposal/v1",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 51,
+  "environment_id": "preview",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:5151515151515151515151515151515151515151515151515151515151515151",
+    "sequence": 50
+  },
+  "expected_predecessor_config_digest": "blake3:5353535353535353535353535353535353535353535353535353535353535353",
+  "expected_predecessor_config_version": 1,
+  "normalized_configuration": {
+    "approval_policy": {
+      "approver_distinct_from_environment_activator": true,
+      "approver_distinct_from_operating_agent": true,
+      "approver_distinct_from_publisher": true,
+      "approver_distinct_from_requesting_human": true,
+      "approver_role": "content.reviewer",
+      "minimum_approvals": 1
+    },
+    "approval_name": "content-review",
+    "delivery": {
+      "cache_control": "private, no-store",
+      "destination_configuration_id": "019e0000-0000-7000-8000-000000000052",
+      "destination_configuration_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+      "destination_configuration_version": 1,
+      "locale_resolution": "exact-locale",
+      "release_selection": "exact-release",
+      "visibility": "private"
+    },
+    "enabled": true,
+    "policy_bundle_digest": "blake3:5454545454545454545454545454545454545454545454545454545454545454",
+    "separation_of_duties_profile": "proof.server/separation-of-duties/single-reviewer/v1",
+    "target_kind": "preview",
+    "validation_policy_digest": "blake3:5656565656565656565656565656565656565656565656565656565656565656"
+  },
+  "idempotency_key": "019e0000-0000-7000-8000-000000000053",
+  "normalized_configuration_digest": "blake3:3146baa27b6c42423bfaa703cefde7bdc55a2f66c5d369bd08feeaf6c3dd2c73",
+  "normalized_input_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "proposal_id": "019e0000-0000-7000-8000-000000000034",
+  "previous_authority_record_digest": "blake3:5151515151515151515151515151515151515151515151515151515151515151",
+  "proposed_at": "2026-08-23T02:20:00Z",
+  "proposed_by_actor_context_digest": "blake3:5858585858585858585858585858585858585858585858585858585858585858",
+  "proposed_by_principal_id": "019e0000-0000-7000-8000-000000000005",
+  "proposer_role_assignment_digest": "blake3:5959595959595959595959595959595959595959595959595959595959595959",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

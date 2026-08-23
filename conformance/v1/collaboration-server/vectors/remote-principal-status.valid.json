@@ -1,0 +1,18 @@
+{
+  "api_version": "proof.dev/remote-principal-status/v2",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 61,
+  "enabled": false,
+  "evaluated_authority_head": {
+    "record_digest": "blake3:6060606060606060606060606060606060606060606060606060606060606060",
+    "sequence": 60
+  },
+  "previous_authority_record_digest": "blake3:6060606060606060606060606060606060606060606060606060606060606060",
+  "principal_id": "019e0000-0000-7000-8000-000000000009",
+  "principal_type": "human",
+  "reason": "administrative-disablement",
+  "recorded_at": "2026-08-23T03:00:00Z",
+  "recorded_by_actor_context_digest": "blake3:6161616161616161616161616161616161616161616161616161616161616161",
+  "recorded_by_principal_id": "019e0000-0000-7000-8000-000000000007",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

@@ -1,0 +1,1711 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1",
+  "title": "Proof collaboration-server persisted authority and assembled configuration artifacts",
+  "description": "The root entrypoint accepts only a persisted signed remote-authority envelope or an assembled EnvironmentConfigV2 projection. Raw authority facts below are decoded-payload/result definitions and are never persisted unsigned.",
+  "oneOf": [
+    { "$ref": "#/$defs/environmentConfigV2" },
+    { "$ref": "#/$defs/remoteAuthorityRecordEnvelopeV1" }
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "environmentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableDigest": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/digest" }
+      ]
+    },
+    "nullableUuidv7": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/uuidv7" }
+      ]
+    },
+    "nullableVersion": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "authorityHead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_digest", "sequence"],
+      "properties": {
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "authoritySequence": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 9007199254740991
+    },
+    "authorityKeyId": {
+      "type": "string",
+      "pattern": "^ed25519:[0-9a-f]{64}$"
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 256,
+          "pattern": "^proof\\.dev/operation/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$"
+        }
+      }
+    },
+    "effectiveConstraints": {
+      "description": "Exact effective CAP numeric constraint closure. This intentionally reuses the accepted AuthorizationDecisionV2 shape byte-for-byte.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_context_bytes", "max_edits_per_changeset", "max_objects"],
+      "properties": {
+        "max_objects": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_context_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "max_edits_per_changeset": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "principalState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operating_principal_enabled", "requesting_principal_enabled"],
+      "properties": {
+        "operating_principal_enabled": { "type": "boolean" },
+        "requesting_principal_enabled": { "type": "boolean" }
+      }
+    },
+    "operatingBindingEvaluation": {
+      "description": "Exact operating Agent binding state at the evaluated authority head. A present revocation record always makes the binding inactive; an active binding cannot carry a revocation record. Inactivity can also result from validity-window evaluation, so active:false does not by itself require a revocation record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "authority_sequence", "binding_id", "record_digest", "revocation_record_digest"],
+      "properties": {
+        "active": { "type": "boolean" },
+        "binding_id": { "$ref": "#/$defs/uuidv7" },
+        "authority_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "revocation_record_digest": { "$ref": "#/$defs/nullableDigest" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "active": { "const": true } },
+            "required": ["active"]
+          },
+          "then": {
+            "properties": { "revocation_record_digest": { "type": "null" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "revocation_record_digest": { "$ref": "#/$defs/digest" } },
+            "required": ["revocation_record_digest"]
+          },
+          "then": {
+            "properties": { "active": { "const": false } }
+          }
+        }
+      ]
+    },
+    "delegationEvaluation": {
+      "description": "Exact DelegationV2 resolution at the same evaluated authority head as the decision. A hidden or absent delegation is deliberately indistinguishable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delegation_id", "record_digest", "resolution", "revocation_record_digest"],
+      "properties": {
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "record_digest": { "$ref": "#/$defs/nullableDigest" },
+        "revocation_record_digest": { "$ref": "#/$defs/nullableDigest" },
+        "resolution": { "enum": ["not_found_or_hidden", "resolved"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "resolution": { "const": "not_found_or_hidden" } }, "required": ["resolution"] },
+          "then": {
+            "properties": {
+              "record_digest": { "type": "null" },
+              "revocation_record_digest": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "resolution": { "const": "resolved" } }, "required": ["resolution"] },
+          "then": {
+            "properties": { "record_digest": { "$ref": "#/$defs/digest" } }
+          }
+        }
+      ]
+    },
+    "requestedResources": {
+      "description": "Exact accepted AuthorizationDecisionV2 requested-resources projection. Every array is duplicate-free and sorted by UTF-8 bytes before evaluation or digesting.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changeset_ids",
+        "edition_ids",
+        "environment_ids",
+        "locales",
+        "object_ids",
+        "release_ids",
+        "schema_ids",
+        "workspace_ids"
+      ],
+      "properties": {
+        "workspace_ids": {
+          "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        },
+        "environment_ids": {
+          "type": "array", "maxItems": 32, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/environmentId" }
+        },
+        "object_ids": {
+          "type": "array", "maxItems": 100, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        },
+        "schema_ids": {
+          "type": "array", "maxItems": 100, "uniqueItems": true,
+          "items": {
+            "type": "string", "minLength": 1, "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9._-]*$"
+          }
+        },
+        "locales": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "items": {
+            "type": "string", "maxLength": 64,
+            "pattern": "^[a-z]{2,8}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$"
+          }
+        },
+        "changeset_ids": {
+          "type": "array", "maxItems": 100, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        },
+        "edition_ids": {
+          "type": "array", "maxItems": 100, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        },
+        "release_ids": {
+          "type": "array", "maxItems": 100, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        }
+      }
+    },
+    "agentAuthorization": {
+      "description": "Closed Agent-only authorization closure, shaped after accepted AuthorizationDecisionV2. Authentication binds the signed selector; this object records resolution and CAP evaluation at the decision head.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding",
+        "command_digest",
+        "command_envelope_digest",
+        "delegation",
+        "effective_constraints",
+        "operating_principal_id",
+        "policy_bundle_digest",
+        "policy_profile",
+        "presentation_consumed",
+        "presentation_id",
+        "principal_state",
+        "requested_resources"
+      ],
+      "properties": {
+        "command_digest": { "$ref": "#/$defs/digest" },
+        "command_envelope_digest": { "$ref": "#/$defs/digest" },
+        "presentation_id": { "$ref": "#/$defs/uuidv7" },
+        "presentation_consumed": { "const": true },
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_state": { "$ref": "#/$defs/principalState" },
+        "binding": { "$ref": "#/$defs/operatingBindingEvaluation" },
+        "delegation": { "$ref": "#/$defs/delegationEvaluation" },
+        "policy_profile": { "const": "proof.local/authority/direct/v1" },
+        "policy_bundle_digest": { "$ref": "#/$defs/digest" },
+        "requested_resources": { "$ref": "#/$defs/requestedResources" },
+        "effective_constraints": { "$ref": "#/$defs/effectiveConstraints" }
+      }
+    },
+    "authorizationReasonCode": {
+      "description": "Closed signed decision union vocabulary: the accepted direct-Agent denial set, the Human-only disclosure-safe generic denial, and the allow marker. proof.authorization.denied is not an Agent-direct source reason; an Agent policy_denied or chain_unsupported source reason may still project to that caller-safe public code.",
+      "enum": [
+        "proof.auth.binding_inactive",
+        "proof.authorization.allowed",
+        "proof.authorization.budget_exceeded",
+        "proof.authorization.delegation_expired",
+        "proof.authorization.delegation_not_yet_valid",
+        "proof.authorization.delegation_revoked",
+        "proof.authorization.delegation_unavailable",
+        "proof.authorization.denied",
+        "proof.authorization.policy_denied",
+        "proof.authorization.principal_disabled",
+        "proof.authorization.scope_exceeded",
+        "proof.delegation.chain_unsupported"
+      ]
+    },
+    "agentDirectAuthorizationReasonCode": {
+      "description": "Closed accepted proof.local/authority/direct/v1 Agent vocabulary. It deliberately excludes the Human-only proof.authorization.denied source reason.",
+      "enum": [
+        "proof.auth.binding_inactive",
+        "proof.authorization.allowed",
+        "proof.authorization.budget_exceeded",
+        "proof.authorization.delegation_expired",
+        "proof.authorization.delegation_not_yet_valid",
+        "proof.authorization.delegation_revoked",
+        "proof.authorization.delegation_unavailable",
+        "proof.authorization.policy_denied",
+        "proof.authorization.principal_disabled",
+        "proof.authorization.scope_exceeded",
+        "proof.delegation.chain_unsupported"
+      ]
+    },
+    "publicAuthorizationCode": {
+      "description": "Closed caller-safe denial projection. Exact source-to-public membership remains selected by the bound operation/profile registry row.",
+      "enum": [
+        "proof.auth.denied",
+        "proof.authorization.budget_exceeded",
+        "proof.authorization.delegation_expired",
+        "proof.authorization.delegation_not_yet_valid",
+        "proof.authorization.delegation_revoked",
+        "proof.authorization.denied",
+        "proof.authorization.scope_exceeded"
+      ]
+    },
+    "applicationProblemCode": {
+      "description": "Closed global caller-safe application-failure vocabulary. The exact committed registry row selects a subset.",
+      "enum": [
+        "proof.auth.denied",
+        "proof.authorization.delegation_revoked",
+        "proof.changeset.duplicate_target",
+        "proof.changeset.invalid_supersession",
+        "proof.changeset.not_approved",
+        "proof.changeset.not_draft",
+        "proof.changeset.not_ready",
+        "proof.changeset.not_submitted",
+        "proof.delegation.expired",
+        "proof.digest.mismatch",
+        "proof.evidence.incomplete",
+        "proof.input.intent_mismatch",
+        "proof.input.limit_exceeded",
+        "proof.input.schema_mismatch",
+        "proof.input.too_large",
+        "proof.input.unsupported_version",
+        "proof.policy.denied",
+        "proof.resource.not_found",
+        "proof.state.conflict",
+        "proof.state.source_conflict",
+        "proof.state.target_conflict",
+        "proof.validation.failed",
+        "proof.validation.repair_evidence_invalid"
+      ]
+    },
+    "applicationProblemDigestCode": {
+      "description": "Closed failure-code vocabulary for the application consequence digest preimage. Precondition conflict is already part of applicationProblemCode; idempotency conflict adds its one reserved code.",
+      "oneOf": [
+        { "$ref": "#/$defs/applicationProblemCode" },
+        { "const": "proof.idempotency.key_reused" }
+      ]
+    },
+    "applicationProblemDigestPreimageV1": {
+      "title": "ApplicationProblemDigestPreimageV1",
+      "description": "The complete stable caller-safe failure projection hashed by RemoteApplicationConsequenceV1. HTTP type, title, status, retryability, retry delay, instance, operation_id, correlation_id, findings, current_digest, headers, detail, and private diagnostics are deliberately outside this authority preimage.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "code", "operation"],
+      "properties": {
+        "api_version": { "const": "proof.dev/application-problem-digest-preimage/v1" },
+        "code": { "$ref": "#/$defs/applicationProblemDigestCode" },
+        "operation": { "$ref": "#/$defs/operation" }
+      }
+    },
+    "role": {
+      "enum": [
+        "authority.admin",
+        "content.publisher",
+        "content.requester",
+        "content.reviewer",
+        "environment.activator",
+        "environment.admin",
+        "evidence.auditor",
+        "identity.admin"
+      ]
+    },
+    "workspaceRoleAssignmentV1": {
+      "title": "WorkspaceRoleAssignmentV1",
+      "description": "Decoded append-only authority payload. This v1 assignment has no expiry; only an append-only revocation ends it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "assigned_at",
+        "assigned_by_actor_context_digest",
+        "assigned_by_principal_id",
+        "assignment_id",
+        "authority_key_id",
+        "authority_sequence",
+        "evaluated_authority_head",
+        "principal_id",
+        "previous_authority_record_digest",
+        "role",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/workspace-role-assignment/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "assignment_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "role": { "$ref": "#/$defs/role" },
+        "assigned_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "assigned_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "assigned_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "workspaceRoleRevocationV1": {
+      "title": "WorkspaceRoleRevocationV1",
+      "description": "Append-only revocation of one exact active role assignment; it never edits the assignment.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "assignment_id",
+        "assignment_record_digest",
+        "authority_key_id",
+        "authority_sequence",
+        "evaluated_authority_head",
+        "previous_authority_record_digest",
+        "principal_id",
+        "reason",
+        "revocation_id",
+        "revoked_at",
+        "revoked_by_actor_context_digest",
+        "revoked_by_principal_id",
+        "role",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/workspace-role-revocation/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "revocation_id": { "$ref": "#/$defs/uuidv7" },
+        "assignment_id": { "$ref": "#/$defs/uuidv7" },
+        "assignment_record_digest": { "$ref": "#/$defs/digest" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "role": { "$ref": "#/$defs/role" },
+        "reason": {
+          "description": "Authoritative normalized reason copied from the workspace-role.revoke/v1 request into the immutable signed revocation payload.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revoked_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "revoked_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "revoked_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "changeSetApprovalV1": {
+      "title": "ChangeSetApprovalV1",
+      "description": "Inequality and digest-coherence rules are normative semantic validation rules represented by rejected vectors.",
+      "x-proof-principal-inequalities": [
+        "approver_principal_id != requesting_principal_id",
+        "approver_principal_id != operating_principal_id",
+        "approver_principal_id != publisher_principal_id",
+        "approver_principal_id != environment_activated_by_principal_id",
+        "requesting_principal_id != operating_principal_id"
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "approval_decision",
+        "approval_id",
+        "approval_name",
+        "approved_at",
+        "approver_actor_context_digest",
+        "approver_binding_id",
+        "approver_principal_id",
+        "approver_subject_commitment",
+        "authority_key_id",
+        "authority_sequence",
+        "changeset_id",
+        "context_pack_id",
+        "context_pack_digest",
+        "effective_leaves_digest",
+        "environment_activated_by_principal_id",
+        "environment_config_digest",
+        "environment_config_version",
+        "environment_id",
+        "evaluated_authority_head",
+        "idempotency_key",
+        "normalized_input_digest",
+        "operating_principal_id",
+        "policy_bundle_digest",
+        "proposal_digest",
+        "publisher_principal_id",
+        "previous_authority_record_digest",
+        "requesting_principal_id",
+        "requesting_subject_commitment",
+        "resource_intent_id",
+        "resource_intent_digest",
+        "reviewer_role_assignment_digest",
+        "sealed_changeset_digest",
+        "submission_id",
+        "submission_digest",
+        "validation_results_digest",
+        "validation_policy_digest",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/changeset-approval/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "approval_id": { "$ref": "#/$defs/uuidv7" },
+        "approval_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9._-]*$"
+        },
+        "changeset_id": { "$ref": "#/$defs/uuidv7" },
+        "approval_decision": { "const": "approved" },
+        "requesting_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "requesting_subject_commitment": { "$ref": "#/$defs/digest" },
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "approver_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "approver_subject_commitment": { "$ref": "#/$defs/digest" },
+        "approver_binding_id": { "$ref": "#/$defs/uuidv7" },
+        "approver_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "reviewer_role_assignment_digest": { "$ref": "#/$defs/digest" },
+        "publisher_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "sealed_changeset_digest": { "$ref": "#/$defs/digest" },
+        "proposal_digest": { "$ref": "#/$defs/digest" },
+        "effective_leaves_digest": { "$ref": "#/$defs/digest" },
+        "validation_results_digest": { "$ref": "#/$defs/digest" },
+        "submission_id": { "$ref": "#/$defs/uuidv7" },
+        "submission_digest": { "$ref": "#/$defs/digest" },
+        "resource_intent_id": { "$ref": "#/$defs/uuidv7" },
+        "resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "context_pack_id": { "$ref": "#/$defs/uuidv7" },
+        "context_pack_digest": { "$ref": "#/$defs/digest" },
+        "environment_id": { "$ref": "#/$defs/environmentId" },
+        "environment_config_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "environment_config_digest": { "$ref": "#/$defs/digest" },
+        "environment_activated_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "policy_bundle_digest": { "$ref": "#/$defs/digest" },
+        "validation_policy_digest": { "$ref": "#/$defs/digest" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "normalized_input_digest": { "$ref": "#/$defs/digest" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "approved_at": { "$ref": "#/$defs/timestamp" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "approvalPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approver_distinct_from_environment_activator",
+        "approver_distinct_from_operating_agent",
+        "approver_distinct_from_publisher",
+        "approver_distinct_from_requesting_human",
+        "approver_role",
+        "minimum_approvals"
+      ],
+      "properties": {
+        "minimum_approvals": { "const": 1 },
+        "approver_role": { "const": "content.reviewer" },
+        "approver_distinct_from_requesting_human": { "const": true },
+        "approver_distinct_from_operating_agent": { "const": true },
+        "approver_distinct_from_publisher": { "const": true },
+        "approver_distinct_from_environment_activator": { "const": true }
+      }
+    },
+    "deliveryConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache_control",
+        "destination_configuration_id",
+        "destination_configuration_digest",
+        "destination_configuration_version",
+        "locale_resolution",
+        "release_selection",
+        "visibility"
+      ],
+      "properties": {
+        "visibility": { "const": "private" },
+        "release_selection": { "const": "exact-release" },
+        "locale_resolution": { "const": "exact-locale" },
+        "cache_control": { "const": "private, no-store" },
+        "destination_configuration_id": { "$ref": "#/$defs/uuidv7" },
+        "destination_configuration_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "destination_configuration_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "normalizedEnvironmentConfiguration": {
+      "description": "The environment_config_digest and normalized_configuration_digest are both the RFC 8785 digest of this object under proof:environment-config:v2.",
+      "x-proof-digest-context": "proof:environment-config:v2",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_policy",
+        "approval_name",
+        "delivery",
+        "enabled",
+        "policy_bundle_digest",
+        "separation_of_duties_profile",
+        "target_kind",
+        "validation_policy_digest"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "target_kind": { "const": "preview" },
+        "approval_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9._-]*$"
+        },
+        "policy_bundle_digest": { "$ref": "#/$defs/digest" },
+        "validation_policy_digest": { "$ref": "#/$defs/digest" },
+        "separation_of_duties_profile": {
+          "const": "proof.server/separation-of-duties/single-reviewer/v1"
+        },
+        "approval_policy": { "$ref": "#/$defs/approvalPolicy" },
+        "delivery": { "$ref": "#/$defs/deliveryConfiguration" }
+      }
+    },
+    "environmentConfigProposalV1": {
+      "title": "EnvironmentConfigProposalV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authority_key_id",
+        "authority_sequence",
+        "environment_id",
+        "evaluated_authority_head",
+        "expected_predecessor_config_digest",
+        "expected_predecessor_config_version",
+        "idempotency_key",
+        "normalized_configuration",
+        "normalized_configuration_digest",
+        "normalized_input_digest",
+        "proposal_id",
+        "previous_authority_record_digest",
+        "proposed_at",
+        "proposed_by_actor_context_digest",
+        "proposed_by_principal_id",
+        "proposer_role_assignment_digest",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/environment-config-proposal/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/environmentId" },
+        "proposal_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_predecessor_config_version": { "$ref": "#/$defs/nullableVersion" },
+        "expected_predecessor_config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "normalized_configuration": { "$ref": "#/$defs/normalizedEnvironmentConfiguration" },
+        "normalized_configuration_digest": { "$ref": "#/$defs/digest" },
+        "normalized_input_digest": { "$ref": "#/$defs/digest" },
+        "proposed_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "proposed_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "proposer_role_assignment_digest": { "$ref": "#/$defs/digest" },
+        "proposed_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "environmentConfigActivationV1": {
+      "title": "EnvironmentConfigActivationV1",
+      "description": "activated_by_principal_id must differ from the proposal's proposed_by_principal_id.",
+      "x-proof-distinct-from-proposal-field": {
+        "activated_by_principal_id": "proposed_by_principal_id"
+      },
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activated_at",
+        "activated_by_actor_context_digest",
+        "activated_by_principal_id",
+        "activation_id",
+        "activator_role_assignment_digest",
+        "api_version",
+        "authority_key_id",
+        "authority_sequence",
+        "environment_config_digest",
+        "environment_config_version",
+        "environment_created_at",
+        "environment_created_by_actor_context_digest",
+        "environment_created_by_principal_id",
+        "environment_creation_authority_sequence",
+        "environment_creation_record_digest",
+        "environment_id",
+        "evaluated_authority_head",
+        "idempotency_key",
+        "normalized_configuration_digest",
+        "normalized_input_digest",
+        "predecessor_config_digest",
+        "predecessor_config_version",
+        "previous_authority_record_digest",
+        "proposal_digest",
+        "proposal_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/environment-config-activation/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/environmentId" },
+        "activation_id": { "$ref": "#/$defs/uuidv7" },
+        "proposal_id": { "$ref": "#/$defs/uuidv7" },
+        "proposal_digest": { "$ref": "#/$defs/digest" },
+        "predecessor_config_version": { "$ref": "#/$defs/nullableVersion" },
+        "predecessor_config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "environment_config_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "environment_config_digest": { "$ref": "#/$defs/digest" },
+        "normalized_configuration_digest": { "$ref": "#/$defs/digest" },
+        "environment_created_at": { "$ref": "#/$defs/timestamp" },
+        "environment_created_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_created_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "environment_creation_authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "environment_creation_record_digest": { "$ref": "#/$defs/digest" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "normalized_input_digest": { "$ref": "#/$defs/digest" },
+        "activated_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "activated_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "activator_role_assignment_digest": { "$ref": "#/$defs/digest" },
+        "activated_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "environmentConfigV2": {
+      "title": "EnvironmentConfigV2",
+      "description": "Immutable active configuration assembled from and cross-checked against the exact proposal and activation authority records.",
+      "x-proof-semantic-equalities": [
+        "workspace_id == proposal.workspace_id == activation.workspace_id",
+        "environment_id == proposal.environment_id == activation.environment_id",
+        "predecessor_config_version == proposal.expected_predecessor_config_version == activation.predecessor_config_version",
+        "predecessor_config_digest == proposal.expected_predecessor_config_digest == activation.predecessor_config_digest",
+        "normalized_configuration == proposal.normalized_configuration",
+        "normalized_configuration_digest == proposal.normalized_configuration_digest == activation.normalized_configuration_digest",
+        "environment_config_version == activation.environment_config_version",
+        "environment_config_digest == activation.environment_config_digest",
+        "environment_config_digest == normalized_configuration_digest == digest(proof:environment-config:v2, normalized_configuration)",
+        "proposal_record_digest == activation.proposal_digest",
+        "environment_creation_record_digest == digest(proof:remote-authority-record:v1, environment_creation)",
+        "environment_creation fields copied into activation equal environment_creation",
+        "proposal.proposed_by_principal_id != activation.activated_by_principal_id"
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activation",
+        "activation_record_digest",
+        "activation_record_envelope_digest",
+        "api_version",
+        "environment_config_digest",
+        "environment_config_version",
+        "environment_id",
+        "environment_creation",
+        "environment_creation_record_digest",
+        "environment_creation_record_envelope_digest",
+        "normalized_configuration",
+        "normalized_configuration_digest",
+        "predecessor_config_digest",
+        "predecessor_config_version",
+        "proposal",
+        "proposal_record_digest",
+        "proposal_record_envelope_digest",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/environment-config/v2" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/environmentId" },
+        "environment_config_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "environment_config_digest": { "$ref": "#/$defs/digest" },
+        "predecessor_config_version": { "$ref": "#/$defs/nullableVersion" },
+        "predecessor_config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "normalized_configuration": { "$ref": "#/$defs/normalizedEnvironmentConfiguration" },
+        "normalized_configuration_digest": { "$ref": "#/$defs/digest" },
+        "environment_creation": { "$ref": "#/$defs/environmentCreationV1" },
+        "environment_creation_record_digest": { "$ref": "#/$defs/digest" },
+        "environment_creation_record_envelope_digest": { "$ref": "#/$defs/digest" },
+        "proposal": { "$ref": "#/$defs/environmentConfigProposalV1" },
+        "proposal_record_digest": { "$ref": "#/$defs/digest" },
+        "proposal_record_envelope_digest": { "$ref": "#/$defs/digest" },
+        "activation": { "$ref": "#/$defs/environmentConfigActivationV1" },
+        "activation_record_digest": { "$ref": "#/$defs/digest" },
+        "activation_record_envelope_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "environmentCreationV1": {
+      "title": "EnvironmentCreationV1",
+      "description": "Decoded immutable authority payload establishing one Environment's creation chronology.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authority_key_id",
+        "authority_sequence",
+        "created_at",
+        "created_by_actor_context_digest",
+        "created_by_principal_id",
+        "environment_id",
+        "evaluated_authority_head",
+        "previous_authority_record_digest",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/environment-creation/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/environmentId" },
+        "created_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "created_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "remotePrincipalStatusV2": {
+      "title": "RemotePrincipalStatusV2",
+      "description": "The first online server profile permits only terminal disablement. Re-enablement requires separately qualified offline recovery.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authority_key_id",
+        "authority_sequence",
+        "enabled",
+        "evaluated_authority_head",
+        "previous_authority_record_digest",
+        "principal_id",
+        "principal_type",
+        "reason",
+        "recorded_at",
+        "recorded_by_actor_context_digest",
+        "recorded_by_principal_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/remote-principal-status/v2" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_type": { "enum": ["agent", "human"] },
+        "enabled": { "const": false },
+        "reason": {
+          "description": "Authoritative normalized disablement reason copied from principal-status.set/v2 into this immutable signed status payload.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "recorded_by_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "recorded_by_actor_context_digest": { "$ref": "#/$defs/digest" },
+        "recorded_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      }
+    },
+    "remoteAuthorizationDecisionV1": {
+      "title": "RemoteAuthorizationDecisionV1",
+      "description": "One server-produced current-head authorization decision. Cross-field actor, policy, presentation-consumption, role, and projection rules require semantic validation.",
+      "x-proof-public-input-projection-rule": "public_input_projection_digest equals the same proof:public-operation-input-projection:v1 digest carried by the exact public AuthenticatedActorContextEvidenceV2. Human operation inputs use the operation-specific disclosure-safe projection declared by their input contract; Agent operations use the exact signed normalized_input. For oidc-binding.issue/v1 the projection contains the retry-stabilized blinded subject_commitment and pinned issuer-configuration digest but neither raw issuer/subject nor their private exact-input digest. The private idempotency/input digest is retained only inside protected storage.",
+      "x-proof-actor-context-digest-rule": "actor_context_digest equals the proof:authenticated-actor-context-evidence:v2 digest of the exact public-safe AuthenticatedActorContextEvidenceV2 produced for this request; the private runtime context, raw issuer/subject, session handle, token, or request-carried actor selector is never the preimage.",
+      "x-proof-operation-registry-rule": "operation_registry_sha256 is lowercase SHA-256 over RFC 8785 of the complete exact HttpOperationRegistryV1 value used for this decision, including the selected operation row's input/result schemas, idempotency, concurrency, consequence/effect rule, and application_problem_codes. A portable verifier accepts the decision only when this exact hash resolves through the independently pinned VerificationTrustPolicyV2 offline registry profile. The resolved full registry's embedded authorization_registry_commitment.authorization_registry_sha256 must equal this decision's signed authorization_registry_sha256 byte-for-byte; membership in two independent allowlists never permits cross-version pairing. authorization_registry_sha256 separately commits the authorization-only projection and cannot substitute for the full selector.",
+      "x-proof-requested-resources-digest-rule": "Resolve authorization_rule in the exact authorization catalog committed by authorization_registry_sha256, which is lowercase SHA-256 over RFC 8785 of exactly {agent_authorization_projection,authorization_resource_projection,authorization_rule_definitions,human_authorization_projection}. The Human projection freezes each operation's requested action, rule and roles; the Agent projection freezes each operation's accepted direct-policy mapping. For an Agent row, agent_authorization.requested_resources is the exact accepted AuthorizationDecisionV2 projection and the catalog declares its eight field names as the structured bindings. For each exact structured resource binding, value_digest is BLAKE3-256 derive-key proof:authorization-resource-binding:v1 over RFC 8785 of {api_version:proof.dev/authorization-resource-binding/v1,name,value:<exact normalized public-safe typed value>}. requested_resources_digest is BLAKE3-256 derive-key proof:requested-authorization-resources:v1 over RFC 8785 of {api_version:proof.dev/requested-authorization-resources/v1,authorization_registry_sha256,authorization_rule,operation,requested_action,bindings:[{name,value_digest}...]}. Bindings are unique and sorted by UTF-8 name; composite selectors are separate bindings. OIDC issuance may bind the public subject_commitment and issuer-configuration digest but never raw issuer, subject, blind, token, code, session, or a private exact-input digest.",
+      "x-proof-policy-bundle-digest-rule": "policy_bundle_digest is BLAKE3-256 derive-key proof:remote-authorization-policy-selection:v1 over RFC 8785 of {api_version:proof.dev/remote-authorization-policy-selection/v1,authorization_registry_sha256,authorization_rule,environment_config_digest,environment_policy_bundle_digest}. environment_policy_bundle_digest is recovered from the exact EnvironmentConfigV2 named by environment_config_digest and is null exactly when environment_config_digest is null. This makes the committed catalog rule the explicit built-in policy for non-Environment rows and additionally binds the selected Environment policy for Environment rows; neither the catalog hash alone nor an ambient current policy may substitute.",
+      "x-proof-effective-constraints-rule": "For a resolved DelegationV2, agent_authorization.effective_constraints is the component-wise minimum of that immutable delegation's three numeric constraints and any stricter exact operation/request ceilings. For not_found_or_hidden, it is the deterministic operation/request ceiling computed without a delegation and conveys no authority; the decision is necessarily deny with delegation_unavailable. allow_subdelegation remains a Delegation fact and is deliberately absent from this accepted three-field decision shape.",
+      "x-proof-authority-closure-rule": "All referenced authority records resolve at evaluated_authority_head. The requesting binding is active and matches the requesting Principal and commitment. For Agent decisions, agent_authorization command, presentation, operating identity and historical binding fields equal the actor evidence; current binding/delegation records and revocations resolve at the same head. Resolved DelegationV2 bytes reproduce the delegation record digest and the exact policy/request/constraint evaluation inputs. For allow, those bytes bind the same requesting/operating Principals and Workspace, authorize requested_action/resources, and satisfy current binding/principal/time/scope/budget state at evaluated_at. For deny, the verifier evaluates those same immutable bytes under x-proof-agent-denial-precedence-rule, including the identity-mismatch branch. role_assignment_digests are the unique UTF-8-sorted active assignment-record digests actually used; an allow contains every role assignment required by its exact rule, while a missing-role denial may carry none. environment_config_digest is null exactly when the rule resolves no Environment; otherwise it is the selected active EnvironmentConfigV2 digest. The outer policy_bundle_digest follows the exact policy-selection digest rule, never an unspecified ambient policy.",
+      "x-proof-agent-denial-precedence-rule": "For the accepted direct Agent profile, current requesting- or operating-Principal disablement is evaluated before binding state, binding state before Delegation availability, and availability before resolving the exact referenced DelegationV2. Once resolved, an issuer_principal_id/requesting_principal_id or recipient_principal_id/operating_principal_id mismatch selects scope_exceeded before Delegation revocation; a matching Delegation with a resolved revocation selects delegation_revoked; only an unrevoked matching Delegation reaches validity-window, action/resource scope, budget, and policy checks. Therefore either principal_state enabled flag being false selects principal_disabled even if later closure fields are also adverse; with both Principals enabled, binding.active false selects binding_inactive. JSON Schema cannot compare identities held in the referenced Delegation bytes, so semantic validation distinguishes the pre-revocation identity-mismatch scope_exceeded branch from later action/resource scope_exceeded branches, which require a null revocation. active true requires null binding revocation, while inactive can result from time/rotation with a null revocation record.",
+      "x-proof-decision-rule": "The decision extends evaluated_authority_head exactly: authority_sequence is head.sequence + 1 and previous_authority_record_digest equals head.record_digest. Allow requires reason_code proof.authorization.allowed and public_code null. Deny requires a non-null caller-safe public_code equal to the operation/profile disclosure projection of reason_code. Every identity, operation, projection, command/presentation, and head field equals the referenced actor evidence; no caller-supplied selector may substitute for that evidence.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_context_digest",
+        "api_version",
+        "agent_authorization",
+        "authentication_profile",
+        "authorization_registry_sha256",
+        "authorization_rule",
+        "authority_key_id",
+        "authority_sequence",
+        "decision",
+        "decision_id",
+        "environment_config_digest",
+        "evaluated_at",
+        "evaluated_authority_head",
+        "operation_registry_sha256",
+        "public_input_projection_digest",
+        "operation",
+        "policy_bundle_digest",
+        "previous_authority_record_digest",
+        "public_code",
+        "reason_code",
+        "requested_action",
+        "requested_resources_digest",
+        "requesting_binding_id",
+        "requesting_binding_record_digest",
+        "requesting_principal_id",
+        "requesting_subject_commitment",
+        "role_assignment_digests",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/remote-authorization-decision/v1" },
+        "authentication_profile": {
+          "enum": [
+            "proof.server/authentication/oidc-human-agent/v1",
+            "proof.server/authentication/oidc-human/v1"
+          ]
+        },
+        "authorization_registry_sha256": { "$ref": "#/$defs/sha256" },
+        "operation_registry_sha256": { "$ref": "#/$defs/sha256" },
+        "authorization_rule": {
+          "oneOf": [
+            { "const": "proof.local/authority/direct/v1" },
+            {
+              "type": "string",
+              "minLength": 36,
+              "maxLength": 192,
+              "pattern": "^proof\\.server/authorization/[a-z][a-z0-9-]*/v[1-9][0-9]*$"
+            }
+          ]
+        },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "decision_id": { "$ref": "#/$defs/uuidv7" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "requested_action": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(?::[a-z][a-z0-9_]*)+$"
+        },
+        "public_input_projection_digest": { "$ref": "#/$defs/digest" },
+        "actor_context_digest": { "$ref": "#/$defs/digest" },
+        "requesting_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "requesting_binding_id": { "$ref": "#/$defs/uuidv7" },
+        "requesting_binding_record_digest": { "$ref": "#/$defs/digest" },
+        "requesting_subject_commitment": { "$ref": "#/$defs/digest" },
+        "agent_authorization": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/agentAuthorization" }
+          ]
+        },
+        "role_assignment_digests": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "requested_resources_digest": { "$ref": "#/$defs/digest" },
+        "policy_bundle_digest": { "$ref": "#/$defs/digest" },
+        "environment_config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "decision": { "enum": ["allow", "deny"] },
+        "public_code": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/publicAuthorizationCode" }
+          ]
+        },
+        "reason_code": { "$ref": "#/$defs/authorizationReasonCode" },
+        "evaluated_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authentication_profile": { "const": "proof.server/authentication/oidc-human/v1" }
+            },
+            "required": ["authentication_profile"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": { "type": "null" },
+              "authorization_rule": {
+                "type": "string",
+                "minLength": 36,
+                "maxLength": 192,
+                "pattern": "^proof\\.server/authorization/[a-z][a-z0-9-]*/v[1-9][0-9]*$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "reason_code": { "const": "proof.authorization.delegation_unavailable" } },
+            "required": ["reason_code"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "properties": {
+                  "binding": {
+                    "properties": {
+                      "active": { "const": true },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "delegation": {
+                    "properties": {
+                      "record_digest": { "type": "null" },
+                      "resolution": { "const": "not_found_or_hidden" },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "principal_state": {
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "reason_code": { "const": "proof.auth.binding_inactive" } },
+            "required": ["reason_code"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "properties": {
+                  "binding": { "properties": { "active": { "const": false } } },
+                  "principal_state": {
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "reason_code": { "const": "proof.authorization.principal_disabled" } },
+            "required": ["reason_code"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "properties": {
+                  "principal_state": {
+                    "anyOf": [
+                      {
+                        "properties": { "operating_principal_enabled": { "const": false } },
+                        "required": ["operating_principal_enabled"]
+                      },
+                      {
+                        "properties": { "requesting_principal_enabled": { "const": false } },
+                        "required": ["requesting_principal_enabled"]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "reason_code": { "const": "proof.authorization.delegation_revoked" } },
+            "required": ["reason_code"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "properties": {
+                  "binding": {
+                    "properties": {
+                      "active": { "const": true },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "delegation": {
+                    "properties": {
+                      "resolution": { "const": "resolved" },
+                      "revocation_record_digest": { "$ref": "#/$defs/digest" }
+                    }
+                  },
+                  "principal_state": {
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "agent_authorization": {
+                "type": "object",
+                "properties": {
+                  "binding": {
+                    "type": "object",
+                    "properties": { "active": { "const": false } },
+                    "required": ["active"]
+                  },
+                  "principal_state": {
+                    "type": "object",
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    },
+                    "required": ["operating_principal_enabled", "requesting_principal_enabled"]
+                  }
+                },
+                "required": ["binding", "principal_state"]
+              }
+            },
+            "required": ["agent_authorization"]
+          },
+          "then": {
+            "properties": {
+              "decision": { "const": "deny" },
+              "public_code": { "const": "proof.auth.denied" },
+              "reason_code": { "const": "proof.auth.binding_inactive" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "agent_authorization": {
+                "type": "object",
+                "properties": {
+                  "principal_state": {
+                    "type": "object",
+                    "anyOf": [
+                      {
+                        "properties": { "operating_principal_enabled": { "const": false } },
+                        "required": ["operating_principal_enabled"]
+                      },
+                      {
+                        "properties": { "requesting_principal_enabled": { "const": false } },
+                        "required": ["requesting_principal_enabled"]
+                      }
+                    ]
+                  }
+                },
+                "required": ["principal_state"]
+              }
+            },
+            "required": ["agent_authorization"]
+          },
+          "then": {
+            "properties": {
+              "decision": { "const": "deny" },
+              "public_code": { "const": "proof.auth.denied" },
+              "reason_code": { "const": "proof.authorization.principal_disabled" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reason_code": {
+                "not": { "const": "proof.authorization.scope_exceeded" }
+              },
+              "agent_authorization": {
+                "type": "object",
+                "properties": {
+                  "binding": {
+                    "type": "object",
+                    "properties": { "active": { "const": true } },
+                    "required": ["active"]
+                  },
+                  "delegation": {
+                    "type": "object",
+                    "properties": {
+                      "resolution": { "const": "resolved" },
+                      "revocation_record_digest": { "$ref": "#/$defs/digest" }
+                    },
+                    "required": ["resolution", "revocation_record_digest"]
+                  },
+                  "principal_state": {
+                    "type": "object",
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    },
+                    "required": ["operating_principal_enabled", "requesting_principal_enabled"]
+                  }
+                },
+                "required": ["binding", "delegation", "principal_state"]
+              }
+            },
+            "required": ["agent_authorization", "reason_code"]
+          },
+          "then": {
+            "properties": {
+              "decision": { "const": "deny" },
+              "public_code": { "const": "proof.authorization.delegation_revoked" },
+              "reason_code": { "const": "proof.authorization.delegation_revoked" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authentication_profile": { "const": "proof.server/authentication/oidc-human/v1" },
+              "decision": { "const": "deny" }
+            },
+            "required": ["authentication_profile", "decision"]
+          },
+          "then": {
+            "properties": {
+              "public_code": { "const": "proof.authorization.denied" },
+              "reason_code": { "const": "proof.authorization.denied" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "agent_authorization": {
+                "type": "object",
+                "properties": {
+                  "binding": {
+                    "type": "object",
+                    "properties": { "active": { "const": true } },
+                    "required": ["active"]
+                  },
+                  "delegation": {
+                    "type": "object",
+                    "properties": { "resolution": { "const": "not_found_or_hidden" } },
+                    "required": ["resolution"]
+                  },
+                  "principal_state": {
+                    "type": "object",
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    },
+                    "required": ["operating_principal_enabled", "requesting_principal_enabled"]
+                  }
+                },
+                "required": ["binding", "delegation", "principal_state"]
+              }
+            },
+            "required": ["agent_authorization"]
+          },
+          "then": {
+            "properties": {
+              "decision": { "const": "deny" },
+              "public_code": { "const": "proof.auth.denied" },
+              "reason_code": { "const": "proof.authorization.delegation_unavailable" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reason_code": {
+                "enum": [
+                  "proof.auth.binding_inactive",
+                  "proof.authorization.delegation_unavailable",
+                  "proof.authorization.principal_disabled"
+                ]
+              }
+            },
+            "required": ["reason_code"]
+          },
+          "then": { "properties": { "public_code": { "const": "proof.auth.denied" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "reason_code": {
+                "enum": [
+                  "proof.authorization.policy_denied",
+                  "proof.delegation.chain_unsupported"
+                ]
+              }
+            },
+            "required": ["reason_code"]
+          },
+          "then": { "properties": { "public_code": { "const": "proof.authorization.denied" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "authentication_profile": { "const": "proof.server/authentication/oidc-human-agent/v1" },
+              "reason_code": {
+                "enum": [
+                  "proof.authorization.budget_exceeded",
+                  "proof.authorization.delegation_expired",
+                  "proof.authorization.delegation_not_yet_valid",
+                  "proof.authorization.policy_denied",
+                  "proof.delegation.chain_unsupported"
+                ]
+              }
+            },
+            "required": ["authentication_profile", "reason_code"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "type": "object",
+                "properties": {
+                  "binding": {
+                    "properties": {
+                      "active": { "const": true },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "delegation": {
+                    "properties": {
+                      "record_digest": { "$ref": "#/$defs/digest" },
+                      "resolution": { "const": "resolved" },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "principal_state": {
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authentication_profile": { "const": "proof.server/authentication/oidc-human-agent/v1" }
+            },
+            "required": ["authentication_profile"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "$ref": "#/$defs/agentAuthorization"
+              },
+              "authorization_rule": { "const": "proof.local/authority/direct/v1" },
+              "reason_code": { "$ref": "#/$defs/agentDirectAuthorizationReasonCode" },
+              "role_assignment_digests": { "const": [] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authentication_profile": { "const": "proof.server/authentication/oidc-human-agent/v1" },
+              "decision": { "const": "deny" }
+            },
+            "required": ["authentication_profile", "decision"]
+          },
+          "then": {
+            "oneOf": [
+              { "properties": { "reason_code": { "const": "proof.auth.binding_inactive" }, "public_code": { "const": "proof.auth.denied" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.budget_exceeded" }, "public_code": { "const": "proof.authorization.budget_exceeded" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.delegation_expired" }, "public_code": { "const": "proof.authorization.delegation_expired" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.delegation_not_yet_valid" }, "public_code": { "const": "proof.authorization.delegation_not_yet_valid" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.delegation_revoked" }, "public_code": { "const": "proof.authorization.delegation_revoked" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.delegation_unavailable" }, "public_code": { "const": "proof.auth.denied" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.policy_denied" }, "public_code": { "const": "proof.authorization.denied" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.principal_disabled" }, "public_code": { "const": "proof.auth.denied" } } },
+              { "properties": { "reason_code": { "const": "proof.authorization.scope_exceeded" }, "public_code": { "const": "proof.authorization.scope_exceeded" } } },
+              { "properties": { "reason_code": { "const": "proof.delegation.chain_unsupported" }, "public_code": { "const": "proof.authorization.denied" } } }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authentication_profile": { "const": "proof.server/authentication/oidc-human-agent/v1" },
+              "decision": { "const": "allow" }
+            },
+            "required": ["authentication_profile", "decision"]
+          },
+          "then": {
+            "properties": {
+              "agent_authorization": {
+                "properties": {
+                  "binding": {
+                    "properties": {
+                      "active": { "const": true },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "delegation": {
+                    "properties": {
+                      "record_digest": { "$ref": "#/$defs/digest" },
+                      "resolution": { "const": "resolved" },
+                      "revocation_record_digest": { "type": "null" }
+                    }
+                  },
+                  "principal_state": {
+                    "properties": {
+                      "operating_principal_enabled": { "const": true },
+                      "requesting_principal_enabled": { "const": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "decision": { "const": "allow" } }, "required": ["decision"] },
+          "then": {
+            "properties": {
+              "public_code": { "type": "null" },
+              "reason_code": { "const": "proof.authorization.allowed" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "decision": { "const": "deny" } }, "required": ["decision"] },
+          "then": {
+            "properties": {
+              "public_code": { "$ref": "#/$defs/publicAuthorizationCode" }
+            }
+          }
+        }
+      ]
+    },
+    "remoteApplicationConsequenceV1": {
+      "title": "RemoteApplicationConsequenceV1",
+      "description": "Signed consequence of one proven and authorized committed attempt. result_digest is always non-null and preserves the accepted application digest contract: BLAKE3-256 derive-key proof:operation-effect:v1 over the RFC 8785 exact result_schema data on success/replay, or over the exact applicationProblemDigestPreimageV1 {api_version, code, operation} on a committed non-success. HTTP Problem status, title, detail, instance, and extensions never enter this digest preimage.",
+      "x-proof-decision-closure-rule": "Resolve decision_digest as BLAKE3-256 derive-key proof:remote-authority-record:v1 over the exact canonical RemoteAuthorizationDecisionV1. That decision is allow, decision_id matches, and workspace_id, operation, operation_registry_sha256, public_input_projection_digest, application_key_kind, and the exact request-or-derived application_key identify this attempt. operation_registry_sha256 equals the decision's signed full-registry selector and is independently accepted by the verifier trust policy. Resolve exactly one committed operation row by the tuple (operation.name, operation.version, containing route.authentication), where route.authentication equals decision.authentication_profile; name and version alone are not a row selector because Human and Agent routes can carry distinct rows for the same operation. A Human selection must equal the exact human_authorization_projection entry and the row authorization_rule, requested_action, and roles projection bound by the decision; an Agent selection requires proof.local/authority/direct/v1 and must equal the exact agent_authorization_projection entry and row requested_action/consequence projection. Resolve the effect, idempotency, result, and application-failure rules only from that route-qualified row. For an authority-record success, the governed effect payload is appended immediately after the decision and application_effect_authority_head names it; this consequence appends immediately after that effect. For every other success or non-success, application_effect_authority_head is null and this consequence appends immediately after the decision. Every evaluated head, predecessor, sequence, and recorded time follows the selected branch exactly. A consequence cannot bind an unrelated decision, registry, operation, route authentication profile, authorization projection, input, key, Workspace, effect, or stale head.",
+      "x-proof-authority-effect-branch-rule": "When outcome is success and the selected registry effect_digest_rule has digest_context proof:remote-authority-record:v1, application_effect_authority_head is non-null, its record_digest equals application_effect_digest, and the exact canonical governed effect payload has previous_authority_record_digest equal to decision_digest and authority_sequence equal to decision.authority_sequence + 1. When that payload Schema defines evaluated_authority_head (the collaboration-server successor authority payloads), it also equals {record_digest:decision_digest,sequence:decision.authority_sequence}; the accepted legacy PrincipalBindingV1, PrincipalBindingRevocationV1, DelegationV2 and DelegationRevocationV1 bytes do not define that member and must not be extended with it. The committed registry effect_timestamp_field selects the exact payload timestamp (issued_at, revoked_at, assigned_at, approved_at, proposed_at, activated_at or recorded_at); that selected timestamp is not earlier than decision.evaluated_at, and consequence.recorded_at is not earlier than the selected timestamp. This consequence's evaluated_authority_head and previous_authority_record_digest equal application_effect_digest, authority_sequence equals decision.authority_sequence + 2, and application_effect_authority_head.sequence equals the effect payload authority_sequence. For all other registry effect rules and every non-success outcome, application_effect_authority_head is null; evaluated_authority_head and previous_authority_record_digest equal decision_digest, authority_sequence equals decision.authority_sequence + 1, and recorded_at is not earlier than decision.evaluated_at. This ordering prevents a governed authority fact and its signed consequence from occupying the same causal position or predating its authorizing decision.",
+      "x-proof-idempotency-row-rule": "Use only the unique route-qualified operation row selected by (operation.name, operation.version, decision.authentication_profile) from the complete exact registry committed by operation_registry_sha256, and require application_key_kind to equal that row's application_idempotency. required-uuidv7 uses the exact UUIDv7 input key bound by public_input_projection_digest; none uses null; derived-changeset and derived-proposal-policy-validator use a BLAKE3 digest. A derived-changeset key is proof:operation-effect:v1 over RFC 8785 {api_version:proof.dev/application-idempotency-key/v1,changeset_id,operation:changeset.submit/v2,workspace_id}. A derived-proposal-policy-validator key uses the same context over RFC 8785 {api_version:proof.dev/application-idempotency-key/v1,changeset_id,operation:changeset.validate/v2,policy_digest,proposal_digest,validator,workspace_id}; every component is in the decision-bound resolved closure. Only success reserves the successful key/result/effect tuple. Replay resolves the same operation/profile/key's stored successful tuple and requires result_digest == prior_result_digest == that stored success result digest. Idempotency conflict requires the same operation/profile/key's stored successful row and prior_result_digest equal to that row's result digest, while result_digest commits the exact idempotency failure preimage; the conflict does not replace the stored row. Other failures do not reserve a successful row.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "For success and idempotent-replay, result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of the exact result_schema value selected by the unique route-qualified committed registry row; replay requires exact equality with the stored successful result and prior_result_digest. For idempotency-conflict, precondition-conflict and application-failure, the complete digest preimage is applicationProblemDigestPreimageV1: {api_version:proof.dev/application-problem-digest-preimage/v1,code:problem_code,operation}; no other Problem or transport field participates. For application-failure, problem_code must belong to that same route-qualified row's exact post-Allow application_problem_codes set. A code present only in the same operation's row under another authentication profile is forbidden. Authentication, authorization, infrastructure, and transport failures absent from the selected set are forbidden; a legacy code prefix does not override explicit source-contract reachability. No row-specific or caller-selected digest context is permitted.",
+      "x-proof-effect-digest-rule": "All non-success outcomes require application_effect_digest null. On success, resolve the exact registry row consequence: governed immutable-effect rows require application_effect_digest to equal that exact consequence artifact's documented domain-separated digest, while rows declared authority-evidence-only or read-only require null. The effect digest never names transport bytes or an outbox projection, and a generic consequence class cannot substitute for the row's exact effect rule.",
+      "x-proof-delivery-management-rule": "For delivery.replay/v1 or delivery.abandon/v1 success, application_effect_digest is the proof:delivery-management-fact:v1 digest of the immutable application fact; that fact is not an authority payload, and this signed consequence is its authority binding.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "application_effect_digest",
+        "application_effect_authority_head",
+        "authority_key_id",
+        "authority_sequence",
+        "consequence_id",
+        "decision_digest",
+        "decision_id",
+        "evaluated_authority_head",
+        "application_key",
+        "application_key_kind",
+        "operation",
+        "operation_registry_sha256",
+        "outcome",
+        "previous_authority_record_digest",
+        "prior_result_digest",
+        "problem_code",
+        "public_input_projection_digest",
+        "recorded_at",
+        "result_digest",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/remote-application-consequence/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "consequence_id": { "$ref": "#/$defs/uuidv7" },
+        "decision_id": { "$ref": "#/$defs/uuidv7" },
+        "decision_digest": { "$ref": "#/$defs/digest" },
+        "public_input_projection_digest": { "$ref": "#/$defs/digest" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "operation_registry_sha256": { "$ref": "#/$defs/sha256" },
+        "outcome": {
+          "enum": [
+            "application-failure",
+            "idempotency-conflict",
+            "idempotent-replay",
+            "precondition-conflict",
+            "success"
+          ]
+        },
+        "application_key_kind": {
+          "enum": ["derived-changeset", "derived-proposal-policy-validator", "none", "required-uuidv7"]
+        },
+        "application_key": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/uuidv7" },
+            { "$ref": "#/$defs/digest" }
+          ]
+        },
+        "result_digest": { "$ref": "#/$defs/nullableDigest" },
+        "prior_result_digest": { "$ref": "#/$defs/nullableDigest" },
+        "application_effect_digest": { "$ref": "#/$defs/nullableDigest" },
+        "application_effect_authority_head": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/authorityHead" }
+          ]
+        },
+        "problem_code": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^proof(?:\\.[a-z][a-z0-9_]*){1,8}$" }
+          ]
+        },
+        "recorded_at": { "$ref": "#/$defs/timestamp" },
+        "evaluated_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "authority_sequence": { "$ref": "#/$defs/authoritySequence" },
+        "previous_authority_record_digest": { "$ref": "#/$defs/digest" },
+        "authority_key_id": { "$ref": "#/$defs/authorityKeyId" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "application_key_kind": { "const": "none" } }, "required": ["application_key_kind"] },
+          "then": { "properties": { "application_key": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "application_key_kind": { "const": "required-uuidv7" } }, "required": ["application_key_kind"] },
+          "then": { "properties": { "application_key": { "$ref": "#/$defs/uuidv7" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "application_key_kind": { "enum": ["derived-changeset", "derived-proposal-policy-validator"] }
+            },
+            "required": ["application_key_kind"]
+          },
+          "then": { "properties": { "application_key": { "$ref": "#/$defs/digest" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "application_effect_authority_head": { "$ref": "#/$defs/authorityHead" }
+            },
+            "required": ["application_effect_authority_head"]
+          },
+          "then": {
+            "properties": {
+              "application_effect_digest": { "$ref": "#/$defs/digest" },
+              "outcome": { "const": "success" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "application_effect_digest": { "type": "null" } },
+            "required": ["application_effect_digest"]
+          },
+          "then": {
+            "properties": { "application_effect_authority_head": { "type": "null" } }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "success" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "result_digest": { "$ref": "#/$defs/digest" },
+              "prior_result_digest": { "type": "null" },
+              "problem_code": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "idempotent-replay" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "application_key": {
+                "oneOf": [
+                  { "$ref": "#/$defs/uuidv7" },
+                  { "$ref": "#/$defs/digest" }
+                ]
+              },
+              "result_digest": { "$ref": "#/$defs/digest" },
+              "prior_result_digest": { "$ref": "#/$defs/digest" },
+              "application_effect_digest": { "type": "null" },
+              "application_effect_authority_head": { "type": "null" },
+              "problem_code": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "idempotency-conflict" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "application_key": {
+                "oneOf": [
+                  { "$ref": "#/$defs/uuidv7" },
+                  { "$ref": "#/$defs/digest" }
+                ]
+              },
+              "result_digest": { "$ref": "#/$defs/digest" },
+              "prior_result_digest": { "$ref": "#/$defs/digest" },
+              "application_effect_digest": { "type": "null" },
+              "application_effect_authority_head": { "type": "null" },
+              "problem_code": { "const": "proof.idempotency.key_reused" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "precondition-conflict" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "result_digest": { "$ref": "#/$defs/digest" },
+              "prior_result_digest": { "type": "null" },
+              "application_effect_digest": { "type": "null" },
+              "application_effect_authority_head": { "type": "null" },
+              "problem_code": { "const": "proof.state.conflict" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "application-failure" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "result_digest": { "$ref": "#/$defs/digest" },
+              "prior_result_digest": { "type": "null" },
+              "application_effect_digest": { "type": "null" },
+              "application_effect_authority_head": { "type": "null" },
+              "problem_code": {
+                "$ref": "#/$defs/applicationProblemCode"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "remoteAuthorityRecordV1": {
+      "title": "RemoteAuthorityRecordV1",
+      "description": "Closed runtime authority payload union. Existing local artifact versions retain their accepted bytes; the remote decision supplies the remote actor evidence for reused administrative facts.",
+      "oneOf": [
+        { "$ref": "https://proof.dev/schema/authority/principal-binding/v1" },
+        { "$ref": "https://proof.dev/schema/authority/principal-binding-revocation/v1" },
+        { "$ref": "https://proof.dev/schema/authority/delegation/v2" },
+        { "$ref": "https://proof.dev/schema/authority/delegation-revocation/v1" },
+        { "$ref": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingV1" },
+        { "$ref": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingRevocationV1" },
+        { "$ref": "#/$defs/workspaceRoleAssignmentV1" },
+        { "$ref": "#/$defs/workspaceRoleRevocationV1" },
+        { "$ref": "#/$defs/changeSetApprovalV1" },
+        { "$ref": "#/$defs/environmentConfigProposalV1" },
+        { "$ref": "#/$defs/environmentConfigActivationV1" },
+        { "$ref": "#/$defs/environmentCreationV1" },
+        { "$ref": "#/$defs/remotePrincipalStatusV2" },
+        { "$ref": "#/$defs/remoteAuthorizationDecisionV1" },
+        { "$ref": "#/$defs/remoteApplicationConsequenceV1" }
+      ]
+    },
+    "remoteAuthorityRecordEnvelopeV1": {
+      "title": "RemoteAuthorityRecordV1 DSSE envelope",
+      "description": "The decoded payload must be canonical RFC 8785 JSON, validate as remoteAuthorityRecordV1, and be signed by the independently resolved causally active Workspace authority key over DSSE PAE bytes.",
+      "x-proof-max-payload-canonical-bytes": 65536,
+      "x-proof-max-canonical-bytes": 98304,
+      "x-proof-payload-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-envelope-digest-context": "proof:remote-authority-record-envelope:v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload", "payloadType", "signatures"],
+      "properties": {
+        "payloadType": { "const": "application/vnd.proof.remote-authority-record.v1+json" },
+        "payload": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
+          "maxLength": 87384,
+          "description": "Canonical standard Base64. Semantic validation also decodes before enforcing the exact 65,536-byte payload bound.",
+          "allOf": [
+            {
+              "if": { "minLength": 87384 },
+              "then": { "pattern": "==$" }
+            }
+          ]
+        },
+        "signatures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["keyid", "sig"],
+            "properties": {
+              "keyid": { "$ref": "#/$defs/authorityKeyId" },
+              "sig": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{85}[AQgw]==$"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

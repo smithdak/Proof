@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/storage-transaction/v1",
+  "title": "Authoritative transaction decision contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "evidence_class", "runtime_qualified", "contract", "traces"],
+  "properties": {
+    "api_version": { "const": "proof.dev/authoritative-transaction-trace-suite/v1" },
+    "evidence_class": { "const": "decision-contract" },
+    "runtime_qualified": { "const": false },
+    "contract": { "$ref": "#/$defs/contract" },
+    "traces": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/trace" },
+      "allOf": [
+        { "contains": { "properties": { "outcome": { "const": "pre-proof-denial" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "proven-denial" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "equivalent-replay" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "changed-input-conflict" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "precondition-conflict" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "success" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "authorized-application-failure" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "outcome": { "const": "infrastructure-rollback" } }, "required": ["outcome"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "isolation", "workspace_lock", "agent_reads_are_authoritative_writes",
+        "external_calls_inside_transaction", "retryable_sqlstates", "unique_violation_retry_scope",
+        "maximum_attempts", "original_deadline_seconds", "retry_identity_reused",
+        "aborted_material_discarded", "commit_ambiguity_resolution", "sequence_allocation",
+        "signing_key_access", "network_kms_inside_transaction", "response_before_commit_success",
+        "retry_jitter", "durability",
+        "exactly_once_claim"
+      ],
+      "properties": {
+        "isolation": { "const": "SERIALIZABLE READ WRITE" },
+        "workspace_lock": { "const": "workspace_write_head singleton row locked FOR UPDATE" },
+        "agent_reads_are_authoritative_writes": { "const": true },
+        "external_calls_inside_transaction": { "const": false },
+        "retryable_sqlstates": {
+          "const": ["40001", "40P01"]
+        },
+        "unique_violation_retry_scope": { "const": "23505 only for a named internal allocator" },
+        "maximum_attempts": { "const": 3 },
+        "original_deadline_seconds": { "const": 30 },
+        "retry_identity_reused": {
+          "const": [
+            "normalized_input", "preallocated_identifiers", "application_key",
+            "correlation_identifiers", "logical_request_times"
+          ]
+        },
+        "aborted_material_discarded": {
+          "const": ["canonical_bytes", "signatures", "results"]
+        },
+        "commit_ambiguity_resolution": { "const": "reconcile by application key under a fresh presentation and current authorization" },
+        "sequence_allocation": { "const": "locked workspace_write_head; PostgreSQL sequences, SERIAL, and BIGSERIAL forbidden for causal order" },
+        "signing_key_access": { "const": "already-loaded process-local signing keys" },
+        "network_kms_inside_transaction": { "const": false },
+        "response_before_commit_success": { "const": false },
+        "retry_jitter": { "const": "bounded" },
+        "durability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["synchronous_commit", "fsync", "full_page_writes", "unlogged_authoritative_tables"],
+          "properties": {
+            "synchronous_commit": { "const": "on" },
+            "fsync": { "const": "on" },
+            "full_page_writes": { "const": "on" },
+            "unlogged_authoritative_tables": { "const": false }
+          }
+        },
+        "exactly_once_claim": { "const": false }
+      }
+    },
+    "durableEffects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "presentation_consumed", "authorization_decision_appended", "replay_record_appended",
+        "failure_consequence_appended", "governed_domain_facts_appended",
+        "successful_idempotency_record_created", "result_record_created",
+        "fork_capable_signed_bodies_appended", "artifact_catalog_references_appended",
+        "projections_updated", "outbox_event_count", "workspace_heads_advanced"
+      ],
+      "properties": {
+        "presentation_consumed": { "type": "boolean" },
+        "authorization_decision_appended": { "type": "boolean" },
+        "replay_record_appended": { "type": "boolean" },
+        "failure_consequence_appended": { "type": "boolean" },
+        "governed_domain_facts_appended": { "type": "boolean" },
+        "successful_idempotency_record_created": { "type": "boolean" },
+        "result_record_created": { "type": "boolean" },
+        "fork_capable_signed_bodies_appended": { "type": "boolean" },
+        "artifact_catalog_references_appended": { "type": "boolean" },
+        "projections_updated": { "type": "boolean" },
+        "outbox_event_count": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "workspace_heads_advanced": { "type": "boolean" }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trace_id", "operation", "outcome", "authentication_proven", "authorization_outcome",
+        "idempotency_outcome", "precondition_outcome", "savepoint_outcome",
+        "transaction_outcome", "response_source", "retryable", "durable_effects"
+      ],
+      "properties": {
+        "trace_id": { "type": "string", "pattern": "^tx-[a-z0-9-]{3,64}$" },
+        "operation": { "const": "release.create/v2" },
+        "outcome": {
+          "enum": [
+            "pre-proof-denial", "proven-denial", "equivalent-replay", "changed-input-conflict",
+            "precondition-conflict", "success", "authorized-application-failure", "infrastructure-rollback"
+          ]
+        },
+        "authentication_proven": { "type": "boolean" },
+        "authorization_outcome": { "enum": ["not-evaluated", "deny", "allow"] },
+        "idempotency_outcome": { "enum": ["not-checked", "equivalent-replay", "key-conflict", "miss"] },
+        "precondition_outcome": { "enum": ["not-checked", "matched", "conflict"] },
+        "savepoint_outcome": { "enum": ["not-created", "released", "rolled-back"] },
+        "transaction_outcome": { "enum": ["committed", "rolled-back"] },
+        "response_source": { "enum": ["problem", "prior-committed-result", "new-committed-result"] },
+        "retryable": { "type": "boolean" },
+        "durable_effects": { "$ref": "#/$defs/durableEffects" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "pre-proof-denial" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": false }, "authorization_outcome": { "const": "not-evaluated" },
+              "idempotency_outcome": { "const": "not-checked" }, "precondition_outcome": { "const": "not-checked" },
+              "savepoint_outcome": { "const": "not-created" }, "transaction_outcome": { "const": "rolled-back" },
+              "response_source": { "const": "problem" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": false, "authorization_decision_appended": false, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": false, "artifact_catalog_references_appended": false, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": false } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "proven-denial" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "deny" },
+              "idempotency_outcome": { "const": "not-checked" }, "precondition_outcome": { "const": "not-checked" },
+              "savepoint_outcome": { "const": "not-created" }, "transaction_outcome": { "const": "committed" },
+              "response_source": { "const": "problem" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "equivalent-replay" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "allow" },
+              "idempotency_outcome": { "const": "equivalent-replay" }, "precondition_outcome": { "const": "not-checked" },
+              "savepoint_outcome": { "const": "not-created" }, "transaction_outcome": { "const": "committed" },
+              "response_source": { "const": "prior-committed-result" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": true, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "changed-input-conflict" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "allow" },
+              "idempotency_outcome": { "const": "key-conflict" }, "precondition_outcome": { "const": "not-checked" },
+              "savepoint_outcome": { "const": "not-created" }, "transaction_outcome": { "const": "committed" },
+              "response_source": { "const": "problem" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": true, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "precondition-conflict" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "allow" },
+              "idempotency_outcome": { "const": "miss" }, "precondition_outcome": { "const": "conflict" },
+              "savepoint_outcome": { "const": "not-created" }, "transaction_outcome": { "const": "committed" },
+              "response_source": { "const": "problem" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": true, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "success" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "allow" },
+              "idempotency_outcome": { "const": "miss" }, "precondition_outcome": { "const": "matched" },
+              "savepoint_outcome": { "const": "released" }, "transaction_outcome": { "const": "committed" },
+              "response_source": { "const": "new-committed-result" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": true, "successful_idempotency_record_created": true, "result_record_created": true, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": true, "outbox_event_count": 1, "workspace_heads_advanced": true } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "authorized-application-failure" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "allow" },
+              "idempotency_outcome": { "const": "miss" }, "precondition_outcome": { "const": "matched" },
+              "savepoint_outcome": { "const": "rolled-back" }, "transaction_outcome": { "const": "committed" },
+              "response_source": { "const": "problem" }, "retryable": { "const": false },
+              "durable_effects": { "const": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": true, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "infrastructure-rollback" } }, "required": ["outcome"] },
+          "then": {
+            "properties": {
+              "authentication_proven": { "const": true }, "authorization_outcome": { "const": "allow" },
+              "idempotency_outcome": { "const": "miss" }, "precondition_outcome": { "const": "matched" },
+              "savepoint_outcome": { "const": "rolled-back" }, "transaction_outcome": { "const": "rolled-back" },
+              "response_source": { "const": "problem" }, "retryable": { "const": true },
+              "durable_effects": { "const": { "presentation_consumed": false, "authorization_decision_appended": false, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": false, "artifact_catalog_references_appended": false, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": false } }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

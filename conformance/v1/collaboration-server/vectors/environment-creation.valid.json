@@ -1,0 +1,15 @@
+{
+  "api_version": "proof.dev/environment-creation/v1",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 2,
+  "created_at": "2026-08-23T01:00:00Z",
+  "created_by_actor_context_digest": "blake3:6262626262626262626262626262626262626262626262626262626262626262",
+  "created_by_principal_id": "019e0000-0000-7000-8000-000000000005",
+  "environment_id": "preview",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:0101010101010101010101010101010101010101010101010101010101010101",
+    "sequence": 1
+  },
+  "previous_authority_record_digest": "blake3:0101010101010101010101010101010101010101010101010101010101010101",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

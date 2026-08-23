@@ -1,0 +1,116 @@
+{
+  "api_version": "proof.dev/preview-delivery-suite/v1",
+  "evidence_class": "decision-contract",
+  "runtime_qualified": false,
+  "contract": {
+    "event_contract": "preview.release/v1",
+    "blob_visibility_before_ready": "private and unreachable",
+    "manifest_completeness": "all exact content-addressed members included",
+    "ready_marker_written_last": true,
+    "reads_require_ready": true,
+    "alias_updates_require_ready": true,
+    "abandonment_may_leave_gap": true,
+    "pending_named_get_problem": "proof.dependency.unavailable",
+    "pending_fallback_allowed": false,
+    "response_representation": "exact JSON bytes from ready manifest",
+    "etag": "strong content digest",
+    "cache_control": "private, no-store",
+    "recipient_dedup_key": "stable delivery_id"
+  },
+  "delivery": {
+    "delivery_id": "018f0000-0000-7000-8000-000000000021",
+    "environment_id": "preview",
+    "release_id": "018f0000-0000-7000-8000-000000000023",
+    "stream_sequence": 31,
+    "event_payload": {
+      "release_sequence": 31,
+      "release_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+      "edition_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+      "environment_configuration_version": 4,
+      "environment_configuration_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+      "proof_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+      "artifact_refs": [
+        "art_55555555555555555555555555555555",
+        "art_66666666666666666666666666666666",
+        "art_77777777777777777777777777777777"
+      ]
+    },
+    "materialized_private": true,
+    "manifest": [
+      {
+        "artifact_ref": "art_55555555555555555555555555555555",
+        "path": "release.json",
+        "artifact_kind": "release-json",
+        "byte_length": 2048,
+        "content_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+        "object_key": "preview/private/blake3/7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "artifact_ref": "art_66666666666666666666666666666666",
+        "path": "proof.json",
+        "artifact_kind": "release-proof",
+        "byte_length": 4096,
+        "content_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+        "object_key": "preview/private/blake3/2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      {
+        "artifact_ref": "art_77777777777777777777777777777777",
+        "path": "objects/018f0000-0000-7000-8000-000000000025/locales/en-us.json",
+        "artifact_kind": "rendition-json",
+        "byte_length": 1024,
+        "content_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "object_key": "preview/private/blake3/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "object_id": "018f0000-0000-7000-8000-000000000025",
+        "locale": "en-US"
+      }
+    ],
+    "manifest_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+    "ready_state": "ready",
+    "ready_marker_order": "last",
+    "publicly_reachable": false,
+    "ready_response": {
+      "environment_id": "preview",
+      "release_id": "018f0000-0000-7000-8000-000000000023",
+      "release_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+      "edition_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+      "object_id": "018f0000-0000-7000-8000-000000000025",
+      "locale": "en-US",
+      "rendition_artifact_ref": "art_77777777777777777777777777777777",
+      "rendition_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "body_source": "ready-manifest-exact-bytes",
+      "etag": "\"blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+      "cache_control": "private, no-store",
+      "locale_fallback": false
+    }
+  },
+  "cas_outcomes": [
+    {
+      "sequence_relation": "higher", "current_stream_sequence": 30, "candidate_stream_sequence": 31,
+      "current_release_id": "018f0000-0000-7000-8000-000000000022", "candidate_release_id": "018f0000-0000-7000-8000-000000000023",
+      "current_manifest_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+      "candidate_manifest_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+      "outcome": "advanced", "alias_regressed": false
+    },
+    {
+      "sequence_relation": "equal-same-bytes", "current_stream_sequence": 31, "candidate_stream_sequence": 31,
+      "current_release_id": "018f0000-0000-7000-8000-000000000023", "candidate_release_id": "018f0000-0000-7000-8000-000000000023",
+      "current_manifest_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+      "candidate_manifest_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+      "outcome": "no-op", "alias_regressed": false
+    },
+    {
+      "sequence_relation": "equal-different-bytes", "current_stream_sequence": 31, "candidate_stream_sequence": 31,
+      "current_release_id": "018f0000-0000-7000-8000-000000000023", "candidate_release_id": "018f0000-0000-7000-8000-000000000024",
+      "current_manifest_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+      "candidate_manifest_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+      "outcome": "integrity-failure", "alias_regressed": false
+    },
+    {
+      "sequence_relation": "lower", "current_stream_sequence": 31, "candidate_stream_sequence": 29,
+      "current_release_id": "018f0000-0000-7000-8000-000000000023", "candidate_release_id": "018f0000-0000-7000-8000-000000000020",
+      "current_manifest_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+      "candidate_manifest_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+      "outcome": "superseded", "alias_regressed": false
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "api_version": "proof.dev/authoritative-transaction-trace-suite/v1",
+  "evidence_class": "decision-contract",
+  "runtime_qualified": false,
+  "contract": {
+    "isolation": "SERIALIZABLE READ WRITE",
+    "workspace_lock": "workspace_write_head singleton row locked FOR UPDATE",
+    "agent_reads_are_authoritative_writes": true,
+    "external_calls_inside_transaction": false,
+    "retryable_sqlstates": ["40001", "40P01"],
+    "unique_violation_retry_scope": "23505 only for a named internal allocator",
+    "maximum_attempts": 3,
+    "original_deadline_seconds": 30,
+    "retry_identity_reused": ["normalized_input", "preallocated_identifiers", "application_key", "correlation_identifiers", "logical_request_times"],
+    "aborted_material_discarded": ["canonical_bytes", "signatures", "results"],
+    "commit_ambiguity_resolution": "reconcile by application key under a fresh presentation and current authorization",
+    "sequence_allocation": "locked workspace_write_head; PostgreSQL sequences, SERIAL, and BIGSERIAL forbidden for causal order",
+    "signing_key_access": "already-loaded process-local signing keys",
+    "network_kms_inside_transaction": false,
+    "response_before_commit_success": false,
+    "retry_jitter": "bounded",
+    "durability": {
+      "synchronous_commit": "on",
+      "fsync": "on",
+      "full_page_writes": "on",
+      "unlogged_authoritative_tables": false
+    },
+    "exactly_once_claim": false
+  },
+  "traces": [
+    {
+      "trace_id": "tx-pre-proof-denial", "operation": "release.create/v2", "outcome": "pre-proof-denial",
+      "authentication_proven": false, "authorization_outcome": "not-evaluated", "idempotency_outcome": "not-checked",
+      "precondition_outcome": "not-checked", "savepoint_outcome": "not-created", "transaction_outcome": "rolled-back",
+      "response_source": "problem", "retryable": false,
+      "durable_effects": { "presentation_consumed": false, "authorization_decision_appended": false, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": false, "artifact_catalog_references_appended": false, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": false }
+    },
+    {
+      "trace_id": "tx-proven-denial", "operation": "release.create/v2", "outcome": "proven-denial",
+      "authentication_proven": true, "authorization_outcome": "deny", "idempotency_outcome": "not-checked",
+      "precondition_outcome": "not-checked", "savepoint_outcome": "not-created", "transaction_outcome": "committed",
+      "response_source": "problem", "retryable": false,
+      "durable_effects": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true }
+    },
+    {
+      "trace_id": "tx-equivalent-replay", "operation": "release.create/v2", "outcome": "equivalent-replay",
+      "authentication_proven": true, "authorization_outcome": "allow", "idempotency_outcome": "equivalent-replay",
+      "precondition_outcome": "not-checked", "savepoint_outcome": "not-created", "transaction_outcome": "committed",
+      "response_source": "prior-committed-result", "retryable": false,
+      "durable_effects": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": true, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true }
+    },
+    {
+      "trace_id": "tx-changed-input-conflict", "operation": "release.create/v2", "outcome": "changed-input-conflict",
+      "authentication_proven": true, "authorization_outcome": "allow", "idempotency_outcome": "key-conflict",
+      "precondition_outcome": "not-checked", "savepoint_outcome": "not-created", "transaction_outcome": "committed",
+      "response_source": "problem", "retryable": false,
+      "durable_effects": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": true, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true }
+    },
+    {
+      "trace_id": "tx-precondition-conflict", "operation": "release.create/v2", "outcome": "precondition-conflict",
+      "authentication_proven": true, "authorization_outcome": "allow", "idempotency_outcome": "miss",
+      "precondition_outcome": "conflict", "savepoint_outcome": "not-created", "transaction_outcome": "committed",
+      "response_source": "problem", "retryable": false,
+      "durable_effects": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": true, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true }
+    },
+    {
+      "trace_id": "tx-success", "operation": "release.create/v2", "outcome": "success",
+      "authentication_proven": true, "authorization_outcome": "allow", "idempotency_outcome": "miss",
+      "precondition_outcome": "matched", "savepoint_outcome": "released", "transaction_outcome": "committed",
+      "response_source": "new-committed-result", "retryable": false,
+      "durable_effects": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": true, "successful_idempotency_record_created": true, "result_record_created": true, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": true, "outbox_event_count": 1, "workspace_heads_advanced": true }
+    },
+    {
+      "trace_id": "tx-authorized-application-failure", "operation": "release.create/v2", "outcome": "authorized-application-failure",
+      "authentication_proven": true, "authorization_outcome": "allow", "idempotency_outcome": "miss",
+      "precondition_outcome": "matched", "savepoint_outcome": "rolled-back", "transaction_outcome": "committed",
+      "response_source": "problem", "retryable": false,
+      "durable_effects": { "presentation_consumed": true, "authorization_decision_appended": true, "replay_record_appended": false, "failure_consequence_appended": true, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": true, "artifact_catalog_references_appended": true, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": true }
+    },
+    {
+      "trace_id": "tx-infrastructure-rollback", "operation": "release.create/v2", "outcome": "infrastructure-rollback",
+      "authentication_proven": true, "authorization_outcome": "allow", "idempotency_outcome": "miss",
+      "precondition_outcome": "matched", "savepoint_outcome": "rolled-back", "transaction_outcome": "rolled-back",
+      "response_source": "problem", "retryable": true,
+      "durable_effects": { "presentation_consumed": false, "authorization_decision_appended": false, "replay_record_appended": false, "failure_consequence_appended": false, "governed_domain_facts_appended": false, "successful_idempotency_record_created": false, "result_record_created": false, "fork_capable_signed_bodies_appended": false, "artifact_catalog_references_appended": false, "projections_updated": false, "outbox_event_count": 0, "workspace_heads_advanced": false }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "api_version": "proof.dev/oidc-principal-binding/v1",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 11,
+  "binding_id": "019e0000-0000-7000-8000-000000000011",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:1010101010101010101010101010101010101010101010101010101010101010",
+    "sequence": 10
+  },
+  "issued_at": "2026-08-23T01:10:00Z",
+  "issued_by_principal_id": "019e0000-0000-7000-8000-000000000007",
+  "oidc_issuer_configuration_digest": "blake3:64cab46b9d5925076a726b80206f365d2e913768a90e0954487cb30b010a9cc7",
+  "previous_authority_record_digest": "blake3:1010101010101010101010101010101010101010101010101010101010101010",
+  "principal_id": "019e0000-0000-7000-8000-000000000002",
+  "subject_commitment": "blake3:d527780fd72191afe371293b1f2224af4196fb0f7e5ea281831ee2c793e7c3f2",
+  "supersedes_binding_id": null,
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

@@ -1,0 +1,15 @@
+{
+  "api_version": "proof.dev/oidc-subject-commitment-opening/v1",
+  "commitment": "blake3:d527780fd72191afe371293b1f2224af4196fb0f7e5ea281831ee2c793e7c3f2",
+  "input": {
+    "api_version": "proof.dev/oidc-subject-commitment-input/v1",
+    "blind": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+    "subject": {
+      "api_version": "proof.dev/oidc-authenticated-subject/v1",
+      "issuer": "https://identity.example.test",
+      "provider": "proof/oidc",
+      "subject": "human-alice"
+    },
+    "workspace_id": "019e0000-0000-7000-8000-000000000001"
+  }
+}

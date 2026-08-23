@@ -1,0 +1,29 @@
+{
+  "api_version": "proof.dev/authenticated-actor-context/v2",
+  "audience": "proof://workspace/019e0000-0000-7000-8000-000000000001",
+  "authenticated_at": "2026-08-23T02:00:00Z",
+  "authentication_profile": "proof.server/authentication/oidc-human/v1",
+  "authentication_event_digest": "blake3:8d9e13564123e941ec953411f221b77088566e2421a757edf4895b627b83ee94",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+    "sequence": 41
+  },
+  "oidc_issuer_configuration_digest": "blake3:64cab46b9d5925076a726b80206f365d2e913768a90e0954487cb30b010a9cc7",
+  "normalized_input_digest": "blake3:b92fec1b2c910e4c3e59bf1ca9c077d7eff73c20e4bcaeb903da8225fc78a73c",
+  "operation": {
+    "name": "changeset.get",
+    "version": "proof.dev/operation/changeset.get/v2"
+  },
+  "requesting_binding_id": "019e0000-0000-7000-8000-000000000011",
+  "requesting_binding_record_digest": "blake3:07c47a343c09eb7a58fc86a1c0ec07d5e54dbf0b23ce5a1eb3aee946dff6ce39",
+  "requesting_principal_id": "019e0000-0000-7000-8000-000000000002",
+  "requesting_subject": {
+    "api_version": "proof.dev/oidc-authenticated-subject/v1",
+    "issuer": "https://identity.example.test",
+    "provider": "proof/oidc",
+    "subject": "human-alice"
+  },
+  "requesting_subject_commitment": "blake3:d527780fd72191afe371293b1f2224af4196fb0f7e5ea281831ee2c793e7c3f2",
+  "authentication_event_id": "019e0000-0000-7000-8000-000000000012",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

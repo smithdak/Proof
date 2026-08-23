@@ -22,7 +22,9 @@ zeroize.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
+ed25519-dalek.workspace = true
 serde_json_canonicalizer.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true

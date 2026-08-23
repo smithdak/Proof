@@ -1,0 +1,82 @@
+{
+  "actor_context_digest": "blake3:fe5c016385786accac59e5ada05b865fdeb0cc878ae3a1f131f3426a438b2a8e",
+  "agent_authorization": {
+    "binding": {
+      "active": true,
+      "authority_sequence": 39,
+      "binding_id": "019e0000-0000-7000-8000-000000000014",
+      "record_digest": "blake3:1515151515151515151515151515151515151515151515151515151515151515",
+      "revocation_record_digest": null
+    },
+    "command_digest": "blake3:1313131313131313131313131313131313131313131313131313131313131313",
+    "command_envelope_digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+    "delegation": {
+      "delegation_id": "019e0000-0000-7000-8000-000000000013",
+      "record_digest": "blake3:1616161616161616161616161616161616161616161616161616161616161616",
+      "resolution": "resolved",
+      "revocation_record_digest": null
+    },
+    "effective_constraints": {
+      "max_context_bytes": 1048576,
+      "max_edits_per_changeset": 100,
+      "max_objects": 100
+    },
+    "operating_principal_id": "019e0000-0000-7000-8000-000000000003",
+    "policy_bundle_digest": "blake3:5454545454545454545454545454545454545454545454545454545454545454",
+    "policy_profile": "proof.local/authority/direct/v1",
+    "presentation_consumed": true,
+    "presentation_id": "019e0000-0000-7000-8000-000000000015",
+    "principal_state": {
+      "operating_principal_enabled": true,
+      "requesting_principal_enabled": true
+    },
+    "requested_resources": {
+      "changeset_ids": ["019e0000-0000-7000-8000-000000000020"],
+      "edition_ids": ["019e0000-0000-7000-8000-000000000060"],
+      "environment_ids": ["preview"],
+      "locales": ["en-US", "fr-FR"],
+      "object_ids": [
+        "019e0000-0000-7000-8000-000000000080",
+        "019e0000-0000-7000-8000-000000000081"
+      ],
+      "release_ids": [
+        "019e0000-0000-7000-8000-0000000000c0",
+        "019e0000-0000-7000-8000-0000000000c1"
+      ],
+      "schema_ids": ["campaign"],
+      "workspace_ids": ["019e0000-0000-7000-8000-000000000001"]
+    }
+  },
+  "api_version": "proof.dev/remote-authorization-decision/v1",
+  "authentication_profile": "proof.server/authentication/oidc-human-agent/v1",
+  "authorization_registry_sha256": "e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b",
+  "authorization_rule": "proof.local/authority/direct/v1",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 71,
+  "decision": "allow",
+  "decision_id": "019e0000-0000-7000-8000-000000000071",
+  "environment_config_digest": "blake3:3146baa27b6c42423bfaa703cefde7bdc55a2f66c5d369bd08feeaf6c3dd2c73",
+  "evaluated_at": "2026-08-23T03:10:00Z",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:7171717171717171717171717171717171717171717171717171717171717171",
+    "sequence": 70
+  },
+  "public_input_projection_digest": "blake3:6ffc28e381aee7dad6de55504453bedf5c5412b08af383f3517c92fcbf5fb184",
+  "operation": {
+    "name": "release.create",
+    "version": "proof.dev/operation/release.create/v2"
+  },
+  "operation_registry_sha256": "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf",
+  "policy_bundle_digest": "blake3:f1a941b4d67907001f74ea5d01fb38f51900ff36fee114fb7fb79dc5ff3e2712",
+  "previous_authority_record_digest": "blake3:7171717171717171717171717171717171717171717171717171717171717171",
+  "public_code": null,
+  "reason_code": "proof.authorization.allowed",
+  "requested_action": "release:create",
+  "requested_resources_digest": "blake3:4fbc4c2df1351f3aa3c316102605d07501ecb029064fa661a9516fe05dba3251",
+  "requesting_binding_id": "019e0000-0000-7000-8000-000000000011",
+  "requesting_binding_record_digest": "blake3:07c47a343c09eb7a58fc86a1c0ec07d5e54dbf0b23ce5a1eb3aee946dff6ce39",
+  "requesting_principal_id": "019e0000-0000-7000-8000-000000000002",
+  "requesting_subject_commitment": "blake3:d527780fd72191afe371293b1f2224af4196fb0f7e5ea281831ee2c793e7c3f2",
+  "role_assignment_digests": [],
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

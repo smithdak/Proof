@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/collaboration-server/http-envelope/v1",
+  "title": "Proof collaboration-server HTTP envelopes",
+  "oneOf": [
+    { "$ref": "#/$defs/humanOperationRequestV1" },
+    { "$ref": "#/$defs/agentOperationRequestV1" },
+    { "$ref": "#/$defs/operationResultV1" },
+    { "$ref": "#/$defs/problemV1" },
+    { "$ref": "#/$defs/evidenceArtifactMetadataV2" },
+    { "$ref": "#/$defs/previewObjectGetResultV1" }
+  ],
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "nullableUuidv7": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/uuidv7" }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "nullableUuidv7CrossCheck": {
+      "description": "The semantic two-stage validator requires this value to equal the normalized application's idempotency key when that operation has one and to be null otherwise.",
+      "$ref": "#/$defs/nullableUuidv7"
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 256,
+          "pattern": "^proof\\.dev/(?:operation|transport)/[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+/v[1-9][0-9]*$"
+        }
+      }
+    },
+    "schemaRef": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://proof\\.dev/[^ ]+(?:#/\\$defs/[A-Za-z][A-Za-z0-9]+)?$",
+      "maxLength": 512
+    },
+    "humanOperationRequestV1": {
+      "title": "HttpHumanOperationRequestV1",
+      "description": "After this envelope validates, the adapter resolves the exact registry row, validates input against input_schema, and requires workspace_id and idempotency_key to equal the normalized application cross-checks.",
+      "x-proof-max-canonical-bytes": 1048576,
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "correlation_id", "idempotency_key", "input", "operation", "workspace_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/http-human-operation-request/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "correlation_id": { "$ref": "#/$defs/nullableUuidv7" },
+        "idempotency_key": { "$ref": "#/$defs/nullableUuidv7CrossCheck" },
+        "input": {
+          "type": "object",
+          "description": "Validated in the mandatory second stage by the exact input_schema in the closed registry. Actor context and identity derivation are forbidden here."
+        }
+      }
+    },
+    "agentOperationRequestV1": {
+      "title": "HttpAgentOperationRequestV1",
+      "description": "The route operation, invocation operation, signed operation, Workspace, principals, and application input are mandatory equality checks after the accepted invocation Schema validates.",
+      "x-proof-max-canonical-bytes": 1048576,
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "correlation_id", "invocation", "operation"],
+      "properties": {
+        "api_version": { "const": "proof.dev/http-agent-operation-request/v1" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "correlation_id": { "$ref": "#/$defs/nullableUuidv7" },
+        "invocation": { "$ref": "https://proof.dev/schema/authority/authenticated-invocation/v1" }
+      }
+    },
+    "resultAnchor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "kind", "transaction_sequence"],
+          "properties": {
+            "kind": { "const": "committed-transaction" },
+            "digest": { "$ref": "#/$defs/digest" },
+            "transaction_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "kind", "transaction_sequence"],
+          "properties": {
+            "kind": { "const": "immutable-result" },
+            "digest": { "$ref": "#/$defs/digest" },
+            "transaction_sequence": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "operationResultV1": {
+      "title": "HttpOperationResultV1",
+      "description": "Envelope validation is stage one. Stage two MUST resolve operation in the committed registry, require result_schema to equal that row, and validate data against the resolved result_schema before serialization.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "correlation_id", "data", "operation", "operation_id", "replayed", "result_anchor", "result_schema"],
+      "properties": {
+        "api_version": { "const": "proof.dev/http-operation-result/v1" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "operation_id": { "$ref": "#/$defs/uuidv7" },
+        "correlation_id": { "$ref": "#/$defs/nullableUuidv7" },
+        "replayed": { "type": "boolean" },
+        "result_anchor": { "$ref": "#/$defs/resultAnchor" },
+        "result_schema": { "$ref": "#/$defs/schemaRef" },
+        "data": {
+          "type": "object",
+          "description": "Mandatory second-stage validation uses the exact result_schema named by the registry row."
+        }
+      }
+    },
+    "transportFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "pointer", "severity"],
+      "properties": {
+        "code": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^proof(?:\\.[a-z][a-z0-9_]*){1,8}$" },
+        "severity": { "enum": ["error", "info", "warning"] },
+        "pointer": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "maxLength": 1024, "pattern": "^(?:/(?:[^~/]|~0|~1)*)*$" }
+          ]
+        }
+      }
+    },
+    "finding": {
+      "oneOf": [
+        { "$ref": "#/$defs/transportFinding" },
+        { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/finding" }
+      ]
+    },
+    "problemBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "code", "correlation_id", "instance", "operation", "operation_id", "retryable", "status", "title", "type"],
+      "properties": {
+        "api_version": { "const": "proof.dev/http-problem/v1" },
+        "type": { "type": "string", "format": "uri", "pattern": "^urn:proof:problem:[a-z][a-z0-9-]{1,127}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Non-normative and subject to the mandatory semantic redaction policy; raw subjects, tokens, hidden identifiers, provider diagnostics, SQL, and stack traces are forbidden."
+        },
+        "instance": { "type": "string", "format": "uri", "pattern": "^urn:proof:operation:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        "code": { "type": "string", "pattern": "^proof(?:\\.[a-z][a-z0-9_]*){1,8}$" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "operation_id": { "$ref": "#/$defs/uuidv7" },
+        "correlation_id": { "$ref": "#/$defs/nullableUuidv7" },
+        "retryable": { "type": "boolean" },
+        "retry_after_ms": { "type": "integer", "minimum": 1, "maximum": 300000 },
+        "current_digest": { "$ref": "#/$defs/digest" },
+        "findings": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/finding" } }
+      }
+    },
+    "problemV1": {
+      "title": "Proof RFC 9457 Problem",
+      "description": "Code, status, type, title, and retryability are one closed tuple. Detail and authorized extensions require a separate semantic redaction/authorization pass.",
+      "allOf": [
+        { "$ref": "#/$defs/problemBase" },
+        {
+          "oneOf": [
+            { "properties": { "code": { "const": "proof.auth.csrf_denied" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:csrf-denied" }, "title": { "const": "CSRF validation denied" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.auth.denied" }, "status": { "const": 401 }, "type": { "const": "urn:proof:problem:authentication-denied" }, "title": { "const": "Authentication denied" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.auth.replay" }, "status": { "const": 401 }, "type": { "const": "urn:proof:problem:authentication-replay" }, "title": { "const": "Authentication replay denied" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authority.integrity" }, "status": { "const": 500 }, "type": { "const": "urn:proof:problem:authority-integrity" }, "title": { "const": "Authority integrity failure" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authorization.budget_exceeded" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:authorization-budget-exceeded" }, "title": { "const": "Authorization budget exceeded" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authorization.delegation_expired" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:authorization-delegation-expired" }, "title": { "const": "Authorization delegation expired" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authorization.delegation_not_yet_valid" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:authorization-delegation-not-yet-valid" }, "title": { "const": "Authorization delegation not yet valid" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authorization.delegation_revoked" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:authorization-delegation-revoked" }, "title": { "const": "Authorization delegation revoked" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authorization.denied" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:authorization-denied" }, "title": { "const": "Authorization denied" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.authorization.scope_exceeded" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:authorization-scope-exceeded" }, "title": { "const": "Authorization scope exceeded" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.changeset.duplicate_target" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:changeset-duplicate-target" }, "title": { "const": "ChangeSet duplicate target" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.changeset.invalid_supersession" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:changeset-invalid-supersession" }, "title": { "const": "ChangeSet invalid supersession" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.changeset.not_approved" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:changeset-not-approved" }, "title": { "const": "ChangeSet not approved" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.changeset.not_draft" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:changeset-not-draft" }, "title": { "const": "ChangeSet not draft" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.changeset.not_ready" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:changeset-not-ready" }, "title": { "const": "ChangeSet not ready" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.changeset.not_submitted" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:changeset-not-submitted" }, "title": { "const": "ChangeSet not submitted" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.dependency.unavailable" }, "status": { "const": 503 }, "type": { "const": "urn:proof:problem:dependency-unavailable" }, "title": { "const": "Dependency unavailable" }, "retryable": { "const": true } } },
+            { "properties": { "code": { "const": "proof.delegation.expired" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:delegation-expired" }, "title": { "const": "Delegation expired" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.digest.mismatch" }, "status": { "const": 500 }, "type": { "const": "urn:proof:problem:digest-mismatch" }, "title": { "const": "Digest mismatch" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.evidence.incomplete" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:evidence-incomplete" }, "title": { "const": "Evidence incomplete" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.idempotency.key_reused" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:idempotency-key-reused" }, "title": { "const": "Idempotency key reused" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.invalid_json" }, "status": { "const": 400 }, "type": { "const": "urn:proof:problem:invalid-json" }, "title": { "const": "Invalid JSON" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.intent_mismatch" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:intent-mismatch" }, "title": { "const": "Input intent mismatch" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.limit_exceeded" }, "status": { "const": 413 }, "type": { "const": "urn:proof:problem:input-limit-exceeded" }, "title": { "const": "Input limit exceeded" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.schema_mismatch" }, "status": { "const": 400 }, "type": { "const": "urn:proof:problem:schema-mismatch" }, "title": { "const": "Schema mismatch" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.too_large" }, "status": { "const": 413 }, "type": { "const": "urn:proof:problem:input-too-large" }, "title": { "const": "Input too large" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.unsupported_media_type" }, "status": { "const": 415 }, "type": { "const": "urn:proof:problem:unsupported-media-type" }, "title": { "const": "Unsupported media type" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.input.unsupported_version" }, "status": { "const": 400 }, "type": { "const": "urn:proof:problem:unsupported-version" }, "title": { "const": "Unsupported version" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.integrity.failure" }, "status": { "const": 500 }, "type": { "const": "urn:proof:problem:integrity-failure" }, "title": { "const": "Integrity failure" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.internal" }, "status": { "const": 500 }, "type": { "const": "urn:proof:problem:internal" }, "title": { "const": "Internal error" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.operation.timeout" }, "status": { "const": 504 }, "type": { "const": "urn:proof:problem:operation-timeout" }, "title": { "const": "Operation timed out" }, "retryable": { "const": true } } },
+            { "properties": { "code": { "const": "proof.operation.unknown_outcome" }, "status": { "const": 504 }, "type": { "const": "urn:proof:problem:unknown-outcome" }, "title": { "const": "Operation outcome unknown" }, "retryable": { "const": true } } },
+            { "properties": { "code": { "const": "proof.policy.denied" }, "status": { "const": 403 }, "type": { "const": "urn:proof:problem:policy-denied" }, "title": { "const": "Policy denied" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.rate_limit.exceeded" }, "status": { "const": 429 }, "type": { "const": "urn:proof:problem:rate-limit-exceeded" }, "title": { "const": "Rate limit exceeded" }, "retryable": { "const": true } } },
+            { "properties": { "code": { "const": "proof.resource.not_found" }, "status": { "const": 404 }, "type": { "const": "urn:proof:problem:resource-not-found" }, "title": { "const": "Resource not found" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.state.conflict" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:state-conflict" }, "title": { "const": "State conflict" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.state.source_conflict" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:source-state-conflict" }, "title": { "const": "Source state conflict" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.state.target_conflict" }, "status": { "const": 409 }, "type": { "const": "urn:proof:problem:target-state-conflict" }, "title": { "const": "Target state conflict" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.storage.conflict" }, "status": { "const": 503 }, "type": { "const": "urn:proof:problem:storage-conflict" }, "title": { "const": "Storage conflict" }, "retryable": { "const": true } } },
+            { "properties": { "code": { "const": "proof.validation.failed" }, "status": { "const": 422 }, "type": { "const": "urn:proof:problem:validation-failed" }, "title": { "const": "Validation failed" }, "retryable": { "const": false } } },
+            { "properties": { "code": { "const": "proof.validation.repair_evidence_invalid" }, "status": { "const": 422 }, "type": { "const": "urn:proof:problem:repair-evidence-invalid" }, "title": { "const": "Repair evidence invalid" }, "retryable": { "const": false } } }
+          ]
+        }
+      ]
+    },
+    "evidenceArtifactMetadataV2": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/evidenceArtifactMetadataV2" },
+    "previewObjectGetResultV1": { "$ref": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/previewObjectGetResultV1" }
+  }
+}

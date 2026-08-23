@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/remote-authority-dsse-vector/v1",
+  "title": "Remote authority Ed25519 DSSE byte vector v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "envelope_digest",
+    "envelope_digest_context",
+    "envelope_file",
+    "pae_utf8_base64",
+    "payload_digest",
+    "payload_digest_context",
+    "payload_file",
+    "payload_type",
+    "payload_utf8_base64",
+    "signer",
+    "status"
+  ],
+  "properties": {
+    "api_version": { "const": "proof.dev/conformance/remote-authority-dsse-vector/v1" },
+    "status": { "const": "proposed" },
+    "payload_file": {
+      "const": "workspace-role-assignment.valid.json"
+    },
+    "envelope_file": {
+      "const": "remote-authority-record-envelope.valid.json"
+    },
+    "payload_type": {
+      "const": "application/vnd.proof.remote-authority-record.v1+json"
+    },
+    "payload_utf8_base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "pae_utf8_base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "payload_digest": { "$ref": "#/$defs/digest" },
+    "payload_digest_context": { "const": "proof:remote-authority-record:v1" },
+    "envelope_digest": { "$ref": "#/$defs/digest" },
+    "envelope_digest_context": { "const": "proof:remote-authority-record-envelope:v1" },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_id",
+        "public_key_base64",
+        "public_key_hex",
+        "signature_base64",
+        "signature_hex"
+      ],
+      "properties": {
+        "key_id": { "const": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746" },
+        "public_key_hex": { "const": "34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746" },
+        "public_key_base64": { "const": "NLTZBDFWy23PC+sKKUm3VZyUDSvLbb6MU6mzAnjjp0Y=" },
+        "signature_hex": { "const": "b6e02ee170615455b4513548515aec2c08e2dfe31e17a9f7e79016c14094884ea32bb36429ad1735b92982a4cb9d6549eb584e3e8598a01b502bd502030d4c05" },
+        "signature_base64": { "const": "tuAu4XBhVFW0UTVIUVrsLAji3+MeF6n355AWwUCUiE6jK7NkKa0XNbkpgqTLnWVJ61hOPoWYoBtQK9UCAw1MBQ==" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    }
+  }
+}

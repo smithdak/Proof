@@ -1,0 +1,20 @@
+{
+  "api_version": "proof.dev/workspace-role-revocation/v1",
+  "assignment_id": "019e0000-0000-7000-8000-000000000030",
+  "assignment_record_digest": "blake3:8e70cd50cab4e9359ba83ef8b9c3106f4f8319cb2811115b369699b5216a6d2e",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 43,
+  "evaluated_authority_head": {
+    "record_digest": "blake3:031723d1715fb8faeab08ff8b6f999dc7538db7f99d6321aea6d8fc69790207b",
+    "sequence": 42
+  },
+  "previous_authority_record_digest": "blake3:031723d1715fb8faeab08ff8b6f999dc7538db7f99d6321aea6d8fc69790207b",
+  "principal_id": "019e0000-0000-7000-8000-000000000004",
+  "reason": "role-no-longer-required",
+  "revocation_id": "019e0000-0000-7000-8000-000000000033",
+  "revoked_at": "2026-08-23T02:11:00Z",
+  "revoked_by_actor_context_digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+  "revoked_by_principal_id": "019e0000-0000-7000-8000-000000000007",
+  "role": "content.reviewer",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

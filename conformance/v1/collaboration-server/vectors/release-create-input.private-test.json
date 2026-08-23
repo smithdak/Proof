@@ -1,0 +1,10 @@
+{
+  "api_version": "proof.dev/operation/release.create/v2",
+  "edition_id": "019e0000-0000-7000-8000-000000000060",
+  "environment_id": "preview",
+  "expected_base_release_id": "019e0000-0000-7000-8000-0000000000c0",
+  "idempotency_key": "019e0000-0000-7000-8000-000000000074",
+  "proof_id": "019e0000-0000-7000-8000-0000000000c4",
+  "release_id": "019e0000-0000-7000-8000-0000000000c1",
+  "released_at": "2026-08-23T03:10:00Z"
+}

@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/artifact-catalog/v1",
+  "title": "Immutable artifact catalog decision contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "evidence_class", "runtime_qualified", "contract", "entries"],
+  "properties": {
+    "api_version": { "const": "proof.dev/artifact-catalog-suite/v1" },
+    "evidence_class": { "const": "decision-contract" },
+    "runtime_qualified": { "const": false },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_fields", "addressing", "external_create", "external_readback_required", "existing_key_acceptance",
+        "precommit_neutral_blob_reference_allowed", "signed_body_source_until_verified_mirror",
+        "committed_read_revalidation", "referenced_overwrite_allowed", "referenced_delete_allowed",
+        "distributed_transaction_claim"
+      ],
+      "properties": {
+        "identity_fields": { "const": ["artifact_kind", "canonical_bytes", "domain_separated_digest", "media_type", "schema_version", "byte_length"] },
+        "addressing": { "const": "artifacts/{artifact_kind}/blake3/{digest}" },
+        "external_create": { "const": "put-if-absent" },
+        "external_readback_required": { "const": true },
+        "existing_key_acceptance": { "const": "only exact length and digest reproduction" },
+        "precommit_neutral_blob_reference_allowed": { "const": false },
+        "signed_body_source_until_verified_mirror": { "const": "immutable logged PostgreSQL artifact-body" },
+        "committed_read_revalidation": { "const": ["kind", "length", "digest"] },
+        "referenced_overwrite_allowed": { "const": false },
+        "referenced_delete_allowed": { "const": false },
+        "distributed_transaction_claim": { "const": false }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/entry" },
+      "allOf": [
+        { "contains": { "properties": { "storage_class": { "const": "authority-neutral-external" } }, "required": ["storage_class"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "storage_class": { "const": "fork-capable-postgresql" } }, "required": ["storage_class"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id", "artifact_kind", "schema_id", "media_type", "byte_length", "content_digest",
+        "storage_class", "authority_neutral", "fork_capable", "catalog_state", "immutable",
+        "precommit_staging", "external", "postgresql_body", "abort_leaves_durable_signed_fork",
+        "mirror_policy"
+      ],
+      "properties": {
+        "artifact_id": { "type": "string", "pattern": "^art_[0-9a-f]{32}$" },
+        "artifact_kind": { "enum": ["source-attachment", "release-proof"] },
+        "schema_id": { "type": "string", "pattern": "^proof\\.[a-z0-9.-]+/v[1-9][0-9]*$" },
+        "media_type": { "enum": ["application/octet-stream", "application/json"] },
+        "byte_length": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "storage_class": { "enum": ["authority-neutral-external", "fork-capable-postgresql"] },
+        "authority_neutral": { "type": "boolean" },
+        "fork_capable": { "type": "boolean" },
+        "catalog_state": { "const": "committed" },
+        "immutable": { "const": true },
+        "precommit_staging": { "enum": ["private-unreachable-permitted", "forbidden"] },
+        "external": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["object_key", "put_if_absent", "exact_readback_verified", "publicly_reachable_before_commit"],
+          "properties": {
+            "object_key": { "type": ["string", "null"], "pattern": "^artifacts/source-attachment/blake3/[0-9a-f]{64}$" },
+            "put_if_absent": { "type": "boolean" },
+            "exact_readback_verified": { "type": "boolean" },
+            "publicly_reachable_before_commit": { "const": false }
+          }
+        },
+        "postgresql_body": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["body_digest", "logged_table", "inserted_with_catalog_and_authority_state"],
+          "properties": {
+            "body_digest": {
+              "oneOf": [
+                { "$ref": "#/$defs/digest" },
+                { "type": "null" }
+              ]
+            },
+            "logged_table": { "type": "boolean" },
+            "inserted_with_catalog_and_authority_state": { "type": "boolean" }
+          }
+        },
+        "abort_leaves_durable_signed_fork": { "type": "boolean" },
+        "mirror_policy": { "enum": ["not-applicable", "post-commit-outbox-only"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "storage_class": { "const": "authority-neutral-external" } }, "required": ["storage_class"] },
+          "then": {
+            "properties": {
+              "artifact_kind": { "const": "source-attachment" }, "authority_neutral": { "const": true },
+              "fork_capable": { "const": false }, "precommit_staging": { "const": "private-unreachable-permitted" },
+              "external": {
+                "properties": {
+                  "object_key": { "type": "string", "pattern": "^artifacts/source-attachment/blake3/[0-9a-f]{64}$" },
+                  "put_if_absent": { "const": true }, "exact_readback_verified": { "const": true }
+                }
+              },
+              "postgresql_body": {
+                "properties": {
+                  "body_digest": { "type": "null" }, "logged_table": { "const": false },
+                  "inserted_with_catalog_and_authority_state": { "const": false }
+                }
+              },
+              "abort_leaves_durable_signed_fork": { "const": false }, "mirror_policy": { "const": "not-applicable" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "storage_class": { "const": "fork-capable-postgresql" } }, "required": ["storage_class"] },
+          "then": {
+            "properties": {
+              "artifact_kind": { "const": "release-proof" }, "authority_neutral": { "const": false },
+              "fork_capable": { "const": true }, "precommit_staging": { "const": "forbidden" },
+              "external": {
+                "properties": {
+                  "object_key": { "type": "null" }, "put_if_absent": { "const": false },
+                  "exact_readback_verified": { "const": false }
+                }
+              },
+              "postgresql_body": {
+                "properties": {
+                  "body_digest": { "$ref": "#/$defs/digest" }, "logged_table": { "const": true },
+                  "inserted_with_catalog_and_authority_state": { "const": true }
+                }
+              },
+              "abort_leaves_durable_signed_fork": { "const": false }, "mirror_policy": { "const": "post-commit-outbox-only" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

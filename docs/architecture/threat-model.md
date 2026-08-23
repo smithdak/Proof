@@ -102,6 +102,53 @@ predecessor can authorize an attacker successor or fork. Trust stops at the last
 independently pinned pre-compromise checkpoint; recovery needs a future explicit
 trust epoch/re-anchor rather than ordinary rotation.
 
+### Proposed P-0008 server trust boundary
+
+P-0008 proposes, but does not implement, one configured Workspace behind a
+same-origin OIDC Backend for Frontend. Direct Human calls require a live opaque
+server session. Agent calls additionally require the accepted single-use Agent
+signature; the Human session derives the requester and the Agent binding derives
+the operator. Neither request identifiers, Delegation, OIDC groups, forwarded
+headers, nor the connection may select identity, Workspace, or authority.
+
+The proposed network path adds these adversaries and controls:
+
+- an unauthenticated network attacker or hostile proxy is bounded by TLS,
+  trusted-proxy allowlisting, strict JSON/Schemas/limits, and rejection of every
+  alternate Workspace selector;
+- OIDC mix-up, issuer/key substitution, token replay, and discovery/JWKS SSRF
+  are bounded by one configured HTTPS issuer/client, code plus PKCE/state/nonce,
+  exact issuer/audience/authorized-party/time validation, and no request-
+  selected metadata URL;
+- session fixation/hijack and CSRF are bounded by a rotated 256-bit opaque
+  server-side session, `Secure`/`HttpOnly`/`SameSite=Strict` host cookie, exact
+  Origin, JSON-only unsafe methods, and a session-bound custom header;
+- confused deputies and UI-owned workflow are bounded by adapter-derived actor
+  context, append-only role facts, `ChangeSetApprovalV1`, exact configuration and
+  authority heads, and separation-of-duties recheck at commit/Release;
+- database/operator rollback or mutation is detectable only relative to signed
+  chains and independently retained checkpoints and remains an availability
+  and custody residual;
+- artifact substitution is bounded by authority-neutral private pre-staging,
+  content-addressed read-back, and no reachable reference before commit;
+- a valid signed orphan could otherwise create a portable authority or Release
+  fork, so fork-capable signed bytes are stored atomically in logged PostgreSQL
+  and mirrored only after commit; they are never external pre-commit staging
+  artifacts;
+- outbox injection, duplicate delivery, stale acknowledgements, poison, and
+  ordering races are bounded by committed immutable events, fenced leases,
+  append-only attempts, stable recipient deduplication, monotonic Release
+  sequence, and explicit at-least-once semantics; and
+- SSRF/webhook abuse is outside the private-preview slice; a later adapter must
+  use administrator-configured exact destinations, strict egress policy, no
+  redirect, and no request-carried resolver URL.
+
+One Workspace is not proof of tenant isolation. BFF use reduces routine token
+exposure but does not establish XSS immunity, IdP or server non-compromise,
+workload attestation, MFA strength, managed key custody, deployment security, or
+public-preview safety. The exact proposal and required abuse cases are in the
+[collaboration-server contract](collaboration-server.md).
+
 ## Adversaries
 
 - Unauthenticated network attacker.
@@ -292,7 +339,11 @@ A milestone cannot ship until:
 
 ## Deferred areas
 
-Detailed deployment threats for multi-region operation, tenant isolation, browser sessions, plugin sandboxing, and managed key custody are completed before their respective milestones. They are not assumed safe by this initial model.
+Detailed deployment threats for multi-region operation, tenant isolation,
+plugin sandboxing, and managed key custody are completed before their
+respective milestones. P-0008 proposes a bounded browser-session contract but
+does not implement or operationally qualify it. None of these areas is assumed
+safe by this baseline.
 
 The accepted Milestone 2 profile is intentionally local, Linux-qualified, and
 single-Workspace. It does not qualify Windows identity, enterprise OIDC/SPIFFE,

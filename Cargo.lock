@@ -995,6 +995,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "ed25519-dalek",
  "getrandom 0.4.3",
  "jsonschema",
  "proof-application",
@@ -1006,6 +1007,7 @@ dependencies = [
  "serde_json",
  "serde_json_canonicalizer",
  "thiserror",
+ "time",
  "toml",
  "zeroize",
 ]

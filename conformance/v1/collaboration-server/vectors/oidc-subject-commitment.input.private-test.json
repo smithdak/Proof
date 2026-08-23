@@ -1,0 +1,11 @@
+{
+  "api_version": "proof.dev/oidc-subject-commitment-input/v1",
+  "blind": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+  "subject": {
+    "api_version": "proof.dev/oidc-authenticated-subject/v1",
+    "issuer": "https://identity.example.test",
+    "provider": "proof/oidc",
+    "subject": "human-alice"
+  },
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

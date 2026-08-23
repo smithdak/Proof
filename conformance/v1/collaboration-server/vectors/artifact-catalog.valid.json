@@ -1,0 +1,74 @@
+{
+  "api_version": "proof.dev/artifact-catalog-suite/v1",
+  "evidence_class": "decision-contract",
+  "runtime_qualified": false,
+  "contract": {
+    "identity_fields": ["artifact_kind", "canonical_bytes", "domain_separated_digest", "media_type", "schema_version", "byte_length"],
+    "addressing": "artifacts/{artifact_kind}/blake3/{digest}",
+    "external_create": "put-if-absent",
+    "external_readback_required": true,
+    "existing_key_acceptance": "only exact length and digest reproduction",
+    "precommit_neutral_blob_reference_allowed": false,
+    "signed_body_source_until_verified_mirror": "immutable logged PostgreSQL artifact-body",
+    "committed_read_revalidation": ["kind", "length", "digest"],
+    "referenced_overwrite_allowed": false,
+    "referenced_delete_allowed": false,
+    "distributed_transaction_claim": false
+  },
+  "entries": [
+    {
+      "artifact_id": "art_11111111111111111111111111111111",
+      "artifact_kind": "source-attachment",
+      "schema_id": "proof.source-attachment/v1",
+      "media_type": "application/octet-stream",
+      "byte_length": 4096,
+      "content_digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+      "storage_class": "authority-neutral-external",
+      "authority_neutral": true,
+      "fork_capable": false,
+      "catalog_state": "committed",
+      "immutable": true,
+      "precommit_staging": "private-unreachable-permitted",
+      "external": {
+        "object_key": "artifacts/source-attachment/blake3/1111111111111111111111111111111111111111111111111111111111111111",
+        "put_if_absent": true,
+        "exact_readback_verified": true,
+        "publicly_reachable_before_commit": false
+      },
+      "postgresql_body": {
+        "body_digest": null,
+        "logged_table": false,
+        "inserted_with_catalog_and_authority_state": false
+      },
+      "abort_leaves_durable_signed_fork": false,
+      "mirror_policy": "not-applicable"
+    },
+    {
+      "artifact_id": "art_22222222222222222222222222222222",
+      "artifact_kind": "release-proof",
+      "schema_id": "proof.release-proof/v2",
+      "media_type": "application/json",
+      "byte_length": 8192,
+      "content_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+      "storage_class": "fork-capable-postgresql",
+      "authority_neutral": false,
+      "fork_capable": true,
+      "catalog_state": "committed",
+      "immutable": true,
+      "precommit_staging": "forbidden",
+      "external": {
+        "object_key": null,
+        "put_if_absent": false,
+        "exact_readback_verified": false,
+        "publicly_reachable_before_commit": false
+      },
+      "postgresql_body": {
+        "body_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+        "logged_table": true,
+        "inserted_with_catalog_and_authority_state": true
+      },
+      "abort_leaves_durable_signed_fork": false,
+      "mirror_policy": "post-commit-outbox-only"
+    }
+  ]
+}

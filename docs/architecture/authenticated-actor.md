@@ -735,6 +735,28 @@ producer supplied the latest or complete authority history. Even with the
 expected authority head, the bundle does not prove that its Release is globally
 latest or the true immediate same-Environment Release.
 
+## Proposed P-0008 remote actor successor
+
+P-0008 does not widen the local v1 types. The proposed server profile adds an
+`AuthenticatedActorContextV2` derived only by an identity adapter. Its
+Human-only form binds one preconfigured OIDC `{issuer, subject}` through a
+versioned `OidcPrincipalBindingV1`; its Agent form independently combines that
+live Human session with the existing verified `AuthenticatedCommandV1` and
+Agent binding. The signed requester remains an expected-value cross-check. A
+Delegation never authenticates the Human.
+
+Remote actor evidence carries a hiding commitment to the exact OIDC subject,
+issuer-configuration digest, binding, authentication event, application
+operation/version and normalized-input digest, and evaluated authority head, with the Agent
+presentation and binding when present. Tokens, sessions, raw subjects, emails,
+groups, and provider claims
+remain outside public evidence. Because the accepted local actor context and
+`AuthorizationDecisionV2` close over the Unix requester profile, remote
+decisions and authority records require explicit successor versions rather
+than reinterpretation. The complete proposal is the
+[collaboration-server contract](collaboration-server.md); no remote actor path
+is implemented by P-0008.
+
 ## Error contract
 
 The local authenticated profile must map failures to stable Problems without

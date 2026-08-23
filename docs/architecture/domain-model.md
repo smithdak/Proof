@@ -207,6 +207,18 @@ Environment configuration is versioned and includes:
 - Verification requirements.
 - Current Release pointer.
 
+The current Release pointer is a derived projection of immutable Release facts,
+not an administrator-editable member of a configuration artifact.
+
+**Proposed P-0008 profile:** `EnvironmentConfigV2` retains immutable creation
+actor/time/causal position, predecessor configuration, policy and separation
+rules, and distinct proposal/activation facts. It never embeds a mutable
+current-Release value. `ChangeSetApprovalV1` is the authoritative remote review
+attestation over one sealed ChangeSet, validation head, submission,
+configuration, approver binding/role, and exact authority head. These are
+prospective successor artifacts; existing Environment and approval bytes are
+not reinterpreted.
+
 ## Release
 
 A Release is an immutable record that makes one Edition current for one Environment.
@@ -370,6 +382,38 @@ remain commitments and make the authority-evidence verdict incomplete unless
 the selected trust policy can validate them without disclosure. A pinned
 authority head proves the supplied prefix boundary, not that the supplied
 Release is globally latest or the true immediate same-Environment Release.
+
+## Proposed P-0008 remote collaboration types
+
+The proposed server profile adds `OidcAuthenticatedSubjectV1`,
+`OidcPrincipalBindingV1`, `RemoteAuthenticationEventV1`,
+`AuthenticatedActorContextV2`, `WorkspaceRoleAssignmentV1`,
+`WorkspaceRoleRevocationV1`, `ChangeSetApprovalV1`, `EnvironmentConfigV2`,
+`RemoteAuthorizationDecisionV1`, `RemoteApplicationConsequenceV1`, immutable
+outbox/delivery records, and `RemoteEvidenceBundleV2`. Each is versioned and append-only where
+authoritative. A browser session and HTTP connection remain transport, and an
+OIDC claim remains identity-provider input; neither is a Principal or authority
+fact. See the [collaboration-server contract](collaboration-server.md).
+
+The P8 evidence package is an uncompressed logical member map rather than an
+archive. Its six roots are the remote Release-artifact closure, remote authority
+record set, public actor evidence, authentication event, `CommandInputV1`, and
+authenticated-command envelope. `AuthenticatedCommandV1` is decoded from that
+envelope and is not a separate root. Nested content is enumerated by the
+Release closure; a root marked external-required is supplied through the
+caller's verifier input rather than the producer map. Historical P6
+`AuthorityEvidenceBundleV1` remains a separate local evidence type and is not
+embedded or relabeled by P8.
+
+`evidence.export/v2` creates one immutable capture and an immutable keyed result
+that is always `pending`; equivalent same-key replay never changes those bytes.
+The no-key `evidence.export.get/v1` returns the current mutable pending/ready
+producer projection. Export, snapshot, membership, assembly, and readiness
+metadata are not authenticated by the selected inner Proof closure. Runtime
+verification instead starts from caller-controlled `VerificationTrustPolicyV2`
+and exact materialized bytes and produces the general
+`RemoteVerificationReportV2`; the three-scenario conformance report is a
+narrower qualification subtype.
 
 ## Known State
 

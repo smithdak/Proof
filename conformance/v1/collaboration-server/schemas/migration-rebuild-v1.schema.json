@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/migration-rebuild/v1",
+  "title": "Migration ledger and projection rebuild decision contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "evidence_class", "runtime_qualified", "contract", "migration_ledger", "projection_rebuild"],
+  "properties": {
+    "api_version": { "const": "proof.dev/migration-rebuild-suite/v1" },
+    "evidence_class": { "const": "decision-contract" },
+    "runtime_qualified": { "const": false },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "script_digest", "coordination", "ledger_append_only", "request_write_refusal_reasons", "phases",
+        "transactional_phase_rule", "nontransactional_phase_rule", "historical_canonical_rewrite_allowed",
+        "destructive_down_migration_promised", "network_writes_before_verified_import_cutover",
+        "projection_rebuild_write_availability", "non_rebuildable_authority"
+      ],
+      "properties": {
+        "script_digest": { "const": "domain-separated BLAKE3 over exact script bytes" },
+        "coordination": { "const": "fixed PostgreSQL advisory lock plus singleton migration head; one migrator" },
+        "ledger_append_only": { "const": true },
+        "request_write_refusal_reasons": { "const": ["incompatible", "checksum-mismatch", "dirty", "failed", "newer"] },
+        "phases": { "const": ["expand", "backfill", "verify", "cutover", "contract"] },
+        "transactional_phase_rule": { "const": "DDL, backfill, verification, and version advancement in one transaction" },
+        "nontransactional_phase_rule": { "const": "resumable and does not advance schema version until verified" },
+        "historical_canonical_rewrite_allowed": { "const": false },
+        "destructive_down_migration_promised": { "const": false },
+        "network_writes_before_verified_import_cutover": { "const": false },
+        "projection_rebuild_write_availability": { "const": "offline" },
+        "non_rebuildable_authority": { "const": ["facts", "authority_records", "idempotency", "artifact_catalog", "outbox_events", "delivery_attempts", "delivery_receipts"] }
+      }
+    },
+    "migration_ledger": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/ledgerEntry" }, { "properties": { "status": { "const": "started" }, "phase": { "const": "backfill" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/ledgerEntry" }, { "properties": { "status": { "const": "verified" }, "phase": { "const": "verify" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/ledgerEntry" }, { "properties": { "status": { "const": "failed" }, "phase": { "const": "contract" } } }] }
+      ],
+      "items": false
+    },
+    "projection_rebuild": { "$ref": "#/$defs/rebuild" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "uuidv7": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$" },
+    "ledgerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ledger_sequence", "migration_version", "migration_name", "script_digest", "phase", "status", "actor_tool", "database_time"],
+      "properties": {
+        "ledger_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "migration_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "migration_name": { "type": "string", "pattern": "^[a-z0-9_]{3,64}$" },
+        "script_digest": { "$ref": "#/$defs/digest" },
+        "phase": { "enum": ["expand", "backfill", "verify", "cutover", "contract"] },
+        "status": { "enum": ["started", "verified", "failed"] },
+        "actor_tool": { "type": "string", "pattern": "^[A-Za-z0-9._/-]{3,128}$" },
+        "database_time": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "rebuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_id", "lock", "source_chains_verified", "old_generation", "candidate_generation",
+        "comparisons", "atomic_pointer_swap", "partial_candidate_exposed", "reader_generation_pinned",
+        "retired_generation_retained_until_no_readers"
+      ],
+      "properties": {
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "lock": { "const": "SERIALIZABLE workspace_write_head FOR UPDATE" },
+        "source_chains_verified": { "const": true },
+        "old_generation": { "type": "integer", "minimum": 1, "maximum": 2147483646 },
+        "candidate_generation": { "type": "integer", "minimum": 2, "maximum": 2147483647 },
+        "comparisons": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identities", "counts", "foreign_keys", "versions", "sequences", "state_digest"],
+          "properties": {
+            "identities": { "const": "matched" }, "counts": { "const": "matched" },
+            "foreign_keys": { "const": "matched" }, "versions": { "const": "matched" },
+            "sequences": { "const": "matched" }, "state_digest": { "const": "matched" }
+          }
+        },
+        "atomic_pointer_swap": { "const": true },
+        "partial_candidate_exposed": { "const": false },
+        "reader_generation_pinned": { "const": true },
+        "retired_generation_retained_until_no_readers": { "const": true }
+      }
+    }
+  }
+}

@@ -133,6 +133,40 @@ OAuth/OIDC, SPIFFE, JOSE access tokens, platform attestation, and KMS/HSM-backed
 credentials remain future identity-adapter choices. They do not alter the
 application actor-context contract or make transport/session metadata authority.
 
+## Proposed P-0008 server standards profile
+
+P-0008 proposes one same-origin confidential OIDC Backend for Frontend. Its
+exact issuer/subject/audience/time/signature checks follow
+[OpenID Connect Core 1.0, second errata](https://openid.net/specs/openid-connect-core-1_0-errata2.html)
+and [Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html).
+Authorization Code plus PKCE/state/nonce, token confinement, cookie flags, and
+CSRF controls follow [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700) and the
+[RFC 10017 browser BFF profile](https://www.rfc-editor.org/rfc/rfc10017.html).
+OIDC authenticates a subject; Proof's versioned binding and role facts remain
+the authority source.
+
+The HTTP proposal uses [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110)
+conditionals only as duplicate adapter guards and
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problems with stable Proof
+codes. Application idempotency remains in typed input and Agent signatures; an
+HTTP idempotency header is not normative.
+
+The PostgreSQL proposal relies on documented
+[Serializable isolation](https://www.postgresql.org/docs/18/transaction-iso.html),
+[complete-transaction retry](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html),
+[explicit locking](https://www.postgresql.org/docs/18/explicit-locking.html),
+and [`SELECT ... SKIP LOCKED`](https://www.postgresql.org/docs/18/sql-select.html)
+semantics. Sequence non-rollback, database-clock leases, exclusive migration
+coordination, durability settings, and nontransactional index phases use
+[sequence functions](https://www.postgresql.org/docs/18/functions-sequence.html),
+[date/time functions](https://www.postgresql.org/docs/18/functions-datetime.html),
+[advisory locks](https://www.postgresql.org/docs/18/explicit-locking.html#ADVISORY-LOCKS),
+[WAL configuration](https://www.postgresql.org/docs/18/runtime-config-wal.html),
+and [`CREATE INDEX CONCURRENTLY`](https://www.postgresql.org/docs/18/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY).
+These references constrain a future adapter without selecting a provider or
+claiming server implementation. The complete proposed profile is the
+[collaboration-server contract](../architecture/collaboration-server.md).
+
 ## Proof artifact profile
 
 The initial Release Proof combines:

@@ -1,0 +1,14 @@
+{
+  "action": "replay",
+  "actor_context_evidence_digest": "blake3:d6e29e3a9f3bf5851f5d656a0cab292e12760dbc8ad034b06fa6d297436a4a20",
+  "api_version": "proof.dev/delivery-management-fact/v1",
+  "delivery_id": "019e0000-0000-7000-8000-000000000092",
+  "event_id": "019e0000-0000-7000-8000-000000000091",
+  "from_generation": 1,
+  "idempotency_key": "019e0000-0000-7000-8000-000000000093",
+  "reason": "dead-letter-replay",
+  "recorded_at": "2026-08-23T04:10:00Z",
+  "to_generation": 2,
+  "workspace_id": "019e0000-0000-7000-8000-000000000001",
+  "workspace_transaction_sequence": 91
+}

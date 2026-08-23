@@ -1,0 +1,1657 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/collaboration-server/application-operations/v1",
+  "title": "Proof collaboration-server proposed application and transport contracts",
+  "description": "Strict decision-candidate contracts for operations without an accepted localized-content v2 input/result Schema, plus closed persisted operation-effect preimages needed to bind localized successes in the collaboration registry.",
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "nullableUuidv7": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/uuidv7" }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "nullableDigest": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/digest" }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "nullableTimestamp": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/timestamp" }
+      ]
+    },
+    "logicalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "httpsUri": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "pattern": "^https://[^?#]+(?:[/?#].*)?$"
+    },
+    "httpsIssuerUri": {
+      "description": "An absolute HTTPS OIDC issuer identifier with no query or fragment. A path is permitted and exact byte-for-byte issuer comparison is required.",
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "pattern": "^https://[^?#]+$"
+    },
+    "authorityHead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_digest", "sequence"],
+      "properties": {
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "role": {
+      "enum": [
+        "authority.admin",
+        "content.publisher",
+        "content.requester",
+        "content.reviewer",
+        "environment.activator",
+        "environment.admin",
+        "evidence.auditor",
+        "identity.admin"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locale", "object_id", "schema_id"],
+      "properties": {
+        "locale": {
+          "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/locale"
+        },
+        "object_id": { "$ref": "#/$defs/uuidv7" },
+        "schema_id": { "$ref": "#/$defs/logicalId" }
+      }
+    },
+    "localizedChangeSetCreateOperationEffectV1": {
+      "description": "Exact persisted P5 changeset.create/v2 application-effect preimage. The digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of this whole closed value.",
+      "x-proof-effect-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-family": "exact-output-with-request-digest",
+      "x-proof-request-digest-context": "proof:operation-effect:v1",
+      "x-proof-request-digest-schema": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCreateInput",
+      "x-proof-effect-reconstruction": "request_digest is the exact persisted digest of the accepted ChangeSetCreateInput request projection. result is projected from the exact ChangeSetCreateOutput byte-for-byte: all seven output fields are copied and no field is omitted, added or renamed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operation_kind", "request_digest", "result"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation-effect/v1" },
+        "operation_kind": { "const": "changeset.create/v2" },
+        "request_digest": { "$ref": "#/$defs/digest" },
+        "result": {
+          "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCreateOutput"
+        }
+      }
+    },
+    "localizedChangeSetAddOperationEffectV1": {
+      "description": "Exact persisted P5 changeset.add/v2 application-effect preimage. The digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of this whole closed value.",
+      "x-proof-effect-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-family": "exact-output-with-request-digest",
+      "x-proof-request-digest-context": "proof:operation-effect:v1",
+      "x-proof-request-digest-schema": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetAddInput",
+      "x-proof-effect-reconstruction": "request_digest is the exact persisted digest of the accepted ChangeSetAddInput request projection. result is the exact ChangeSetAddOutput byte-for-byte; edit_ids is the assigned input-order list, first_ordinal is its first persisted ordinal and total_edit_count is the resulting complete count.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operation_kind", "request_digest", "result"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation-effect/v1" },
+        "operation_kind": { "const": "changeset.add/v2" },
+        "request_digest": { "$ref": "#/$defs/digest" },
+        "result": {
+          "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetAddOutput"
+        }
+      }
+    },
+    "localizedContextBuildOperationEffectRequestV1": {
+      "description": "Exact normalized request preimage whose proof:operation-effect:v1 digest is embedded in localizedContextBuildOperationEffectV1. policy_rules are replaced by the digest of their exact accepted normalized policy manifest; no other ContextBuildInput field is changed or omitted.",
+      "x-proof-policy-digest-context": "proof:policy-bundle:v1",
+      "x-proof-policy-schema": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/localizedContentPolicyV1",
+      "x-proof-policy-projection-rule": "Normalize ContextBuildInput.policy_rules by sorting each disallowed_values array by UTF-8 bytes, sorting rules by (locale,pointer), and rejecting duplicates; policy_digest is BLAKE3-256 derive-key proof:policy-bundle:v1 over RFC 8785 of {api_version:proof.dev/localized-content-policy/v1,rules:<that exact normalized array>}.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "context_pack_id", "created_at", "expires_at", "idempotency_key", "limits", "policy_digest", "resource_intent_digest", "resource_intent_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation/context.build/v2" },
+        "context_pack_id": { "$ref": "#/$defs/uuidv7" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "limits": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contextLimits" },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "resource_intent_id": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "localizedContextBuildOperationEffectV1": {
+      "description": "Exact persisted P5 context.build/v2 application-effect preimage. The digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of this whole closed value.",
+      "x-proof-effect-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-family": "reduced-output-with-request-digest",
+      "x-proof-request-digest-context": "proof:operation-effect:v1",
+      "x-proof-request-digest-schema": "#/$defs/localizedContextBuildOperationEffectRequestV1",
+      "x-proof-effect-reconstruction": "request_digest is the persisted proof:operation-effect:v1 digest of the accepted canonical context request projection, including policy_digest rather than policy_rules. result.context_pack_id and result.context_pack_digest equal the same-named ContextBuildOutput fields byte-for-byte; the larger manifest and resource-intent projection are deliberately not part of this effect preimage.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operation_kind", "request_digest", "result"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation-effect/v1" },
+        "operation_kind": { "const": "context.build/v2" },
+        "request_digest": { "$ref": "#/$defs/digest" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["context_pack_digest", "context_pack_id"],
+          "properties": {
+            "context_pack_digest": { "$ref": "#/$defs/digest" },
+            "context_pack_id": { "$ref": "#/$defs/uuidv7" }
+          }
+        }
+      }
+    },
+    "localizedChangeSetSubmitOperationEffectV1": {
+      "description": "Exact persisted P5 changeset.submit/v2 application-effect preimage. Unlike the other keyed localized mutations this derived-key lifecycle effect contains no request_digest. The digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of this whole closed value.",
+      "x-proof-effect-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-family": "derived-lifecycle-without-request-digest",
+      "x-proof-effect-reconstruction": "result.changeset_id, sealed_changeset_digest and validation_results_digest equal ChangeSetSubmitOutput; occurred_at equals output.submitted_at; principal_id is the authenticated requesting Principal that owns the ChangeSet; approval is exactly null. Output status is not part of this effect preimage.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operation_kind", "result"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation-effect/v1" },
+        "operation_kind": { "const": "changeset.submit/v2" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approval", "changeset_id", "occurred_at", "principal_id", "sealed_changeset_digest", "validation_results_digest"],
+          "properties": {
+            "approval": { "type": "null" },
+            "changeset_id": { "$ref": "#/$defs/uuidv7" },
+            "occurred_at": { "$ref": "#/$defs/timestamp" },
+            "principal_id": { "$ref": "#/$defs/uuidv7" },
+            "sealed_changeset_digest": { "$ref": "#/$defs/digest" },
+            "validation_results_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      }
+    },
+    "localizedCommitRenditionOperationEffectV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "edit_id", "locale", "object_id", "revision"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/digest" },
+        "edit_id": { "$ref": "#/$defs/uuidv7" },
+        "locale": { "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidv7" },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      }
+    },
+    "localizedChangeSetCommitOperationEffectV1": {
+      "description": "Exact persisted P5 changeset.commit/v2 application-effect preimage. The digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of this whole closed value.",
+      "x-proof-effect-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-family": "reduced-output-with-request-digest",
+      "x-proof-request-digest-context": "proof:operation-effect:v1",
+      "x-proof-request-digest-schema": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/changeSetCommitInput",
+      "x-proof-effect-reconstruction": "request_digest is the exact persisted digest of the accepted ChangeSetCommitInput request projection. The result fields equal ChangeSetCommitOutput except status is omitted and each rendition is the exact closed projection {digest:rendition_digest,edit_id,locale,object_id,revision}; array length/order equals the complete effective-edit order and is 1..=100.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operation_kind", "request_digest", "result"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation-effect/v1" },
+        "operation_kind": { "const": "changeset.commit/v2" },
+        "request_digest": { "$ref": "#/$defs/digest" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["changeset_id", "committed_at", "previous_state", "renditions", "resulting_state", "sealed_changeset_digest", "validation_results_digest"],
+          "properties": {
+            "changeset_id": { "$ref": "#/$defs/uuidv7" },
+            "committed_at": { "$ref": "#/$defs/timestamp" },
+            "previous_state": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/stateReference" },
+            "renditions": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/localizedCommitRenditionOperationEffectV1" }
+            },
+            "resulting_state": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/stateReference" },
+            "sealed_changeset_digest": { "$ref": "#/$defs/digest" },
+            "validation_results_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      }
+    },
+    "localizedEditionCreateOperationEffectV1": {
+      "description": "Exact persisted P5 edition.create/v2 application-effect preimage. The digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785 of this whole closed value.",
+      "x-proof-effect-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-family": "reduced-output-with-request-digest",
+      "x-proof-request-digest-context": "proof:operation-effect:v1",
+      "x-proof-request-digest-schema": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/editionCreateInput",
+      "x-proof-effect-reconstruction": "request_digest is the exact persisted digest of the accepted EditionCreateInput request projection. result.edition_digest, edition_id and state equal EditionCreateOutput byte-for-byte; result.changeset_id equals normalized input.changeset_id and the immutable Edition manifest's changeset_id. The output manifest itself is not part of this effect preimage.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "operation_kind", "request_digest", "result"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation-effect/v1" },
+        "operation_kind": { "const": "edition.create/v2" },
+        "request_digest": { "$ref": "#/$defs/digest" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["changeset_id", "edition_digest", "edition_id", "state"],
+          "properties": {
+            "changeset_id": { "$ref": "#/$defs/uuidv7" },
+            "edition_digest": { "$ref": "#/$defs/digest" },
+            "edition_id": { "$ref": "#/$defs/uuidv7" },
+            "state": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/stateReference" }
+          }
+        }
+      }
+    },
+    "capabilitiesDiscoverInputV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version"],
+      "properties": {
+        "api_version": { "const": "proof.dev/capabilities-discover-input/v1" }
+      }
+    },
+    "capabilitiesDiscoverResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_operation_count",
+        "api_version",
+        "human_operation_count",
+        "profile",
+        "registry",
+        "registry_canonicalization",
+        "registry_digest_algorithm",
+        "registry_schema",
+        "registry_sha256",
+        "route_count"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/capabilities-discover-result/v1" },
+        "profile": { "const": "proof.server/single-workspace/v1" },
+        "registry": {
+          "$ref": "https://proof.dev/schema/collaboration-server/http-operation-registry/v1"
+        },
+        "registry_canonicalization": { "const": "RFC8785" },
+        "registry_digest_algorithm": { "const": "sha-256" },
+        "registry_schema": { "const": "https://proof.dev/schema/collaboration-server/http-operation-registry/v1" },
+        "registry_sha256": { "const": "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf" },
+        "route_count": { "const": 9 },
+        "human_operation_count": { "const": 23 },
+        "agent_operation_count": { "const": 14 }
+      }
+    },
+    "agentBindingIssueInputV1": {
+      "description": "Exact authenticated-Human input for one accepted Ed25519 Agent binding. Caller fields are copied without reinterpretation; identity, authority and issue-time fields are server-derived from proven enrollment and the locked authority head.",
+      "x-proof-result-schema": "https://proof.dev/schema/authority/principal-binding/v1",
+      "x-proof-effect-schema": "https://proof.dev/schema/authority/principal-binding/v1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:agent-binding.issue,version:proof.dev/operation/agent-binding.issue/v1}}",
+      "x-proof-public-input-projection-rule": "For agent-binding.issue/v1 the exact disclosure-safe public projection is {audience,binding_id,principal_id,public_key,enrollment_challenge_digest,enrollment_envelope_digest,not_before,expires_at,supersedes_binding_id,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:agent-binding.issue,version:proof.dev/operation/agent-binding.issue/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "Result binding_id, principal_id, public_key, audience, enrollment_challenge_digest, enrollment_envelope_digest, not_before, expires_at and supersedes_binding_id equal input byte-for-byte. Result workspace_id equals the authenticated command Workspace and audience is exactly proof://workspace/{workspace_id}. principal_type, algorithm and key_usage are agent, ed25519 and authenticated-command. authenticated_subject is the exact proof/local-ed25519 subject proven by the pinned enrollment challenge/envelope and same public key. issued_by_principal_id is the authenticated requesting Human; issued_at is generated once and retry-stable. Result authority_sequence == locked evaluated authority-head sequence + 1 without overflow and previous_authority_record_digest equals that head's record digest.",
+      "x-proof-success-binding": "For operation agent-binding.issue/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact PrincipalBindingV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audience",
+        "binding_id",
+        "enrollment_challenge_digest",
+        "enrollment_envelope_digest",
+        "expires_at",
+        "idempotency_key",
+        "not_before",
+        "principal_id",
+        "public_key",
+        "supersedes_binding_id"
+      ],
+      "properties": {
+        "audience": { "type": "string", "pattern": "^proof://workspace/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        "binding_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "public_key": { "type": "string", "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$" },
+        "enrollment_challenge_digest": { "$ref": "#/$defs/digest" },
+        "enrollment_envelope_digest": { "$ref": "#/$defs/digest" },
+        "not_before": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "supersedes_binding_id": { "$ref": "#/$defs/nullableUuidv7" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "agentBindingRevokeInputV1": {
+      "description": "Exact Human operation input for revoking an accepted Ed25519 Agent principal binding. Rotation is an Agent-key lifecycle reason and is deliberately absent from the OIDC binding reason vocabulary.",
+      "x-proof-result-schema": "https://proof.dev/schema/authority/principal-binding-revocation/v1",
+      "x-proof-effect-schema": "https://proof.dev/schema/authority/principal-binding-revocation/v1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:agent-binding.revoke,version:proof.dev/operation/agent-binding.revoke/v1}}",
+      "x-proof-public-input-projection-rule": "For agent-binding.revoke/v1 the exact disclosure-safe public projection is {binding_id,reason,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:agent-binding.revoke,version:proof.dev/operation/agent-binding.revoke/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "The server locks one active PrincipalBindingV1 whose binding_id equals input.binding_id. Result binding_id and reason equal input byte-for-byte; workspace_id equals the authenticated command Workspace; revoked_by_principal_id is the authenticated requesting Human; revocation_id and revoked_at are generated once and retry-stable. Result authority_sequence == locked evaluated authority-head sequence + 1 without overflow and previous_authority_record_digest equals that head's record digest. The operation appends a revocation and never edits the binding.",
+      "x-proof-success-binding": "For operation agent-binding.revoke/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact PrincipalBindingRevocationV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_id", "idempotency_key", "reason"],
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/uuidv7" },
+        "reason": { "enum": ["administrative", "compromise", "disablement", "recovery", "rotation"] },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "oidcBindingRevokeInputV1": {
+      "description": "Exact Human operation input for revoking one commitment-only OIDC subject binding. OIDC bindings cannot use the Agent-only rotation reason.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingRevocationV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingRevocationV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:oidc-binding.revoke,version:proof.dev/operation/oidc-binding.revoke/v1}}",
+      "x-proof-public-input-projection-rule": "For oidc-binding.revoke/v1 the exact disclosure-safe public projection is {binding_id,reason,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:oidc-binding.revoke,version:proof.dev/operation/oidc-binding.revoke/v1}}; protected OIDC identity/opening bytes, private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "The server locks one active protected/public OIDC binding pair whose binding_id equals input.binding_id. Result binding_id and reason equal input byte-for-byte; binding_record_digest is the proof:remote-authority-record:v1 digest of the exact prior public OidcPrincipalBindingV1; principal_id and subject_commitment equal that binding; workspace_id equals the authenticated command Workspace; revoked_by_principal_id equals the authenticated requesting Human and revoked_by_actor_context_digest equals that command's public actor-context-evidence digest; revocation_id and revoked_at are generated once and retry-stable. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key. Protected lookup/opening bytes remain protected and unchanged.",
+      "x-proof-success-binding": "For operation oidc-binding.revoke/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact OidcPrincipalBindingRevocationV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_id", "idempotency_key", "reason"],
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/uuidv7" },
+        "reason": { "enum": ["administrative", "compromise", "disablement", "recovery"] },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "contentResourceIntentIssueInputV1": {
+      "description": "Exact authenticated-Human request for one immutable ContentResourceIntentV1. Targets are caller-selected, nonempty and already canonical; the server pins the complete current released baseline rather than accepting a caller-supplied baseline.",
+      "x-proof-result-schema": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contentResourceIntentV1",
+      "x-proof-effect-schema": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contentResourceIntentV1",
+      "x-proof-set-order": "targets are strictly sorted by (object_id, schema_id, locale) ascending canonical UTF-8 bytes with no duplicate tuple; the server rejects rather than silently reorders caller bytes",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:content-resource-intent.issue,version:proof.dev/operation/content-resource-intent.issue/v1}}",
+      "x-proof-public-input-projection-rule": "For content-resource-intent.issue/v1 the exact disclosure-safe public projection is {intent_id,environment_id,targets,idempotency_key,issued_at} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:content-resource-intent.issue,version:proof.dev/operation/content-resource-intent.issue/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:content-resource-intent:v1",
+      "x-proof-success-cross-check": "Result intent_id, environment_id, targets and issued_at equal input byte-for-byte; workspace_id and issued_by_principal_id equal the authenticated command Workspace and requesting Human. Result base is the exact current versioned Release/Edition/KnownState closure for input.environment_id locked at issuance; every target Object exists in that Edition and its actual Schema equals target.schema_id. The immutable content-intent bytes exclude the external intent digest. Input idempotency_key binds replay evidence but is not injected into the result artifact.",
+      "x-proof-success-binding": "For operation content-resource-intent.issue/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact ContentResourceIntentV1 result); application_effect_digest is BLAKE3-256 derive-key proof:content-resource-intent:v1 over RFC 8785(that exact result artifact); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment_id", "idempotency_key", "intent_id", "issued_at", "targets"],
+      "properties": {
+        "intent_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "issued_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "changeSetApproveInputV3": {
+      "description": "Exact approval selector closure. Every expected_* digest is a caller-pinned immutable value; the server loads that exact value at expected_authority_head and rejects substitution instead of silently following a newer head.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/changeSetApprovalV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/changeSetApprovalV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:changeset.approve,version:proof.dev/operation/changeset.approve/v3}}",
+      "x-proof-public-input-projection-rule": "For changeset.approve/v3 the exact disclosure-safe public projection is {approval_id,approval_name,changeset_id,expected_sealed_changeset_digest,expected_proposal_digest,expected_validation_results_digest,expected_submission_digest,expected_resource_intent_digest,expected_context_pack_digest,expected_environment_config_digest,expected_policy_bundle_digest,expected_validation_policy_digest,expected_authority_head,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:changeset.approve,version:proof.dev/operation/changeset.approve/v3}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-approval-cross-check": "The authenticated Human command Workspace equals result.workspace_id. Its current OIDC Principal, subject commitment, binding and public actor-context-evidence digest equal result.approver_principal_id, approver_subject_commitment, approver_binding_id and approver_actor_context_digest; reviewer_role_assignment_digest names that approver's exact active content.reviewer assignment at input.expected_authority_head. Result approval_id, approval_name, changeset_id and idempotency_key equal input byte-for-byte, approval_decision is approved, approved_at is retry-stabilized committed server time, and normalized_input_digest is the proof:remote-normalized-operation-input:v1 digest declared here. Each input expected_sealed_changeset_digest, expected_proposal_digest, expected_validation_results_digest, expected_submission_digest, expected_resource_intent_digest, expected_context_pack_digest, expected_environment_config_digest, expected_policy_bundle_digest and expected_validation_policy_digest equals the correspondingly named ChangeSetApprovalV1 digest byte-for-byte. The loaded sealed ChangeSet, proposal and effective leaves, validation result, submission, resource intent, ContextPack, active EnvironmentConfig, policy bundle and validation policy reproduce every result identity/version/digest, including requesting_principal_id, requesting_subject_commitment, submission_id, resource_intent_id, context_pack_id, environment_id, environment_config_version, environment_activated_by_principal_id and effective_leaves_digest. Result operating_principal_id equals the operating Agent in the accepted release.create trace; result.publisher_principal_id equals result.operating_principal_id exactly and equals that same trace Principal. Approver/requester/operating-publisher/environment-activator separation-of-duty inequalities still apply. Result evaluated_authority_head equals input.expected_authority_head; authority_sequence is exactly head.sequence + 1 without overflow, previous_authority_record_digest equals head.record_digest and authority_key_id is the selected Workspace authority key. No current-head, actor, publisher, closure, policy-selector or digest substitution is permitted.",
+      "x-proof-success-binding": "For operation changeset.approve/v3, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact ChangeSetApprovalV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_id",
+        "approval_name",
+        "changeset_id",
+        "expected_authority_head",
+        "expected_context_pack_digest",
+        "expected_environment_config_digest",
+        "expected_policy_bundle_digest",
+        "expected_proposal_digest",
+        "expected_resource_intent_digest",
+        "expected_sealed_changeset_digest",
+        "expected_submission_digest",
+        "expected_validation_results_digest",
+        "expected_validation_policy_digest",
+        "idempotency_key"
+      ],
+      "properties": {
+        "approval_id": { "$ref": "#/$defs/uuidv7" },
+        "approval_name": { "$ref": "#/$defs/logicalId" },
+        "changeset_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_sealed_changeset_digest": { "$ref": "#/$defs/digest" },
+        "expected_proposal_digest": { "$ref": "#/$defs/digest" },
+        "expected_validation_results_digest": { "$ref": "#/$defs/digest" },
+        "expected_submission_digest": { "$ref": "#/$defs/digest" },
+        "expected_resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "expected_context_pack_digest": { "$ref": "#/$defs/digest" },
+        "expected_environment_config_digest": { "$ref": "#/$defs/digest" },
+        "expected_policy_bundle_digest": { "$ref": "#/$defs/digest" },
+        "expected_validation_policy_digest": { "$ref": "#/$defs/digest" },
+        "expected_authority_head": { "$ref": "#/$defs/authorityHead" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "delegationIssueInputV2": {
+      "description": "Complete caller-selected material needed to reconstruct the direct DelegationV2 payload after the server injects the locked Workspace, issuing Human, authority sequence/predecessor/key and recorded issue time. operating_principal_id maps exactly to recipient_principal_id; actions, scope, constraints, not_before and expires_at are copied without reinterpretation. The resource-intent pair and idempotency key bind authorization and retry evidence but are not silently added to the accepted DelegationV2 bytes.",
+      "x-proof-result-schema": "https://proof.dev/schema/authority/delegation/v2",
+      "x-proof-effect-schema": "https://proof.dev/schema/authority/delegation/v2",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:delegation.issue,version:proof.dev/operation/delegation.issue/v2}}",
+      "x-proof-public-input-projection-rule": "For delegation.issue/v2 the exact disclosure-safe public projection is {delegation_id,operating_principal_id,resource_intent_id,resource_intent_digest,actions,scope,constraints,not_before,expires_at,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:delegation.issue,version:proof.dev/operation/delegation.issue/v2}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-delegation-v2-mapping": {
+        "operating_principal_id": "recipient_principal_id",
+        "actions": "actions",
+        "scope": "scope",
+        "constraints": "constraints",
+        "not_before": "not_before",
+        "expires_at": "expires_at"
+      },
+      "x-proof-set-order": "actions, scope.environment_ids, scope.object_ids, scope.schema_ids and scope.locales are already sorted by their accepted canonical byte order and contain no duplicates; the server rejects rather than silently reorders caller bytes",
+      "x-proof-success-cross-check": "Result delegation_id equals input.delegation_id; recipient_principal_id equals input.operating_principal_id; actions, scope, constraints, not_before and expires_at equal input byte-for-byte; delegation_profile is proof.local/authority/direct/v1. Result workspace_id and issuer_principal_id equal the authenticated command Workspace and requesting Human; issued_at is generated once and retry-stable. Result authority_sequence == locked evaluated authority-head sequence + 1 without overflow and previous_authority_record_digest equals that head's record digest. The server loads ContentResourceIntentV1 by input.resource_intent_id, requires its proof:content-resource-intent:v1 digest to equal input.resource_intent_digest, its Workspace/issuer to equal this command, and its exact environment/Object/Schema/locale targets to cover the requested Delegation scope. The recipient Agent is enabled, not_before < expires_at, expiry and budgets remain within policy. Resource-intent fields and idempotency_key bind the decision/replay but are never injected into DelegationV2 bytes.",
+      "x-proof-success-binding": "For operation delegation.issue/v2, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact DelegationV2 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actions",
+        "constraints",
+        "delegation_id",
+        "expires_at",
+        "idempotency_key",
+        "not_before",
+        "operating_principal_id",
+        "resource_intent_digest",
+        "resource_intent_id",
+        "scope"
+      ],
+      "properties": {
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "resource_intent_id": { "$ref": "#/$defs/uuidv7" },
+        "resource_intent_digest": { "$ref": "#/$defs/digest" },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "changeset:add",
+              "changeset:commit",
+              "changeset:create",
+              "changeset:diff",
+              "changeset:get",
+              "changeset:submit",
+              "changeset:validate",
+              "context:build",
+              "edition:create",
+              "object:query_released",
+              "release:create",
+              "workspace:status"
+            ]
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["environment_ids", "locales", "object_ids", "schema_ids"],
+          "properties": {
+            "environment_ids": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/logicalId" }
+            },
+            "object_ids": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/uuidv7" }
+            },
+            "schema_ids": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/logicalId" }
+            },
+            "locales": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/locale"
+              }
+            }
+          }
+        },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allow_subdelegation", "max_context_bytes", "max_edits_per_changeset", "max_objects"],
+          "properties": {
+            "max_objects": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "max_context_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+            "max_edits_per_changeset": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "allow_subdelegation": { "const": false }
+          }
+        },
+        "not_before": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "delegationRevokeInputV1": {
+      "description": "Exact append-only revocation request for one current DelegationV2; it never edits or reinterprets the Delegation.",
+      "x-proof-result-schema": "https://proof.dev/schema/authority/delegation-revocation/v1",
+      "x-proof-effect-schema": "https://proof.dev/schema/authority/delegation-revocation/v1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:delegation.revoke,version:proof.dev/operation/delegation.revoke/v1}}",
+      "x-proof-public-input-projection-rule": "For delegation.revoke/v1 the exact disclosure-safe public projection is {delegation_id,reason,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:delegation.revoke,version:proof.dev/operation/delegation.revoke/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "The server locks the exact existing, unrevoked DelegationV2 named by input.delegation_id and verifies the requesting Human is its issuer or an active authority.admin under the locked head. Result delegation_id and reason equal input byte-for-byte; workspace_id equals the authenticated command Workspace; revoked_by_principal_id is the authenticated requesting Human; revocation_id and revoked_at are generated once and retry-stable. Result authority_sequence == locked evaluated authority-head sequence + 1 without overflow and previous_authority_record_digest equals that head's record digest.",
+      "x-proof-success-binding": "For operation delegation.revoke/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact DelegationRevocationV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delegation_id", "idempotency_key", "reason"],
+      "properties": {
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "reason": { "enum": ["administrative", "compromise", "issuer_request", "scope_change"] },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "deliveryGetInputV1": {
+      "description": "Exact no-key read of one delivery generation; a stale generation is a conflict and never aliases newer state.",
+      "x-proof-result-schema": "#/$defs/deliveryGetResultV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:delivery.get,version:proof.dev/operation/delivery.get/v1}}",
+      "x-proof-public-input-projection-rule": "For delivery.get/v1 the exact disclosure-safe public projection is {event_id,delivery_id,expected_generation} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:delivery.get,version:proof.dev/operation/delivery.get/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-success-binding": "For operation delivery.get/v1, the success RemoteApplicationConsequenceV1 application_key_kind is none, application_key is null and application_effect_digest is null; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact DeliveryGetResultV1); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery_id", "event_id", "expected_generation"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      }
+    },
+    "deliveryGetResultV1": {
+      "description": "Exact projection of the delivery row selected by deliveryGetInputV1 at the committed transaction snapshot.",
+      "x-proof-request-state-cross-check": "event_id and delivery_id equal the normalized input and selected immutable event/delivery identities; generation equals both input.expected_generation and the current delivery generation. status, attempts_in_generation and next_attempt_at equal that same current state. receipt_digest is null exactly when the current state has no receipt; otherwise it equals the documented digest of the exact immutable receipt fact selected by the state's receipt identity. A stale expected_generation fails with proof.state.conflict and never returns a newer generation under the stale request.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "attempts_in_generation",
+        "delivery_id",
+        "event_id",
+        "generation",
+        "next_attempt_at",
+        "receipt_digest",
+        "status"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/delivery-get-result/v1" },
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "status": { "enum": ["pending", "in-flight", "delivered", "dead-letter", "abandoned"] },
+        "attempts_in_generation": {
+          "description": "Claims consumed in the current delivery generation; immutable attempts from earlier generations remain in history.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "next_attempt_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "receipt_digest": { "$ref": "#/$defs/nullableDigest" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "pending" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "attempts_in_generation": { "type": "integer", "minimum": 0, "maximum": 11 },
+              "next_attempt_at": { "$ref": "#/$defs/timestamp" },
+              "receipt_digest": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "in-flight" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "attempts_in_generation": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "next_attempt_at": { "type": "null" },
+              "receipt_digest": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "delivered" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "attempts_in_generation": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "next_attempt_at": { "type": "null" },
+              "receipt_digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "enum": ["abandoned", "dead-letter"] } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "attempts_in_generation": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "next_attempt_at": { "type": "null" },
+              "receipt_digest": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "deliveryReplayInputV1": {
+      "description": "Exact keyed replay of one locked dead-letter generation; expected_generation is capped so the required successor generation is representable without overflow.",
+      "x-proof-result-schema": "#/$defs/deliveryReplayResultV1",
+      "x-proof-effect-schema": "#/$defs/deliveryManagementFactV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:delivery.replay,version:proof.dev/operation/delivery.replay/v1}}",
+      "x-proof-public-input-projection-rule": "For delivery.replay/v1 the exact disclosure-safe public projection is {event_id,delivery_id,expected_generation,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:delivery.replay,version:proof.dev/operation/delivery.replay/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:delivery-management-fact:v1",
+      "x-proof-success-binding": "For operation delivery.replay/v1, event_id, delivery_id and expected_generation select the exact locked dead-letter generation; the result and committed state satisfy #/$defs/deliveryReplayResultV1 and #/$defs/deliveryManagementFactV1. The success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact deliveryReplayResultV1 result); application_effect_digest is the result management_fact_digest and is BLAKE3-256 derive-key proof:delivery-management-fact:v1 over RFC 8785(the exact deliveryManagementFactV1); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery_id", "event_id", "expected_generation", "idempotency_key"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_generation": { "type": "integer", "minimum": 1, "maximum": 2147483646 },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "deliveryAbandonInputV1": {
+      "description": "Exact keyed abandonment of one locked dead-letter generation; reason is copied into the immutable management fact.",
+      "x-proof-byte-limits": "UTF-8 byte_length(reason) is 1..=256. JSON Schema maxLength is only an early code-point bound; multibyte overflow is rejected.",
+      "x-proof-result-schema": "#/$defs/deliveryAbandonResultV1",
+      "x-proof-effect-schema": "#/$defs/deliveryManagementFactV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:delivery.abandon,version:proof.dev/operation/delivery.abandon/v1}}",
+      "x-proof-public-input-projection-rule": "For delivery.abandon/v1 the exact disclosure-safe public projection is {event_id,delivery_id,expected_generation,reason,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:delivery.abandon,version:proof.dev/operation/delivery.abandon/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:delivery-management-fact:v1",
+      "x-proof-success-binding": "For operation delivery.abandon/v1, event_id, delivery_id and expected_generation select the exact locked dead-letter generation and reason is copied byte-for-byte; the result and committed state satisfy #/$defs/deliveryAbandonResultV1 and #/$defs/deliveryManagementFactV1. The success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact deliveryAbandonResultV1 result); application_effect_digest is the result management_fact_digest and is BLAKE3-256 derive-key proof:delivery-management-fact:v1 over RFC 8785(the exact deliveryManagementFactV1); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery_id", "event_id", "expected_generation", "idempotency_key", "reason"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "deliveryManagementFactV1": {
+      "description": "Immutable application fact for an authorized replay or abandonment. It is not a RemoteAuthorityRecordV1 payload; the signed RemoteApplicationConsequenceV1 for the operation binds this fact's digest as application_effect_digest.",
+      "x-proof-digest-context": "proof:delivery-management-fact:v1",
+      "x-proof-operation-cross-check": "For replay, event_id, delivery_id, from_generation and idempotency_key equal deliveryReplayInputV1, reason is exactly dead-letter-replay, and to_generation == from_generation + 1 without integer overflow. For abandonment, those fields equal deliveryAbandonInputV1, reason equals the exact normalized input reason byte-for-byte, and to_generation is null. workspace_id, actor_context_evidence_digest, recorded_at and workspace_transaction_sequence come from the same authorized committed application transaction; no worker-side or unsigned state mutation may synthesize this fact.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "actor_context_evidence_digest",
+        "api_version",
+        "delivery_id",
+        "event_id",
+        "from_generation",
+        "idempotency_key",
+        "reason",
+        "recorded_at",
+        "to_generation",
+        "workspace_id",
+        "workspace_transaction_sequence"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/delivery-management-fact/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "action": { "enum": ["abandon", "replay"] },
+        "from_generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "to_generation": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 2, "maximum": 2147483647 }
+          ]
+        },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "reason": {
+          "description": "Authoritative operator reason committed in the immutable management fact. For abandonment it equals the exact normalized request reason; for replay it is the server's stable normalized replay reason derived under the operation contract.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "actor_context_evidence_digest": { "$ref": "#/$defs/digest" },
+        "workspace_transaction_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "recorded_at": { "$ref": "#/$defs/timestamp" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "replay" } }, "required": ["action"] },
+          "then": {
+            "properties": {
+              "from_generation": { "type": "integer", "minimum": 1, "maximum": 2147483646 },
+              "to_generation": { "type": "integer", "minimum": 2, "maximum": 2147483647 },
+              "reason": { "const": "dead-letter-replay" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "abandon" } }, "required": ["action"] },
+          "then": { "properties": { "to_generation": { "type": "null" } } }
+        }
+      ]
+    },
+    "deliveryReplayResultV1": {
+      "description": "Exact committed replay result. Its management fact is the governed immutable application effect; the separately signed RemoteApplicationConsequenceV1 binds both digests.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "x-proof-success-cross-check": "event_id, delivery_id and from_generation equal deliveryReplayInputV1 and the locked current dead-letter state; to_generation == from_generation + 1 without overflow. The committed delivery state has those identities, generation == to_generation, status pending, attempts_in_generation 0 and no lease or receipt; its generation start/next-attempt schedule is installed in the same transaction. management_fact_digest == BLAKE3-256 derive-key proof:delivery-management-fact:v1 over RFC 8785(application fact), whose replay fields equal the input/result. The success RemoteApplicationConsequenceV1 has the exact replay operation, application_key_kind required-uuidv7, application_key equal to input.idempotency_key, result_digest == BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value), application_effect_digest == management_fact_digest and problem_code/prior_result_digest null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "delivery_id", "event_id", "from_generation", "management_fact_digest", "status", "to_generation"],
+      "properties": {
+        "api_version": { "const": "proof.dev/delivery-replay-result/v1" },
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "from_generation": { "type": "integer", "minimum": 1, "maximum": 2147483646 },
+        "to_generation": { "type": "integer", "minimum": 2, "maximum": 2147483647 },
+        "status": { "const": "pending" },
+        "management_fact_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "deliveryAbandonResultV1": {
+      "description": "Exact committed abandonment result. Its management fact is the governed immutable application effect; the separately signed RemoteApplicationConsequenceV1 binds both digests.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "x-proof-success-cross-check": "event_id, delivery_id and generation equal deliveryAbandonInputV1 event_id, delivery_id and expected_generation and the locked current dead-letter state. The committed delivery state preserves those identities, generation, generation_started_at and attempts_in_generation, changes status to abandoned and has no lease, next attempt or receipt; management_fact_digest == BLAKE3-256 derive-key proof:delivery-management-fact:v1 over RFC 8785(application fact), whose abandonment fields and exact normalized reason equal the input/result. The success RemoteApplicationConsequenceV1 has the exact abandon operation, application_key_kind required-uuidv7, application_key equal to input.idempotency_key, result_digest == BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value), application_effect_digest == management_fact_digest and problem_code/prior_result_digest null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "delivery_id", "event_id", "generation", "management_fact_digest", "status"],
+      "properties": {
+        "api_version": { "const": "proof.dev/delivery-abandon-result/v1" },
+        "event_id": { "$ref": "#/$defs/uuidv7" },
+        "delivery_id": { "$ref": "#/$defs/uuidv7" },
+        "generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "status": { "const": "abandoned" },
+        "management_fact_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "environmentConfigProposeInputV2": {
+      "description": "Exact proposal of one normalized Environment configuration transition at a caller-pinned predecessor. Version and digest are both null only for the first configuration and both non-null otherwise.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/environmentConfigProposalV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/environmentConfigProposalV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:environment-config.propose,version:proof.dev/operation/environment-config.propose/v2}}",
+      "x-proof-public-input-projection-rule": "For environment-config.propose/v2 the exact disclosure-safe public projection is {environment_id,proposal_id,expected_predecessor_config_version,expected_predecessor_config_digest,normalized_configuration,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:environment-config.propose,version:proof.dev/operation/environment-config.propose/v2}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "Result environment_id, proposal_id, expected_predecessor_config_version, expected_predecessor_config_digest, normalized_configuration and idempotency_key equal input byte-for-byte. The locked current EnvironmentConfigV2 predecessor equals the expected pair (both null only for the first configuration). normalized_configuration_digest is BLAKE3-256 derive-key proof:environment-config:v2 over RFC 8785(input.normalized_configuration), and normalized_input_digest is the proof:remote-normalized-operation-input:v1 digest declared here. Result workspace_id equals the authenticated command Workspace; proposed_by_principal_id and proposed_by_actor_context_digest equal the authenticated requesting Human and exact public actor-context-evidence digest; proposer_role_assignment_digest names the exact active environment.admin assignment evaluated for this command; proposed_at is generated once and retry-stable. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key.",
+      "x-proof-success-binding": "For operation environment-config.propose/v2, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact EnvironmentConfigProposalV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment_id",
+        "expected_predecessor_config_digest",
+        "expected_predecessor_config_version",
+        "idempotency_key",
+        "normalized_configuration",
+        "proposal_id"
+      ],
+      "properties": {
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "proposal_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_predecessor_config_version": {
+          "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1, "maximum": 2147483646 }]
+        },
+        "expected_predecessor_config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "normalized_configuration": {
+          "$ref": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/normalizedEnvironmentConfiguration"
+        },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "expected_predecessor_config_version": { "type": "null" } }, "required": ["expected_predecessor_config_version"] },
+          "then": { "properties": { "expected_predecessor_config_digest": { "type": "null" } } },
+          "else": { "properties": { "expected_predecessor_config_digest": { "$ref": "#/$defs/digest" } } }
+        }
+      ]
+    },
+    "environmentConfigActivateInputV2": {
+      "description": "Exact distinct-Human activation of one signed configuration proposal at its still-current predecessor. Version and digest are both null only for the first configuration and both non-null otherwise.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/environmentConfigActivationV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/environmentConfigActivationV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:environment-config.activate,version:proof.dev/operation/environment-config.activate/v2}}",
+      "x-proof-public-input-projection-rule": "For environment-config.activate/v2 the exact disclosure-safe public projection is {environment_id,activation_id,proposal_id,proposal_digest,expected_predecessor_config_version,expected_predecessor_config_digest,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:environment-config.activate,version:proof.dev/operation/environment-config.activate/v2}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "Result environment_id, activation_id, proposal_id, proposal_digest and idempotency_key equal input byte-for-byte; predecessor_config_version and predecessor_config_digest equal input.expected_predecessor_config_version and input.expected_predecessor_config_digest. proposal_digest is the proof:remote-authority-record:v1 digest of the exact locked EnvironmentConfigProposalV1, whose Workspace, Environment, proposal identity and expected predecessor equal this command. The locked current predecessor still equals the expected pair. environment_config_version is 1 for a null predecessor or predecessor_config_version + 1 without overflow. normalized_configuration_digest and environment_config_digest both equal BLAKE3-256 derive-key proof:environment-config:v2 over RFC 8785(the proposal's exact normalized_configuration). Result environment_created_at, environment_created_by_principal_id, environment_created_by_actor_context_digest and environment_creation_authority_sequence equal the exact loaded EnvironmentCreationV1; environment_creation_record_digest is its proof:remote-authority-record:v1 digest. Result workspace_id equals the authenticated command Workspace; activated_by_principal_id and activated_by_actor_context_digest equal the authenticated requesting Human and exact public actor-context-evidence digest; activator_role_assignment_digest names that Human's exact active environment.activator assignment; activated_at is generated once and retry-stable; activated_by_principal_id differs from the proposal's proposed_by_principal_id. Result normalized_input_digest is the proof:remote-normalized-operation-input:v1 digest declared here. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key.",
+      "x-proof-success-binding": "For operation environment-config.activate/v2, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact EnvironmentConfigActivationV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activation_id",
+        "environment_id",
+        "expected_predecessor_config_digest",
+        "expected_predecessor_config_version",
+        "idempotency_key",
+        "proposal_digest",
+        "proposal_id"
+      ],
+      "properties": {
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "activation_id": { "$ref": "#/$defs/uuidv7" },
+        "proposal_id": { "$ref": "#/$defs/uuidv7" },
+        "proposal_digest": { "$ref": "#/$defs/digest" },
+        "expected_predecessor_config_version": {
+          "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1, "maximum": 2147483646 }]
+        },
+        "expected_predecessor_config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "expected_predecessor_config_version": { "type": "null" } }, "required": ["expected_predecessor_config_version"] },
+          "then": { "properties": { "expected_predecessor_config_digest": { "type": "null" } } },
+          "else": { "properties": { "expected_predecessor_config_digest": { "$ref": "#/$defs/digest" } } }
+        }
+      ]
+    },
+    "evidenceExportInputV2": {
+      "description": "Exact authenticated-Human selector for one immutable EvidenceExportCaptureV2 and its asynchronous bundle lifecycle.",
+      "x-proof-result-schema": "#/$defs/evidenceExportResultV2",
+      "x-proof-effect-schema": "https://proof.dev/schema/conformance/collaboration-server/remote-evidence/v2#/$defs/evidenceExportCaptureV2",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:evidence.export,version:proof.dev/operation/evidence.export/v2}}",
+      "x-proof-public-input-projection-rule": "For evidence.export/v2 the exact disclosure-safe public projection is {export_id,release_id,release_digest,disclosure_profile,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:evidence.export,version:proof.dev/operation/evidence.export/v2}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:evidence-export-capture:v2",
+      "x-proof-success-cross-check": "The locked Release identity/digest equals input.release_id/release_digest. The persisted EvidenceExportCaptureV2 export_id, release_id, release_digest, disclosure_profile and idempotency_key equal input byte-for-byte; workspace, snapshot, heads, membership, disclosures and captured_at come from the one SERIALIZABLE capture transaction and are never recaptured. The immutable EvidenceExportResultV2 create result carries only that export_id, pending status, and exact capture_digest. Every same-key replay returns those exact result bytes even after the separately queried lifecycle becomes ready.",
+      "x-proof-success-binding": "For operation evidence.export/v2, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact EvidenceExportResultV2); application_effect_digest is BLAKE3-256 derive-key proof:evidence-export-capture:v2 over RFC 8785(the exact persisted EvidenceExportCaptureV2); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disclosure_profile", "export_id", "idempotency_key", "release_digest", "release_id"],
+      "properties": {
+        "export_id": { "$ref": "#/$defs/uuidv7" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "disclosure_profile": { "enum": ["complete-portable", "explicit-external-artifacts"] },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "evidenceExportResultV2": {
+      "description": "Immutable create result for one persisted EvidenceExportCaptureV2. capture_digest equals the domain-separated RFC 8785/BLAKE3-256 digest stored by the matching export lifecycle. The authoritative transaction always commits and returns this exact pending result; every same-key replay returns it byte-for-byte even if the separately readable lifecycle later becomes ready.",
+      "x-proof-request-capture-cross-check": "The persisted EvidenceExportCaptureV2 export_id, release_id, release_digest, disclosure_profile and idempotency_key equal EvidenceExportInputV2 byte-for-byte. result.export_id equals both request.export_id and capture.export_id. The capture's remaining snapshot, authority-head, membership and disclosure fields are fixed in the same SERIALIZABLE transaction and are never recaptured from later heads.",
+      "x-proof-capture-digest-cross-check": "capture_digest == BLAKE3-256 derive-key proof:evidence-export-capture:v2 over RFC 8785(the exact persisted EvidenceExportCaptureV2) for this export_id and application idempotency row. Every equivalent retry preserves the exact capture bytes, create-result bytes, and capture_digest.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "x-proof-success-consequence-rule": "The success RemoteApplicationConsequenceV1 has operation evidence.export/v2, application_key_kind required-uuidv7, application_key equal to EvidenceExportInputV2.idempotency_key, result_digest equal to the proof:operation-effect:v1 digest of this exact immutable pending result, application_effect_digest equal to capture_digest, and prior_result_digest/problem_code null. A lifecycle-status read never substitutes or creates a second capture effect.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "capture_digest", "export_id", "status"],
+      "properties": {
+        "api_version": { "const": "proof.dev/evidence-export-result/v2" },
+        "export_id": { "$ref": "#/$defs/uuidv7" },
+        "status": { "const": "pending" },
+        "capture_digest": {
+          "description": "Exact proof:evidence-export-capture:v2 digest of the persisted typed capture.",
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "evidenceExportGetInputV1": {
+      "description": "Exact authorized no-key selector for the current producer lifecycle projection of one export. This read cannot create or replace the immutable capture or keyed create result.",
+      "x-proof-result-schema": "#/$defs/evidenceExportStatusV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:evidence.export.get,version:proof.dev/operation/evidence.export.get/v1}}",
+      "x-proof-public-input-projection-rule": "The exact disclosure-safe public projection is {export_id} copied from this input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that projection>,operation:{name:evidence.export.get,version:proof.dev/operation/evidence.export.get/v1}}.",
+      "x-proof-success-binding": "The no-key success RemoteApplicationConsequenceV1 has operation evidence.export.get/v1, application_key_kind none, application_key null, result_digest equal to BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact EvidenceExportStatusV1 observed by this read), application_effect_digest null, and prior_result_digest/problem_code null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["export_id"],
+      "properties": {
+        "export_id": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "evidenceExportStatusV1": {
+      "description": "Mutable producer lifecycle projection returned only by evidence.export.get/v1. It is distinct from the immutable keyed create result and from the portable verified claim. Ready fields reflect the producer's second transaction but remain unauthenticated export metadata in RemoteEvidenceBundleV2 until a future detached receipt exists.",
+      "x-proof-lifecycle-cross-check": "export_id and capture_digest equal the persisted immutable capture and keyed create result. pending has no bundle descriptor digest, manifest digest, or assembled counts. ready has the exact proof:remote-evidence-bundle:v2 descriptor digest, proof:remote-evidence-manifest:v2 manifest digest, a positive exact producer-addressable non-reserved artifact count equal to included roots plus unique nested artifacts, and total producer-included logical-member bytes equal to bundle.json plus manifest.json plus those included root/nested bodies exactly once. The two reserved digests address remote_evidence_bundle_v2 and remote_evidence_manifest_v2 through evidence.artifact.get/v2. The manifest enumerates all six roots, but only delivery=included roots are producer GET selectors; delivery=external-required roots never resolve through producer GET and remain exact caller-input obligations. The fetched included release closure enumerates every nested kind-and-digest selector. The read appends only its own no-key authorization decision/consequence; it never updates capture bytes, the keyed result, or the export lifecycle.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "artifact_count", "bundle_descriptor_digest", "capture_digest", "export_id", "manifest_digest", "status", "total_included_bytes"],
+      "properties": {
+        "api_version": { "const": "proof.dev/evidence-export-status/v1" },
+        "export_id": { "$ref": "#/$defs/uuidv7" },
+        "status": { "enum": ["pending", "ready"] },
+        "capture_digest": { "$ref": "#/$defs/digest" },
+        "bundle_descriptor_digest": { "$ref": "#/$defs/nullableDigest" },
+        "manifest_digest": { "$ref": "#/$defs/nullableDigest" },
+        "artifact_count": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "total_included_bytes": { "type": "integer", "minimum": 0, "maximum": 268435456 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "pending" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "bundle_descriptor_digest": { "type": "null" },
+              "manifest_digest": { "type": "null" },
+              "artifact_count": { "const": 0 },
+              "total_included_bytes": { "const": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "ready" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+              "manifest_digest": { "$ref": "#/$defs/digest" },
+              "artifact_count": { "type": "integer", "minimum": 1, "maximum": 4096 },
+              "total_included_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 }
+            }
+          }
+        }
+      ]
+    },
+    "oidcBindingIssueInputV1": {
+      "description": "The administrator supplies the exact protected issuer/subject identity. Before the transaction, the server generates and retry-stabilizes a fresh 32-byte blind and commitment; caller input cannot select either value.",
+      "x-proof-byte-limits": "UTF-8 byte_length(subject) is 1..=255. JSON Schema maxLength is only an early code-point bound; a multibyte subject over 255 bytes is rejected.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcPrincipalBindingV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:oidc-binding.issue,version:proof.dev/operation/oidc-binding.issue/v1}}",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-public-input-projection-rule": "For oidc-binding.issue/v1 only, the exact public projection input is {binding_id:input.binding_id,principal_id:input.principal_id,oidc_issuer_configuration_digest:input.oidc_issuer_configuration_digest,supersedes_binding_id:input.supersedes_binding_id,idempotency_key:input.idempotency_key,subject_commitment:<the retry-stabilized blinded public result subject_commitment>}. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact closed projection>,operation:{name:oidc-binding.issue,version:proof.dev/operation/oidc-binding.issue/v1}}. Raw issuer, raw subject, the blind/opening, protected private record bytes and proof:remote-normalized-operation-input:v1 private exact-input digest are forbidden from the projection and its preimage; hashing a raw secret is not an allowed substitute.",
+      "x-proof-success-cross-check": "Result binding_id, principal_id, oidc_issuer_configuration_digest and supersedes_binding_id equal input byte-for-byte; workspace_id is the authenticated command Workspace; issued_by_principal_id is the authenticated requesting Human; issued_at and the candidate 32-byte blind are generated once and held stable across internal retries. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key. The protected OidcPrincipalBindingPrivateV1/opening carries the exact case-sensitive input issuer/subject, workspace, binding, principal and pinned issuer configuration; subject_commitment equals BLAKE3-256 derive-key proof:oidc-authenticated-subject-commitment:v1 over its exact RFC 8785 commitment input and equals the public result commitment. Raw issuer/subject/blind never enter the public result.",
+      "x-proof-success-binding": "For operation oidc-binding.issue/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact OidcPrincipalBindingV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded public authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "idempotency_key",
+        "issuer",
+        "oidc_issuer_configuration_digest",
+        "principal_id",
+        "subject",
+        "supersedes_binding_id"
+      ],
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "issuer": { "$ref": "#/$defs/httpsIssuerUri" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+        "oidc_issuer_configuration_digest": { "$ref": "#/$defs/digest" },
+        "supersedes_binding_id": { "$ref": "#/$defs/nullableUuidv7" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "principalStatusSetInputV2": {
+      "description": "Exact first-profile terminal disablement request. Online re-enablement is not a schema-valid operation.",
+      "x-proof-byte-limits": "UTF-8 byte_length(reason) is 1..=256. JSON Schema maxLength is only an early code-point bound; multibyte overflow is rejected.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/remotePrincipalStatusV2",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/remotePrincipalStatusV2",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:principal.status.set,version:proof.dev/operation/principal.status.set/v2}}",
+      "x-proof-public-input-projection-rule": "For principal.status.set/v2 the exact disclosure-safe public projection is {principal_id,expected_status,new_status,reason,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:principal.status.set,version:proof.dev/operation/principal.status.set/v2}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "The server locks the exact enabled Principal named by input.principal_id at the authorization-decision authority head; input.expected_status and input.new_status are enabled and disabled. Result principal_id equals input.principal_id, enabled is false, reason equals input.reason byte-for-byte and principal_type comes from that exact Principal. Result workspace_id equals the authenticated command Workspace; recorded_by_principal_id and recorded_by_actor_context_digest equal the authenticated requesting Human and exact public actor-context-evidence digest; recorded_at is generated once and retry-stable. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key. The result is append-only and prospective; it never rewrites earlier evidence.",
+      "x-proof-success-binding": "For operation principal.status.set/v2, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact RemotePrincipalStatusV2 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_status", "idempotency_key", "new_status", "principal_id", "reason"],
+      "properties": {
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "expected_status": { "const": "enabled" },
+        "new_status": { "const": "disabled" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "releaseGetInputV2": {
+      "x-proof-public-input-projection-rule": "For release.get/v2 the exact disclosure-safe public projection is {release_id,release_digest} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:release.get,version:proof.dev/operation/release.get/v2}}; private actor/session material and any private exact-input digest are excluded.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_digest", "release_id"],
+      "properties": {
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "release_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "releaseVerifyInputV2": {
+      "x-proof-public-input-projection-rule": "For release.verify/v2 the exact disclosure-safe public projection is {release_id,release_digest,proof_digest} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:release.verify,version:proof.dev/operation/release.verify/v2}}; private actor/session material and any private exact-input digest are excluded.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proof_digest", "release_digest", "release_id"],
+      "properties": {
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "proof_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "releaseVerifyResultV2": {
+      "description": "Exact verification projection. release_id, release_digest and proof_digest echo the accepted request without substitution. verifier_input_digest binds the exact normalized verifier input and report_digest binds the exact typed verification report that produced verdict and finding_codes.",
+      "x-proof-verification-cross-check": "proof_digest == request.proof_digest; release_id == request.release_id; release_digest == request.release_digest; verifier_input_digest is the documented domain-separated digest of the exact normalized verifier input; report_digest is the documented domain-separated digest of the exact typed report, whose verdict and finding_codes equal this projection",
+      "x-proof-verifier-input-digest-context": "proof:remote-verifier-input:v2",
+      "x-proof-report-digest-context": "proof:verification-report:v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "finding_codes",
+        "proof_digest",
+        "release_digest",
+        "release_id",
+        "report_digest",
+        "verdict",
+        "verifier_input_digest"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/release-verify-result/v2" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "proof_digest": { "$ref": "#/$defs/digest" },
+        "verifier_input_digest": { "$ref": "#/$defs/digest" },
+        "report_digest": { "$ref": "#/$defs/digest" },
+        "verdict": { "enum": ["Complete", "Incomplete", "Invalid"] },
+        "finding_codes": {
+          "type": "array",
+          "maxItems": 158,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^proof\\.verify\\.[a-z0-9_.-]+$" }
+        }
+      }
+    },
+    "workspaceRoleAssignInputV1": {
+      "description": "Role assignments do not expire in v1; an append-only workspace-role.revoke/v1 consequence is the only online termination path.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/workspaceRoleAssignmentV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/workspaceRoleAssignmentV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:workspace-role.assign,version:proof.dev/operation/workspace-role.assign/v1}}",
+      "x-proof-public-input-projection-rule": "For workspace-role.assign/v1 the exact disclosure-safe public projection is {assignment_id,principal_id,role,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:workspace-role.assign,version:proof.dev/operation/workspace-role.assign/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "The target Principal exists and is enabled at the authorization-decision authority head. Result assignment_id, principal_id and role equal input byte-for-byte; workspace_id equals the authenticated command Workspace; assigned_by_principal_id and assigned_by_actor_context_digest equal the authenticated requesting Human and exact public actor-context-evidence digest; assigned_at is generated once and retry-stable. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key. No expiry is injected and no earlier assignment is edited. Input idempotency_key binds replay evidence but is not injected into WorkspaceRoleAssignmentV1.",
+      "x-proof-success-binding": "For operation workspace-role.assign/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact WorkspaceRoleAssignmentV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assignment_id", "idempotency_key", "principal_id", "role"],
+      "properties": {
+        "assignment_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "role": { "$ref": "#/$defs/role" },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "workspaceRoleRevokeInputV1": {
+      "description": "Exact append-only revocation of one active WorkspaceRoleAssignmentV1. The assignment remains immutable.",
+      "x-proof-byte-limits": "UTF-8 byte_length(reason) is 1..=256. JSON Schema maxLength is only an early code-point bound; multibyte overflow is rejected.",
+      "x-proof-result-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/workspaceRoleRevocationV1",
+      "x-proof-effect-schema": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/workspaceRoleRevocationV1",
+      "x-proof-normalized-input-digest-context": "proof:remote-normalized-operation-input:v1",
+      "x-proof-normalized-input-digest-preimage": "RFC 8785 of {api_version:proof.dev/remote-normalized-operation-input/v1,input:<this exact closed value>,operation:{name:workspace-role.revoke,version:proof.dev/operation/workspace-role.revoke/v1}}",
+      "x-proof-public-input-projection-rule": "For workspace-role.revoke/v1 the exact disclosure-safe public projection is {assignment_id,reason,idempotency_key} copied byte-for-byte from this closed input. public_input_projection_digest is BLAKE3-256 derive-key proof:public-operation-input-projection:v1 over RFC 8785 of {api_version:proof.dev/public-operation-input-projection/v1,input:<that exact projection>,operation:{name:workspace-role.revoke,version:proof.dev/operation/workspace-role.revoke/v1}}; private actor/session material and the private exact-input digest are excluded.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-effect-digest-context": "proof:remote-authority-record:v1",
+      "x-proof-success-cross-check": "The server locks one exact active WorkspaceRoleAssignmentV1 whose assignment_id equals input.assignment_id. Result assignment_id and reason equal input byte-for-byte; assignment_record_digest is the proof:remote-authority-record:v1 digest of that exact assignment; principal_id and role equal the assignment. Result workspace_id equals the authenticated command Workspace; revoked_by_principal_id and revoked_by_actor_context_digest equal the authenticated requesting Human and exact public actor-context-evidence digest; revocation_id and revoked_at are generated once and retry-stable. Result evaluated_authority_head equals the exact locked authorization-decision head, authority_sequence == evaluated_authority_head.sequence + 1 without overflow, previous_authority_record_digest == evaluated_authority_head.record_digest and authority_key_id is the selected Workspace authority key.",
+      "x-proof-success-binding": "For operation workspace-role.revoke/v1, the success RemoteApplicationConsequenceV1 application_key_kind is required-uuidv7 and application_key equals input.idempotency_key; result_digest is BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(the exact WorkspaceRoleRevocationV1 result); application_effect_digest is BLAKE3-256 derive-key proof:remote-authority-record:v1 over RFC 8785(that exact decoded authority payload); prior_result_digest and problem_code are null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assignment_id", "idempotency_key", "reason"],
+      "properties": {
+        "assignment_id": { "$ref": "#/$defs/uuidv7" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "releasedObjectV1": {
+      "description": "One exact active Object revision selected from an immutable released Edition. canonical_content is strict RFC 8785 canonical JSON and object_digest is the documented proof:object-revision:v1 digest of the complete typed ObjectRevisionV1 preimage, not of the content string alone.",
+      "x-proof-canonical-content-rule": "Strict-parse canonical_content with duplicate-key and I-JSON rejection; require an object value and require RFC 8785(parsed value) == the UTF-8 canonical_content bytes byte-for-byte.",
+      "x-proof-object-digest-rule": "Load the exact ObjectRevisionV1 named by object_id/revision/schema_id/schema_version from the selected immutable Edition, require lifecycle_state active and canonical_content equality, reconstruct its complete documented proof.dev/object-revision/v1 canonical preimage, and require object_digest == BLAKE3-256 derive-key proof:object-revision:v1 over those RFC 8785 bytes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_content",
+        "lifecycle_state",
+        "object_digest",
+        "object_id",
+        "revision",
+        "schema_id",
+        "schema_version"
+      ],
+      "properties": {
+        "object_id": { "$ref": "#/$defs/uuidv7" },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "lifecycle_state": { "const": "active" },
+        "canonical_content": { "type": "string", "minLength": 2, "maxLength": 1048576 },
+        "object_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "releasedSchemaV1": {
+      "description": "One exact Schema document required by the ContextPack Objects. canonical_document is strict RFC 8785 canonical JSON and document_digest uses the established proof:schema-version:v1 contract.",
+      "x-proof-schema-digest-rule": "Strict-parse canonical_document with duplicate-key and I-JSON rejection, require RFC 8785(parsed value) == its UTF-8 bytes, and require document_digest == BLAKE3-256 derive-key proof:schema-version:v1 over those bytes. The (schema_id, schema_version) pair is unique and is referenced by at least one manifest Object.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical_document", "document_digest", "schema_id", "schema_version"],
+      "properties": {
+        "canonical_document": { "type": "string", "minLength": 2, "maxLength": 1048576 },
+        "document_digest": { "$ref": "#/$defs/digest" },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      }
+    },
+    "contextPackManifestV1": {
+      "description": "Strict typed value encoded by contextBuildResultV1.manifest_json. This is the complete retained ContextPackV1 digest preimage.",
+      "x-proof-byte-limits": "UTF-8 byte_length(task_id) is 1..=256 and UTF-8 byte_length(intent) is 1..=4096; the complete RFC 8785 manifest UTF-8 byte length is <= limits.max_bytes <= 1048576. JSON Schema maxLength is only an early code-point bound.",
+      "x-proof-set-order": "capabilities are sorted by ascending UTF-8 bytes; objects are sorted by object_id; schemas are sorted by (schema_id, schema_version); all three collections contain no duplicate semantic identity.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authorization_decision_digest",
+        "base_state",
+        "built_at",
+        "capabilities",
+        "context_pack_id",
+        "delegation_id",
+        "edition_id",
+        "environment_id",
+        "expires_at",
+        "intent",
+        "limits",
+        "objects",
+        "operating_principal_id",
+        "release_id",
+        "requesting_principal_id",
+        "schemas",
+        "task_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/context-pack/v1" },
+        "authorization_decision_digest": { "$ref": "#/$defs/digest" },
+        "base_state": { "$ref": "#/$defs/digest" },
+        "built_at": { "$ref": "#/$defs/timestamp" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 14,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 256,
+            "pattern": "^proof\\.dev/operation/[a-z][a-z0-9_.]*/v[1-9][0-9]*$"
+          }
+        },
+        "context_pack_id": { "$ref": "#/$defs/uuidv7" },
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "edition_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "intent": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_bytes", "max_objects"],
+          "properties": {
+            "max_objects": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "max_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        },
+        "objects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/releasedObjectV1" }
+        },
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "requesting_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "schemas": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/releasedSchemaV1" }
+        },
+        "task_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" }
+      }
+    },
+    "contextBuildInputV1": {
+      "description": "Exact signed normalized_input subject for retained context.build/v1. The outer authenticated command separately repeats the operating Principal, Delegation and application idempotency key; these legacy fields remain inside normalized_input and MUST compare equal rather than being deleted or rewritten.",
+      "x-proof-byte-limits": "UTF-8 byte_length(task_id) is 1..=256 and UTF-8 byte_length(intent) is 1..=4096. JSON Schema maxLength is only an early code-point bound; multibyte input that exceeds either byte ceiling is rejected.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "delegation_id",
+        "environment_id",
+        "expires_at",
+        "idempotency_key",
+        "intent",
+        "max_bytes",
+        "max_objects",
+        "object_ids",
+        "operating_principal_id",
+        "task_id"
+      ],
+      "properties": {
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "task_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "intent": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        },
+        "max_objects": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "idempotency_key": { "$ref": "#/$defs/uuidv7" },
+        "expires_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "contextBuildResultV1": {
+      "description": "Exact result-data subject advertised by the accepted context.build/v1 CAPABILITY_REGISTRY output Schema. This value is carried as HTTP result data; no invented api_version wrapper, parsed manifest duplicate, or transport metadata is part of the application result.",
+      "x-proof-byte-limits": "UTF-8 byte_length(task_id) is 1..=256, UTF-8 byte_length(intent) is 1..=4096 and UTF-8 byte_length(manifest_json) is 1..=limits.max_bytes. JSON Schema maxLength is only an early code-point bound; multibyte overflow is rejected.",
+      "x-proof-manifest-schema": "#/$defs/contextPackManifestV1",
+      "x-proof-context-pack-cross-check": "Strict-parse the UTF-8 manifest_json with duplicate-key and I-JSON rejection; validate the parsed value as contextPackManifestV1; require RFC 8785(parsed value) == manifest_json byte-for-byte and byte_length(manifest_json) <= limits.max_bytes <= 1048576. Every same-named result field equals the manifest field byte-for-byte. result.object_ids and manifest.objects[*].object_id have the same length and are elementwise equal to the complete canonically normalized input.object_ids; manifest Schemas are exactly the unique Schema identities referenced by those Objects. requesting_principal_id equals the authenticated command requesting Principal; operating_principal_id, delegation_id, task_id, intent, environment_id and expires_at equal the normalized input byte-for-byte. result/manifest limits.max_objects == min(input.max_objects, evaluated Delegation max_objects) and limits.max_bytes == min(input.max_bytes, evaluated Delegation max_context_bytes), with accepted ceilings 100 and 1048576 respectively; no other budget is substituted. built_at is the retry-stabilized committed server time, is no later than the exact authorization decision evaluation time and is earlier than expires_at. release_id/edition_id/base_state and all Object/Schema bytes reproduce the exact released source selected in the transaction. capabilities equal the sorted, unique accepted CAPABILITY_REGISTRY versions permitted by the evaluated Delegation and contain at most 14 entries. The manifest authorization_decision_digest reproduces that exact command, source set, budgets, evaluation time and authority head.",
+      "x-proof-context-pack-digest-rule": "context_pack_digest == BLAKE3-256 derive-key proof:context-pack:v1 over the exact UTF-8 manifest_json bytes after the strict canonical cross-check; hashing a JSON string wrapper or a partial projection is forbidden.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_state",
+        "built_at",
+        "capabilities",
+        "context_pack_digest",
+        "context_pack_id",
+        "delegation_id",
+        "edition_id",
+        "environment_id",
+        "expires_at",
+        "intent",
+        "limits",
+        "manifest_json",
+        "object_ids",
+        "operating_principal_id",
+        "release_id",
+        "requesting_principal_id",
+        "task_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "context_pack_id": { "$ref": "#/$defs/uuidv7" },
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "requesting_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "task_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "intent": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "edition_id": { "$ref": "#/$defs/uuidv7" },
+        "base_state": { "$ref": "#/$defs/digest" },
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_bytes", "max_objects"],
+          "properties": {
+            "max_objects": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "max_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        },
+        "built_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 14,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 256,
+            "pattern": "^proof\\.dev/operation/[a-z][a-z0-9_.]*/v[1-9][0-9]*$"
+          }
+        },
+        "manifest_json": { "type": "string", "minLength": 2, "maxLength": 1048576 },
+        "context_pack_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "objectQueryReleasedInputV1": {
+      "description": "Exact signed normalized_input subject for retained object.query_released/v1. The legacy operating Principal and Delegation fields remain in normalized_input and MUST equal the repeated authenticated-command actor fields.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delegation_id", "environment_id", "object_ids", "operating_principal_id"],
+      "properties": {
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidv7" }
+        }
+      }
+    },
+    "objectQueryReleasedResultV1": {
+      "description": "Exact result-data subject advertised by the accepted object.query_released/v1 CAPABILITY_REGISTRY output Schema. It is the complete authorized released-Object projection, not a digest-only successor wrapper.",
+      "x-proof-query-cross-check": "workspace_id equals the authenticated command Workspace; environment_id, principal_id and delegation_id equal normalized_input.environment_id, normalized_input.operating_principal_id and normalized_input.delegation_id and the repeated command actor fields. release_id and edition_id name the exact current immutable released source selected at the transaction snapshot. objects is non-empty, its object_id values are unique and canonically ordered, and objects[*].object_id has the same length and is elementwise equal to the complete canonically normalized input.object_ids (an empty request is never a wildcard, no requested Object may be omitted and no unrequested Object may appear). Every Object equals the exact active revision referenced by that Edition and passes releasedObjectV1 canonical-content and proof:object-revision:v1 digest reproduction. authorization_decision_digest is the exact decision for the command actor, Delegation, requested action, environment, complete requested Object set, evaluation time and authority head; it is not a generic allow token.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorization_decision_digest",
+        "delegation_id",
+        "edition_id",
+        "environment_id",
+        "objects",
+        "principal_id",
+        "release_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "edition_id": { "$ref": "#/$defs/uuidv7" },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "authorization_decision_digest": { "$ref": "#/$defs/digest" },
+        "objects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/releasedObjectV1" }
+        }
+      }
+    },
+    "workspaceStatusInputV1": {
+      "description": "Exact empty signed normalized_input subject for retained workspace.status/v1. Actor and Delegation identities exist only in the surrounding authenticated command and are not injected into this normalized application value.",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "workspaceStatusResultV1": {
+      "description": "Exact result-data subject advertised by the accepted workspace.status/v1 CAPABILITY_REGISTRY output Schema. The transport result envelope is outside this application value.",
+      "x-proof-status-cross-check": "workspace_id, requesting_principal_id, operating_principal_id and delegation_id equal the authenticated command Workspace/requesting/operating/Delegation identities. The empty normalized input contributes no hidden selector. authorization_decision_digest reproduces the exact workspace.status/v1 decision for requested action workspace:status, these actors, the evaluated Delegation, evaluation time and authority head. storage_schema_version, authoritative_sequence and state_digest are read from one verified current committed snapshot at that same head; state_digest is the established proof:known-state:v1 digest for workspace_id and authoritative_sequence, not a cached or caller-supplied value.",
+      "x-proof-result-digest-context": "proof:operation-effect:v1",
+      "x-proof-result-digest-rule": "BLAKE3-256 derive-key proof:operation-effect:v1 over RFC 8785(this exact result value).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authoritative_sequence",
+        "authorization_decision_digest",
+        "delegation_id",
+        "operating_principal_id",
+        "requesting_principal_id",
+        "state_digest",
+        "storage_schema_version",
+        "workspace_id"
+      ],
+      "properties": {
+        "workspace_id": { "$ref": "#/$defs/uuidv7" },
+        "requesting_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "operating_principal_id": { "$ref": "#/$defs/uuidv7" },
+        "delegation_id": { "$ref": "#/$defs/uuidv7" },
+        "storage_schema_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "authoritative_sequence": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "state_digest": { "$ref": "#/$defs/digest" },
+        "authorization_decision_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "oidcLoginStartInputV1": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "oidcLoginStartResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "redirect_kind", "response_status", "transaction_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/oidc-login-start-result/v1" },
+        "transaction_id": { "$ref": "#/$defs/uuidv7" },
+        "response_status": { "const": 303 },
+        "redirect_kind": { "const": "configured-oidc-authorization-endpoint" }
+      }
+    },
+    "oidcCallbackInputV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorization_response_issuer", "code", "state"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "state": { "type": "string", "minLength": 43, "maxLength": 256 },
+        "authorization_response_issuer": { "$ref": "#/$defs/httpsIssuerUri" }
+      }
+    },
+    "oidcCallbackResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "redirect_path", "response_status", "session_established"],
+      "properties": {
+        "api_version": { "const": "proof.dev/oidc-callback-result/v1" },
+        "response_status": { "const": 303 },
+        "redirect_path": { "const": "/" },
+        "session_established": { "const": true }
+      }
+    },
+    "sessionGetInputV1": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "sessionGetResultV1": {
+      "description": "Same-origin private no-store session projection. csrf_token is an independent uniformly random 256-bit base64url synchronizer, stored server-side only as a digest, bound to this session, and rotated with login or reauthentication.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "authenticated_at", "cache_control", "csrf_token", "expires_at", "idle_expires_at", "principal_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/session-get-result/v1" },
+        "cache_control": { "const": "private, no-store" },
+        "csrf_token": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+        },
+        "principal_id": { "$ref": "#/$defs/uuidv7" },
+        "authenticated_at": { "$ref": "#/$defs/timestamp" },
+        "idle_expires_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "sessionLogoutInputV1": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "sessionLogoutResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "logged_out"],
+      "properties": {
+        "api_version": { "const": "proof.dev/session-logout-result/v1" },
+        "logged_out": { "const": true }
+      }
+    },
+    "evidenceExportMemberKindV2": {
+      "description": "Closed ready-export byte-address kind. The two reserved values address bundle.json and manifest.json; root and nested kinds reuse the verifier-owned RemoteEvidenceV2 registries.",
+      "anyOf": [
+        { "enum": ["remote_evidence_bundle_v2", "remote_evidence_manifest_v2"] },
+        { "$ref": "https://proof.dev/schema/conformance/collaboration-server/remote-evidence/v2#/$defs/member/properties/artifact_kind" },
+        { "$ref": "https://proof.dev/schema/conformance/collaboration-server/remote-evidence/v2#/$defs/acceptedArtifactRef/properties/artifact_kind" }
+      ]
+    },
+    "evidenceArtifactGetInputV2": {
+      "description": "Exact ready-export producer-byte selector. It resolves only a reserved descriptor/manifest member, a captured root whose delivery is included, or a unique nested artifact declared Included by the captured release closure. An external-required root is never producer-addressable even when its kind and digest are known.",
+      "x-proof-selection-rule": "Resolve the exact (export_id, artifact_kind, artifact_digest) triple against the immutable ready graph. Eligibility is exactly one of: the reserved bundle descriptor pair, the reserved manifest pair, one manifest root descriptor with delivery=included, or one unique Included nested ArtifactRef in the release closure. Unknown, cross-kind same-digest, duplicate, external-required, or otherwise unlisted selectors do not resolve.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_digest", "artifact_kind", "export_id"],
+      "properties": {
+        "export_id": { "$ref": "#/$defs/uuidv7" },
+        "artifact_kind": { "$ref": "#/$defs/evidenceExportMemberKindV2" },
+        "artifact_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "evidenceArtifactMetadataV2": {
+      "description": "Metadata and response-header projection for the exact ready export member selected by the request path. The response body remains opaque exact bytes.",
+      "x-proof-path-cross-check": "export_id, artifact_kind, and artifact_digest equal the request/path values byte-for-byte. Selection is the exact kind-and-digest pair; a digest under another kind/context is not an alias.",
+      "x-proof-byte-cross-check": "artifact_kind, artifact_media_type and byte_length equal the captured membership/catalog metadata for the returned exact bytes. remote_evidence_bundle_v2 uses proof:remote-evidence-bundle:v2 over exact canonical bundle.json; remote_evidence_manifest_v2 uses proof:remote-evidence-manifest:v2 over exact canonical manifest.json; every root/nested kind uses its frozen verifier mapping. Recomputed BLAKE3 equals artifact_digest.",
+      "x-proof-header-cross-check": "Content-Type is application/octet-stream; Content-Length equals byte_length; Content-Digest is lowercase algorithm token blake3 followed by the canonical Base64 Structured Fields byte sequence for the same raw 32 digest bytes; ETag is exactly the quoted artifact_digest with no weak prefix; X-Proof-Artifact-Digest equals artifact_digest; and X-Proof-Artifact-Kind equals artifact_kind. No content encoding or alternate digest representation is permitted.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_digest",
+        "artifact_kind",
+        "artifact_media_type",
+        "byte_length",
+        "content_digest",
+        "content_length",
+        "content_type",
+        "etag",
+        "export_id",
+        "x_proof_artifact_digest",
+        "x_proof_artifact_kind"
+      ],
+      "properties": {
+        "export_id": { "$ref": "#/$defs/uuidv7" },
+        "artifact_digest": { "$ref": "#/$defs/digest" },
+        "artifact_kind": { "$ref": "#/$defs/evidenceExportMemberKindV2" },
+        "artifact_media_type": { "enum": ["application/json", "application/octet-stream"] },
+        "byte_length": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "content_digest": { "type": "string", "pattern": "^blake3=:[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=:$" },
+        "content_length": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "content_type": { "const": "application/octet-stream" },
+        "etag": { "type": "string", "pattern": "^\\\"blake3:[0-9a-f]{64}\\\"$" },
+        "x_proof_artifact_digest": { "$ref": "#/$defs/digest" },
+        "x_proof_artifact_kind": { "$ref": "#/$defs/evidenceExportMemberKindV2" }
+      }
+    },
+    "previewObjectGetInputV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment_id", "locale", "object_id", "release_id"],
+      "properties": {
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "object_id": { "$ref": "#/$defs/uuidv7" },
+        "locale": { "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/locale" }
+      }
+    },
+    "previewObjectGetResultV1": {
+      "description": "Private exact-Release preview projection. Repeated selectors are integrity cross-checks, not independently selectable aliases.",
+      "x-proof-request-cross-check": "environment_id, release_id, object_id and locale equal the normalized request/path values byte-for-byte",
+      "x-proof-rendition-cross-check": "object_id == rendition.object_id; locale == rendition.locale; rendition_digest == rendition.rendition_digest; release/edition identities and digests equal the verified manifest members used to load rendition",
+      "x-proof-etag-cross-check": "etag is exactly one double quote, the rendition_digest bytes, and one double quote (no weak prefix); cache_control is emitted exactly as declared",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "cache_control",
+        "edition_digest",
+        "edition_id",
+        "environment_id",
+        "etag",
+        "locale",
+        "object_id",
+        "release_digest",
+        "release_id",
+        "rendition",
+        "rendition_digest"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/preview-object-get-result/v1" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "release_id": { "$ref": "#/$defs/uuidv7" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "edition_id": { "$ref": "#/$defs/uuidv7" },
+        "edition_digest": { "$ref": "#/$defs/digest" },
+        "object_id": { "$ref": "#/$defs/uuidv7" },
+        "locale": { "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/locale" },
+        "rendition_digest": { "$ref": "#/$defs/digest" },
+        "etag": { "type": "string", "pattern": "^\\\"blake3:[0-9a-f]{64}\\\"$" },
+        "cache_control": { "const": "private, no-store" },
+        "rendition": {
+          "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/releasedRendition"
+        }
+      }
+    }
+  }
+}

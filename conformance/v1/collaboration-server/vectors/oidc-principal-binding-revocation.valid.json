@@ -1,0 +1,20 @@
+{
+  "api_version": "proof.dev/oidc-principal-binding-revocation/v1",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 81,
+  "binding_id": "019e0000-0000-7000-8000-000000000011",
+  "binding_record_digest": "blake3:07c47a343c09eb7a58fc86a1c0ec07d5e54dbf0b23ce5a1eb3aee946dff6ce39",
+  "evaluated_authority_head": {
+    "record_digest": "blake3:8080808080808080808080808080808080808080808080808080808080808080",
+    "sequence": 80
+  },
+  "previous_authority_record_digest": "blake3:8080808080808080808080808080808080808080808080808080808080808080",
+  "principal_id": "019e0000-0000-7000-8000-000000000002",
+  "reason": "administrative",
+  "revocation_id": "019e0000-0000-7000-8000-000000000081",
+  "revoked_at": "2026-08-23T04:00:00Z",
+  "revoked_by_actor_context_digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+  "revoked_by_principal_id": "019e0000-0000-7000-8000-000000000007",
+  "subject_commitment": "blake3:d527780fd72191afe371293b1f2224af4196fb0f7e5ea281831ee2c793e7c3f2",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

@@ -1,0 +1,288 @@
+{
+  "api_version": "proof.dev/outbox-delivery-suite/v1",
+  "evidence_class": "decision-contract",
+  "runtime_qualified": false,
+  "contract": {
+    "delivery_semantics": "at-least-once",
+    "exactly_once_claim": false,
+    "at_most_once_claim": false,
+    "event_and_delivery_id_stability": "preallocated UUIDv7 values never change across attempts or generations",
+    "logical_uniqueness_fields": ["workspace_id", "effect_digest", "event_type", "event_version", "destination_configuration_digest"],
+    "transaction_position_uniqueness_fields": ["workspace_id", "workspace_transaction_sequence", "ordinal"],
+    "claim_isolation": "READ COMMITTED",
+    "claim_locking": "FOR UPDATE SKIP LOCKED",
+    "selection_rule": "lowest nonterminal stream sequence whose predecessors are delivered or abandoned",
+    "live_leases_per_stream": 1,
+    "lease_seconds": 60,
+    "lease_clock": "PostgreSQL clock_timestamp()",
+    "attempt_deadline_seconds": 30,
+    "lease_renewal_allowed": false,
+    "claim_or_crash_consumes_attempt": true,
+    "ack_compare_and_swap_fields": ["delivery_id", "lease_token", "generation"],
+    "backoff": "uniform random in upper half of min(5 * 2^(attempt - 1), 3600) seconds",
+    "dead_letter_attempts_per_generation": 12,
+    "dead_letter_generation_age_seconds": 604800,
+    "permanent_failure_dead_letters_immediately": true,
+    "poison_blocks_stream": true,
+    "management_authority": "authenticated Human only",
+    "replay_identity_rule": "new generation and bounded retry window; same event, delivery, payload, and stream sequence",
+    "abandonment_rule": "advance management cursor only; preserve immutable event and delivery history",
+    "receipt_claim": "adapter observation only, never proof of remote side effect",
+    "next_attempt_storage": "database timestamp",
+    "history_facts_append_only": ["attempt", "receipt", "management"]
+  },
+  "scenarios": [
+    {
+      "scenario": "lost-ack-redelivery",
+      "event": {
+        "event_id": "018f0000-0000-7000-8000-000000000001",
+        "workspace_id": "019e0000-0000-7000-8000-000000000001",
+        "workspace_transaction_sequence": 73,
+        "ordinal": 0,
+        "event_type": "preview.release",
+        "event_version": 1,
+        "ordering_key": "preview:019e0000-0000-7000-8000-000000000001:production",
+        "stream_sequence": 19,
+        "effect_identity": {
+          "consequence_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+          "stable_semantic_identity": "release:018f0000-0000-7000-8000-000000000006",
+          "effect_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "uniqueness_inputs": {
+          "workspace_id": "019e0000-0000-7000-8000-000000000001",
+          "effect_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+          "event_type": "preview.release",
+          "event_version": 1,
+          "destination_configuration_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888"
+        },
+        "payload_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+        "payload_ref": "artifact:art_33333333333333333333333333333333",
+        "destination_configuration_version": 4,
+        "destination_configuration_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+        "correlation_id": "018f0000-0000-7000-8000-000000000002",
+        "causation_id": "018f0000-0000-7000-8000-000000000003",
+        "created_at": "2026-08-23T13:00:00Z"
+      },
+      "delivery_state": {
+        "delivery_id": "018f0000-0000-7000-8000-000000000004",
+        "event_id": "018f0000-0000-7000-8000-000000000001",
+        "status": "delivered",
+        "next_attempt_at": null,
+        "attempts_in_generation": 2,
+        "lease_token": null,
+        "lease_expires_at": null,
+        "generation": 1,
+        "generation_started_at": "2026-08-23T13:00:01Z",
+        "receipt_id": "018f0000-0000-7000-8000-000000000005"
+      },
+      "attempt_facts": [
+        {
+          "fact_sequence": 1,
+          "delivery_id": "018f0000-0000-7000-8000-000000000004",
+          "generation": 1,
+          "attempt_number": 1,
+          "lease_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "claimed_at": "2026-08-23T13:00:01Z",
+          "lease_seconds": 60,
+          "attempt_deadline_seconds": 30,
+          "outcome": "remote-accepted-ack-lost",
+          "ack_cas_result": "not-observed"
+        },
+        {
+          "fact_sequence": 2,
+          "delivery_id": "018f0000-0000-7000-8000-000000000004",
+          "generation": 1,
+          "attempt_number": 2,
+          "lease_token": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "claimed_at": "2026-08-23T13:01:10Z",
+          "lease_seconds": 60,
+          "attempt_deadline_seconds": 30,
+          "outcome": "recipient-duplicate-no-op",
+          "ack_cas_result": "accepted"
+        }
+      ],
+      "receipt_facts": [
+        {
+          "fact_sequence": 3,
+          "receipt_id": "018f0000-0000-7000-8000-000000000005",
+          "delivery_id": "018f0000-0000-7000-8000-000000000004",
+          "generation": 1,
+          "attempt_number": 2,
+          "adapter_observation": "recipient acknowledged stable delivery identity",
+          "observed_at": "2026-08-23T13:01:11Z",
+          "remote_side_effect_proven": false
+        }
+      ],
+      "management_facts": []
+    },
+    {
+      "scenario": "poison-abandonment",
+      "event": {
+        "event_id": "018f0000-0000-7000-8000-000000000011",
+        "workspace_id": "019e0000-0000-7000-8000-000000000001",
+        "workspace_transaction_sequence": 91,
+        "ordinal": 1,
+        "event_type": "preview.release",
+        "event_version": 1,
+        "ordering_key": "preview:019e0000-0000-7000-8000-000000000001:staging",
+        "stream_sequence": 27,
+        "effect_identity": {
+          "consequence_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stable_semantic_identity": "release:018f0000-0000-7000-8000-000000000016",
+          "effect_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "uniqueness_inputs": {
+          "workspace_id": "019e0000-0000-7000-8000-000000000001",
+          "effect_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "event_type": "preview.release",
+          "event_version": 1,
+          "destination_configuration_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "payload_digest": "blake3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "payload_ref": "artifact:art_44444444444444444444444444444444",
+        "destination_configuration_version": 9,
+        "destination_configuration_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "correlation_id": "018f0000-0000-7000-8000-000000000012",
+        "causation_id": "018f0000-0000-7000-8000-000000000013",
+        "created_at": "2026-08-23T14:00:00Z"
+      },
+      "delivery_state": {
+        "delivery_id": "018f0000-0000-7000-8000-000000000014",
+        "event_id": "018f0000-0000-7000-8000-000000000011",
+        "status": "abandoned",
+        "next_attempt_at": null,
+        "attempts_in_generation": 1,
+        "lease_token": null,
+        "lease_expires_at": null,
+        "generation": 2,
+        "generation_started_at": "2026-08-23T14:06:00Z",
+        "receipt_id": null
+      },
+      "attempt_facts": [
+        {
+          "fact_sequence": 4,
+          "delivery_id": "018f0000-0000-7000-8000-000000000014",
+          "generation": 1,
+          "attempt_number": 1,
+          "lease_token": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "claimed_at": "2026-08-23T14:00:01Z",
+          "lease_seconds": 60,
+          "attempt_deadline_seconds": 30,
+          "outcome": "permanent-failure",
+          "ack_cas_result": "not-applicable"
+        },
+        {
+          "fact_sequence": 6,
+          "delivery_id": "018f0000-0000-7000-8000-000000000014",
+          "generation": 2,
+          "attempt_number": 1,
+          "lease_token": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "claimed_at": "2026-08-23T14:06:01Z",
+          "lease_seconds": 60,
+          "attempt_deadline_seconds": 30,
+          "outcome": "permanent-failure",
+          "ack_cas_result": "not-applicable"
+        }
+      ],
+      "receipt_facts": [],
+      "management_facts": [
+        {
+          "fact_sequence": 5,
+          "operation_input": {
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "expected_generation": 1,
+            "idempotency_key": "018f0000-0000-7000-8000-000000000015"
+          },
+          "application_fact": {
+            "action": "replay",
+            "actor_context_evidence_digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "api_version": "proof.dev/delivery-management-fact/v1",
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "from_generation": 1,
+            "idempotency_key": "018f0000-0000-7000-8000-000000000015",
+            "reason": "dead-letter-replay",
+            "recorded_at": "2026-08-23T14:05:00Z",
+            "to_generation": 2,
+            "workspace_id": "019e0000-0000-7000-8000-000000000001",
+            "workspace_transaction_sequence": 92
+          },
+          "management_fact_digest": "blake3:d6589f50e56b6002f75cec029e3d890ef4f391b32a5e172e86136ae9d448259c",
+          "operation_result": {
+            "api_version": "proof.dev/delivery-replay-result/v1",
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "from_generation": 1,
+            "management_fact_digest": "blake3:d6589f50e56b6002f75cec029e3d890ef4f391b32a5e172e86136ae9d448259c",
+            "status": "pending",
+            "to_generation": 2
+          },
+          "operation_result_digest": "blake3:563ec9910c739325228512a22b52b81eee2569d030b076610a931f0cd263dae8",
+          "committed_delivery_state": {
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "status": "pending",
+            "next_attempt_at": "2026-08-23T14:06:00Z",
+            "attempts_in_generation": 0,
+            "lease_token": null,
+            "lease_expires_at": null,
+            "generation": 2,
+            "generation_started_at": "2026-08-23T14:06:00Z",
+            "receipt_id": null
+          },
+          "immutable_identity_preserved": true,
+          "management_cursor_advanced": false
+        },
+        {
+          "fact_sequence": 7,
+          "operation_input": {
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "expected_generation": 2,
+            "idempotency_key": "018f0000-0000-7000-8000-000000000016",
+            "reason": "operator-confirmed-poison-delivery"
+          },
+          "application_fact": {
+            "action": "abandon",
+            "actor_context_evidence_digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "api_version": "proof.dev/delivery-management-fact/v1",
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "from_generation": 2,
+            "idempotency_key": "018f0000-0000-7000-8000-000000000016",
+            "reason": "operator-confirmed-poison-delivery",
+            "recorded_at": "2026-08-23T14:10:00Z",
+            "to_generation": null,
+            "workspace_id": "019e0000-0000-7000-8000-000000000001",
+            "workspace_transaction_sequence": 93
+          },
+          "management_fact_digest": "blake3:ff532321728ed84553f69c4a2b1d822b019db9ef87514953d5f884ecf4a81035",
+          "operation_result": {
+            "api_version": "proof.dev/delivery-abandon-result/v1",
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "generation": 2,
+            "management_fact_digest": "blake3:ff532321728ed84553f69c4a2b1d822b019db9ef87514953d5f884ecf4a81035",
+            "status": "abandoned"
+          },
+          "operation_result_digest": "blake3:c7875d8fee6e1183557596dc8952e02365a101396775da34706331137f6e8336",
+          "committed_delivery_state": {
+            "delivery_id": "018f0000-0000-7000-8000-000000000014",
+            "event_id": "018f0000-0000-7000-8000-000000000011",
+            "status": "abandoned",
+            "next_attempt_at": null,
+            "attempts_in_generation": 1,
+            "lease_token": null,
+            "lease_expires_at": null,
+            "generation": 2,
+            "generation_started_at": "2026-08-23T14:06:00Z",
+            "receipt_id": null
+          },
+          "immutable_identity_preserved": true,
+          "management_cursor_advanced": true
+        }
+      ]
+    }
+  ]
+}

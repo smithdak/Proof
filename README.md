@@ -9,7 +9,8 @@ It treats content mutation as a governed transaction. Every proposed change has 
 ## Project status
 
 **Milestones 1 and 2 complete — local proof loop plus bounded local Linux
-Agent authority. Milestone 3 collaboration-server discovery is next.**
+Agent authority. P-0008 has a proposed collaboration-server decision candidate;
+project-owner ratification and implementation remain pending.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -34,8 +35,11 @@ checkpoint bounds the supplied authority prefix; it does not prove a globally
 latest or true immediate same-Environment Release. The accepted Linux
 qualification runs the signer and clean verifier under a distinct UID with only
 the bounded broker or read-only evidence inputs. Mutually hostile same-UID
-isolation, Windows runtime containment, the collaboration server, deployment,
-and a public release remain unqualified.
+isolation, Windows runtime containment, server execution, deployment, and a
+public release remain unqualified. P-0008 has a proposed single-Workspace
+server boundary for OIDC Human sessions, dual Human-plus-Agent requests,
+PostgreSQL parity, causal approval, at-least-once preview delivery, and remote
+evidence; it is a decision candidate, not an implemented capability.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -50,6 +54,7 @@ qualification or a published Windows support claim.
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
 | Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 server not implemented |
+| Milestone 3 contract | Proposed P-0008 decision candidate; project-owner ratification pending |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 
@@ -218,6 +223,7 @@ Start with the [documentation map](docs/README.md).
 
 - [Core invariants](docs/architecture/constitution.md)
 - [System architecture](docs/architecture/overview.md)
+- [Single-Workspace collaboration-server architecture](docs/architecture/collaboration-server.md)
 - [Domain model](docs/architecture/domain-model.md)
 - [Agent authority and ContextPacks](docs/architecture/agent-authority.md)
 - [Proof format and verification](docs/architecture/proof-model.md)

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/storage-delivery-contract-manifest/v1",
+  "title": "Storage and delivery decision-contract inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "evidence_class", "runtime_qualified", "validation_scope", "fixtures"],
+  "properties": {
+    "api_version": { "const": "proof.dev/storage-delivery-contract-manifest/v1" },
+    "evidence_class": { "const": "decision-contract-inventory" },
+    "runtime_qualified": { "const": false },
+    "validation_scope": { "const": "schema structure and selected normative decision examples; not runtime implementation evidence" },
+    "fixtures": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["contract", "schema_path", "accepted_vector_path"],
+        "properties": {
+          "contract": {
+            "enum": [
+              "authoritative-transaction", "artifact-catalog", "outbox-delivery",
+              "migration-rebuild", "preview-delivery", "remote-evidence"
+            ]
+          },
+          "schema_path": { "type": "string", "pattern": "^schemas/[a-z0-9-]+-v[12]\\.schema\\.json$" },
+          "accepted_vector_path": { "type": "string", "pattern": "^vectors/[a-z0-9-]+(?:-v2)?\\.valid\\.json$" }
+        }
+      },
+      "allOf": [
+        { "contains": { "properties": { "contract": { "const": "authoritative-transaction" } }, "required": ["contract"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "contract": { "const": "artifact-catalog" } }, "required": ["contract"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "contract": { "const": "outbox-delivery" } }, "required": ["contract"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "contract": { "const": "migration-rebuild" } }, "required": ["contract"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "contract": { "const": "preview-delivery" } }, "required": ["contract"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "contract": { "const": "remote-evidence" } }, "required": ["contract"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  }
+}

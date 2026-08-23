@@ -13,9 +13,10 @@ that closure or approve a ChangeSet. Signed result/effect commitments and the
 v14 presentation, consequence, and global-key ledgers make their local outcomes
 verifiable. `AuthorityEvidenceBundleV1`, the independent `proof-verifier`,
 frozen portable vectors, and distinct-UID Linux signer/verifier containment are
-qualified. Same-UID hostile-process isolation, Windows runtime containment, the
-collaboration server, deployment, and a public release remain unimplemented or
-unqualified.
+qualified. P-0008 has a proposed, not implemented, single-Workspace
+collaboration-server decision candidate awaiting project-owner review. Same-UID
+hostile-process isolation, Windows runtime containment, server execution,
+deployment, and a public release remain unimplemented or unqualified.
 
 ## Reading paths
 
@@ -33,9 +34,10 @@ unqualified.
 4. [Agent authority](architecture/agent-authority.md)
 5. [Ratified delegated content contract](architecture/delegated-content.md)
 6. [Ratified authenticated actor contract](architecture/authenticated-actor.md)
-7. [Proof model](architecture/proof-model.md)
-8. [Threat model](architecture/threat-model.md)
-9. [Testing strategy](architecture/testing.md)
+7. [Proposed collaboration-server contract](architecture/collaboration-server.md)
+8. [Proof model](architecture/proof-model.md)
+9. [Threat model](architecture/threat-model.md)
+10. [Testing strategy](architecture/testing.md)
 
 ### Implement a compatible interface
 
@@ -84,6 +86,6 @@ Documentation changes follow a docs-as-code workflow:
 
 **Baseline date:** August 23, 2026
 
-**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 collaboration-server contract discovery next
+**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; proposed P-0008 collaboration-server decision candidate awaiting project-owner review
 
 **Documentation version:** 0.4

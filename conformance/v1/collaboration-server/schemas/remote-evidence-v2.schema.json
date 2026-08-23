@@ -1,0 +1,1725 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/remote-evidence/v2",
+  "title": "Remote evidence export and verification decision contract v2",
+  "x-proof-suite-cross-check": "This retained object is an unmaterialized decision contract, not a RemoteEvidenceManifestV2, RemoteVerifierInputV2, or verifier report. It freezes the runtime type entrypoints, direct accepted-artifact plus P8 remote-authority composition, retained exact component fixtures, and three conditional successor scenarios without inventing bundle digests, record-set byte lengths, materialized logical member-set bytes, or observed outcomes. Only separately retained exact component vectors carry their own digest claims. A future runtime evidence package must instantiate the $defs types with exact bytes and recomputed values before any Complete report can be observed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version", "evidence_class", "execution_status", "runtime_qualified", "materialization",
+    "contract", "composition", "retained_components", "normative_scenarios"
+  ],
+  "properties": {
+    "api_version": { "const": "proof.dev/remote-evidence-suite/v2" },
+    "evidence_class": { "const": "decision-contract" },
+    "execution_status": { "const": "normative-requirements-only" },
+    "runtime_qualified": { "const": false },
+    "materialization": { "$ref": "#/$defs/materialization" },
+    "contract": { "$ref": "#/$defs/contract" },
+    "composition": { "$ref": "#/$defs/compositionContract" },
+    "retained_components": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/retainedComponent" }
+    },
+    "normative_scenarios": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/completeScenario" },
+        { "$ref": "#/$defs/incompleteScenario" },
+        { "$ref": "#/$defs/invalidScenario" }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "nullableDigest": {
+      "oneOf": [
+        { "$ref": "#/$defs/digest" },
+        { "type": "null" }
+      ]
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$" },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "exact_bundle_bytes_retained", "observed_reports_retained", "reason"],
+      "properties": {
+        "status": { "const": "unmaterialized-runtime-contract" },
+        "exact_bundle_bytes_retained": { "const": false },
+        "observed_reports_retained": { "const": false },
+        "reason": { "const": "P-0008 freezes exact successor types and conditional outcomes; implementation must retain and verify all exact bytes before runtime qualification" }
+      }
+    },
+    "compositionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "artifact_closure", "remote_authority_closure", "remote_attempt_companions", "verifier_input", "verifier_report", "conformance_report", "composition_rule", "p6_compatibility", "authority_entrypoint", "caller_trust_rule"],
+      "properties": {
+        "profile": { "const": "proof-verifier/remote-evidence-v2" },
+        "artifact_closure": { "const": "#/$defs/remoteReleaseArtifactClosureV1" },
+        "remote_authority_closure": { "const": "#/$defs/remoteAuthorityRecordSetV1" },
+        "remote_attempt_companions": { "const": "#/$defs/remoteAttemptCompanionsV1" },
+        "verifier_input": { "const": "#/$defs/verifierInput" },
+        "verifier_report": { "const": "#/$defs/report" },
+        "conformance_report": { "const": "#/$defs/conformanceReport" },
+        "composition_rule": { "const": "verify accepted artifact and Release-proof semantics directly, verify the caller-anchored P8 remote authority and exact attempt companions independently, then enforce every frozen cross-link" },
+        "p6_compatibility": { "const": "AuthorityEvidenceBundleV1 and proof-verifier/authority-evidence-bundle-v1 remain unchanged for historical local evidence and are neither required nor relabeled for a remote attempt" },
+        "authority_entrypoint": { "const": "P8 remote actor, decision, consequence, and authority chain only" },
+        "caller_trust_rule": { "const": "usable release and remote-authority key bytes, accepted policy profiles, registry allowlists, initial remote head, and checkpoints are caller-controlled; producer hints never create trust" }
+      }
+    },
+    "retainedComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role", "qualification"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^(?:conformance|docs)/[a-zA-Z0-9._/-]+$" },
+        "role": { "enum": ["actor-context-evidence", "authentication-event", "authorization-decision", "application-consequence", "release-result-preimage", "operation-registry"] },
+        "qualification": { "const": "retained-exact-component-vector-not-a-materialized-bundle" }
+      }
+    },
+    "scenarioBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_kind", "delivery_evidence", "expected_status", "required_runtime_material", "runtime_observed", "scenario", "trigger"],
+      "properties": {
+        "claim_kind": { "const": "normative-successor-requirement" },
+        "delivery_evidence": { "const": "not-requested" },
+        "expected_status": { "enum": ["Complete", "Incomplete", "Invalid"] },
+        "required_runtime_material": { "const": "exact manifest, direct artifact closure and bytes, remote record set and envelopes, attempt companions, caller trust/checkpoints, and scenario mutation" },
+        "runtime_observed": { "const": false },
+        "scenario": { "type": "string" },
+        "trigger": { "type": "string" }
+      }
+    },
+    "completeScenario": {
+      "allOf": [
+        { "$ref": "#/$defs/scenarioBase" },
+        { "properties": { "scenario": { "const": "complete-exact-materialization" }, "trigger": { "const": "all exact bytes, trust inputs, checkpoints, signatures, semantics, and cross-links verify" }, "expected_status": { "const": "Complete" } } }
+      ]
+    },
+    "incompleteScenario": {
+      "allOf": [
+        { "$ref": "#/$defs/scenarioBase" },
+        { "properties": { "scenario": { "const": "incomplete-required-opening-withheld" }, "trigger": { "const": "the caller requires the selected OIDC subject opening and withholds it while all supplied material remains non-contradictory" }, "expected_status": { "const": "Incomplete" } } }
+      ]
+    },
+    "invalidScenario": {
+      "allOf": [
+        { "$ref": "#/$defs/scenarioBase" },
+        { "properties": { "scenario": { "const": "invalid-content-artifact-byte-tamper" }, "trigger": { "const": "one supplied object_locale_revision_v1 byte at its committed deterministic content/artifacts/object_locale_revision_v1/blake3/<digest-hex>.json path changes while the descriptor digest remains unchanged" }, "expected_status": { "const": "Invalid" } } }
+      ]
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_contract", "readiness_contract", "capture_transaction", "build_scope", "ready_transaction", "retry_scope",
+        "idempotency_rule", "download_rule", "download_authorization", "snapshot_claim_limit", "bundle_hints_trusted",
+        "bundle_hints_auto_fetched", "caller_trust_is_separate", "verifier_database_access",
+        "verifier_session_access", "verifier_private_key_access", "verifier_credential_access",
+        "verifier_network_access", "missing_disclosure_result", "tamper_contradiction_or_falsity_result",
+        "component_reporting", "runtime_qualification_gate"
+      ],
+      "properties": {
+        "event_contract": { "const": "evidence.export/v2" },
+        "readiness_contract": { "const": "evidence.export.get/v1" },
+        "capture_transaction": { "const": "short SERIALIZABLE transaction selecting exact heads, pre-materialized verified aggregate-root bytes, sorted root membership and disclosure, and one build event" },
+        "build_scope": { "const": "deterministic uncompressed logical member-set assembly outside the transaction from captured immutable root bytes and the release closure's preverified nested inventory only; no tar, zip, compression, or aggregate container bytes are defined or claimed" },
+        "ready_transaction": { "const": "verify manifest and exact bytes before pending-to-ready transition" },
+        "retry_scope": { "const": "retry the same capture; never recapture current heads or membership" },
+        "idempotency_rule": { "const": "same application key replays the exact immutable pending create result; evidence.export.get/v1 reads pending or ready lifecycle status without a key" },
+        "download_rule": { "const": "ready-only exact kind-and-digest selection of reserved bundle.json or manifest.json, a captured delivery=included root member, or a deterministic Included nested ArtifactRef in the captured release closure; external-required roots never resolve through producer GET; status counts included roots plus unique nested bodies, publishes both reserved digests, and manifest plus release-closure bytes enumerate the exact producer-addressable selectors" },
+        "download_authorization": { "const": "fresh authenticated and authorized Human" },
+        "snapshot_claim_limit": { "const": "unauthenticated producer snapshot label only; no current, latest, export-readiness, or capture-integrity claim" },
+        "bundle_hints_trusted": { "const": false },
+        "bundle_hints_auto_fetched": { "const": false },
+        "caller_trust_is_separate": { "const": true },
+        "verifier_database_access": { "const": false },
+        "verifier_session_access": { "const": false },
+        "verifier_private_key_access": { "const": false },
+        "verifier_credential_access": { "const": false },
+        "verifier_network_access": { "const": false },
+        "missing_disclosure_result": { "const": "Incomplete" },
+        "tamper_contradiction_or_falsity_result": { "const": "Invalid" },
+        "runtime_qualification_gate": { "const": "runtime qualification requires exact retained bytes for the outer manifest, direct accepted-artifact Release closure and every selected artifact, every P8 remote-authority envelope in the caller-anchored record set, and every operation-conditional remote-attempt companion; a clean proof-verifier/remote-evidence-v2 must verify artifact and Release-proof semantics, P8 remote authority, and companion preimages independently, enforce every cross-link, and execute Complete, Incomplete, and Invalid scenarios; this unmaterialized contract or any descriptor-only fixture cannot produce an observed Complete report" },
+        "component_reporting": {
+          "const": [
+            "signature", "actor", "authority", "role_separation", "approval", "policy",
+            "content", "environment", "release", "delivery_evidence", "completeness"
+          ]
+        }
+      }
+    },
+    "heads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "content", "release", "environment", "outbox"],
+      "properties": {
+        "authority": { "$ref": "#/$defs/digest" },
+        "content": { "$ref": "#/$defs/digest" },
+        "release": { "$ref": "#/$defs/digest" },
+        "environment": { "$ref": "#/$defs/digest" },
+        "outbox": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "disclosureId": { "type": "string", "pattern": "^disclosure:[a-z0-9](?:[a-z0-9._/-]{0,126}[a-z0-9])?$" },
+    "disclosureRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commitment_digest", "disclosure_id", "kind"],
+      "properties": {
+        "disclosure_id": { "$ref": "#/$defs/disclosureId" },
+        "kind": { "enum": ["artifact-bytes", "oidc-subject-opening"] },
+        "commitment_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "closureBindings": {
+      "title": "RemoteEvidenceClosureBindingsV1",
+      "description": "Exact composition boundary between accepted immutable artifact and Release-proof semantics and the successor P8 remote-authority verifier. P6 local bundle bytes and its local Unix authority entrypoint are not relabeled or required for a remote attempt.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "artifact_closure", "cross_links", "remote_authority", "remote_attempt_companions"],
+      "properties": {
+        "api_version": { "const": "proof.dev/remote-evidence-closure-bindings/v1" },
+        "artifact_closure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api_version", "artifact_root_prefix", "authority_entrypoint", "digest_context", "manifest_digest", "manifest_member_path", "verification_profile"],
+          "properties": {
+            "api_version": { "const": "proof.dev/remote-release-artifact-closure/v1" },
+            "manifest_member_path": { "const": "content/release-closure.json" },
+            "manifest_digest": { "$ref": "#/$defs/digest" },
+            "digest_context": { "const": "proof:remote-release-artifact-closure:v1" },
+            "artifact_root_prefix": { "const": "content/artifacts/" },
+            "verification_profile": { "const": "proof-verifier/accepted-release-artifact-semantics-v1" },
+            "authority_entrypoint": { "const": "none; remote authority is verified only through closure_bindings.remote_authority" }
+          }
+        },
+        "remote_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest_context", "head", "record_set_digest", "record_set_member_path", "target_consequence_digest", "target_decision_digest", "verifier_profile"],
+          "properties": {
+            "record_set_member_path": { "const": "authority/facts.json" },
+            "record_set_digest": { "$ref": "#/$defs/digest" },
+            "digest_context": { "const": "proof:remote-authority-record-set:v1" },
+            "head": { "$ref": "#/$defs/authorityHead" },
+            "target_decision_digest": { "$ref": "#/$defs/digest" },
+            "target_consequence_digest": { "$ref": "#/$defs/digest" },
+            "verifier_profile": { "const": "proof-verifier/remote-authority/v1" }
+          }
+        },
+        "remote_attempt_companions": {
+          "description": "Digest-addressed non-authority inputs required to reconstruct the selected Agent release.create/v2 attempt. These bytes are outer members, not RemoteAuthorityRecordV1 payloads. The public projection, result, and effect are deterministically reconstructed from the exact command and artifact-closure entrypoints.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actor_context_evidence", "application_effect_rule", "authenticated_command_envelope", "authentication_event", "command_input", "profile", "public_input_projection_rule", "result_rule"],
+          "properties": {
+            "profile": { "const": "agent-release-create-v2-success" },
+            "actor_context_evidence": {
+              "$ref": "#/$defs/actorContextEvidenceBinding"
+            },
+            "authentication_event": {
+              "$ref": "#/$defs/authenticationEventBinding"
+            },
+            "command_input": { "$ref": "#/$defs/commandInputBinding" },
+            "authenticated_command_envelope": { "$ref": "#/$defs/authenticatedCommandEnvelopeBinding" },
+            "public_input_projection_rule": { "const": "reconstruct proof.dev/public-operation-input-projection/v1 from exact CommandInputV1.normalized_input and release.create/v2 operation, then recompute proof:public-operation-input-projection:v1" },
+            "result_rule": { "const": "reconstruct exact ReleaseCreateOutputV2 from the artifact closure target ReleaseV2 and target Release Proof envelope digest, then recompute proof:operation-effect:v1" },
+            "application_effect_rule": { "const": "application_effect_digest equals the artifact closure target ReleaseV2 digest under proof:release:v2" }
+          }
+        },
+        "cross_links": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["application_effect_digest", "application_key", "application_key_kind", "authenticated_command_envelope_digest", "command_digest", "delegation_id", "environment_config_digest", "environment_config_version", "operating_principal_id", "operation", "presentation_id", "public_input_projection_digest", "release_digest", "release_id", "release_policy_decision_digest", "release_proof_envelope_digest", "requesting_principal_id", "result_digest", "workspace_id"],
+          "properties": {
+            "workspace_id": { "$ref": "#/$defs/uuid" },
+            "requesting_principal_id": { "$ref": "#/$defs/uuid" },
+            "operating_principal_id": { "$ref": "#/$defs/uuid" },
+            "delegation_id": { "$ref": "#/$defs/uuid" },
+            "presentation_id": { "$ref": "#/$defs/uuid" },
+            "command_digest": { "$ref": "#/$defs/digest" },
+            "authenticated_command_envelope_digest": { "$ref": "#/$defs/digest" },
+            "public_input_projection_digest": { "$ref": "#/$defs/digest" },
+            "operation": { "$ref": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/operation" },
+            "application_key_kind": { "const": "required-uuidv7" },
+            "application_key": { "$ref": "#/$defs/uuid" },
+            "environment_config_digest": { "$ref": "#/$defs/digest" },
+            "environment_config_version": { "const": 2 },
+            "release_id": { "$ref": "#/$defs/uuid" },
+            "release_digest": { "$ref": "#/$defs/digest" },
+            "release_policy_decision_digest": { "$ref": "#/$defs/digest" },
+            "release_proof_envelope_digest": { "$ref": "#/$defs/digest" },
+            "result_digest": { "$ref": "#/$defs/digest" },
+            "application_effect_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      }
+    },
+    "componentBindingBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest_context", "member_path", "record_digest", "schema_id", "schema_version"],
+      "properties": {
+        "member_path": { "type": "string", "maxLength": 256, "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*$" },
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "digest_context": { "type": "string" },
+        "schema_id": { "type": "string" },
+        "schema_version": { "type": "integer" }
+      }
+    },
+    "actorContextEvidenceBinding": {
+      "allOf": [
+        { "$ref": "#/$defs/componentBindingBase" },
+        { "properties": { "member_path": { "const": "actor/context-evidence.json" }, "digest_context": { "const": "proof:authenticated-actor-context-evidence:v2" }, "schema_id": { "const": "proof.authenticated-actor-context-evidence/v2" }, "schema_version": { "const": 2 } } }
+      ]
+    },
+    "authenticationEventBinding": {
+      "allOf": [
+        { "$ref": "#/$defs/componentBindingBase" },
+        { "properties": { "member_path": { "const": "authentication/event.json" }, "digest_context": { "const": "proof:remote-authentication-event:v1" }, "schema_id": { "const": "proof.remote-authentication-event/v1" }, "schema_version": { "const": 1 } } }
+      ]
+    },
+    "commandInputBinding": {
+      "allOf": [
+        { "$ref": "#/$defs/componentBindingBase" },
+        { "properties": { "member_path": { "const": "attempt/command-input.json" }, "digest_context": { "const": "proof:command:v1" }, "schema_id": { "const": "proof.command-input/v1" }, "schema_version": { "const": 1 } } }
+      ]
+    },
+    "authenticatedCommandEnvelopeBinding": {
+      "allOf": [
+        { "$ref": "#/$defs/componentBindingBase" },
+        { "properties": { "member_path": { "const": "attempt/authenticated-command-envelope.json" }, "digest_context": { "const": "proof:authenticated-command-envelope:v1" }, "schema_id": { "const": "proof.authenticated-command-envelope/v1" }, "schema_version": { "const": 1 } } }
+      ]
+    },
+    "acceptedArtifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "digest"],
+      "properties": {
+        "artifact_kind": {
+          "enum": [
+            "edition_v1", "changeset_v1", "context_pack_v1", "validation_results_v1",
+            "known_state_v1", "schema_version_v1", "edit_batch_v1", "operation_effect_v1",
+            "schema_set_v1", "object_revision_v1", "object_set_v1", "environment_config_v1",
+            "release_v1", "proof_envelope_v1", "authorization_decision_v1", "policy_bundle_v1",
+            "content_resource_intent_v1", "context_pack_v2", "edit_batch_v2", "edit_v2",
+            "changeset_v2", "validation_results_v2", "object_locale_revision_v1", "object_set_v2",
+            "known_state_v2", "edition_v2", "release_v2",
+            "release_signing_key_v1", "release_signing_key_revocation_v1",
+            "environment_config_v2_projection"
+          ]
+        },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "acceptedArtifactAvailability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "byte_length"],
+      "properties": {
+        "state": { "const": "included" },
+        "byte_length": { "type": "integer", "minimum": 1, "maximum": 4194304 }
+      }
+    },
+    "acceptedArtifactDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "availability"],
+      "properties": {
+        "artifact": { "$ref": "#/$defs/acceptedArtifactRef" },
+        "availability": { "$ref": "#/$defs/acceptedArtifactAvailability" }
+      }
+    },
+    "acceptedArtifactRoleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "role"],
+      "properties": {
+        "artifact": { "$ref": "#/$defs/acceptedArtifactRef" },
+        "role": {
+          "enum": [
+            "release_manifest", "release_proof_envelope", "release_policy_decision",
+            "release_signing_key", "release_signing_key_revocation", "environment_config",
+            "environment_policy_bundle", "edition", "known_state", "edition_delta", "change_set",
+            "edit", "validation_attempt", "submission", "approval", "context_pack",
+            "context_policy_bundle", "resource_intent", "object", "schema", "locale_revision",
+            "localized_result", "application_effect"
+          ]
+        }
+      }
+    },
+    "remoteReleaseArtifactClosureV1": {
+      "title": "RemoteReleaseArtifactClosureV1",
+      "description": "Authority-neutral manifest for one exact accepted artifact, ReleaseV2, and Release Proof closure. It reuses the accepted artifact schemas, canonicalization, digest contexts, role-kind compatibility, release signature/policy, content-delta, and closure algorithms, but contains no local authenticated actor, command, authority record, or local authorization entrypoint. At most 4090 nested artifact bodies are permitted so the six mandatory outer roots and nested bodies fit the global 4096-artifact verifier limit.",
+      "x-proof-canonicalization": "RFC8785",
+      "x-proof-digest-algorithm": "BLAKE3-256 derive-key mode",
+      "x-proof-digest-context": "proof:remote-release-artifact-closure:v1",
+      "x-proof-artifact-registry-rule": "Each acceptedArtifactRef artifact_kind resolves only through the frozen proof-verifier v1 ArtifactKind mapping to its accepted Schema/API version and exact proof:* digest context, except environment_config_v2_projection, which strict-validates as the exact EnvironmentConfigV2.normalized_configuration projection and hashes under proof:environment-config:v2. Producer-supplied schema or context overrides do not exist. Every selected artifact is Included in this first remote profile. Each unique ArtifactRef has one descriptor and one byte source at content/artifacts/<artifact_kind>/blake3/<digest-hex>.json with the declared length. ArtifactRef, descriptor, path, and bytes are bijective. role_bindings are separate and may bind multiple distinct roles to the same ArtifactRef, as release.create/v2 binds release_manifest and application_effect to one ReleaseV2. Missing, extra, duplicate, unsafe, noncanonical, length-mismatched, or digest-mismatched nested material is Invalid.",
+      "x-proof-semantic-rule": "Run the accepted ReleaseV2, ProofEnvelopeV1, release signer/key lifecycle, release-policy AuthorizationDecisionV1, Environment policy/configuration, content delta, validation, approval, and transitive artifact-closure checks directly over these exact artifacts. Each required role resolves exactly one role binding and each role binding resolves one declared ArtifactRef; entrypoints equal their corresponding role bindings. For release.create/v2, target_release_manifest and application_effect are the same ReleaseV2 ArtifactRef. Resolve the exact P8 EnvironmentConfigV2 creation/proposal/activation facts from the remote authority chain, reconstruct normalized_configuration, and require the environment_config_v2_projection bytes/digest/version to equal the Release, decision, Proof, policy, and target_environment_config commitments. All resolved Workspace, Release, Environment/configuration, policy, validation, approval, content, and Proof subject commitments agree. Local AuthenticatedActorContextEvidenceV1, local command envelopes, AuthorityRecordV1, and local AuthorizationDecisionV2 are forbidden and never synthesized. P6 AuthorityEvidenceBundleV1 remains valid only for historical local evidence and is not this type.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "artifact_order", "artifacts", "entrypoints", "role_binding_order", "role_bindings", "workspace_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/remote-release-artifact-closure/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "artifact_order": { "const": "artifact_kind, digest UTF-8 bytewise ascending" },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4090,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/acceptedArtifactDescriptor" }
+        },
+        "role_binding_order": { "const": "role, artifact_kind, digest UTF-8 bytewise ascending" },
+        "role_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/acceptedArtifactRoleBinding" }
+        },
+        "entrypoints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["application_effect", "result_derivation", "target_environment_config", "target_release_manifest", "target_release_proof_envelope"],
+          "properties": {
+            "target_release_manifest": {
+              "allOf": [
+                { "$ref": "#/$defs/acceptedArtifactRef" },
+                { "properties": { "artifact_kind": { "const": "release_v2" } } }
+              ]
+            },
+            "target_release_proof_envelope": {
+              "allOf": [
+                { "$ref": "#/$defs/acceptedArtifactRef" },
+                { "properties": { "artifact_kind": { "const": "proof_envelope_v1" } } }
+              ]
+            },
+            "target_environment_config": {
+              "allOf": [
+                { "$ref": "#/$defs/acceptedArtifactRef" },
+                { "properties": { "artifact_kind": { "const": "environment_config_v2_projection" } } }
+              ]
+            },
+            "application_effect": {
+              "allOf": [
+                { "$ref": "#/$defs/acceptedArtifactRef" },
+                { "properties": { "artifact_kind": { "const": "release_v2" } } }
+              ]
+            },
+            "result_derivation": { "const": "proof.dev/release-create-output/v2 from target ReleaseV2 plus target Release Proof envelope digest" }
+          }
+        }
+      }
+    },
+    "remoteAttemptCompanionsV1": {
+      "title": "RemoteAttemptCompanionsV1",
+      "description": "The exact non-authority byte and deterministic-preimage closure for the selected Agent release.create/v2 success attempt.",
+      "x-proof-attempt-rule": "Resolve each byte binding bijectively to the captured member with the same path, frozen type identity, byte length, and digest. Verify actor context and authentication event first. Recompute proof:command:v1 over exact CommandInputV1 bytes and require equality to the remote decision command_digest. Strict-decode AuthenticatedCommandV1 from the exact DSSE envelope payload, verify its signature and envelope digest, and require its command digest, Workspace, requesting/operating Principals, Delegation, presentation, operation, application key, and time bounds to reproduce the decision and CommandInputV1. Reconstruct the exact public projection wrapper from CommandInputV1.normalized_input and operation. Resolve ReleaseV2 and Proof envelope through RemoteReleaseArtifactClosureV1, reconstruct ReleaseCreateOutputV2, and recompute result/effect digests. Every value equals the remote decision, consequence, closure entrypoints, and cross_links; a repeated digest without resolvable bytes is Invalid.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_context_evidence", "authenticated_command_envelope", "authentication_event", "command_input", "profile"],
+      "properties": {
+        "profile": { "const": "agent-release-create-v2-success" },
+        "actor_context_evidence": { "$ref": "#/$defs/actorContextEvidenceBinding" },
+        "authentication_event": { "$ref": "#/$defs/authenticationEventBinding" },
+        "command_input": { "$ref": "#/$defs/commandInputBinding" },
+        "authenticated_command_envelope": { "$ref": "#/$defs/authenticatedCommandEnvelopeBinding" }
+      }
+    },
+    "remoteAuthorityRecordSetV1": {
+      "title": "RemoteAuthorityRecordSetV1",
+      "description": "Exact canonical bounded suffix of the P8 remote authority chain. This is a distinct remote verifier input and never a P6 AuthorityEvidenceBundleV1 authority_prefix.",
+      "x-proof-canonicalization": "RFC8785",
+      "x-proof-digest-algorithm": "BLAKE3-256 derive-key mode",
+      "x-proof-digest-context": "proof:remote-authority-record-set:v1",
+      "x-proof-chain-rule": "Strict-decode every records item as one canonical RemoteAuthorityRecordEnvelopeV1; validate the decoded payload against the closed RemoteAuthorityRecordV1 union; and recompute its record digest with proof:remote-authority-record:v1 and its envelope digest with proof:remote-authority-record-envelope:v1. This first profile supports no authority-key transition payload: every envelope's sole signatures[0].keyid equals the caller's initial_root.key_id and verifies with those exact key bytes. When a decoded payload defines authority_key_id, it also equals initial_root.key_id; legacy payloads without that field remain governed by the verified envelope key. Evaluate initial_root validity at the payload semantic timestamp selected exactly by API: binding/delegation/OIDC issue uses issued_at; their revocations and WorkspaceRoleRevocationV1 use revoked_at; WorkspaceRoleAssignmentV1 assigned_at; ChangeSetApprovalV1 approved_at; EnvironmentConfigProposalV1 proposed_at; EnvironmentConfigActivationV1 activated_at; EnvironmentCreationV1 created_at; RemotePrincipalStatusV2 recorded_at; RemoteAuthorizationDecisionV1 evaluated_at; RemoteApplicationConsequenceV1 recorded_at. The timestamp is greater than or equal to initial_root.not_before and strictly less than each non-null initial_root.not_after and initial_root.revoked_at. base_head must equal the caller's VerificationTrustPolicyV2.authority.initial_head; arbitrary producer-selected suffix anchors are forbidden. Because this profile has no authenticated base-state snapshot, base_head must strictly precede the earliest verifier-consumed authority fact. records must contain every exact fact and every relevant state transition needed to reconstruct requesting and operating Principal status, OIDC and Agent bindings, Delegation and revocations, Workspace roles, approvals, Environment creation/configuration history, the target decision, and its consequence through their evaluation heads. A contiguous decision/consequence suffix whose required issuance or transition predates base_head is not Complete: absent exact required envelopes produce Incomplete with missing-artifact, while supplied digest, ordering, state, or payload contradictions are Invalid. records are ordered by decoded authority_sequence, begin at base_head.sequence + 1, are contiguous, and each decoded previous_authority_record_digest and any defined evaluated_authority_head equal the preceding recomputed head. Every decoded Workspace equals workspace_id. included_head equals the last decoded sequence and record digest. The closure binding's target decision and consequence digests each resolve exactly one payload of the correct type, the consequence causally follows and binds the decision, and included_head exactly equals closure_bindings.remote_authority.head in sequence and record_digest; capture/manifest heads.authority equals included_head.record_digest because that producer head is a digest rather than an AuthorityHead object. When checkpoint_requirement is required, the independently supplied caller checkpoint exactly equals included_head in Workspace, sequence, record digest, and active key; a later checkpoint without every intervening verified record cannot establish ancestry. internal_prefix_only permits only validity of this complete caller-anchored prefix and no freshness or rollback claim beyond included_head. A non-null compromise_cutoff exactly matches one recomputed chain head and included_head, the selected decision, and the consequence must not follow its sequence; because the cutoff is disclosed inside this bounded prefix, included_head cannot extend beyond it. Producer fields never create trust.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "base_head", "included_head", "record_order", "records", "workspace_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/remote-authority-record-set/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "base_head": {
+          "description": "The caller-pinned initial predecessor head for this complete bounded prefix. Semantic verification requires exact equality to VerificationTrustPolicyV2.authority.initial_head and requires this head to precede every verifier-consumed authority fact because no base-state snapshot exists; it is never selected by producer input.",
+          "$ref": "#/$defs/authorityHead"
+        },
+        "record_order": { "const": "decoded authority_sequence ascending and contiguous" },
+        "records": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "uniqueItems": true,
+          "items": { "$ref": "https://proof.dev/schema/collaboration-server/collaboration-artifacts/v1#/$defs/remoteAuthorityRecordEnvelopeV1" }
+        },
+        "included_head": { "$ref": "#/$defs/authorityHead" }
+      }
+    },
+    "artifactDescriptorIdentity": {
+      "description": "Frozen verifier-owned artifact registry. A producer cannot select a schema, media type, canonicalization, or digest context independently of artifact_kind.",
+      "oneOf": [
+        {
+          "required": ["artifact_kind", "canonicalization", "digest_context", "media_type", "schema_id", "schema_version"],
+          "properties": {
+            "artifact_kind": { "const": "remote-actor-evidence" },
+            "member_path": { "const": "actor/context-evidence.json" },
+            "schema_id": { "const": "proof.authenticated-actor-context-evidence/v2" },
+            "schema_version": { "const": 2 },
+            "media_type": { "const": "application/json" },
+            "canonicalization": { "const": "RFC8785" },
+            "digest_context": { "const": "proof:authenticated-actor-context-evidence:v2" }
+          }
+        },
+        {
+          "required": ["artifact_kind", "canonicalization", "digest_context", "media_type", "schema_id", "schema_version"],
+          "properties": {
+            "artifact_kind": { "const": "remote-authentication-event" },
+            "member_path": { "const": "authentication/event.json" },
+            "schema_id": { "const": "proof.remote-authentication-event/v1" },
+            "schema_version": { "const": 1 },
+            "media_type": { "const": "application/json" },
+            "canonicalization": { "const": "RFC8785" },
+            "digest_context": { "const": "proof:remote-authentication-event:v1" }
+          }
+        },
+        {
+          "required": ["artifact_kind", "canonicalization", "digest_context", "media_type", "schema_id", "schema_version"],
+          "properties": {
+            "artifact_kind": { "const": "release-artifact-closure" },
+            "member_path": { "const": "content/release-closure.json" },
+            "schema_id": { "const": "proof.remote-release-artifact-closure/v1" },
+            "schema_version": { "const": 1 },
+            "media_type": { "const": "application/json" },
+            "canonicalization": { "const": "RFC8785" },
+            "digest_context": { "const": "proof:remote-release-artifact-closure:v1" },
+            "delivery": { "const": "included" }
+          }
+        },
+        {
+          "required": ["artifact_kind", "canonicalization", "digest_context", "media_type", "schema_id", "schema_version"],
+          "properties": {
+            "artifact_kind": { "const": "remote-command-input" },
+            "member_path": { "const": "attempt/command-input.json" },
+            "schema_id": { "const": "proof.command-input/v1" },
+            "schema_version": { "const": 1 },
+            "media_type": { "const": "application/json" },
+            "canonicalization": { "const": "RFC8785" },
+            "digest_context": { "const": "proof:command:v1" },
+            "delivery": { "const": "included" }
+          }
+        },
+        {
+          "required": ["artifact_kind", "canonicalization", "digest_context", "media_type", "schema_id", "schema_version"],
+          "properties": {
+            "artifact_kind": { "const": "remote-authenticated-command-envelope" },
+            "member_path": { "const": "attempt/authenticated-command-envelope.json" },
+            "schema_id": { "const": "proof.authenticated-command-envelope/v1" },
+            "schema_version": { "const": 1 },
+            "media_type": { "const": "application/json" },
+            "canonicalization": { "const": "RFC8785" },
+            "digest_context": { "const": "proof:authenticated-command-envelope:v1" },
+            "delivery": { "const": "included" }
+          }
+        },
+        {
+          "required": ["artifact_kind", "canonicalization", "digest_context", "media_type", "schema_id", "schema_version"],
+          "properties": {
+            "artifact_kind": { "const": "authority-fact" },
+            "member_path": { "const": "authority/facts.json" },
+            "schema_id": { "const": "proof.remote-authority-record-set/v1" },
+            "schema_version": { "const": 1 },
+            "media_type": { "const": "application/json" },
+            "canonicalization": { "const": "RFC8785" },
+            "digest_context": { "const": "proof:remote-authority-record-set:v1" }
+          }
+        }
+      ]
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "byte_length", "canonicalization", "content_digest", "delivery", "digest_context", "disclosure_id", "media_type", "member_path", "schema_id", "schema_version"],
+      "properties": {
+        "member_path": { "type": "string", "maxLength": 256, "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*$" },
+        "artifact_kind": { "enum": ["release-artifact-closure", "authority-fact", "remote-actor-evidence", "remote-authentication-event", "remote-command-input", "remote-authenticated-command-envelope"] },
+        "schema_id": { "type": "string", "pattern": "^proof\\.[a-z0-9.-]+/v[1-9][0-9]*$" },
+        "schema_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "media_type": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$" },
+        "canonicalization": { "enum": ["RFC8785", "raw-bytes"] },
+        "digest_context": { "type": "string", "pattern": "^proof:[a-z0-9-]+:v[1-9][0-9]*$" },
+        "byte_length": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "delivery": { "enum": ["included", "external-required"] },
+        "disclosure_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/disclosureId" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/artifactDescriptorIdentity" },
+        {
+          "if": { "properties": { "delivery": { "const": "included" } }, "required": ["delivery"] },
+          "then": { "properties": { "disclosure_id": { "type": "null" } } },
+          "else": { "properties": { "disclosure_id": { "$ref": "#/$defs/disclosureId" } } }
+        }
+      ]
+    },
+    "rootMembership": {
+      "description": "Closed six-root inventory. Every verifier-consumed closure binding has exactly one descriptor at its frozen path and no unreferenced outer root is permitted.",
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/member" },
+      "allOf": [
+        { "contains": { "properties": { "artifact_kind": { "const": "release-artifact-closure" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "artifact_kind": { "const": "authority-fact" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "artifact_kind": { "const": "remote-actor-evidence" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "artifact_kind": { "const": "remote-authentication-event" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "artifact_kind": { "const": "remote-command-input" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "artifact_kind": { "const": "remote-authenticated-command-envelope" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
+    "evidenceExportCaptureV2": {
+      "title": "EvidenceExportCaptureV2",
+      "description": "The complete immutable export-capture digest preimage. Canonicalize this object alone with RFC 8785 and compute BLAKE3-256 using derive-key context proof:evidence-export-capture:v2. Every retry, build, ready transition and result reuses these exact bytes and digest; current heads or membership are never recaptured.",
+      "x-proof-canonicalization": "RFC8785",
+      "x-proof-digest-algorithm": "BLAKE3-256 derive-key mode",
+      "x-proof-digest-context": "proof:evidence-export-capture:v2",
+      "x-proof-disclosure-plan-rule": "disclosures are unique and sorted by disclosure_id UTF-8 bytes. Every external-required root member names exactly one kind=artifact-bytes disclosure whose commitment_digest equals that member content_digest, and every artifact-bytes disclosure names exactly one external-required root member; this is a bijection. The capture carries exactly one kind=oidc-subject-opening requirement whose commitment_digest equals the target RemoteAuthorizationDecisionV1.requesting_subject_commitment and resolves the exact public OidcPrincipalBindingV1 used by that decision. Omission or substitution makes the producer capture/manifest Invalid, but verifier selection is independently derived from the authenticated decision so producer metadata can never weaken caller policy. Whether the selected opening is required comes only from VerificationTrustPolicyV2; withholding a required opening without contradiction is Incomplete, while an unselected or contradictory opening or external artifact is Invalid.",
+      "x-proof-closure-composition-rule": "Before capture, the exact canonical RemoteReleaseArtifactClosureV1 and RemoteAuthorityRecordSetV1 aggregate bytes are already materialized in immutable storage, every referenced nested or enclosed byte is retained, and both aggregates are strict-parsed, digest-verified, and checked against the heads locked by the capture transaction. Capture selects those exact aggregate bytes/digests; the worker never reconstructs either aggregate from a digest or ambient state. closure_bindings.artifact_closure resolves exactly one included release-artifact-closure root whose content_digest equals manifest_digest, then resolves every declared Included nested artifact at its deterministic content/artifacts path and runs the accepted artifact, ReleaseV2, ProofEnvelopeV1, policy, Environment, and content-closure checks directly. closure_bindings.remote_authority similarly resolves exactly one authority-fact root, verifies the caller-anchored contiguous P8 chain, and resolves the target decision and consequence. remote_attempt_companions resolves exact typed actor evidence, authentication event, CommandInputV1, and authenticated-command-envelope members; it decodes AuthenticatedCommandV1 from the envelope payload and reconstructs the Agent release.create/v2 public projection, result, and application effect from those bytes plus artifact-closure entrypoints. Their Workspace, requesting and operating Principals, binding, remote OIDC subject commitment, issuer configuration, time, Delegation, presentation, command and envelope, operation, normalized input, public projection, application key, Environment/configuration, Release/Proof, result, effect, and consequence reproduce the P8 decision closure and cross_links exactly. ReleaseV2.principal_id, the release-policy AuthorizationDecisionV1.operating_principal_id, and cross_links.requesting_principal_id are equal; cross_links.operating_principal_id equals RemoteAuthorizationDecisionV1.agent_authorization.operating_principal_id and differs from the requesting Principal. The release-policy decision digest differs from the remote target decision digest and each is recomputed under its own frozen context. The composed successor verifier validates the artifact closure, P8 remote chain, and attempt companions independently before cross-linking them. P6 AuthorityEvidenceBundleV1 and its local Unix authority entrypoint remain unchanged historical types and never substitute for, or become a prerequisite of, this remote closure. Repeated digest labels without all verifier-consumed bytes are Invalid.",
+      "x-proof-root-identity-rule": "workspace_id equals closure_bindings.cross_links.workspace_id, the decoded RemoteReleaseArtifactClosureV1.workspace_id, and the decoded RemoteAuthorityRecordSetV1.workspace_id. release_id and release_digest equal closure_bindings.cross_links.release_id/release_digest and the verified target ReleaseV2 identity/digest selected by the artifact closure. closure_bindings.remote_authority.head exactly equals the record set included_head in sequence and record_digest, while heads.authority equals included_head.record_digest. These outer fields remain unauthenticated producer metadata, but any contradiction is Invalid and they are never substituted into the verified inner claim.",
+      "x-proof-snapshot-boundary-rule": "snapshot_boundary is pre-export-attempt-locked-heads. The five heads are locked before this evidence.export/v2 attempt appends its own authorization decision, EvidenceExportCaptureV2 effect, or RemoteApplicationConsequenceV1, so the capture cannot contain itself. In this P-0008 profile no detached post-build signed receipt is included; therefore export_id, snapshot_id, captured heads, membership plan, capture/manifest digest, ready transition, and any current-at-snapshot statement remain unauthenticated producer metadata and are excluded from a Complete verified claim. The verifier authenticates only the direct artifact/Release closure and P8 release-attempt authority closure. A successor may add a non-circular detached export receipt before claiming authenticated capture or readiness.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "build_event_count",
+        "captured_at",
+        "closure_bindings",
+        "disclosure_order",
+        "disclosure_profile",
+        "disclosures",
+        "export_id",
+        "heads",
+        "idempotency_key",
+        "membership",
+        "membership_order",
+        "release_digest",
+        "release_id",
+        "snapshot_boundary",
+        "snapshot_id",
+        "state_after_commit",
+        "transaction_isolation",
+        "type",
+        "workspace_id"
+      ],
+      "properties": {
+        "type": { "const": "EvidenceExportCaptureV2" },
+        "api_version": { "const": "proof.dev/evidence-export-capture/v2" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "export_id": { "$ref": "#/$defs/uuid" },
+        "idempotency_key": {
+          "description": "Exact evidence.export/v2 application idempotency key; it equals the export lifecycle application_key.",
+          "$ref": "#/$defs/uuid"
+        },
+        "release_id": { "$ref": "#/$defs/uuid" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "closure_bindings": { "$ref": "#/$defs/closureBindings" },
+        "disclosure_profile": { "enum": ["complete-portable", "explicit-external-artifacts"] },
+        "transaction_isolation": { "const": "SERIALIZABLE READ WRITE" },
+        "captured_at": { "$ref": "#/$defs/timestamp" },
+        "snapshot_id": { "type": "string", "pattern": "^snapshot_[0-9a-f]{32}$" },
+        "snapshot_boundary": { "const": "pre-export-attempt-locked-heads" },
+        "heads": { "$ref": "#/$defs/heads" },
+        "membership_order": { "const": "member_path UTF-8 bytewise ascending" },
+        "membership": {
+          "description": "Exact non-empty captured root membership, already sorted by member_path UTF-8 bytes and with no duplicate member_path. A release-artifact-closure root commits its own exact transitive payload inventory under content/artifacts/; those nested files are governed only by that typed closure and are not duplicated as root members. uniqueItems is structural; root sort/path uniqueness and the closure-to-nested-inventory bijection are semantic requirements.",
+          "$ref": "#/$defs/rootMembership"
+        },
+        "disclosure_order": { "const": "disclosure_id UTF-8 bytewise ascending" },
+        "disclosures": {
+          "description": "Exact typed disclosure requirements selected under disclosure_profile, already sorted by disclosure_id UTF-8 bytes with no duplicates. An external-required artifact member names one artifact-bytes requirement whose commitment equals content_digest and is always required. An OIDC subject-opening requirement commits the public binding; only caller trust policy decides whether its opening is required.",
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/disclosureRequirement" }
+        },
+        "build_event_count": { "const": 1 },
+        "state_after_commit": { "const": "pending" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "disclosure_profile": { "const": "complete-portable" } }, "required": ["disclosure_profile"] },
+          "then": { "properties": { "membership": { "items": { "properties": { "delivery": { "const": "included" } } } } } },
+          "else": { "properties": { "membership": { "contains": { "properties": { "delivery": { "const": "external-required" } }, "required": ["delivery"] }, "minContains": 1 } } }
+        }
+      ]
+    },
+    "exportLifecycle": {
+      "description": "Lifecycle for exactly one persisted EvidenceExportCaptureV2. The typed capture is immutable and capture_digest is its exact domain-separated digest; all repeated identifiers, exact build outputs, counts, and snapshot material elsewhere in this suite must compare equal.",
+      "x-proof-capture-cross-check": "export_id == capture.export_id; application_key == capture.idempotency_key; capture_digest == BLAKE3-256[proof:evidence-export-capture:v2](RFC8785(capture)); build and ready never replace capture bytes. capture.captured_at <= build.built_at <= ready.ready_at as parsed RFC 3339 instants. build and ready bundle_descriptor_digest, manifest_digest, artifact_count, and total_included_bytes are byte-for-byte equal. Those four ready values equal the exact EvidenceExportStatusV1 ready projection; the two digests equal the reserved bundle.json and manifest.json selectors and the counts equal the producer-included logical member set.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["export_id", "application_key", "capture", "capture_digest", "build", "ready"],
+      "properties": {
+        "export_id": { "$ref": "#/$defs/uuid" },
+        "application_key": {
+          "description": "The exact UUIDv7 application idempotency key supplied to evidence.export/v2; retries never derive or substitute another key.",
+          "$ref": "#/$defs/uuid"
+        },
+        "capture": { "$ref": "#/$defs/evidenceExportCaptureV2" },
+        "capture_digest": {
+          "description": "Exact BLAKE3-256 derive-key digest of RFC 8785 canonical capture bytes under proof:evidence-export-capture:v2.",
+          "$ref": "#/$defs/digest"
+        },
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runs_outside_capture_transaction", "input_scope", "deterministic", "bundle_descriptor_digest", "manifest_digest", "artifact_count", "total_included_bytes", "built_at", "state_after_build"],
+          "properties": {
+            "runs_outside_capture_transaction": { "const": true },
+            "input_scope": { "const": "captured-membership-only" },
+            "deterministic": { "const": true },
+            "bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+            "manifest_digest": { "$ref": "#/$defs/digest" },
+            "artifact_count": { "type": "integer", "minimum": 1, "maximum": 4096 },
+            "total_included_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 },
+            "built_at": { "$ref": "#/$defs/timestamp" },
+            "state_after_build": { "const": "pending" }
+          }
+        },
+        "ready": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transaction_isolation", "manifest_verified", "exact_bytes_verified", "captured_membership_only", "bundle_descriptor_digest", "manifest_digest", "artifact_count", "total_included_bytes", "transition", "ready_at"],
+          "properties": {
+            "transaction_isolation": { "const": "SERIALIZABLE READ WRITE" },
+            "manifest_verified": { "const": true },
+            "exact_bytes_verified": { "const": true },
+            "captured_membership_only": { "const": true },
+            "bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+            "manifest_digest": { "$ref": "#/$defs/digest" },
+            "artifact_count": { "type": "integer", "minimum": 1, "maximum": 4096 },
+            "total_included_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 },
+            "transition": { "const": "pending-to-ready" },
+            "ready_at": { "$ref": "#/$defs/timestamp" }
+          }
+        }
+      }
+    },
+    "evidenceManifestV2": {
+      "title": "RemoteEvidenceManifestV2",
+      "description": "The exact portable bundle manifest and complete manifest-digest preimage. It is a projection of the immutable capture, never a fresh observation.",
+      "x-proof-canonicalization": "RFC8785",
+      "x-proof-digest-algorithm": "BLAKE3-256 derive-key mode",
+      "x-proof-digest-context": "proof:remote-evidence-manifest:v2",
+      "x-proof-capture-projection-rule": "Producer-internal ready/build invariant only: workspace_id, export_id, snapshot_id, snapshot_boundary, release_id, release_digest, closure_bindings, disclosure_profile, heads, membership_order, membership, disclosure_order and disclosures equal the retained server-side capture byte-for-byte, and capture_digest equals its exact domain-separated digest. EvidenceExportCaptureV2 bytes are not portable members in this profile, so the offline verifier cannot recompute this digest and excludes capture integrity, export readiness, snapshot labels, and repeated producer metadata from Complete. A future detached receipt must supply and authenticate exact capture bytes before changing that claim.",
+      "x-proof-disclosure-plan-rule": "Independently of unavailable capture bytes, the portable manifest enforces the same exact root-member/disclosure bijection and exactly one OIDC-opening requirement for the authenticated target decision commitment. Caller policy still selects that commitment directly from the remote chain, so producer omission cannot weaken a required opening.",
+      "x-proof-root-identity-rule": "Without relying on unavailable capture bytes, require workspace_id to equal closure_bindings.cross_links.workspace_id and both decoded aggregate Workspace values; require release_id/release_digest to equal closure_bindings.cross_links and the verified target ReleaseV2; require closure_bindings.remote_authority.head to equal the decoded record-set included_head in sequence and digest; and require heads.authority to equal that included_head.record_digest. Contradictory producer metadata is Invalid even though matching export/snapshot metadata is not authenticated and remains outside Complete.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "capture_digest", "closure_bindings", "disclosure_order", "disclosure_profile", "disclosures", "export_id", "heads", "membership", "membership_order", "release_digest", "release_id", "snapshot_boundary", "snapshot_id", "type", "workspace_id"],
+      "properties": {
+        "type": { "const": "RemoteEvidenceManifestV2" },
+        "api_version": { "const": "proof.dev/remote-evidence-manifest/v2" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "export_id": { "$ref": "#/$defs/uuid" },
+        "snapshot_id": { "type": "string", "pattern": "^snapshot_[0-9a-f]{32}$" },
+        "snapshot_boundary": { "const": "pre-export-attempt-locked-heads" },
+        "capture_digest": { "$ref": "#/$defs/digest" },
+        "release_id": { "$ref": "#/$defs/uuid" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "closure_bindings": { "$ref": "#/$defs/closureBindings" },
+        "disclosure_profile": { "enum": ["complete-portable", "explicit-external-artifacts"] },
+        "heads": { "$ref": "#/$defs/heads" },
+        "membership_order": { "const": "member_path UTF-8 bytewise ascending" },
+        "membership": { "$ref": "#/$defs/rootMembership" },
+        "disclosure_order": { "const": "disclosure_id UTF-8 bytewise ascending" },
+        "disclosures": { "type": "array", "maxItems": 4096, "uniqueItems": true, "items": { "$ref": "#/$defs/disclosureRequirement" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "disclosure_profile": { "const": "complete-portable" } }, "required": ["disclosure_profile"] },
+          "then": { "properties": { "membership": { "items": { "properties": { "delivery": { "const": "included" } } } } } },
+          "else": { "properties": { "membership": { "contains": { "properties": { "delivery": { "const": "external-required" } }, "required": ["delivery"] }, "minContains": 1 } } }
+        }
+      ]
+    },
+    "bundle": {
+      "x-proof-max-canonical-bytes": 65536,
+      "x-proof-canonicalization": "RFC8785",
+      "x-proof-digest-algorithm": "BLAKE3-256 derive-key mode",
+      "x-proof-digest-context": "proof:remote-evidence-bundle:v2",
+      "x-proof-manifest-binding-rule": "Read this descriptor only from bundle.json and the exact RemoteEvidenceManifestV2 bytes only from manifest.json; recompute manifest_digest under proof:remote-evidence-manifest:v2. Bundle workspace_id, export_id, snapshot_id, snapshot_heads, portable_payload_contract, and the first-profile const-empty untrusted_hints are a deterministic projection of the exact manifest/capture values, so one capture and manifest have exactly one canonical descriptor and bundle descriptor digest. Bundle workspace_id, export_id, snapshot_id, and snapshot_heads equal the manifest values byte-for-byte even though they remain unauthenticated producer metadata. portable_payload_contract artifact-closure and record-set paths/digests exactly equal manifest.closure_bindings; any contradiction is Invalid.",
+      "x-proof-member-set-rule": "RemoteEvidenceBundleV2 is the canonical bundle.json descriptor for an uncompressed logical member set, not an archive carrier. The verifier receives an exact map from normalized UTF-8 member_path to raw member bytes; no tar, zip, compression, decompression, aggregate-container media type, header metadata, mode, mtime, or container ordering participates. The map has exactly one bundle.json descriptor, exactly one manifest.json value, every unique captured included root at its manifest member_path, and every unique nested accepted artifact at the deterministic path declared by RemoteReleaseArtifactClosureV1. External-required roots are absent and supplied only through caller input. Reject absolute paths, dot segments, backslashes, duplicate normalized paths, undeclared entries, missing included entries, and descriptor/manifest paths appearing in root membership. Stream entries in member_path UTF-8 bytewise order, reject each declared or observed length over max_artifact_bytes and the running non-reserved artifact count/byte totals before allocation, and stop before reading a body that would make non-reserved entries exceed max_artifacts, total map entries exceed max_artifacts + 2 reserved entries, or consumed bytes exceed max_total_bytes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "api_version", "bundle_descriptor_path", "export_id", "manifest_digest", "manifest_member_path", "portable_payload_contract", "snapshot_claim", "snapshot_heads", "snapshot_id", "untrusted_hints", "workspace_id"],
+      "properties": {
+        "type": { "const": "RemoteEvidenceBundleV2" },
+        "api_version": { "const": "proof.dev/remote-evidence-bundle/v2" },
+        "bundle_descriptor_path": { "const": "bundle.json" },
+        "manifest_member_path": { "const": "manifest.json" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "export_id": { "$ref": "#/$defs/uuid" },
+        "snapshot_id": { "type": "string", "pattern": "^snapshot_[0-9a-f]{32}$" },
+        "snapshot_claim": { "const": "unauthenticated producer snapshot label; no current, latest, capture-integrity, or readiness claim" },
+        "snapshot_heads": { "$ref": "#/$defs/heads" },
+        "manifest_digest": { "$ref": "#/$defs/digest" },
+        "portable_payload_contract": {
+          "description": "The remote logical member set directly verifies accepted artifact and Release-proof semantics under a distinct P8 remote-authority closure and exact attempt companions. Historical P6 bundles and their verifier remain unchanged but are not a remote authority input.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_closure_api_version", "artifact_closure_digest", "artifact_closure_member_path", "artifact_verifier_profile", "composed_verifier_profile", "composition", "included_bytes_rule", "p6_compatibility", "remote_record_set_digest", "remote_record_set_member_path", "remote_verifier_profile"],
+          "properties": {
+            "artifact_closure_api_version": { "const": "proof.dev/remote-release-artifact-closure/v1" },
+            "artifact_closure_member_path": { "const": "content/release-closure.json" },
+            "artifact_closure_digest": { "$ref": "#/$defs/digest" },
+            "artifact_verifier_profile": { "const": "proof-verifier/accepted-release-artifact-semantics-v1" },
+            "remote_record_set_member_path": { "const": "authority/facts.json" },
+            "remote_record_set_digest": { "$ref": "#/$defs/digest" },
+            "remote_verifier_profile": { "const": "proof-verifier/remote-authority/v1" },
+            "composed_verifier_profile": { "const": "proof-verifier/remote-evidence-v2" },
+            "composition": { "const": "verify-accepted-artifact-release-closure-p8-remote-authority-and-attempt-companions-then-enforce-cross-links" },
+            "included_bytes_rule": { "const": "retain the exact outer manifest, release-artifact closure manifest and every selected accepted artifact, P8 record set and every remote-authority envelope, and all selected actor, authentication, CommandInputV1, and authenticated-command-envelope companion bytes" },
+            "p6_compatibility": { "const": "historical AuthorityEvidenceBundleV1 and its verifier remain unchanged and are not relabeled or executed for the remote attempt" }
+          }
+        },
+        "untrusted_hints": {
+          "description": "Reserved shape-compatible namespace. The first remote-evidence/v2 profile freezes every producer hint array empty; caller-controlled VerificationTrustPolicyV2 is the only source of roots, checkpoints, and registry resolution.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority_root_ids", "release_root_ids", "checkpoint_ids", "resolver_urls", "trusted", "auto_fetch"],
+          "properties": {
+            "authority_root_ids": { "const": [] },
+            "release_root_ids": { "const": [] },
+            "checkpoint_ids": { "const": [] },
+            "resolver_urls": { "const": [] },
+            "trusted": { "const": false },
+            "auto_fetch": { "const": false }
+          }
+        }
+      }
+    },
+    "nullableTimestamp": {
+      "oneOf": [
+        { "$ref": "#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "authorityHead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_digest", "sequence"],
+      "properties": {
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "trustedKey": {
+      "description": "Exact independently supplied Ed25519 verifier key and validity window; key_id is ed25519: followed by lowercase hex of the exact decoded 32 public-key bytes under the accepted key-ID contract (not a hash of those bytes).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "not_after", "not_before", "public_key", "revoked_at"],
+      "properties": {
+        "key_id": { "type": "string", "pattern": "^ed25519:[0-9a-f]{64}$" },
+        "public_key": {
+          "type": "string",
+          "minLength": 44,
+          "maxLength": 44,
+          "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+        },
+        "not_before": { "$ref": "#/$defs/timestamp" },
+        "not_after": { "$ref": "#/$defs/nullableTimestamp" },
+        "revoked_at": { "$ref": "#/$defs/nullableTimestamp" }
+      }
+    },
+    "verificationTrustPolicy": {
+      "title": "VerificationTrustPolicyV2",
+      "description": "Explicitly versioned remote portable-verifier trust input. V2 extends, rather than mutates, the accepted v1 wire type with caller-pinned collaboration registry selectors and their closed offline resolution profile.",
+      "x-proof-digest-context": "proof:verification-trust-policy:v2",
+      "x-proof-key-role-separation-rule": "Before accepting Complete, resolve the exact Agent PrincipalBindingV1 that was active at the target authorization decision and command-evaluation head, not current state at the later included_head. A binding revocation after the selected consequence may remain in the complete included prefix and does not retroactively invalidate that historical key selection. VerificationTrustPolicyV2.authority.initial_root, every release.trusted_signers item, and the historically selected binding's authenticated-command key are pairwise distinct in both key identifier and exact decoded 32-byte public key. Release trusted signers are also pairwise unique by identifier and decoded bytes. Equality in either representation is Invalid and role_separation cannot be verified. The verifier checks each key identifier against its decoded bytes before comparing roles.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "authority", "disclosure", "limits", "registry_resolution", "release", "remote_identity", "workspace_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/verification-trust-policy/v2" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "registry_resolution": {
+          "description": "The exact offline resolver semantics for the caller-pinned registry hashes. This named verifier profile contains a closed built-in hash-to-canonical-document table; an unknown hash can never be interpreted by producer input or fetched from a network.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hash_mismatch_result", "profile", "source", "unknown_hash_result"],
+          "properties": {
+            "profile": { "const": "proof.verifier/collaboration-registry/v1" },
+            "source": { "const": "verifier-built-in-closed-hash-to-rfc8785-document-table" },
+            "unknown_hash_result": { "const": "Invalid" },
+            "hash_mismatch_result": { "const": "Invalid" }
+          }
+        },
+        "authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accepted_authorization_registry_hashes", "accepted_operation_registry_hashes", "accepted_policy_bundles", "checkpoint_requirement", "compromise_cutoff", "initial_head", "initial_root"],
+          "properties": {
+            "initial_root": { "$ref": "#/$defs/trustedKey" },
+            "initial_head": {
+              "description": "Independently supplied first trusted head of the remote authority profile. The bound record set must begin immediately after this head and disclose every subsequent record through included_head.",
+              "$ref": "#/$defs/authorityHead"
+            },
+            "accepted_authorization_registry_hashes": {
+              "description": "Caller-pinned SHA-256 values for authorization projections accepted when interpreting signed decisions.",
+              "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+              "items": { "$ref": "#/$defs/sha256" }
+            },
+            "accepted_operation_registry_hashes": {
+              "description": "Caller-pinned SHA-256 values for complete operation registries accepted when interpreting signed decision and consequence semantics.",
+              "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+              "items": { "$ref": "#/$defs/sha256" }
+            },
+            "accepted_policy_bundles": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["policy_bundle_digest", "policy_profile"],
+                "properties": {
+                  "policy_profile": { "const": "proof.local/authority/direct/v1" },
+                  "policy_bundle_digest": { "$ref": "#/$defs/digest" }
+                }
+              }
+            },
+            "checkpoint_requirement": { "enum": ["internal_prefix_only", "required"] },
+            "compromise_cutoff": {
+              "oneOf": [
+                { "$ref": "#/$defs/authorityHead" },
+                { "type": "null" }
+              ]
+            }
+          }
+        },
+        "release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accepted_policy_profiles", "accepted_predicate_types", "trusted_signers"],
+          "properties": {
+            "trusted_signers": {
+              "description": "Caller-supplied closed Release signer set. Every key_id equals the lowercase hex of its exact decoded 32-byte public_key; identifiers and decoded bytes are each pairwise unique. The target ReleaseV2 key_id resolves exactly one item whose interval contains released_at: not_before <= released_at and released_at is strictly before each non-null not_after and revoked_at.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/trustedKey" }
+            },
+            "accepted_predicate_types": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": { "enum": ["urn:proof:attestation:release:v1", "urn:proof:attestation:release:v2"] }
+            },
+            "accepted_policy_profiles": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["environment_config_digest", "policy_profile"],
+                "properties": {
+                  "environment_config_digest": { "$ref": "#/$defs/digest" },
+                  "policy_profile": { "const": "proof.local/release-policy/v1" }
+                }
+              }
+            }
+          }
+        },
+        "remote_identity": {
+          "description": "Caller-pinned identities of accepted OIDC deployment configurations. These digests authorize interpretation of authority-attested remote identity evidence; they do not cause offline token, discovery, or JWKS revalidation.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accepted_oidc_issuer_configuration_digests"],
+          "properties": {
+            "accepted_oidc_issuer_configuration_digests": {
+              "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+              "items": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "disclosure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requesting_subject_opening"],
+          "properties": {
+            "requesting_subject_opening": { "enum": ["optional", "required"] }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_artifact_bytes", "max_artifacts", "max_authority_records", "max_json_depth", "max_manifest_bytes", "max_total_bytes", "max_verifier_input_bytes"],
+          "properties": {
+            "max_verifier_input_bytes": {
+              "description": "Caller-selected raw RemoteVerifierInputV2 byte ceiling, enforced after the verifier's fixed 268435456-byte pre-parse ceiling and unable to raise it.",
+              "type": "integer", "minimum": 1, "maximum": 268435456
+            },
+            "max_manifest_bytes": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+            "max_artifacts": { "type": "integer", "minimum": 1, "maximum": 4096 },
+            "max_authority_records": { "type": "integer", "minimum": 1, "maximum": 512 },
+            "max_artifact_bytes": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+            "max_total_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 },
+            "max_json_depth": { "type": "integer", "minimum": 1, "maximum": 128 }
+          }
+        }
+      }
+    },
+    "authorityCheckpoint": {
+      "title": "AuthorityCheckpointV1",
+      "x-proof-digest-context": "proof:authority-checkpoint:v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_authority_key_id", "api_version", "authority_record_digest", "authority_sequence", "observed_at", "workspace_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/authority-checkpoint/v1" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "authority_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "authority_record_digest": { "$ref": "#/$defs/digest" },
+        "active_authority_key_id": { "type": "string", "pattern": "^ed25519:[0-9a-f]{64}$" },
+        "observed_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "environmentReleaseCheckpoint": {
+      "description": "Exact independently obtained expectation for one verifiable Environment configuration and Release pair. It carries no Environment or Release head/freshness claim; trust comes from the caller-controlled input boundary, never a producer hint.",
+      "x-proof-digest-context": "proof:environment-release-checkpoint:v2",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "environment_config_digest", "environment_config_version", "environment_id", "observed_at", "release_digest", "release_id", "workspace_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/environment-release-checkpoint/v2" },
+        "workspace_id": { "$ref": "#/$defs/uuid" },
+        "environment_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]*$" },
+        "environment_config_digest": { "$ref": "#/$defs/digest" },
+        "environment_config_version": { "const": 2 },
+        "release_id": { "$ref": "#/$defs/uuid" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "observed_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "externalArtifact": {
+      "description": "Exact caller-supplied bytes for one captured member intentionally withheld from the producer bundle. Its complete artifact identity and digest procedure must match the captured manifest descriptor and frozen verifier-owned artifact registry; byte_length is the decoded byte count and content_digest is recomputed before use.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "byte_length", "bytes_base64", "canonicalization", "content_digest", "delivery", "digest_context", "disclosure_id", "media_type", "member_path", "schema_id", "schema_version"],
+      "properties": {
+        "member_path": { "type": "string", "maxLength": 256, "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*$" },
+        "artifact_kind": { "enum": ["authority-fact", "remote-actor-evidence", "remote-authentication-event"] },
+        "delivery": { "const": "external-required" },
+        "disclosure_id": { "$ref": "#/$defs/disclosureId" },
+        "schema_id": { "type": "string", "pattern": "^proof\\.[a-z0-9.-]+/v[1-9][0-9]*$" },
+        "schema_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "canonicalization": { "enum": ["RFC8785", "raw-bytes"] },
+        "digest_context": { "type": "string", "pattern": "^proof:[a-z0-9-]+:v[1-9][0-9]*$" },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "media_type": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$" },
+        "byte_length": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "bytes_base64": {
+          "type": "string",
+          "maxLength": 5592408,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$"
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/artifactDescriptorIdentity" }]
+    },
+    "verifierInput": {
+      "title": "RemoteVerifierInputV2",
+      "description": "Complete caller-controlled input for the successor composed verifier. RFC 8785 canonical bytes use BLAKE3-256 derive-key context proof:remote-verifier-input:v2; bundle hints are never included as authority by substitution. Accepted Release/artifact trust and P8 remote-authority trust are explicit in VerificationTrustPolicyV2; no implicit P6 TrustPolicyV1 projection exists.",
+      "x-proof-canonicalization": "RFC8785",
+      "x-proof-digest-algorithm": "BLAKE3-256 derive-key mode",
+      "x-proof-digest-context": "proof:remote-verifier-input:v2",
+      "x-proof-trust-input-rule": "verification_trust_policy is the exact accepted VerificationTrustPolicyV2 caller value and trust_policy_digest is its BLAKE3-256 derive-key proof:verification-trust-policy:v2 digest. It contains usable authority/release public-key bytes, a caller-pinned initial remote authority head, plus policy and authorization/full-operation-registry hash allowlists. The remote record set base_head equals that initial_head exactly, so a producer cannot select an arbitrary suffix or omit intervening records. With no authenticated base-state snapshot, that initial head must precede every authority fact consumed by verification, and the exact contiguous records must reconstruct all relevant state and transitions through the target attempt; a later digest-only anchor cannot stand in for earlier binding, delegation, role, approval, Principal, or Environment bytes. Its named offline resolver profile supplies a closed built-in hash-to-exact-canonical-document table; every verified RemoteAuthorizationDecision registry hash must resolve there and be a member of the corresponding caller allowlist before its semantics are interpreted. The resolved full registry's embedded authorization registry commitment must equal that same decision's signed authorization_registry_sha256, so independently accepted hashes cannot be mixed across versions. Unknown, missing, mismatched, or cross-paired registry bytes are Invalid. authority_checkpoint is the exact independently obtained AuthorityCheckpointV1 value or null; when checkpoint_requirement is required it exactly matches the included remote head in Workspace, sequence, record digest, and active key. A higher sequence alone is not ancestry. A non-null compromise_cutoff exactly matches both one recomputed remote chain head and included_head; no later record, selected decision, or consequence is permitted. internal_prefix_only makes no freshness claim beyond the complete caller-anchored prefix. environment_release_checkpoint is an exact caller expectation or null; when present, its Workspace, Environment ID, Environment configuration digest/version, Release ID, and Release digest equal the verified closure and cross_links. It carries no head or freshness meaning. Producer hint identifiers never select, fetch, or replace any of these values.",
+      "x-proof-policy-and-identity-trust-rule": "For the selected Agent RemoteAuthorizationDecisionV1, the exact nested agent_authorization {policy_profile,policy_bundle_digest} pair is a member of verification_trust_policy.authority.accepted_policy_bundles before the Allow is interpreted. The outer decision policy_bundle_digest is not that accepted local policy digest: recompute it independently under proof:remote-authorization-policy-selection:v1 from the signed authorization registry/rule and exact Environment configuration/policy selectors, and reject substitution or mismatch. Resolve the exact public OidcPrincipalBindingV1 selected by the decision and require its oidc_issuer_configuration_digest to equal both RemoteAuthenticationEventV1 and AuthenticatedActorContextEvidenceV2, and to be a member of verification_trust_policy.remote_identity.accepted_oidc_issuer_configuration_digests. Require event.authenticated_at == actor.authenticated_at <= decision.evaluated_at < event.expires_at; an event with expires_at <= authenticated_at or a decision at or after expiry is Invalid. Complete.actor means the trusted server-authority chain attests a consistent remote authentication under that caller-accepted configuration digest; this bundle contains no ID token, discovery response, time-indexed JWKS, or token-signing proof and makes no independent offline OIDC-token revalidation claim.",
+      "x-proof-subject-opening-rule": "The verifier selects the target RemoteAuthorizationDecisionV1.requesting_subject_commitment directly from the authenticated remote chain; producer disclosure metadata cannot omit or replace that selection. If caller policy requesting_subject_opening is required, exactly one supplied OidcSubjectCommitmentOpeningV1 must open that selected commitment or the outcome is Incomplete when no contradiction is supplied. For each supplied opening, recompute proof:oidc-authenticated-subject-commitment:v1 over its exact RFC 8785 input, require equality to item.commitment, and match commitment plus Workspace to the exact public OidcPrincipalBindingV1 used by the target decision. Duplicate, unselected, wrong-Workspace, or contradictory openings are Invalid. An optional policy may verify without the opening.",
+      "x-proof-external-artifact-rule": "Each external_artifacts item supplies exact caller-controlled decoded bytes for one external-required captured manifest descriptor: member_path, artifact_kind, schema_id, schema_version, media_type, canonicalization, digest_context, content_digest, byte_length, delivery and disclosure_id all equal that descriptor and the descriptor's frozen verifier-owned artifact registry mapping. disclosure_id resolves one exact typed capture/manifest disclosure requirement. RFC8785 requires strict I-JSON parse and exact canonicalization; raw-bytes hashes the decoded bytes directly. Decoded length equals byte_length and BLAKE3-256 derive-key digest_context over those selected bytes equals content_digest. Member paths and digests are independently unique. Missing required external bytes produce Incomplete; an unselected item, unknown/mismatched descriptor, unsafe or duplicate path/digest, parse/canonicalization error, or digest/byte contradiction produces Invalid. No allowlist-only label or resolver URL substitutes for bytes while network_access is false.",
+      "x-proof-limit-accounting-rule": "Before parsing JSON, the verifier rejects exact raw RemoteVerifierInputV2 bytes above the fixed proof-verifier/remote-evidence-v2 ceiling of 268435456 bytes. After strict parsing, those same raw bytes must also be no greater than the caller's max_verifier_input_bytes; the field cannot raise the fixed ceiling. This separately bounds JSON framing and base64 text. Before parsing bundle JSON, enforce the fixed RemoteEvidenceBundleV2 descriptor ceiling of 65536 bytes; max_manifest_bytes applies to exact outer RemoteEvidenceManifestV2 canonical bytes. The package is an uncompressed logical member map, never an archive or decompression input. During member streaming, reject a path, declared or observed length, running artifact count, or running total before allocating or reading past its applicable bound. max_artifacts counts the six unique root member bodies plus at most 4090 unique nested RemoteReleaseArtifactClosureV1 artifact bodies; role bindings and DSSE envelopes embedded inside the one remote-record-set body do not add artifact slots, while max_authority_records counts those decoded envelopes. max_artifact_bytes applies independently to each root, nested, or caller-supplied decoded body. max_total_bytes is the sum of exact bundle-descriptor bytes, outer-manifest bytes, and every unique root, nested, and external decoded body consumed exactly once; base64 wrappers, repeated role bindings, trust-policy bytes, verifier-input framing, and decoded views of bytes already counted do not add again because exact raw verifier-input bytes are independently bounded. max_json_depth applies independently to every strict-parsed JSON value, including the bundle descriptor, manifest, embedded envelopes, and payloads.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type", "api_version", "verification_trust_policy", "trust_policy_digest", "subject_openings",
+        "authority_checkpoint", "environment_release_checkpoint", "external_artifacts",
+        "bundle_hints_are_authority", "network_access", "database_access", "session_access",
+        "private_key_count", "credential_count"
+      ],
+      "properties": {
+        "type": { "const": "RemoteVerifierInputV2" },
+        "api_version": { "const": "proof.dev/remote-verifier-input/v2" },
+        "verification_trust_policy": { "$ref": "#/$defs/verificationTrustPolicy" },
+        "trust_policy_digest": { "$ref": "#/$defs/digest" },
+        "subject_openings": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://proof.dev/schema/collaboration-server/remote-auth/v1#/$defs/oidcSubjectCommitmentOpeningV1"
+          }
+        },
+        "authority_checkpoint": {
+          "oneOf": [
+            { "$ref": "#/$defs/authorityCheckpoint" },
+            { "type": "null" }
+          ]
+        },
+        "environment_release_checkpoint": {
+          "oneOf": [
+            { "$ref": "#/$defs/environmentReleaseCheckpoint" },
+            { "type": "null" }
+          ]
+        },
+        "external_artifacts": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/externalArtifact" }
+        },
+        "bundle_hints_are_authority": { "const": false },
+        "network_access": { "const": false },
+        "database_access": { "const": false },
+        "session_access": { "const": false },
+        "private_key_count": { "const": 0 },
+        "credential_count": { "const": 0 }
+      }
+    },
+    "componentResults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signature", "actor", "authority", "role_separation", "approval", "policy",
+        "content", "environment", "release", "delivery_evidence", "completeness"
+      ],
+      "properties": {
+        "signature": { "$ref": "#/$defs/componentResult" },
+        "actor": { "$ref": "#/$defs/componentResult" },
+        "authority": { "$ref": "#/$defs/componentResult" },
+        "role_separation": { "$ref": "#/$defs/componentResult" },
+        "approval": { "$ref": "#/$defs/componentResult" },
+        "policy": { "$ref": "#/$defs/componentResult" },
+        "content": { "$ref": "#/$defs/componentResult" },
+        "environment": { "$ref": "#/$defs/componentResult" },
+        "release": { "$ref": "#/$defs/componentResult" },
+        "delivery_evidence": { "$ref": "#/$defs/componentResult" },
+        "completeness": { "$ref": "#/$defs/componentResult" }
+      }
+    },
+    "componentResult": { "enum": ["verified", "missing", "invalid", "not-requested"] },
+    "report": {
+      "title": "RemoteVerificationReportV2 closed runtime report",
+      "description": "One observed outcome from proof-verifier/remote-evidence-v2, bound to exact raw input/member bytes and, when strict parsing succeeds, typed manifest, verifier-input, trust, checkpoint, and execution identities. Nullable typed digests avoid inventing canonical values for missing, oversized, malformed, or duplicate-key inputs; raw byte digests preserve addressable failure identity. The general runtime type represents every Complete, missing-material Incomplete, and integrity/semantic Invalid outcome; #/$defs/conformanceReport narrows it to the three retained P-0008 qualification scenarios. The enclosing unmaterialized decision fixture instantiates neither type.",
+      "x-proof-report-binding-rule": "raw_verifier_input_digest is always BLAKE3-256 derive-key proof:remote-verifier-input-raw:v1 over the exact received verifier-input bytes, whether or not they parse. raw_bundle_descriptor_digest and raw_bundle_manifest_digest are null exactly when those bytes are absent; otherwise they use proof:remote-evidence-bundle-raw:v1 and proof:remote-evidence-manifest-raw:v1 over exact raw bytes. bundle_manifest_digest is null when no strict typed RemoteEvidenceManifestV2 exists; otherwise it is proof:remote-evidence-manifest:v2 over RFC 8785 and commits the direct release-artifact closure digest, P8 record-set digest, attempt companions, remote head, and cross-links. verifier_input_digest and trust_policy_digest are null when strict RemoteVerifierInputV2/trust parsing did not succeed; otherwise they use proof:remote-verifier-input:v2 and proof:verification-trust-policy:v2 over the exact typed values. Checkpoint digests are null whenever no exact parsed checkpoint is available; after parsed input, authority_checkpoint_digest is null if and only if authority_checkpoint is null and otherwise uses proof:authority-checkpoint:v1, while environment_release_checkpoint_digest is null if and only if environment_release_checkpoint is null and otherwise uses proof:environment-release-checkpoint:v2. A required authority checkpoint equals the included remote head exactly. Complete requires every raw and typed digest applicable to its fully materialized input. Complete is observable only after the successor independently validates accepted artifact/Release-proof semantics, the full reconstructible P8 authority state from before its earliest consumed fact, attempt companion preimages, and every cross-link. An otherwise contiguous suffix whose verifier-consumed authority issuance or transition predates base_head is Incomplete with missing-artifact. Absent required material without contradiction is Incomplete; any signature, path, digest, canonicalization, registry, checkpoint, authority, role, policy, content, environment, Release, or cross-link contradiction is Invalid. Only an object_locale_revision_v1 exact-byte mismatch at its committed deterministic nested path may use the content-only conformance scenario. Authority, Proof, Release, actor, command, environment, or other member tamper cannot be reported as content-only.",
+      "x-proof-primary-reason-rule": "reason_codes contains exactly one primary reason. The content-only conformance scenario selects tampered-artifact. Every other Invalid selects the first applicable class in this precedence: invalid-signature, invalid-actor, invalid-authority, invalid-role-separation, invalid-approval, invalid-policy, invalid-content, invalid-environment, invalid-release, invalid-path, invalid-canonicalization, invalid-limit, invalid-registry, invalid-checkpoint, invalid-cross-link, invalid-completeness. Incomplete uses the exact missing class selected by its scenario; incomplete-required-authority-checkpoint-withheld applies only when caller policy requires the authority checkpoint, because the Environment checkpoint is always optional. Each primary reason is coupled below to a matching component, and distinguishable earlier component failures exclude later primary reasons; the verifier enforces precedence among finer-grained failures that share one component.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "authority_checkpoint_digest",
+        "bundle_manifest_digest",
+        "claim_kind",
+        "components",
+        "environment_release_checkpoint_digest",
+        "execution_id",
+        "observed_at",
+        "reason_codes",
+        "raw_bundle_descriptor_digest",
+        "raw_bundle_manifest_digest",
+        "raw_verifier_input_digest",
+        "report_id",
+        "runtime_observed",
+        "scenario",
+        "snapshot_scope",
+        "status",
+        "trust_policy_digest",
+        "type",
+        "verifier_input_digest",
+        "verifier_profile"
+      ],
+      "properties": {
+        "type": { "const": "RemoteVerificationReportV2" },
+        "api_version": { "const": "proof.dev/remote-verification-report/v2" },
+        "claim_kind": { "const": "observed-verifier-outcome" },
+        "runtime_observed": { "const": true },
+        "execution_id": { "type": "string", "pattern": "^execution_[0-9a-f]{16}$" },
+        "observed_at": { "$ref": "#/$defs/timestamp" },
+        "verifier_profile": { "const": "proof-verifier/remote-evidence-v2" },
+        "report_id": { "type": "string", "pattern": "^report_[0-9a-f]{16}$" },
+        "scenario": {
+          "enum": [
+            "complete-exact-materialization",
+            "incomplete-required-opening-withheld",
+            "incomplete-required-artifact-withheld",
+            "incomplete-required-authority-checkpoint-withheld",
+            "invalid-content-artifact-byte-tamper",
+            "invalid-verification"
+          ]
+        },
+        "status": { "enum": ["Complete", "Incomplete", "Invalid"] },
+        "snapshot_scope": { "const": "verified-inner-claim-only; producer export and snapshot metadata unauthenticated" },
+        "raw_verifier_input_digest": { "$ref": "#/$defs/digest" },
+        "raw_bundle_descriptor_digest": { "$ref": "#/$defs/nullableDigest" },
+        "raw_bundle_manifest_digest": { "$ref": "#/$defs/nullableDigest" },
+        "bundle_manifest_digest": { "$ref": "#/$defs/nullableDigest" },
+        "verifier_input_digest": { "$ref": "#/$defs/nullableDigest" },
+        "trust_policy_digest": { "$ref": "#/$defs/nullableDigest" },
+        "authority_checkpoint_digest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "environment_release_checkpoint_digest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "components": { "$ref": "#/$defs/componentResults" },
+        "reason_codes": {
+          "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true,
+          "items": {
+            "enum": [
+              "verified", "missing-disclosure", "missing-artifact", "missing-checkpoint",
+              "tampered-artifact", "invalid-signature", "invalid-actor", "invalid-authority",
+              "invalid-role-separation", "invalid-approval", "invalid-policy", "invalid-content",
+              "invalid-environment", "invalid-release", "invalid-completeness", "invalid-path",
+              "invalid-canonicalization", "invalid-limit", "invalid-registry", "invalid-checkpoint",
+              "invalid-cross-link"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "properties": {
+            "components": { "properties": { "delivery_evidence": { "const": "not-requested" } } }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "Complete" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "scenario": { "const": "complete-exact-materialization" },
+              "raw_bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+              "raw_bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "verifier_input_digest": { "$ref": "#/$defs/digest" },
+              "trust_policy_digest": { "$ref": "#/$defs/digest" },
+              "components": {
+                "properties": {
+                  "signature": { "const": "verified" }, "actor": { "const": "verified" },
+                  "authority": { "const": "verified" }, "role_separation": { "const": "verified" },
+                  "approval": { "const": "verified" }, "policy": { "const": "verified" },
+                  "content": { "const": "verified" }, "environment": { "const": "verified" },
+                  "release": { "const": "verified" }, "delivery_evidence": { "const": "not-requested" },
+                  "completeness": { "const": "verified" }
+                }
+              },
+              "reason_codes": { "const": ["verified"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "Incomplete" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "scenario": {
+                "enum": ["incomplete-required-opening-withheld", "incomplete-required-artifact-withheld", "incomplete-required-authority-checkpoint-withheld"]
+              },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "enum": ["verified", "missing", "not-requested"] },
+                  "policy": { "enum": ["verified", "missing", "not-requested"] },
+                  "content": { "enum": ["verified", "missing", "not-requested"] },
+                  "environment": { "enum": ["verified", "missing", "not-requested"] },
+                  "release": { "enum": ["verified", "missing", "not-requested"] },
+                  "delivery_evidence": { "const": "not-requested" },
+                  "completeness": { "enum": ["verified", "missing", "not-requested"] }
+                },
+                "anyOf": [
+                  { "properties": { "signature": { "const": "missing" } } },
+                  { "properties": { "actor": { "const": "missing" } } },
+                  { "properties": { "authority": { "const": "missing" } } },
+                  { "properties": { "role_separation": { "const": "missing" } } },
+                  { "properties": { "approval": { "const": "missing" } } },
+                  { "properties": { "policy": { "const": "missing" } } },
+                  { "properties": { "content": { "const": "missing" } } },
+                  { "properties": { "environment": { "const": "missing" } } },
+                  { "properties": { "release": { "const": "missing" } } },
+                  { "properties": { "completeness": { "const": "missing" } } }
+                ]
+              },
+              "reason_codes": {
+                "items": { "enum": ["missing-disclosure", "missing-artifact", "missing-checkpoint"] }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scenario": { "const": "incomplete-required-opening-withheld" } }, "required": ["scenario"] },
+          "then": {
+            "properties": {
+              "status": { "const": "Incomplete" },
+              "raw_bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+              "raw_bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "verifier_input_digest": { "$ref": "#/$defs/digest" },
+              "trust_policy_digest": { "$ref": "#/$defs/digest" },
+              "components": {
+                "properties": {
+                  "signature": { "const": "verified" }, "actor": { "const": "missing" },
+                  "authority": { "const": "verified" }, "role_separation": { "const": "verified" },
+                  "approval": { "const": "verified" }, "policy": { "const": "verified" },
+                  "content": { "const": "verified" }, "environment": { "const": "verified" },
+                  "release": { "const": "verified" }, "delivery_evidence": { "const": "not-requested" },
+                  "completeness": { "const": "missing" }
+                }
+              },
+              "reason_codes": { "const": ["missing-disclosure"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scenario": { "const": "incomplete-required-artifact-withheld" } }, "required": ["scenario"] },
+          "then": {
+            "properties": {
+              "status": { "const": "Incomplete" },
+              "components": {
+                "properties": { "completeness": { "const": "missing" } },
+                "anyOf": [
+                  { "properties": { "signature": { "const": "missing" } } },
+                  { "properties": { "actor": { "const": "missing" } } },
+                  { "properties": { "authority": { "const": "missing" } } },
+                  { "properties": { "role_separation": { "const": "missing" } } },
+                  { "properties": { "approval": { "const": "missing" } } },
+                  { "properties": { "policy": { "const": "missing" } } },
+                  { "properties": { "content": { "const": "missing" } } },
+                  { "properties": { "environment": { "const": "missing" } } },
+                  { "properties": { "release": { "const": "missing" } } }
+                ]
+              },
+              "reason_codes": { "const": ["missing-artifact"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scenario": { "const": "incomplete-required-authority-checkpoint-withheld" } }, "required": ["scenario"] },
+          "then": {
+            "properties": {
+              "status": { "const": "Incomplete" },
+              "raw_bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+              "raw_bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "verifier_input_digest": { "$ref": "#/$defs/digest" },
+              "trust_policy_digest": { "$ref": "#/$defs/digest" },
+              "components": {
+                "properties": {
+                  "authority": { "const": "missing" },
+                  "completeness": { "const": "missing" }
+                }
+              },
+              "reason_codes": { "const": ["missing-checkpoint"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "Invalid" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "scenario": { "enum": ["invalid-content-artifact-byte-tamper", "invalid-verification"] },
+              "components": {
+                "anyOf": [
+                  { "properties": { "signature": { "const": "invalid" } } },
+                  { "properties": { "actor": { "const": "invalid" } } },
+                  { "properties": { "authority": { "const": "invalid" } } },
+                  { "properties": { "role_separation": { "const": "invalid" } } },
+                  { "properties": { "approval": { "const": "invalid" } } },
+                  { "properties": { "policy": { "const": "invalid" } } },
+                  { "properties": { "content": { "const": "invalid" } } },
+                  { "properties": { "environment": { "const": "invalid" } } },
+                  { "properties": { "release": { "const": "invalid" } } },
+                  { "properties": { "completeness": { "const": "invalid" } } }
+                ]
+              },
+              "reason_codes": {
+                "items": {
+                  "enum": [
+                    "tampered-artifact", "invalid-signature", "invalid-actor", "invalid-authority",
+                    "invalid-role-separation", "invalid-approval", "invalid-policy", "invalid-content",
+                    "invalid-environment", "invalid-release", "invalid-completeness", "invalid-path",
+                    "invalid-canonicalization", "invalid-limit", "invalid-registry", "invalid-checkpoint",
+                    "invalid-cross-link"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": { "signature": { "const": "invalid" } },
+                "required": ["signature"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "const": ["invalid-signature"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "const": "invalid" }
+                },
+                "required": ["signature", "actor"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "const": ["invalid-actor"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "enum": [["invalid-authority"], ["invalid-registry"], ["invalid-checkpoint"]] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "const": ["invalid-role-separation"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation", "approval"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "const": ["invalid-approval"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "enum": ["verified", "missing", "not-requested"] },
+                  "policy": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation", "approval", "policy"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "const": ["invalid-policy"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "enum": ["verified", "missing", "not-requested"] },
+                  "policy": { "enum": ["verified", "missing", "not-requested"] },
+                  "content": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation", "approval", "policy", "content"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "enum": [["tampered-artifact"], ["invalid-content"]] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "enum": ["verified", "missing", "not-requested"] },
+                  "policy": { "enum": ["verified", "missing", "not-requested"] },
+                  "content": { "enum": ["verified", "missing", "not-requested"] },
+                  "environment": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation", "approval", "policy", "content", "environment"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "enum": [["invalid-environment"], ["invalid-checkpoint"]] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "enum": ["verified", "missing", "not-requested"] },
+                  "policy": { "enum": ["verified", "missing", "not-requested"] },
+                  "content": { "enum": ["verified", "missing", "not-requested"] },
+                  "environment": { "enum": ["verified", "missing", "not-requested"] },
+                  "release": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation", "approval", "policy", "content", "environment", "release"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "const": ["invalid-release"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "components": {
+                "properties": {
+                  "signature": { "enum": ["verified", "missing", "not-requested"] },
+                  "actor": { "enum": ["verified", "missing", "not-requested"] },
+                  "authority": { "enum": ["verified", "missing", "not-requested"] },
+                  "role_separation": { "enum": ["verified", "missing", "not-requested"] },
+                  "approval": { "enum": ["verified", "missing", "not-requested"] },
+                  "policy": { "enum": ["verified", "missing", "not-requested"] },
+                  "content": { "enum": ["verified", "missing", "not-requested"] },
+                  "environment": { "enum": ["verified", "missing", "not-requested"] },
+                  "release": { "enum": ["verified", "missing", "not-requested"] },
+                  "completeness": { "const": "invalid" }
+                },
+                "required": ["signature", "actor", "authority", "role_separation", "approval", "policy", "content", "environment", "release", "completeness"]
+              }
+            },
+            "required": ["status", "components"]
+          },
+          "then": { "properties": { "reason_codes": { "enum": [["invalid-path"], ["invalid-canonicalization"], ["invalid-limit"], ["invalid-cross-link"], ["invalid-completeness"]] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "reason_codes": {
+                "enum": [
+                  ["tampered-artifact"], ["invalid-signature"], ["invalid-actor"],
+                  ["invalid-authority"], ["invalid-role-separation"], ["invalid-approval"],
+                  ["invalid-policy"], ["invalid-content"], ["invalid-environment"],
+                  ["invalid-release"], ["invalid-path"], ["invalid-registry"],
+                  ["invalid-checkpoint"], ["invalid-cross-link"], ["invalid-completeness"]
+                ]
+              }
+            },
+            "required": ["status", "reason_codes"]
+          },
+          "then": {
+            "properties": {
+              "raw_bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+              "raw_bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "verifier_input_digest": { "$ref": "#/$defs/digest" },
+              "trust_policy_digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["tampered-artifact"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "scenario": { "const": "invalid-content-artifact-byte-tamper" }, "components": { "properties": { "content": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-signature"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "signature": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-actor"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "actor": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "enum": [["invalid-authority"], ["invalid-registry"]] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "authority": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-checkpoint"] } }, "required": ["reason_codes"] },
+          "then": {
+            "properties": {
+              "components": {
+                "anyOf": [
+                  { "properties": { "authority": { "const": "invalid" } } },
+                  { "properties": { "environment": { "const": "invalid" } } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-role-separation"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "role_separation": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-approval"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "approval": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-policy"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "policy": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-content"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "content": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-environment"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "environment": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "const": ["invalid-release"] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "release": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "reason_codes": { "enum": [["invalid-completeness"], ["invalid-path"], ["invalid-canonicalization"], ["invalid-limit"], ["invalid-cross-link"]] } }, "required": ["reason_codes"] },
+          "then": { "properties": { "components": { "properties": { "completeness": { "const": "invalid" } } } } }
+        },
+        {
+          "if": { "properties": { "scenario": { "const": "invalid-content-artifact-byte-tamper" } }, "required": ["scenario"] },
+          "then": {
+            "properties": {
+              "status": { "const": "Invalid" },
+              "raw_bundle_descriptor_digest": { "$ref": "#/$defs/digest" },
+              "raw_bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "bundle_manifest_digest": { "$ref": "#/$defs/digest" },
+              "verifier_input_digest": { "$ref": "#/$defs/digest" },
+              "trust_policy_digest": { "$ref": "#/$defs/digest" },
+              "components": {
+                "properties": {
+                  "signature": { "const": "verified" }, "actor": { "const": "verified" },
+                  "authority": { "const": "verified" }, "role_separation": { "const": "verified" },
+                  "approval": { "const": "verified" }, "policy": { "const": "verified" },
+                  "content": { "const": "invalid" }, "environment": { "const": "verified" },
+                  "release": { "const": "verified" }, "delivery_evidence": { "const": "not-requested" },
+                  "completeness": { "const": "verified" }
+                }
+              },
+              "reason_codes": { "const": ["tampered-artifact"] }
+            }
+          }
+        }
+      ]
+    },
+    "conformanceReport": {
+      "title": "RemoteVerificationConformanceReportV2 three-scenario subtype",
+      "description": "The exact observed-report subtype used only by the three P-0008 qualification scenarios. It does not restrict the general runtime report's ability to represent other missing-material or invalid-verification outcomes.",
+      "allOf": [
+        { "$ref": "#/$defs/report" },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "status": { "const": "Complete" },
+                "scenario": { "const": "complete-exact-materialization" },
+                "reason_codes": { "const": ["verified"] }
+              }
+            },
+            {
+              "properties": {
+                "status": { "const": "Incomplete" },
+                "scenario": { "const": "incomplete-required-opening-withheld" },
+                "components": {
+                  "properties": {
+                    "signature": { "const": "verified" }, "actor": { "const": "missing" },
+                    "authority": { "const": "verified" }, "role_separation": { "const": "verified" },
+                    "approval": { "const": "verified" }, "policy": { "const": "verified" },
+                    "content": { "const": "verified" }, "environment": { "const": "verified" },
+                    "release": { "const": "verified" }, "delivery_evidence": { "const": "not-requested" },
+                    "completeness": { "const": "missing" }
+                  }
+                },
+                "reason_codes": { "const": ["missing-disclosure"] }
+              }
+            },
+            {
+              "properties": {
+                "status": { "const": "Invalid" },
+                "scenario": { "const": "invalid-content-artifact-byte-tamper" },
+                "reason_codes": { "const": ["tampered-artifact"] }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

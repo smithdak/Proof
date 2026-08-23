@@ -353,6 +353,63 @@ exhaustive Invalid classification is not claimed.
 
 Verification does not fetch arbitrary URLs automatically. External resolution requires an allowlisted resolver and explicit network policy.
 
+## Proposed P-0008 remote evidence profile
+
+`RemoteEvidenceBundleV2` prospectively describes an exact uncompressed logical
+member map, not an archive or compressed carrier. Its manifest has exactly six
+P8 roots: one authority-neutral `RemoteReleaseArtifactClosureV1`, one canonical
+`RemoteAuthorityRecordSetV1`, public actor evidence, a remote authentication
+event, `CommandInputV1`, and the Agent authenticated-command DSSE envelope. The
+Release closure enumerates each nested accepted artifact. The verifier decodes
+and verifies `AuthenticatedCommandV1` from the envelope payload; no standalone
+authenticated-command payload member exists. An included root is in the
+producer map, while an external-required authority, actor, or authentication
+root arrives only through exact caller-controlled descriptor and byte input.
+Outbox delivery and artifact-catalog verification are not requested by this
+selected claim.
+
+Existing `AuthorityEvidenceBundleV1` bytes, outcomes, and verifier remain
+unchanged for historical local evidence. They are not relabeled, projected, or
+executed as the authority entrypoint for a remote OIDC attempt and are not a P8
+root.
+`RemoteEvidenceClosureBindingsV1` instead commits the exact Release-artifact
+closure, remote record set/head, typed attempt companions, target remote
+decision/consequence, and Workspace/Environment/Release/Proof/result/effect
+cross-links. A future verifier validates all three inputs independently before
+enforcing those links. The P-0008 fixture is explicitly an unmaterialized
+successor contract: it retains neither a bundle nor an observed verifier
+report, and its Complete/Incomplete/Invalid scenarios are conditional
+requirements only.
+
+Outer export and snapshot labels are not authenticated by the selected
+historical release chain. Until a non-circular detached post-build receipt is
+versioned and retained, `export_id`, snapshot heads, manifest readiness, and
+capture/build/ready state remain producer metadata outside a Complete verified
+claim. Matching repetitions are checked for contradiction, but the profile
+makes no authenticated current-at-snapshot, immediate-predecessor, or globally
+latest claim. A required remote authority checkpoint must exactly equal the
+included head; a larger sequence without every intervening verified record is
+not an ancestry proof.
+
+The first-profile `untrusted_hints` arrays are exactly empty, with
+`trusted:false` and `auto_fetch:false`. A clean verifier instead receives one
+exact caller-controlled `VerificationTrustPolicyV2`, including usable
+role-separated authority, Release, and historical Agent key bytes, its initial
+remote head, accepted policy/registry selectors and closed offline resolver,
+plus optional typed checkpoints, required subject openings, and any external
+artifact bytes. It performs no producer database or network fetch. With no
+authenticated base-state snapshot, every authority fact consumed for the
+selected attempt must occur in the supplied suffix after that initial head.
+
+`RemoteVerificationReportV2` is the general closed observed runtime report for
+Complete, missing-material Incomplete, and integrity or semantic Invalid
+outcomes. The `conformanceReport` subtype narrows it to the exact three P-0008
+qualification scenarios. The retained fixture scenarios are unobserved
+normative requirements, not runtime reports, and the retained decoded decision
+and `RemoteApplicationConsequenceV1` values are signable candidate payloads
+rather than a signed pair. The normative proposal is the
+[collaboration-server contract](collaboration-server.md).
+
 ## Redaction and disclosure
 
 Proof payloads minimize sensitive data. They contain identifiers and digests rather than full ContextPacks, content bodies, prompts, or credentials.

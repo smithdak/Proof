@@ -1,0 +1,17 @@
+{
+  "api_version": "proof.dev/workspace-role-assignment/v1",
+  "assigned_at": "2026-08-23T01:30:00Z",
+  "assigned_by_actor_context_digest": "blake3:3030303030303030303030303030303030303030303030303030303030303030",
+  "assigned_by_principal_id": "019e0000-0000-7000-8000-000000000007",
+  "assignment_id": "019e0000-0000-7000-8000-000000000030",
+  "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
+  "authority_sequence": 31,
+  "evaluated_authority_head": {
+    "record_digest": "blake3:3131313131313131313131313131313131313131313131313131313131313131",
+    "sequence": 30
+  },
+  "principal_id": "019e0000-0000-7000-8000-000000000004",
+  "previous_authority_record_digest": "blake3:3131313131313131313131313131313131313131313131313131313131313131",
+  "role": "content.reviewer",
+  "workspace_id": "019e0000-0000-7000-8000-000000000001"
+}

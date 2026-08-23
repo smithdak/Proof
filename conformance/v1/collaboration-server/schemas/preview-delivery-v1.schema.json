@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/preview-delivery/v1",
+  "title": "Private preview delivery decision contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "evidence_class", "runtime_qualified", "contract", "delivery", "cas_outcomes"],
+  "properties": {
+    "api_version": { "const": "proof.dev/preview-delivery-suite/v1" },
+    "evidence_class": { "const": "decision-contract" },
+    "runtime_qualified": { "const": false },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_contract", "blob_visibility_before_ready", "manifest_completeness", "ready_marker_written_last",
+        "reads_require_ready", "alias_updates_require_ready", "abandonment_may_leave_gap", "pending_named_get_problem",
+        "pending_fallback_allowed", "response_representation", "etag", "cache_control", "recipient_dedup_key"
+      ],
+      "properties": {
+        "event_contract": { "const": "preview.release/v1" },
+        "blob_visibility_before_ready": { "const": "private and unreachable" },
+        "manifest_completeness": { "const": "all exact content-addressed members included" },
+        "ready_marker_written_last": { "const": true },
+        "reads_require_ready": { "const": true },
+        "alias_updates_require_ready": { "const": true },
+        "abandonment_may_leave_gap": { "const": true },
+        "pending_named_get_problem": { "const": "proof.dependency.unavailable" },
+        "pending_fallback_allowed": { "const": false },
+        "response_representation": { "const": "exact JSON bytes from ready manifest" },
+        "etag": { "const": "strong content digest" },
+        "cache_control": { "const": "private, no-store" },
+        "recipient_dedup_key": { "const": "stable delivery_id" }
+      }
+    },
+    "delivery": { "$ref": "#/$defs/delivery" },
+    "cas_outcomes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/cas" },
+      "allOf": [
+        { "contains": { "properties": { "sequence_relation": { "const": "higher" } }, "required": ["sequence_relation"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "sequence_relation": { "const": "equal-same-bytes" } }, "required": ["sequence_relation"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "sequence_relation": { "const": "equal-different-bytes" } }, "required": ["sequence_relation"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "sequence_relation": { "const": "lower" } }, "required": ["sequence_relation"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "logicalId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]*$" },
+    "locale": { "$ref": "https://proof.dev/schemas/localized-content/operations-v2.schema.json#/$defs/locale" },
+    "iJsonSequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_ref", "path", "artifact_kind", "byte_length", "content_digest", "object_key"],
+      "properties": {
+        "artifact_ref": { "type": "string", "pattern": "^art_[0-9a-f]{32}$" },
+        "path": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{0,255}$" },
+        "artifact_kind": { "enum": ["release-json", "release-proof", "rendition-json", "attachment"] },
+        "byte_length": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "object_key": { "type": "string", "pattern": "^preview/private/blake3/[0-9a-f]{64}$" },
+        "object_id": { "$ref": "#/$defs/uuid" },
+        "locale": { "$ref": "#/$defs/locale" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "artifact_kind": { "const": "rendition-json" } }, "required": ["artifact_kind"] },
+          "then": { "required": ["locale", "object_id"] },
+          "else": { "not": { "anyOf": [{ "required": ["locale"] }, { "required": ["object_id"] }] } }
+        }
+      ]
+    },
+    "eventPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_sequence", "release_digest", "edition_digest", "environment_configuration_version",
+        "environment_configuration_digest", "proof_digest", "artifact_refs"
+      ],
+      "properties": {
+        "release_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "edition_digest": { "$ref": "#/$defs/digest" },
+        "environment_configuration_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "environment_configuration_digest": { "$ref": "#/$defs/digest" },
+        "proof_digest": { "$ref": "#/$defs/digest" },
+        "artifact_refs": {
+          "type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^art_[0-9a-f]{32}$" }
+        }
+      }
+    },
+    "readyResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment_id", "release_id", "release_digest", "edition_digest", "object_id", "locale",
+        "rendition_artifact_ref", "rendition_digest", "body_source", "etag", "cache_control", "locale_fallback"
+      ],
+      "properties": {
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "release_id": { "$ref": "#/$defs/uuid" },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "edition_digest": { "$ref": "#/$defs/digest" },
+        "object_id": { "$ref": "#/$defs/uuid" },
+        "locale": { "$ref": "#/$defs/locale" },
+        "rendition_artifact_ref": { "type": "string", "pattern": "^art_[0-9a-f]{32}$" },
+        "rendition_digest": { "$ref": "#/$defs/digest" },
+        "body_source": { "const": "ready-manifest-exact-bytes" },
+        "etag": { "type": "string", "pattern": "^\\\"blake3:[0-9a-f]{64}\\\"$" },
+        "cache_control": { "const": "private, no-store" },
+        "locale_fallback": { "const": false }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "delivery_id", "environment_id", "release_id", "stream_sequence", "event_payload", "materialized_private", "manifest",
+        "manifest_digest", "ready_state", "ready_marker_order", "publicly_reachable", "ready_response"
+      ],
+      "properties": {
+        "delivery_id": { "$ref": "#/$defs/uuid" },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "release_id": { "$ref": "#/$defs/uuid" },
+        "stream_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "event_payload": { "$ref": "#/$defs/eventPayload" },
+        "materialized_private": { "const": true },
+        "manifest": {
+          "type": "array", "minItems": 3, "maxItems": 1024, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/member" },
+          "allOf": [
+            { "contains": { "properties": { "artifact_kind": { "const": "release-json" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+            { "contains": { "properties": { "artifact_kind": { "const": "release-proof" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 },
+            { "contains": { "properties": { "artifact_kind": { "const": "rendition-json" } }, "required": ["artifact_kind"] }, "minContains": 1, "maxContains": 1 }
+          ]
+        },
+        "manifest_digest": { "$ref": "#/$defs/digest" },
+        "ready_state": { "const": "ready" },
+        "ready_marker_order": { "const": "last" },
+        "publicly_reachable": { "const": false },
+        "ready_response": { "$ref": "#/$defs/readyResponse" }
+      }
+    },
+    "cas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence_relation", "current_stream_sequence", "candidate_stream_sequence", "current_release_id",
+        "candidate_release_id", "current_manifest_digest", "candidate_manifest_digest", "outcome", "alias_regressed"
+      ],
+      "properties": {
+        "sequence_relation": { "enum": ["higher", "equal-same-bytes", "equal-different-bytes", "lower"] },
+        "current_stream_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "candidate_stream_sequence": { "$ref": "#/$defs/iJsonSequence" },
+        "current_release_id": { "$ref": "#/$defs/uuid" },
+        "candidate_release_id": { "$ref": "#/$defs/uuid" },
+        "current_manifest_digest": { "$ref": "#/$defs/digest" },
+        "candidate_manifest_digest": { "$ref": "#/$defs/digest" },
+        "outcome": { "enum": ["advanced", "no-op", "integrity-failure", "superseded"] },
+        "alias_regressed": { "const": false }
+      },
+      "allOf": [
+        { "if": { "properties": { "sequence_relation": { "const": "higher" } } }, "then": { "properties": { "outcome": { "const": "advanced" } } } },
+        { "if": { "properties": { "sequence_relation": { "const": "equal-same-bytes" } } }, "then": { "properties": { "outcome": { "const": "no-op" } } } },
+        { "if": { "properties": { "sequence_relation": { "const": "equal-different-bytes" } } }, "then": { "properties": { "outcome": { "const": "integrity-failure" } } } },
+        { "if": { "properties": { "sequence_relation": { "const": "lower" } } }, "then": { "properties": { "outcome": { "const": "superseded" } } } }
+      ]
+    }
+  }
+}

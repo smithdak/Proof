@@ -1,0 +1,38 @@
+{
+  "api_version": "proof.dev/storage-delivery-contract-manifest/v1",
+  "evidence_class": "decision-contract-inventory",
+  "runtime_qualified": false,
+  "validation_scope": "schema structure and selected normative decision examples; not runtime implementation evidence",
+  "fixtures": [
+    {
+      "contract": "authoritative-transaction",
+      "schema_path": "schemas/storage-transaction-v1.schema.json",
+      "accepted_vector_path": "vectors/storage-transaction-traces.valid.json"
+    },
+    {
+      "contract": "artifact-catalog",
+      "schema_path": "schemas/artifact-catalog-v1.schema.json",
+      "accepted_vector_path": "vectors/artifact-catalog.valid.json"
+    },
+    {
+      "contract": "outbox-delivery",
+      "schema_path": "schemas/outbox-delivery-v1.schema.json",
+      "accepted_vector_path": "vectors/outbox-delivery.valid.json"
+    },
+    {
+      "contract": "migration-rebuild",
+      "schema_path": "schemas/migration-rebuild-v1.schema.json",
+      "accepted_vector_path": "vectors/migration-rebuild.valid.json"
+    },
+    {
+      "contract": "preview-delivery",
+      "schema_path": "schemas/preview-delivery-v1.schema.json",
+      "accepted_vector_path": "vectors/preview-delivery.valid.json"
+    },
+    {
+      "contract": "remote-evidence",
+      "schema_path": "schemas/remote-evidence-v2.schema.json",
+      "accepted_vector_path": "vectors/remote-evidence-v2.valid.json"
+    }
+  ]
+}

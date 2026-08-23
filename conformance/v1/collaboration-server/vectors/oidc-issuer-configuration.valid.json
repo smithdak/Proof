@@ -1,0 +1,28 @@
+{
+  "accepted_id_token_algorithms": [
+    "EdDSA",
+    "ES256"
+  ],
+  "api_version": "proof.dev/oidc-issuer-configuration/v1",
+  "authorization_endpoint": "https://identity.example.test/oauth2/authorize",
+  "authorization_code_flow": true,
+  "client_id": "proof-collaboration-server",
+  "client_credential_reference": "deployment-secret:proof-oidc-client",
+  "clock_skew_seconds": 30,
+  "configuration_source": "trusted-deployment-configuration",
+  "configuration_id": "019e0000-0000-7000-8000-000000000010",
+  "discovery_uri": "https://identity.example.test/.well-known/openid-configuration",
+  "discovery_metadata_digest": "blake3:1010101010101010101010101010101010101010101010101010101010101010",
+  "endpoint_egress_policy": "deployment-allowlist-no-redirect",
+  "issuer": "https://identity.example.test",
+  "jwks_uri": "https://identity.example.test/oauth2/jwks",
+  "pkce_method": "S256",
+  "redirect_uri": "https://proof.example.test/auth/oidc/callback",
+  "response_issuer_parameter_required": true,
+  "session_absolute_seconds": 28800,
+  "session_cookie_name": "__Host-Http-Proof-Session",
+  "session_idle_seconds": 900,
+  "token_endpoint": "https://identity.example.test/oauth2/token",
+  "token_endpoint_auth_method": "client_secret_basic",
+  "tokens_retained": false
+}

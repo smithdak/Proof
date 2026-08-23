@@ -1,0 +1,122 @@
+{
+  "api_version": "proof.dev/remote-evidence-suite/v2",
+  "evidence_class": "decision-contract",
+  "execution_status": "normative-requirements-only",
+  "runtime_qualified": false,
+  "materialization": {
+    "status": "unmaterialized-runtime-contract",
+    "exact_bundle_bytes_retained": false,
+    "observed_reports_retained": false,
+    "reason": "P-0008 freezes exact successor types and conditional outcomes; implementation must retain and verify all exact bytes before runtime qualification"
+  },
+  "contract": {
+    "event_contract": "evidence.export/v2",
+    "readiness_contract": "evidence.export.get/v1",
+    "capture_transaction": "short SERIALIZABLE transaction selecting exact heads, pre-materialized verified aggregate-root bytes, sorted root membership and disclosure, and one build event",
+    "build_scope": "deterministic uncompressed logical member-set assembly outside the transaction from captured immutable root bytes and the release closure's preverified nested inventory only; no tar, zip, compression, or aggregate container bytes are defined or claimed",
+    "ready_transaction": "verify manifest and exact bytes before pending-to-ready transition",
+    "retry_scope": "retry the same capture; never recapture current heads or membership",
+    "idempotency_rule": "same application key replays the exact immutable pending create result; evidence.export.get/v1 reads pending or ready lifecycle status without a key",
+    "download_rule": "ready-only exact kind-and-digest selection of reserved bundle.json or manifest.json, a captured delivery=included root member, or a deterministic Included nested ArtifactRef in the captured release closure; external-required roots never resolve through producer GET; status counts included roots plus unique nested bodies, publishes both reserved digests, and manifest plus release-closure bytes enumerate the exact producer-addressable selectors",
+    "download_authorization": "fresh authenticated and authorized Human",
+    "snapshot_claim_limit": "unauthenticated producer snapshot label only; no current, latest, export-readiness, or capture-integrity claim",
+    "bundle_hints_trusted": false,
+    "bundle_hints_auto_fetched": false,
+    "caller_trust_is_separate": true,
+    "verifier_database_access": false,
+    "verifier_session_access": false,
+    "verifier_private_key_access": false,
+    "verifier_credential_access": false,
+    "verifier_network_access": false,
+    "missing_disclosure_result": "Incomplete",
+    "tamper_contradiction_or_falsity_result": "Invalid",
+    "runtime_qualification_gate": "runtime qualification requires exact retained bytes for the outer manifest, direct accepted-artifact Release closure and every selected artifact, every P8 remote-authority envelope in the caller-anchored record set, and every operation-conditional remote-attempt companion; a clean proof-verifier/remote-evidence-v2 must verify artifact and Release-proof semantics, P8 remote authority, and companion preimages independently, enforce every cross-link, and execute Complete, Incomplete, and Invalid scenarios; this unmaterialized contract or any descriptor-only fixture cannot produce an observed Complete report",
+    "component_reporting": [
+      "signature",
+      "actor",
+      "authority",
+      "role_separation",
+      "approval",
+      "policy",
+      "content",
+      "environment",
+      "release",
+      "delivery_evidence",
+      "completeness"
+    ]
+  },
+  "composition": {
+    "profile": "proof-verifier/remote-evidence-v2",
+    "artifact_closure": "#/$defs/remoteReleaseArtifactClosureV1",
+    "remote_authority_closure": "#/$defs/remoteAuthorityRecordSetV1",
+    "remote_attempt_companions": "#/$defs/remoteAttemptCompanionsV1",
+    "verifier_input": "#/$defs/verifierInput",
+    "verifier_report": "#/$defs/report",
+    "conformance_report": "#/$defs/conformanceReport",
+    "composition_rule": "verify accepted artifact and Release-proof semantics directly, verify the caller-anchored P8 remote authority and exact attempt companions independently, then enforce every frozen cross-link",
+    "p6_compatibility": "AuthorityEvidenceBundleV1 and proof-verifier/authority-evidence-bundle-v1 remain unchanged for historical local evidence and are neither required nor relabeled for a remote attempt",
+    "authority_entrypoint": "P8 remote actor, decision, consequence, and authority chain only",
+    "caller_trust_rule": "usable release and remote-authority key bytes, accepted policy profiles, registry allowlists, initial remote head, and checkpoints are caller-controlled; producer hints never create trust"
+  },
+  "retained_components": [
+    {
+      "path": "conformance/v1/collaboration-server/vectors/authenticated-actor-context-evidence-v2.human-agent.valid.json",
+      "role": "actor-context-evidence",
+      "qualification": "retained-exact-component-vector-not-a-materialized-bundle"
+    },
+    {
+      "path": "conformance/v1/collaboration-server/vectors/http-operation-registry.valid.json",
+      "role": "operation-registry",
+      "qualification": "retained-exact-component-vector-not-a-materialized-bundle"
+    },
+    {
+      "path": "conformance/v1/collaboration-server/vectors/release-create-result.private-test.json",
+      "role": "release-result-preimage",
+      "qualification": "retained-exact-component-vector-not-a-materialized-bundle"
+    },
+    {
+      "path": "conformance/v1/collaboration-server/vectors/remote-application-consequence.valid.json",
+      "role": "application-consequence",
+      "qualification": "retained-exact-component-vector-not-a-materialized-bundle"
+    },
+    {
+      "path": "conformance/v1/collaboration-server/vectors/remote-authentication-event.valid.json",
+      "role": "authentication-event",
+      "qualification": "retained-exact-component-vector-not-a-materialized-bundle"
+    },
+    {
+      "path": "conformance/v1/collaboration-server/vectors/remote-authorization-decision.valid.json",
+      "role": "authorization-decision",
+      "qualification": "retained-exact-component-vector-not-a-materialized-bundle"
+    }
+  ],
+  "normative_scenarios": [
+    {
+      "claim_kind": "normative-successor-requirement",
+      "scenario": "complete-exact-materialization",
+      "trigger": "all exact bytes, trust inputs, checkpoints, signatures, semantics, and cross-links verify",
+      "expected_status": "Complete",
+      "required_runtime_material": "exact manifest, direct artifact closure and bytes, remote record set and envelopes, attempt companions, caller trust/checkpoints, and scenario mutation",
+      "delivery_evidence": "not-requested",
+      "runtime_observed": false
+    },
+    {
+      "claim_kind": "normative-successor-requirement",
+      "scenario": "incomplete-required-opening-withheld",
+      "trigger": "the caller requires the selected OIDC subject opening and withholds it while all supplied material remains non-contradictory",
+      "expected_status": "Incomplete",
+      "required_runtime_material": "exact manifest, direct artifact closure and bytes, remote record set and envelopes, attempt companions, caller trust/checkpoints, and scenario mutation",
+      "delivery_evidence": "not-requested",
+      "runtime_observed": false
+    },
+    {
+      "claim_kind": "normative-successor-requirement",
+      "scenario": "invalid-content-artifact-byte-tamper",
+      "trigger": "one supplied object_locale_revision_v1 byte at its committed deterministic content/artifacts/object_locale_revision_v1/blake3/<digest-hex>.json path changes while the descriptor digest remains unchanged",
+      "expected_status": "Invalid",
+      "required_runtime_material": "exact manifest, direct artifact closure and bytes, remote record set and envelopes, attempt companions, caller trust/checkpoints, and scenario mutation",
+      "delivery_evidence": "not-requested",
+      "runtime_observed": false
+    }
+  ]
+}
