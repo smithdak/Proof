@@ -416,3 +416,82 @@ pub fn verify_head(client: &mut Client, expected: &MigrationScriptV1) -> Result<
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Additive v2 session-boundary migration (declared for `proof-server`).
+// ---------------------------------------------------------------------------
+
+/// The additive session-boundary migration version (contract §"Migration and
+/// projection rebuild").
+///
+/// The P-0010 base schema (see [`crate::schema::ALL_TABLE_DDL`]) is migration
+/// version 1. The `proof-server` crate owns this minimal additive migration
+/// constant and version bump: it advances the immutable ledger to version 2
+/// with the session, authentication-event, CSRF-digest, and
+/// revocation-tombstone tables its HTTP/OIDC boundary requires. The integrator
+/// drives it through
+/// [`run_expand_backfill_verify_cutover`]; this crate only declares it.
+pub const SESSION_BOUNDARY_MIGRATION_VERSION: u32 = 2;
+
+/// Stable migration name for the additive v2 session boundary.
+pub const SESSION_BOUNDARY_MIGRATION_NAME: &str = "session-authentication-csrf-tombstone";
+
+/// Exact additive v2 DDL: opaque server-side sessions (keyed-hash only),
+/// remote authentication events, session-bound CSRF digests, and bounded
+/// revocation tombstones (contract §"OIDC binding and session boundary").
+///
+/// All four tables are ordinary LOGGED storage; none is `UNLOGGED`. The
+/// session table stores only a keyed hash of the opaque 256-bit identifier,
+/// never the identifier itself.
+pub const SESSION_BOUNDARY_V2_DDL: &str = r"CREATE TABLE proof_sessions (
+    session_id_hash TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    requesting_principal_id TEXT NOT NULL,
+    requesting_binding_id TEXT NOT NULL,
+    authentication_event_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    absolute_expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE proof_authentication_events (
+    authentication_event_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    authentication_method TEXT NOT NULL,
+    oidc_issuer_configuration_digest TEXT NOT NULL,
+    requesting_subject_commitment TEXT NOT NULL,
+    requesting_binding_id TEXT NOT NULL,
+    requesting_binding_record_digest TEXT NOT NULL,
+    requesting_principal_id TEXT NOT NULL,
+    authenticated_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE proof_csrf_synchronizers (
+    session_id_hash TEXT NOT NULL REFERENCES proof_sessions(session_id_hash),
+    csrf_digest TEXT NOT NULL UNIQUE,
+    issued_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (session_id_hash, csrf_digest)
+);
+
+CREATE TABLE proof_session_revocations (
+    session_id_hash TEXT PRIMARY KEY,
+    csrf_digest TEXT NOT NULL,
+    revoked_at TIMESTAMPTZ NOT NULL
+);";
+
+/// Constructs the additive v2 session-boundary migration script.
+///
+/// This binds [`SESSION_BOUNDARY_MIGRATION_VERSION`],
+/// [`SESSION_BOUNDARY_MIGRATION_NAME`], and [`SESSION_BOUNDARY_V2_DDL`] into
+/// an immutable, checksummed [`MigrationScriptV1`] whose exact-bytes digest is
+/// domain-separated under
+/// [`MIGRATION_SCRIPT_DIGEST_CONTEXT`](crate::migration::MIGRATION_SCRIPT_DIGEST_CONTEXT).
+#[must_use]
+pub fn session_boundary_migration_v2() -> MigrationScriptV1 {
+    MigrationScriptV1::new(
+        SESSION_BOUNDARY_MIGRATION_VERSION,
+        SESSION_BOUNDARY_MIGRATION_NAME,
+        SESSION_BOUNDARY_V2_DDL,
+    )
+}
