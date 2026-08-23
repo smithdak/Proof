@@ -63,7 +63,7 @@ public release.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `ready` | P-0006 | Fix the remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance boundaries before implementation. |
+| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `claimed` | P-0006 | Fix the remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance boundaries before implementation. |
 
 ## Next
 

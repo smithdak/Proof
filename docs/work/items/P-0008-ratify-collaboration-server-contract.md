@@ -1,13 +1,13 @@
 ---
 id: P-0008
 title: Ratify the single-Workspace Milestone 3 collaboration-server contract
-status: ready
+status: claimed
 wave: now
 kind: decision
 blocked_by: [P-0006]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: codex:/root:p-0008
+claimed_at: 2026-08-23T01:03:25.765Z
+base_sha: bea0075a74237626848e1c2f8bb070248b773863
 review_gate: project-owner
 accepted_by: null
 accepted_at: null
@@ -172,6 +172,10 @@ P-0006 candidate `ea35e093daed50017684f7da53373cbb70af753a`, Engineering
 evidence `7df66d98b38155f9c6fec1549dbb1c17ebabdb3c`, and its bounded residual
 risks. No Milestone 3 implementation, provider choice, deployment, or public
 release is claimed by this promotion.
+
+Claimed by `codex:/root:p-0008` at `2026-08-23T01:03:25.765Z` from completed
+P-0006 acceptance commit `bea0075a74237626848e1c2f8bb070248b773863`
+on `proof-architecture/p-0008-collaboration-server-contract`.
 
 ## Residual risks and next-wave update
 
