@@ -1,0 +1,263 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0011",
+  "base_sha": "3780aa5dd524cd3ef9276381bd7d4f35ca6699eb",
+  "claim_commit": "3780aa5dd524cd3ef9276381bd7d4f35ca6699eb",
+  "intermediate_commits": [
+    "5248ea2ee43643933fc057dbf6bb3fbca7eece85"
+  ],
+  "candidate_parent_sha": "5248ea2ee43643933fc057dbf6bb3fbca7eece85",
+  "candidate_commit": "ed6a06eb9710ab98792e11f5b7a42d56d2832e65",
+  "candidate_tree": "e1f4fe9cc4e1e18ab7386f8437a95175ceb436c5",
+  "item_work_commit": "ed6a06eb9710ab98792e11f5b7a42d56d2832e65",
+  "branch": "proof-architecture/p-0008-collaboration-server-contract",
+  "qualified_at": "2026-08-23T23:18:18.331Z",
+  "qualification_state": "implementation-qualified-review-eligible",
+  "review_gate": "none",
+  "successors_created": [],
+  "outbox_worker_implemented": false,
+  "preview_implemented": false,
+  "evidence_export_implemented": false,
+  "server_deployed": false,
+  "milestone_complete": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "base_to_candidate_commit_count": 2,
+    "candidate_path_count": 19,
+    "insertions": 10059,
+    "deletions": 0,
+    "candidate_parent_path_count": 14,
+    "candidate_parent_insertions": 7279,
+    "candidate_parent_deletions": 144,
+    "artifact_digest_status": "18 of 18 exact Git blobs bound by SHA-256",
+    "proof_server_test_count": 74,
+    "postgresql_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+    "new_third_party_packages": [
+      "axum 0.8.9",
+      "cookie 0.18.2",
+      "http 1.5.0",
+      "http-body 1.1.0",
+      "http-body-util 0.1.5",
+      "hyper-util 0.1.20",
+      "mime 0.3.17",
+      "tower 0.5.3",
+      "tower-http 0.6.11",
+      "tokio 1.53.1 (direct)"
+    ],
+    "frozen_vector_change_count": 0,
+    "workspace_test_total": 770,
+    "workspace_suite_count": 59,
+    "documentation_link_count": 334
+  },
+  "decision_scope": [
+    "exact nine-route HTTP surface with strict raw and canonical body limits",
+    "same-origin confidential OIDC BFF with Authorization Code plus PKCE against a deterministic Ed25519 issuer",
+    "opaque hashed-at-rest sessions with bounded lifetimes, rotation, and revocation tombstones",
+    "session-bound CSRF synchronizer with exact Origin enforcement and CORS disabled",
+    "dual Human-session plus AuthenticatedInvocationV1 Agent authentication",
+    "per-row authorization rules and roles with signed remote decisions and consequences through the P-0010 unit of work",
+    "the exact 41-tuple Problem registry with disclosure-neutral status mapping",
+    "rate limiting, the 30-second deadline, and the 4 MiB response bound as adapter controls"
+  ],
+  "environment": {
+    "operating_system": "Ubuntu 24.04.4 LTS",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64-unknown-linux-gnu",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "1.97.1",
+    "node": "v22.23.2",
+    "git": "2.43.0",
+    "postgresql": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) via scripts/dev-pg.sh trust instance on 127.0.0.1:55432"
+  },
+  "commands": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "no issues"
+    },
+    {
+      "command": "cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "770 passed across 59 suites; 0 failed; live-PostgreSQL tests executed"
+    },
+    {
+      "command": "cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "7 doc-test suites; 0 tests; 0 failures"
+    },
+    {
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "334 internal documentation links passed"
+    },
+    {
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "11 work items passed"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "same_content_focused_observations": [
+    {
+      "surface": "OIDC BFF",
+      "result": "happy-path code exchange plus wrong issuer/audience/algorithm/key/time, nonce/state reuse, missing PKCE, and open-redirect rejections with no raw-claim leakage"
+    },
+    {
+      "surface": "sessions and CSRF",
+      "result": "hashed-at-rest opaque sessions with idle/absolute expiry, rotation, revocation convergence, and digest-stored CSRF with hostile-Origin rejection"
+    },
+    {
+      "surface": "dual authentication",
+      "result": "Agent-only and session-only requests fail; the owned mutations commit decision, governed fact, and consequence in one unit of work"
+    },
+    {
+      "surface": "Problem registry",
+      "result": "all 41 tuples exact with disclosure-neutral bodies and 429 Retry-After / 504 unknown-outcome mapping"
+    },
+    {
+      "surface": "end to end",
+      "result": "capabilities read -> login -> CSRF acquisition -> Human read -> dual-auth Agent operation over live PostgreSQL"
+    }
+  ],
+  "limitations": [
+    "No live OIDC provider was contacted; the deterministic issuer is retained test infrastructure and the deployment-secret reference is not resolved against a real credential store.",
+    "No outbox worker, lease, delivery state, preview materialization, or evidence export is implemented; the dependent routes return the stable proof.dependency.unavailable Problem.",
+    "Rate limiting and deadlines are adapter controls; their production calibration is deployment work.",
+    "TLS termination and trusted-proxy configuration are deployment prerequisites, not implemented here.",
+    "No successor promotion, provider choice, deployment, or production mutation is claimed."
+  ],
+  "artifact_digests": [
+    {
+      "path": "Cargo.toml",
+      "git_blob_oid": "0ec3b54fa3dd3b7b28500f51817c4f53a33a4fc9",
+      "algorithm": "sha256",
+      "digest": "0ee2eac7cd81cdffb93b7547394f1c42ed29542b388c6dfe2b41dcbf47c1552a"
+    },
+    {
+      "path": "Cargo.lock",
+      "git_blob_oid": "0bd5bfa76842f3ea9b801e9edf3c294ebe1b5ac7",
+      "algorithm": "sha256",
+      "digest": "19e77f83b88923e4105fd77fde345b3f201b28df64cb381ddc9645452dc1bfa5"
+    },
+    {
+      "path": "crates/proof-server/src/lib.rs",
+      "git_blob_oid": "2c58649f38a72c330a6272735fb4a6ee9953a188",
+      "algorithm": "sha256",
+      "digest": "59ec15ff9bd7ab3a7f3ae16fa1ca622018b2c11a04c4552982f3d294cc17df88"
+    },
+    {
+      "path": "crates/proof-server/src/routes.rs",
+      "git_blob_oid": "f000ebdaab0871a0132c51fba66728a94218ed6a",
+      "algorithm": "sha256",
+      "digest": "46ddfdde0deb02c1445b11b8f9cf50af4bd896fbf40bc310ac55dc3d19b2c26c"
+    },
+    {
+      "path": "crates/proof-server/src/dispatch.rs",
+      "git_blob_oid": "0bee7749359722ad7acca1cbe00f48827c006ffc",
+      "algorithm": "sha256",
+      "digest": "ccbe413a1e964ffb0fab3e53e5fc388f34ed3917394ee6ce55e30a2419474abd"
+    },
+    {
+      "path": "crates/proof-server/src/bff.rs",
+      "git_blob_oid": "329281404046b3f1b8a70d2a153461f835ef11e8",
+      "algorithm": "sha256",
+      "digest": "b824371acef0fb986dff43dd880136e07cff8ada5a6d3c651c74ffd9cc259bf8"
+    },
+    {
+      "path": "crates/proof-server/src/session.rs",
+      "git_blob_oid": "dd6a2725acc42962438c5878077f343c42581862",
+      "algorithm": "sha256",
+      "digest": "296490e7e8903eaef6db5808da3dc4f4794fbdd255dec3af2b04d4fc4f7a7369"
+    },
+    {
+      "path": "crates/proof-server/src/authz.rs",
+      "git_blob_oid": "0d2d9705f003a1bb63f8eaba6e304991438abf9c",
+      "algorithm": "sha256",
+      "digest": "f8c65071ab9152319d17911434f4173c228117de26994ce97cffb36d3de0c8f3"
+    },
+    {
+      "path": "crates/proof-server/src/operations.rs",
+      "git_blob_oid": "ac87d52da3538dfc4a9e09622c27a2fc249e6cf1",
+      "algorithm": "sha256",
+      "digest": "1bb6a08cab4ed27e74288d8e388d63da31ddf9685d9638b33cf8d81bf9c2f949"
+    },
+    {
+      "path": "crates/proof-server/src/issuer.rs",
+      "git_blob_oid": "f6313e26fbf7290a2422f351554b0b3afd5e5689",
+      "algorithm": "sha256",
+      "digest": "d9b9c943e3ff9cd620213a89bec1fea86cd057464e41352ec3f639aee3c8cee2"
+    },
+    {
+      "path": "crates/proof-server/tests/smoke.rs",
+      "git_blob_oid": "8b7b974ce27018c81042dbb2b904bfa5835df761",
+      "algorithm": "sha256",
+      "digest": "e22621127394a1f2d22bc4870539da8c06484f26e6e492b2007407d06f25266a"
+    },
+    {
+      "path": "crates/proof-server/tests/routes_impl.rs",
+      "git_blob_oid": "387d30b46e13cd33388b5442929ed76596e65927",
+      "algorithm": "sha256",
+      "digest": "8a897646898e7d60d9923579b95ea8bb09cfb9a66a09b03a1c35145c9e2307ae"
+    },
+    {
+      "path": "crates/proof-server/tests/bff_impl.rs",
+      "git_blob_oid": "64a56036c87dffb2fd8e29542ed6398d61261034",
+      "algorithm": "sha256",
+      "digest": "53f8e14facf48985d3c0ca7c4463debb97ee0862bd5cd878d06b629bc86cf261"
+    },
+    {
+      "path": "crates/proof-server/tests/session_impl.rs",
+      "git_blob_oid": "1ae9105f90ecc97bd0a7700871d7bc222728243c",
+      "algorithm": "sha256",
+      "digest": "7aa3439e9edbed1747b27da173db90898c11ace2375485171c5860a0b72892e1"
+    },
+    {
+      "path": "crates/proof-server/tests/authz_operations_impl.rs",
+      "git_blob_oid": "b47e45ef5dac387527a652e9fc0a774db23f90b3",
+      "algorithm": "sha256",
+      "digest": "e437252cc4a5aae58b8ead4a5eedeec7cd29a7024b0d93a9802d0e39507d888f"
+    },
+    {
+      "path": "crates/proof-server/tests/dispatch_impl.rs",
+      "git_blob_oid": "ffe85b4ca04308001cd1747befaf84ee0f42b384",
+      "algorithm": "sha256",
+      "digest": "ebc10414b74d82cb75f7651baa042180662355a21df48b9cc4ca874c368e124d"
+    },
+    {
+      "path": "crates/proof-server/tests/e2e_impl.rs",
+      "git_blob_oid": "3727f52fd119e7848d388b9bb048139a48acf0fc",
+      "algorithm": "sha256",
+      "digest": "961241bcd3b632f4d778e9dd87c6e6924131417897e56604a3b3bffb9f0a726e"
+    },
+    {
+      "path": "crates/proof-pg/src/migration.rs",
+      "git_blob_oid": "22c9bc3784f9a17aca0b1dffdccd53e273b314ff",
+      "algorithm": "sha256",
+      "digest": "0bf9596fa24a69da351b06dda44bfbdbafc5075637723f38b76332adc2a50e25"
+    }
+  ],
+  "artifact_digest_note": "SHA-256 computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; evidence files are intentionally outside the candidate inventory and are not self-referenced.",
+  "evidence_paths": [
+    "docs/work/evidence/P-0011/receipt.md",
+    "docs/work/evidence/P-0011/manifest.json",
+    "docs/work/evidence/P-0011/traceability.md"
+  ],
+  "gate_state": {
+    "implementation_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "review_gate": "none",
+    "successor_creation_executed": false,
+    "milestone_completion_executed": false
+  }
+}
