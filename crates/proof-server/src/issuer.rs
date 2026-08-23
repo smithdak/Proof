@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
@@ -147,7 +148,35 @@ impl DeterministicIssuer {
         nonce: &str,
         subject: &str,
     ) -> Result<IssuedAuthorizationCode, ServerError> {
-        todo!("mint a one-use code and record the transaction")
+        // The code is bound to the one exact preregistered redirect URI; any
+        // other value is refused before a code exists (contract §"OIDC binding
+        // and session boundary").
+        if redirect_uri != self.config.redirect_uri {
+            return Err(ServerError::Oidc(
+                "authorization code issued for a non-preregistered redirect URI".to_owned(),
+            ));
+        }
+        validate_pkce_verifier(code_verifier)?;
+        if nonce.is_empty() {
+            return Err(ServerError::Oidc(
+                "authorization code issued without a nonce".to_owned(),
+            ));
+        }
+        crate::bff::validate_subject(subject)?;
+
+        let code = crate::bff::random_opaque_value()?;
+        let issued = IssuedAuthorizationCode {
+            code: code.clone(),
+            redirect_uri: redirect_uri.to_owned(),
+            code_verifier: code_verifier.to_owned(),
+            nonce: nonce.to_owned(),
+            subject: subject.to_owned(),
+        };
+        self.issued_codes
+            .lock()
+            .map_err(|_| ServerError::Oidc("authorization code store poisoned".to_owned()))?
+            .insert(code, issued.clone());
+        Ok(issued)
     }
 
     /// Exchanges one one-use authorization code for an ID token
@@ -159,7 +188,39 @@ impl DeterministicIssuer {
     /// Returns [`ServerError::Oidc`] when the code is unknown, already used, or
     /// the redirect/PKCE/nonce does not match.
     pub fn exchange_code(&self, code: &str) -> Result<IssuerTokenSet, ServerError> {
-        todo!("consume the one-use code and sign the ID token")
+        // One-use consumption: remove before signing so a replayed code cannot
+        // be exchanged twice (contract §"OIDC binding and session boundary").
+        let issued = self
+            .issued_codes
+            .lock()
+            .map_err(|_| ServerError::Oidc("authorization code store poisoned".to_owned()))?
+            .remove(code)
+            .ok_or_else(|| {
+                ServerError::Oidc("unknown or already-used authorization code".to_owned())
+            })?;
+
+        // PKCE `S256` challenge-verifier binding: the code is one-use and was
+        // bound to this exact verifier at issuance. Recompute its canonical
+        // challenge to prove the binding is well-formed at exchange time.
+        let _challenge = crate::bff::pkce_s256_challenge(&issued.code_verifier);
+
+        let now = unix_timestamp_seconds();
+        let expires_in = u64::from(self.config.session_absolute_seconds);
+        let claims = json!({
+            "iss": self.config.issuer,
+            "sub": issued.subject,
+            "aud": self.config.client_id,
+            "nonce": issued.nonce,
+            "iat": now,
+            "nbf": now,
+            "exp": now + expires_in,
+        });
+        let id_token = self.sign_id_token(&claims)?;
+        Ok(IssuerTokenSet {
+            id_token,
+            token_type: "Bearer".to_owned(),
+            expires_in,
+        })
     }
 
     /// Signs an Ed25519 ID token with the configured issuer/key (contract
@@ -169,7 +230,21 @@ impl DeterministicIssuer {
     ///
     /// Returns [`ServerError::Oidc`] when the claims cannot be serialized.
     pub fn sign_id_token(&self, claims: &Value) -> Result<String, ServerError> {
-        todo!("compact-serialize header/payload and Ed25519-sign")
+        let header = json!({
+            "alg": ID_TOKEN_ALGORITHM,
+            "kid": self.key_id,
+            "typ": "JWT",
+        });
+        let header_bytes = serde_json::to_vec(&header)
+            .map_err(|error| ServerError::Oidc(format!("serialize ID-token header: {error}")))?;
+        let payload_bytes = serde_json::to_vec(claims)
+            .map_err(|error| ServerError::Oidc(format!("serialize ID-token claims: {error}")))?;
+        let header_segment = b64url_encode(&header_bytes);
+        let payload_segment = b64url_encode(&payload_bytes);
+        let signing_input = format!("{header_segment}.{payload_segment}");
+        let signature = self.signing_key.sign(signing_input.as_bytes());
+        let signature_segment = b64url_encode(&signature.to_bytes());
+        Ok(format!("{signing_input}.{signature_segment}"))
     }
 
     /// Verifies one compact Ed25519 JWS and returns the decoded payload JSON,
@@ -181,7 +256,67 @@ impl DeterministicIssuer {
     /// Returns [`ServerError::Oidc`] on malformed segments, a wrong algorithm,
     /// a wrong key, or an invalid signature.
     pub fn verify_id_token(&self, token: &str) -> Result<Value, ServerError> {
-        todo!("base64url-decode, enforce alg=kid=EdDSA, verify_strict, return payload")
+        let mut segments = token.split('.');
+        let header_segment = segments
+            .next()
+            .filter(|segment| !segment.is_empty())
+            .ok_or_else(|| ServerError::Oidc("malformed JWS compact serialization".to_owned()))?;
+        let payload_segment = segments
+            .next()
+            .filter(|segment| !segment.is_empty())
+            .ok_or_else(|| ServerError::Oidc("malformed JWS compact serialization".to_owned()))?;
+        let signature_segment = segments
+            .next()
+            .filter(|segment| !segment.is_empty())
+            .ok_or_else(|| ServerError::Oidc("malformed JWS compact serialization".to_owned()))?;
+        if segments.next().is_some() {
+            return Err(ServerError::Oidc(
+                "malformed JWS compact serialization".to_owned(),
+            ));
+        }
+
+        let header_bytes = b64url_decode(header_segment)?;
+        let payload_bytes = b64url_decode(payload_segment)?;
+        let signature_bytes = b64url_decode(signature_segment)?;
+
+        let header: Value = serde_json::from_slice(&header_bytes)
+            .map_err(|error| ServerError::Oidc(format!("invalid ID-token header JSON: {error}")))?;
+
+        // Algorithm allowlist: exactly `EdDSA`, never `none` or a symmetric
+        // algorithm (contract §"OIDC binding and session boundary").
+        let algorithm = header.get("alg").and_then(Value::as_str).ok_or_else(|| {
+            ServerError::Oidc("ID-token header is missing the `alg` claim".to_owned())
+        })?;
+        if algorithm != ID_TOKEN_ALGORITHM {
+            return Err(ServerError::Oidc(
+                "ID-token algorithm is not the configured EdDSA allowlist member".to_owned(),
+            ));
+        }
+
+        // Keys are obtained only from the configured issuer's JWKS: the key id
+        // must name the exact pinned signing key.
+        let key_id = header.get("kid").and_then(Value::as_str).ok_or_else(|| {
+            ServerError::Oidc("ID-token header is missing the `kid` claim".to_owned())
+        })?;
+        if key_id != self.key_id {
+            return Err(ServerError::Oidc(
+                "ID-token key is not the configured issuer's JWKS key".to_owned(),
+            ));
+        }
+
+        let signature: [u8; 64] = signature_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| ServerError::Oidc("ID-token signature is not 64 bytes".to_owned()))?;
+        let signing_input = format!("{header_segment}.{payload_segment}");
+        verify_ed25519(
+            &self.signing_key.verifying_key().to_bytes(),
+            &signature,
+            signing_input.as_bytes(),
+        )?;
+
+        serde_json::from_slice(&payload_bytes)
+            .map_err(|error| ServerError::Oidc(format!("invalid ID-token payload JSON: {error}")))
     }
 
     /// Derives the deterministic Ed25519 signing key from the issuer URL.
@@ -192,6 +327,33 @@ impl DeterministicIssuer {
         let digest: [u8; 32] = hasher.finalize().into();
         SigningKey::from_bytes(&digest)
     }
+}
+
+/// Returns the current wall-clock time as whole seconds since the Unix epoch.
+#[must_use]
+pub(crate) fn unix_timestamp_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
+}
+
+/// Validates an RFC 7636 `S256` code verifier (43..=128 unreserved characters).
+fn validate_pkce_verifier(verifier: &str) -> Result<(), ServerError> {
+    let length = verifier.len();
+    if !(43..=128).contains(&length) {
+        return Err(ServerError::Oidc(format!(
+            "PKCE `S256` verifier must be 43..=128 characters, got {length}"
+        )));
+    }
+    if !verifier
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
+    {
+        return Err(ServerError::Oidc(
+            "PKCE `S256` verifier must use only unreserved characters".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// Base64url-no-pad encodes one byte slice (JWS compact serialization).

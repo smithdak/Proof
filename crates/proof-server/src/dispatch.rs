@@ -5,10 +5,10 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue};
+use proof_domain::CorrelationId;
 use proof_remote::{
     AuthorityHeadV1, HttpRouteV1, RemoteOperationV1, cross_check_route_operation,
     identity::AuthenticatedActorContextV2,
@@ -486,10 +486,14 @@ impl IntoResponse for ProblemResponse {
             );
         }
 
+        // Serialize to bytes directly so the explicit RFC 9457 media type stays
+        // the single primary Content-Type (axum's `Json` would inject
+        // `application/json` and downgrade the header to a duplicate value).
+        let bytes = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
         (
             StatusCode::from_u16(self.tuple.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
             headers,
-            Json(body),
+            axum::body::Body::from(bytes),
         )
             .into_response()
     }
@@ -526,9 +530,37 @@ impl RateLimiter {
     ///
     /// # Errors
     ///
-    /// Returns [`ServerError::RateLimited`] when the bucket is empty.
+    /// Returns [`ServerError::RateLimited`] when the bucket is empty, or
+    /// [`ServerError::Internal`] if the bucket lock is poisoned.
     pub fn try_acquire(&self) -> Result<(), ServerError> {
-        todo!("refill token bucket and consume one token or deny")
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ServerError::Internal("rate limiter state is poisoned".to_owned()))?;
+        let now = Instant::now();
+        let elapsed = now.duration_since(state.last_refill).as_secs_f64();
+        let refill = elapsed * self.budget.refill_per_second as f64;
+        state.tokens = (state.tokens + refill).min(self.budget.capacity as f64);
+        state.last_refill = now;
+        if state.tokens >= 1.0 {
+            state.tokens -= 1.0;
+            Ok(())
+        } else {
+            Err(ServerError::RateLimited)
+        }
+    }
+
+    /// Returns the authorized retry delay in milliseconds for an exhausted
+    /// bucket: the time to refill one token at the configured rate, bounded to
+    /// the contract's `1..=300_000` `retry_after_ms` interval.
+    #[must_use]
+    pub fn retry_after_ms(&self) -> u64 {
+        let refill = self.budget.refill_per_second;
+        if refill == 0 {
+            return 300_000;
+        }
+        // `ceil(1_000 / refill)` without float-to-int truncation.
+        1_000_u64.div_ceil(refill).clamp(1, 300_000)
     }
 }
 
@@ -561,10 +593,88 @@ pub struct DispatchRequest {
 /// Returns a disclosure-neutral [`ProblemResponse`] on any cross-check,
 /// authentication, authorization, storage, deadline, or limit failure.
 pub fn dispatch(
-    _state: &AppState,
+    state: &AppState,
     request: DispatchRequest,
 ) -> Result<SuccessEnvelope, ProblemResponse> {
-    todo!("route-qualified cross-check, rate limit, deadline, unit of work")
+    let operation_id = new_operation_id();
+    let operation = request.operation.clone();
+
+    // 1. Bounded adapter rate limit (denial control, never authority).
+    match state.rate_limiter.try_acquire() {
+        Ok(()) => {}
+        Err(ServerError::RateLimited) => {
+            return Err(ProblemResponse::rate_limited(
+                operation_id,
+                state.rate_limiter.retry_after_ms(),
+            ));
+        }
+        Err(error) => return Err(map_server_error(&error, Some(operation), operation_id)),
+    }
+
+    // 2. The caller-supplied correlation identifier must be an exact UUIDv7.
+    if let Err(error) = validate_correlation_id(request.correlation_id.as_deref()) {
+        return Err(map_server_error(&error, Some(operation), operation_id));
+    }
+
+    // 3. Path/body/invocation/capability cross-check before any application
+    // execution; a mismatch fails closed.
+    if let Err(error) = cross_check_dispatch_request(&request) {
+        return Err(map_server_error(&error, Some(operation), operation_id));
+    }
+
+    // 4. Evaluate authorization at the exact locked authority head.
+    let decision = crate::authz::evaluate_authorization(
+        state,
+        &request.actor_context,
+        &request.normalized_input,
+    )
+    .map_err(|error| map_server_error(&error, Some(operation.clone()), operation_id.clone()))?;
+
+    // 5. Execute the operation through the P-0010 unit of work.
+    let consequence = match request.route {
+        HttpRouteV1::HumanOperations => crate::operations::HumanOperationExecutor::execute(
+            state,
+            &operation,
+            &request.normalized_input,
+            &request.actor_context,
+            &decision,
+        ),
+        HttpRouteV1::AgentOperations => crate::operations::AgentOperationExecutor::execute(
+            state,
+            &operation,
+            &request.normalized_input,
+            &request.actor_context,
+            &decision,
+        ),
+        route => {
+            return Err(map_server_error(
+                &ServerError::Dispatch(format!(
+                    "route `{}` carries no operation executor",
+                    route.path()
+                )),
+                Some(operation),
+                operation_id,
+            ));
+        }
+    }
+    .map_err(|error| map_server_error(&error, Some(operation.clone()), operation_id.clone()))?;
+
+    // 6. Bind the committed head/result-digest anchor and the unchanged typed
+    // application result.
+    let result_digest = consequence.result_digest.as_ref().map(ToString::to_string);
+    let anchor = committed_anchor(
+        &consequence.evaluated_authority_head,
+        result_digest.as_deref(),
+    );
+    let result = serde_json::to_value(&consequence).unwrap_or(Value::Null);
+
+    Ok(SuccessEnvelope::new(
+        operation,
+        operation_id,
+        request.correlation_id,
+        anchor,
+        result,
+    ))
 }
 
 /// Cross-checks the path name/major, invocation operation, and route-qualified
@@ -581,7 +691,22 @@ pub fn cross_check_dispatch_request(request: &DispatchRequest) -> Result<(), Ser
         &request.path_major,
         &request.operation,
     )
-    .map_err(|error| ServerError::Dispatch(error.to_string()))
+    .map_err(|error| ServerError::Dispatch(error.to_string()))?;
+
+    // The adapter-derived actor context (bound to the signed invocation) must
+    // name the exact operation being dispatched; a divergence fails closed
+    // before any application execution.
+    let actor_operation = match &request.actor_context {
+        AuthenticatedActorContextV2::Human(context) => &context.operation,
+        AuthenticatedActorContextV2::HumanAgent(context) => &context.operation,
+    };
+    if actor_operation != &request.operation {
+        return Err(ServerError::Dispatch(
+            "actor-context operation does not match the request operation".to_owned(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Maps an internal [`ServerError`] onto the disclosure-neutral Problem
@@ -595,13 +720,14 @@ pub fn map_server_error(
 ) -> ProblemResponse {
     let code = match error {
         ServerError::RateLimited => "proof.rate_limit.exceeded",
-        ServerError::DeadlineExceeded => "proof.operation.timeout",
+        ServerError::DeadlineExceeded => "proof.operation.unknown_outcome",
         ServerError::Storage(_) => "proof.storage.conflict",
         ServerError::Config(_) | ServerError::Internal(_) => "proof.internal",
-        ServerError::Oidc(_)
-        | ServerError::Authorization(_)
-        | ServerError::Session(_)
-        | ServerError::Csrf(_) => "proof.auth.denied",
+        ServerError::Oidc(_) | ServerError::Session(_) | ServerError::Authentication(_) => {
+            "proof.auth.denied"
+        }
+        ServerError::Csrf(_) => "proof.auth.csrf_denied",
+        ServerError::Authorization(_) => "proof.authorization.denied",
         ServerError::Dispatch(_) => "proof.input.schema_mismatch",
     };
     let tuple = problem_tuple(code).expect("mapped code is a frozen registry tuple");
@@ -613,6 +739,25 @@ pub fn map_server_error(
 #[must_use]
 pub fn new_operation_id() -> String {
     uuid::Uuid::now_v7().to_string()
+}
+
+/// Validates a caller-supplied correlation identifier as an exact UUIDv7
+/// value (contract §"Envelopes, Problems, and HTTP semantics").
+///
+/// A `None` correlation is always valid. A `Some` value must be a canonical
+/// UUIDv7 string; anything else fails closed as a schema mismatch before any
+/// application execution.
+///
+/// # Errors
+///
+/// Returns [`ServerError::Dispatch`] when the supplied value is not a UUIDv7.
+pub fn validate_correlation_id(correlation_id: Option<&str>) -> Result<(), ServerError> {
+    if let Some(value) = correlation_id {
+        value.parse::<CorrelationId>().map_err(|_| {
+            ServerError::Dispatch("correlation_id is not a UUIDv7 value".to_owned())
+        })?;
+    }
+    Ok(())
 }
 
 /// Computes the committed result anchor for a success envelope (contract

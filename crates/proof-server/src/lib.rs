@@ -18,7 +18,7 @@
     clippy::too_many_lines
 )]
 
-//! HTTP and OIDC server boundary skeleton for Proof (work item P-0011).
+//! HTTP and OIDC server boundary for Proof (work item P-0011).
 //!
 //! This crate is the third dependency-ordered successor of the accepted
 //! [single-Workspace collaboration-server contract]: the exact nine-route HTTP
@@ -30,15 +30,16 @@
 //! mapping, and the identity/role/approval/configuration Human operations over
 //! the P-0010 PostgreSQL unit of work.
 //!
-//! This is a compiling **skeleton**: every public type and function is declared
-//! here as the contract surface for the parallel implementation successors, and
-//! function bodies are [`todo!()`] stubs. It depends only on
-//! [`proof_remote`] (P-0009 registries/identity/authority/oracle) and
-//! [`proof_pg`] (P-0010 persistence); never the reverse.
+//! The synchronous [`postgres`] driver is the retained storage baseline, driven
+//! behind `tokio::task::spawn_blocking` so the async runtime never blocks on
+//! storage. The crate depends only on [`proof_remote`] (P-0009
+//! registries/identity/authority/oracle) and [`proof_pg`] (P-0010
+//! persistence); never the reverse.
 //!
 //! [single-Workspace collaboration-server contract]: https://proof.dev/docs/architecture/collaboration-server
 //! [`proof_remote`]: ../proof_remote/index.html
 //! [`proof_pg`]: ../proof_pg/index.html
+//! [`postgres`]: https://docs.rs/postgres/latest/postgres/
 
 pub mod authz;
 pub mod bff;
@@ -63,11 +64,12 @@ pub fn json_media_type() -> mime::Mime {
 ///
 /// Returns [`ServerError::Internal`] when the server cannot run.
 pub async fn serve(
-    app: axum::Router<AppState>,
+    app: axum::Router,
     listener: tokio::net::TcpListener,
 ) -> Result<(), ServerError> {
-    let _ = (app, listener);
-    todo!("run axum::serve(listener, app) behind the tokio runtime")
+    axum::serve(listener, app)
+        .await
+        .map_err(|error| ServerError::Internal(format!("server failed: {error}")))
 }
 
 /// Re-exported shared domain vocabulary (Workspace/Principal identities,
@@ -84,7 +86,7 @@ use proof_domain::WorkspaceId;
 use proof_remote::identity::OidcIssuerConfigurationV1;
 use thiserror::Error;
 
-use crate::{dispatch::RateLimiter, issuer::DeterministicIssuer, session::SessionStore};
+use crate::{bff::Bff, dispatch::RateLimiter, issuer::DeterministicIssuer, session::SessionStore};
 
 /// Exact first-profile HTTP API version path token (contract §"HTTP boundary").
 pub const HTTP_API_VERSION: &str = "v1";
@@ -255,6 +257,9 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     /// Deterministic in-process OIDC issuer.
     pub issuer: Arc<DeterministicIssuer>,
+    /// Shared same-origin confidential BFF state machine (one-use login
+    /// transactions persist across the login and callback requests).
+    pub bff: Arc<Bff>,
 }
 
 impl AppState {
@@ -269,14 +274,21 @@ impl AppState {
     pub fn new(config: ServerConfig) -> Self {
         let session_secret = config.session_secret;
         let rate_limit_budget = config.rate_limit_budget;
-        let issuer = DeterministicIssuer::new(config.issuer.clone())
-            .expect("the deterministic issuer always constructs from a valid configuration");
+        let issuer = Arc::new(
+            DeterministicIssuer::new(config.issuer.clone())
+                .expect("the deterministic issuer always constructs from a valid configuration"),
+        );
+        let bff = Arc::new(
+            Bff::new(config.issuer.clone(), issuer.clone())
+                .expect("the BFF always constructs from a valid configuration"),
+        );
         Self {
             config: Arc::new(config),
             pg: Arc::new(std::sync::Mutex::new(None)),
             sessions: Arc::new(SessionStore::new(session_secret)),
             rate_limiter: Arc::new(RateLimiter::new(rate_limit_budget)),
-            issuer: Arc::new(issuer),
+            issuer,
+            bff,
         }
     }
 
@@ -288,7 +300,38 @@ impl AppState {
     ///
     /// Returns [`ServerError::Storage`] when connect or migrate fails.
     pub fn connect_pg(&self) -> Result<(), ServerError> {
-        todo!("connect, migrate to session-boundary v2, and store the PgRuntime")
+        let config = proof_pg::PgConfig::new(
+            self.config.dsn.clone(),
+            self.config.workspace_id,
+            APPLICATION_DEADLINE,
+        );
+
+        // Authority runtime for authz/operations reads and writes.
+        let mut authority_runtime =
+            proof_pg::wiring::PgRuntime::connect(config.clone()).map_err(ServerError::Storage)?;
+        authority_runtime.migrate().map_err(ServerError::Storage)?;
+        proof_pg::migration::run_expand_backfill_verify_cutover(
+            authority_runtime.client_mut(),
+            &proof_pg::migration::session_boundary_migration_v2(),
+        )
+        .map_err(ServerError::Storage)?;
+
+        // A distinct runtime for the session store, attached after the same
+        // migration is applied so both point at the identical schema head.
+        let mut session_runtime =
+            proof_pg::wiring::PgRuntime::connect(config).map_err(ServerError::Storage)?;
+        session_runtime.migrate().map_err(ServerError::Storage)?;
+        proof_pg::migration::run_expand_backfill_verify_cutover(
+            session_runtime.client_mut(),
+            &proof_pg::migration::session_boundary_migration_v2(),
+        )
+        .map_err(ServerError::Storage)?;
+        self.sessions.attach(session_runtime)?;
+
+        *self.pg.lock().map_err(|_| {
+            ServerError::Internal("PostgreSQL runtime lock is poisoned".to_owned())
+        })? = Some(authority_runtime);
+        Ok(())
     }
 }
 
@@ -308,7 +351,10 @@ pub enum ServerError {
     /// CSRF synchronizer validation failed.
     #[error("CSRF failed: {0}")]
     Csrf(String),
-    /// Authentication or authorization failed.
+    /// Pre-proof identity authentication failed (disclosure-neutral).
+    #[error("authentication failed: {0}")]
+    Authentication(String),
+    /// Authorization evaluation failed or the request was denied.
     #[error("authorization failed: {0}")]
     Authorization(String),
     /// Route-qualified registry dispatch failed.
