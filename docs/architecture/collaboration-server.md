@@ -1294,7 +1294,12 @@ P-0009 has implemented the first successor: remote authority payloads and
 envelopes, actor contexts and evidence redaction, OIDC subject commitments,
 causal approval and Environment configuration closures, the closed registries
 with their frozen hashes, and the deterministic semantic oracle over the
-SQLite reference path. The remaining successors above are unchanged.
+SQLite reference path. P-0010 has implemented the second successor: the
+PostgreSQL migration ledger, serializable unit of work with keyed
+idempotency and the savepoint rule, bounded retry and ambiguous-commit
+reconciliation, the artifact catalog, outbox enqueue, projection rebuild,
+the verified import, and byte-identical SQLite/PostgreSQL oracle traces.
+The remaining successors above are unchanged.
 
 Only the first dependency-ready item is promoted after acceptance. SDKs,
 console, provider selection/provisioning, deployment, public preview,

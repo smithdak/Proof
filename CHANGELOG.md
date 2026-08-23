@@ -6,6 +6,16 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented the PostgreSQL parity foundation (P-0010): the checksummed
+  migration ledger with a singleton migrator, the serializable Workspace
+  write-lane authoritative transaction with the twelve-step contract
+  algorithm, keyed idempotency with replay/conflict semantics and the
+  savepoint rule, bounded retry and ambiguous-commit reconciliation, the
+  artifact catalog with atomic PostgreSQL storage of fork-capable signed
+  bytes, transactional-outbox enqueue, projection generation swaps, the
+  verified SQLite-to-PostgreSQL import, the shared `StorageBackend` oracle
+  boundary, byte-identical SQLite/PostgreSQL traces, and CI PostgreSQL
+  service wiring.
 - Implemented the remote actor and shared-contract conformance foundation
   (P-0009): the closed `RemoteAuthorityRecordV1` payload union with a
   single-signature DSSE envelope and causal chain validation; OIDC subject

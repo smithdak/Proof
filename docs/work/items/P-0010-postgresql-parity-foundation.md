@@ -1,7 +1,7 @@
 ---
 id: P-0010
 title: Implement the PostgreSQL parity foundation
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0009]
@@ -227,5 +227,7 @@ commit `7fe7d67a109ea45aaf84854b06ccda5e85920caf`, qualified at
 [manifest](../evidence/P-0010/manifest.json), and
 [AC1-AC11 traceability matrix](../evidence/P-0010/traceability.md). Moved
 from `claimed` to `review` at `2026-08-23T21:38:13.720Z` under
-`review_gate: none`. No HTTP, OIDC, worker, preview, or deployment work is
-claimed by this item.
+`review_gate: none`, then to `done` at `2026-08-23T21:38:31.587Z` after the
+complete Linux gate recorded in the receipt. Successor P-0011 HTTP and OIDC
+server boundary is promoted to `ready`; no HTTP, OIDC, worker, preview, or
+deployment work is claimed by this completion.

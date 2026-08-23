@@ -15,8 +15,9 @@ verifiable. `AuthorityEvidenceBundleV1`, the independent `proof-verifier`,
 frozen portable vectors, and distinct-UID Linux signer/verifier containment are
 qualified. P-0008's single-Workspace collaboration-server decision candidate is
 project-owner accepted and ADR-0013 is Accepted; P-0009 has implemented the
-remote actor and shared-contract conformance foundation, P-0010 PostgreSQL
-parity is the promoted successor, and the server itself
+remote actor and shared-contract conformance foundation, P-0010 has
+implemented the PostgreSQL parity foundation, P-0011 HTTP and OIDC server
+boundary is the promoted successor, and the server itself
 remains unimplemented. Same-UID
 hostile-process isolation, Windows runtime containment, server execution,
 deployment, and a public release remain unimplemented or unqualified.
@@ -89,6 +90,6 @@ Documentation changes follow a docs-as-code workflow:
 
 **Baseline date:** August 23, 2026
 
-**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; P-0008 collaboration-server contract accepted by the project owner; P-0009 complete; P-0010 PostgreSQL parity foundation promoted
+**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; P-0008 collaboration-server contract accepted by the project owner; P-0009 and P-0010 complete; P-0011 HTTP and OIDC server boundary promoted
 
 **Documentation version:** 0.4

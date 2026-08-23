@@ -10,8 +10,9 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 **Milestones 1 and 2 complete — local proof loop plus bounded local Linux
 Agent authority. P-0008 is project-owner accepted; P-0009 remote actor and
-shared-contract conformance is complete, and P-0010 PostgreSQL parity
-foundation is the promoted Milestone 3 implementation frontier.**
+shared-contract conformance and P-0010 PostgreSQL parity are complete, and
+P-0011 HTTP and OIDC server boundary is the promoted Milestone 3
+implementation frontier.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -45,8 +46,11 @@ P-0009 has implemented the remote actor and shared-contract conformance
 foundation — remote authority payloads and envelopes, OIDC subject
 commitments, actor-context evidence redaction, causal approval and
 Environment configuration closures, the closed operation registries with
-their frozen hashes, and the deterministic semantic oracle. P-0010 implements
-the PostgreSQL parity foundation every later server adapter consumes.
+their frozen hashes, and the deterministic semantic oracle. P-0010 has
+implemented the PostgreSQL parity foundation — the durable unit of work,
+idempotency, artifact catalog, outbox enqueue, projection rebuild, import,
+and byte-identical SQLite/PostgreSQL traces. P-0011 implements the HTTP and
+OIDC server boundary every later server capability consumes.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -60,7 +64,7 @@ qualification or a published Windows support claim.
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
-| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009) implemented; server not implemented |
+| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009, P-0010) implemented; server not implemented |
 | Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23); first successor P-0009 promoted |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
