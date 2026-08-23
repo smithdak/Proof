@@ -1,0 +1,19 @@
+[package]
+name = "proof-pg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+postgres.workspace = true
+postgres-types.workspace = true
+proof-domain = { path = "../proof-domain" }
+proof-local = { path = "../proof-local" }
+proof-remote = { path = "../proof-remote" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
