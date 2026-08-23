@@ -1,0 +1,286 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0010",
+  "base_sha": "ace67ac48fad343f4f213ab3d3d37f785a350ccd",
+  "claim_commit": "ace67ac48fad343f4f213ab3d3d37f785a350ccd",
+  "intermediate_commits": [
+    "7fe7d67a109ea45aaf84854b06ccda5e85920caf"
+  ],
+  "candidate_parent_sha": "7fe7d67a109ea45aaf84854b06ccda5e85920caf",
+  "candidate_commit": "4410b46a27687fd8ce04d01d2c872f1ca2ac4ccc",
+  "candidate_tree": "c685b79afc8bd054595cc0a9df4d7394cdcbeb29",
+  "item_work_commit": "4410b46a27687fd8ce04d01d2c872f1ca2ac4ccc",
+  "branch": "proof-architecture/p-0008-collaboration-server-contract",
+  "qualified_at": "2026-08-23T21:36:53.801Z",
+  "qualification_state": "implementation-qualified-review-eligible",
+  "review_gate": "none",
+  "successors_created": [],
+  "http_implemented": false,
+  "oidc_provider_contacted": false,
+  "worker_implemented": false,
+  "preview_implemented": false,
+  "evidence_export_implemented": false,
+  "server_implemented": false,
+  "deployed": false,
+  "milestone_complete": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "base_to_candidate_commit_count": 2,
+    "candidate_path_count": 23,
+    "insertions": 7997,
+    "deletions": 16,
+    "candidate_parent_path_count": 22,
+    "candidate_parent_insertions": 6197,
+    "candidate_parent_deletions": 114,
+    "artifact_digest_status": "23 of 23 exact Git blobs bound by SHA-256",
+    "proof_pg_test_count": 32,
+    "postgresql_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+    "new_third_party_packages": [
+      "postgres 0.19.14",
+      "postgres-types 0.2.14"
+    ],
+    "frozen_vector_change_count": 0,
+    "workspace_test_total": 696,
+    "workspace_suite_count": 51,
+    "documentation_link_count": 324
+  },
+  "decision_scope": [
+    "checksummed immutable migration ledger with singleton migrator and fail-closed refusal",
+    "serializable Workspace write-lane unit of work with row-derived causal sequences and the twelve contract steps",
+    "keyed idempotency replay/conflict semantics and the savepoint rule",
+    "bounded full-transaction retry, SQLSTATE classification, and ambiguous-commit reconciliation",
+    "artifact catalog with put_if_absent staging and atomic PostgreSQL storage of fork-capable signed bytes",
+    "transactional-outbox enqueue with both uniqueness keys and no worker",
+    "projection generation rebuild with one atomic pointer swap",
+    "verified SQLite-to-PostgreSQL import with head and Known State comparison",
+    "StorageBackend boundary with byte-identical SQLite/PostgreSQL oracle traces",
+    "CI PostgreSQL service wiring with fail-closed test gating"
+  ],
+  "environment": {
+    "operating_system": "Ubuntu 24.04.4 LTS",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64-unknown-linux-gnu",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "1.97.1",
+    "node": "v22.23.2",
+    "git": "2.43.0",
+    "postgresql": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) via scripts/dev-pg.sh trust instance on 127.0.0.1:55432"
+  },
+  "commands": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "no issues"
+    },
+    {
+      "command": "cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "696 passed across 51 suites; 0 failed; live-PostgreSQL tests executed"
+    },
+    {
+      "command": "cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "7 doc-test suites; 0 tests; 0 failures"
+    },
+    {
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "324 internal documentation links passed at the committed candidate tree"
+    },
+    {
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "10 work items passed"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "same_content_focused_observations": [
+    {
+      "surface": "twelve-step unit of work",
+      "result": "two-connection serialization race produces a real 40001 and a full retry converges with consistent row-derived sequences"
+    },
+    {
+      "surface": "savepoint rule",
+      "result": "authorized application failure leaves no governed fact, successful key, or outbox event while decision and failure-consequence bodies commit"
+    },
+    {
+      "surface": "parity",
+      "result": "workspace.status and localized context.build traces are byte-identical across SQLite and PostgreSQL; tampered PostgreSQL consequence diverges"
+    },
+    {
+      "surface": "import",
+      "result": "verified SQLite facts import with matching heads and Known State; a tampered SQLite artifact fails closed"
+    }
+  ],
+  "limitations": [
+    "No HTTP server, session, CSRF, BFF, or OIDC provider integration is implemented.",
+    "No outbox worker, lease, delivery state, preview materialization, or evidence export is implemented.",
+    "The unit of work is proven against PostgreSQL 16.15 including a real serialization race; power-loss and operator-tamper qualification remain later work.",
+    "Byte-identical traces cover the retained shared-operation scenarios; exhaustive cross-product registry coverage remains the Milestone 3 qualification successor.",
+    "No successor promotion, framework choice, provider choice, deployment, or production mutation is claimed."
+  ],
+  "artifact_digests": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "git_blob_oid": "0d95ce327f6fd2c0806eb0142ac35d8d0ed8a8a7",
+      "algorithm": "sha256",
+      "digest": "58361586933eda65d25655d17a3ed6ad3f265d03c26ce2cf5b1ccf050269182b"
+    },
+    {
+      "path": "Cargo.toml",
+      "git_blob_oid": "22b2af935a952b4da842bd5311a9ef66aa3bba40",
+      "algorithm": "sha256",
+      "digest": "8562723ba3860a666ca306ab34de1749bc2e7b1413071acfbddc18a3ed6f6625"
+    },
+    {
+      "path": "Cargo.lock",
+      "git_blob_oid": "c38857180179e3f58c86a80408396b2f50497339",
+      "algorithm": "sha256",
+      "digest": "1fc11e21b7790a0c727907a5ef182cb32cb8c624e0277efcbbc5af152c6d3eb9"
+    },
+    {
+      "path": "crates/proof-pg/Cargo.toml",
+      "git_blob_oid": "81ca0c6252db473cbc9993be17eb7a4f2245225b",
+      "algorithm": "sha256",
+      "digest": "36ef75ea3f5d3961a7d836e6d64727ea22958b677f659e5c925b91ccc1d2b647"
+    },
+    {
+      "path": "crates/proof-pg/src/lib.rs",
+      "git_blob_oid": "8f5c5e90c2ddc7cbbc2306bb831c3ef28f699cd1",
+      "algorithm": "sha256",
+      "digest": "8cea89f9788a92878abf02edbb76a4ae4e9a8ff8f402313c74302e11cbe6d802"
+    },
+    {
+      "path": "crates/proof-pg/src/migration.rs",
+      "git_blob_oid": "8f864bfd692b8c3c19f73e52d0b12db9b18409b7",
+      "algorithm": "sha256",
+      "digest": "8d4439124d0afbd26bd5f2813d2c869f9f70d0a8500f0381475f4bc80cf11d74"
+    },
+    {
+      "path": "crates/proof-pg/src/schema.rs",
+      "git_blob_oid": "5c9b0c071266555dc6d6ed4a0a172d803d601a33",
+      "algorithm": "sha256",
+      "digest": "1b41b0ab8c8739b546606815842dddd7e407b5a5b9cb716380dbf1b075fcddd3"
+    },
+    {
+      "path": "crates/proof-pg/src/transaction.rs",
+      "git_blob_oid": "a4e8c0928e83cf568bac6c36d36e0c9276e0378c",
+      "algorithm": "sha256",
+      "digest": "39cbaf82e8385360202aecbbee99da95cf9e2296346431637153569b48d20eba"
+    },
+    {
+      "path": "crates/proof-pg/src/idempotency.rs",
+      "git_blob_oid": "8ba589b49c4e6ecae7da3e587e14823e73ef5a85",
+      "algorithm": "sha256",
+      "digest": "043345733e2d7233d08994c81b10275a457ecd08013e7ddce32d703d20c2b1d5"
+    },
+    {
+      "path": "crates/proof-pg/src/artifacts.rs",
+      "git_blob_oid": "03353c3689a75663e4cb5febab064b3e04436938",
+      "algorithm": "sha256",
+      "digest": "e39db3cb9df162c2f2fb3da9dc9737c4a06fff7e3d90dcfbbd2d80ceaf8e0b6b"
+    },
+    {
+      "path": "crates/proof-pg/src/outbox.rs",
+      "git_blob_oid": "1a703a78d836b3c85bdb7228d3cd730326726019",
+      "algorithm": "sha256",
+      "digest": "0a3a6d9a713aefbc6e2a059f22ec6bfd0e6909184a5e86d507f14ec658ab345d"
+    },
+    {
+      "path": "crates/proof-pg/src/projection.rs",
+      "git_blob_oid": "b93ec7513d2107e347228c16395888e704a07361",
+      "algorithm": "sha256",
+      "digest": "e5a72f1331c4c4bff0414a11a79e295d9731a8d2fadd51c2b900944df1af0ff8"
+    },
+    {
+      "path": "crates/proof-pg/src/import.rs",
+      "git_blob_oid": "ebe40aa3bba32f8e7b3bea209f43103ba4a02cb9",
+      "algorithm": "sha256",
+      "digest": "29d0c1fd6aa94e9c0441345f0cb83c3b76857a53d89cec9834b41d592de7c49c"
+    },
+    {
+      "path": "crates/proof-pg/src/parity.rs",
+      "git_blob_oid": "88d32dba4bc71f82fef52a943e854184ed68710a",
+      "algorithm": "sha256",
+      "digest": "33170d2e06b981bb4e80c369ba23160a675dc77875ea87ff6b422f74905391a7"
+    },
+    {
+      "path": "crates/proof-pg/src/wiring.rs",
+      "git_blob_oid": "90fee88e315a3dfd4c572a5b5edd3711edad8ec6",
+      "algorithm": "sha256",
+      "digest": "adf627bc3f74710c0bfb0267fc8ac788f944247a4f9c9ff7cfd1809680174617"
+    },
+    {
+      "path": "crates/proof-pg/tests/migration_impl.rs",
+      "git_blob_oid": "d9f824343bc4a0395ff2e34e85a203d741ad87c5",
+      "algorithm": "sha256",
+      "digest": "a44e07f90fb8a5f513f80f81f3613c8591e7e0f94314c926c50e1637b795b6e8"
+    },
+    {
+      "path": "crates/proof-pg/tests/transaction_impl.rs",
+      "git_blob_oid": "8c6fb7de4f8f458494eeb9c51c31c8303cbc4694",
+      "algorithm": "sha256",
+      "digest": "8ed4c86f41975b385910676f874515f74599f19ea83e701d0e1412ebd27cb436"
+    },
+    {
+      "path": "crates/proof-pg/tests/artifacts_outbox_impl.rs",
+      "git_blob_oid": "8dfe7de7955fdbabf881a70aef387462a0705087",
+      "algorithm": "sha256",
+      "digest": "54f640d309b50d68f511f9759eaa3fa48f0b338897cb79a36cb6a76bf918df1c"
+    },
+    {
+      "path": "crates/proof-pg/tests/projection_import_impl.rs",
+      "git_blob_oid": "2e0d740378d84ccef239274f2623e28849096992",
+      "algorithm": "sha256",
+      "digest": "86e489fe2ba3cfee6b6dcc22df03bd801a899552d24136fb88088a5d63911f4f"
+    },
+    {
+      "path": "crates/proof-pg/tests/parity_impl.rs",
+      "git_blob_oid": "50c5aee97562a84c57eaffbecf5f0cc6bd752f5d",
+      "algorithm": "sha256",
+      "digest": "d0d89772fd5c11d9b3f80d04178862a286adcd9b69458f335d51e7813f4c06ff"
+    },
+    {
+      "path": "crates/proof-pg/tests/wiring_impl.rs",
+      "git_blob_oid": "9bf3ce0dda94fb8b854e47102d8050f3aa626c8c",
+      "algorithm": "sha256",
+      "digest": "2b33af803c1f5c760de9c3089ec40397c73dd6733b9e86215933d74c3be8b577"
+    },
+    {
+      "path": "crates/proof-remote/src/oracle.rs",
+      "git_blob_oid": "af9bfe0fcbb6c587068fd8c4cd7a3d3dcb72f94d",
+      "algorithm": "sha256",
+      "digest": "fc13e31434ee735c8f3d03c03fa2ce85685fd6bbfba16fdd0a521a9511c9d24f"
+    },
+    {
+      "path": "crates/proof-remote/src/lib.rs",
+      "git_blob_oid": "8219abd2f496329360b5118acff7477877cfd813",
+      "algorithm": "sha256",
+      "digest": "2fc411fe17b535456129d9945b320bc9e5dcd86089e23360b6799e58765e0e57"
+    }
+  ],
+  "artifact_digest_note": "SHA-256 computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; evidence files are intentionally outside the candidate inventory and are not self-referenced.",
+  "evidence_paths": [
+    "docs/work/evidence/P-0010/receipt.md",
+    "docs/work/evidence/P-0010/manifest.json",
+    "docs/work/evidence/P-0010/traceability.md"
+  ],
+  "gate_state": {
+    "implementation_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "review_gate": "none",
+    "successor_creation_executed": false,
+    "milestone_completion_executed": false
+  }
+}
