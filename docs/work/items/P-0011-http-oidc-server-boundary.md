@@ -1,13 +1,13 @@
 ---
 id: P-0011
 title: Implement the HTTP and OIDC server boundary
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0010]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: deepseek:proof:p-0011
+claimed_at: 2026-08-23T21:39:34.672Z
+base_sha: 57c8615c0b9e05e7b408f0bd1fc4e99e176113d7
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -225,5 +225,9 @@ results, and residual boundaries in `docs/work/evidence/P-0011/`. Produce
 
 Ready at `2026-08-23T21:38:31.587Z` after P-0010 candidate
 `4410b46a27687fd8ce04d01d2c872f1ca2ac4ccc` closed with Engineering evidence
-commit `a50fe6a6888614eccdc06b0f1c8b1e631bfb9684`. Not claimed. No HTTP,
-OIDC, worker, preview, or deployment work is claimed by this promotion.
+commit `a50fe6a6888614eccdc06b0f1c8b1e631bfb9684`.
+
+Claimed by `deepseek:proof:p-0011` at `2026-08-23T21:39:34.672Z` from
+P-0010 completion commit `57c8615c0b9e05e7b408f0bd1fc4e99e176113d7`
+on `proof-architecture/p-0008-collaboration-server-contract`. No HTTP,
+OIDC, worker, preview, or deployment work is claimed by this item.

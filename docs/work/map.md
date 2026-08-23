@@ -21,7 +21,8 @@ decision evidence `4ac62e9`, at `2026-08-23T17:48:11.461Z`. ADR-0013 is
 Accepted. P-0009 remote actor and shared-contract conformance is complete
 with candidate `3e38f30`, P-0010 PostgreSQL parity foundation is complete
 with candidate `4410b46`, and P-0011 HTTP and OIDC server boundary is the
-promoted Milestone 3 implementation frontier. No collaboration-server
+promoted and claimed Milestone 3 implementation frontier. No
+collaboration-server
 implementation, provider, deployment, or live remote result is claimed yet.
 implementation, provider, deployment, or live remote result is claimed yet.
 
@@ -72,7 +73,7 @@ implementation, provider, deployment, or live remote result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the HTTP and OIDC server boundary](items/P-0011-http-oidc-server-boundary.md) | `ready` | P-0010 | Implement the exact nine-route HTTP surface with strict limits and route-qualified registry dispatch, the same-origin confidential OIDC BFF against a deterministic issuer, opaque bounded sessions, the session-bound CSRF synchronizer, dual Human-plus-Agent authentication, and the owned identity, role, approval, and Environment configuration Human operations through the P-0010 unit of work, with the retained abuse matrix. |
+| [Implement the HTTP and OIDC server boundary](items/P-0011-http-oidc-server-boundary.md) | `claimed` | P-0010 | Implement the exact nine-route HTTP surface with strict limits and route-qualified registry dispatch, the same-origin confidential OIDC BFF against a deterministic issuer, opaque bounded sessions, the session-bound CSRF synchronizer, dual Human-plus-Agent authentication, and the owned identity, role, approval, and Environment configuration Human operations through the P-0010 unit of work, with the retained abuse matrix. |
 
 ## Next
 
