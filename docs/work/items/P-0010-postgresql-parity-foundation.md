@@ -1,7 +1,7 @@
 ---
 id: P-0010
 title: Implement the PostgreSQL parity foundation
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0009]
@@ -168,35 +168,35 @@ ADR-0013 remains the implementation authority.
 
 ## Acceptance criteria
 
-- [ ] The migration ledger performs the expand/backfill/verify/cutover
+- [x] The migration ledger performs the expand/backfill/verify/cutover
       contract with checksummed immutable scripts, a singleton migrator, and
       fail-closed checksum/version/dirty-phase refusal.
-- [ ] The authoritative transaction implements all twelve contract steps
+- [x] The authoritative transaction implements all twelve contract steps
       under `SERIALIZABLE` with the locked write head and row-derived causal
       sequences; no PostgreSQL sequence drives causal order.
-- [ ] Keyed idempotency replays the prior result without duplicating the
+- [x] Keyed idempotency replays the prior result without duplicating the
       governed fact, key, or outbox event; same-key changed input commits a
       conflict consequence; no-key rows are fresh authenticated attempts.
-- [ ] The savepoint rule commits exactly presentation consumption, decision,
+- [x] The savepoint rule commits exactly presentation consumption, decision,
       and failure-consequence bodies on an authorized application failure,
       and rolls back everything on infrastructure failure.
-- [ ] Bounded retry and ambiguous-commit reconciliation match the contract,
+- [x] Bounded retry and ambiguous-commit reconciliation match the contract,
       including no external calls inside the retried transaction.
-- [ ] Artifact identity, `put_if_absent`, read-after-write, staged-neutral
+- [x] Artifact identity, `put_if_absent`, read-after-write, staged-neutral
       invisibility before commit, and atomic PostgreSQL storage of
       fork-capable signed bytes all hold under test.
-- [ ] Outbox enqueue records one logical event per committed consequence and
+- [x] Outbox enqueue records one logical event per committed consequence and
       destination with both uniqueness keys; no delivery behavior is
       claimed.
-- [ ] Projection rebuild swaps one verified generation atomically and never
+- [x] Projection rebuild swaps one verified generation atomically and never
       regenerates facts, idempotency, artifacts, or outbox history.
-- [ ] The SQLite-to-PostgreSQL import reconstructs chains from verified
+- [x] The SQLite-to-PostgreSQL import reconstructs chains from verified
       canonical facts, rebuilds projections, compares authority heads and
       Known State, and cuts over atomically.
-- [ ] The shared oracle runner produces byte-identical traces on both
+- [x] The shared oracle runner produces byte-identical traces on both
       backends for accepted, rejected, replay, and conflict scenarios, and
       CI plus the local dev instance both execute the PostgreSQL tests.
-- [ ] The full Linux quality gate passes and durable Engineering evidence
+- [x] The full Linux quality gate passes and durable Engineering evidence
       (receipt, manifest, traceability) binds the item-work commit.
 
 ## Evidence contract
@@ -216,5 +216,16 @@ commit `89e74c381c5cd486cbfab3762c85ba0fad258e3f`.
 
 Claimed by `deepseek:proof:p-0010` at `2026-08-23T19:21:15.237Z` from
 P-0009 completion commit `559ef7cb39b557b7ebf0a57053b93e21592196c8`
-on `proof-architecture/p-0008-collaboration-server-contract`. No HTTP,
-OIDC, worker, preview, or deployment work is claimed by this item.
+on `proof-architecture/p-0008-collaboration-server-contract`.
+
+Engineering qualified immutable candidate
+`4410b46a27687fd8ce04d01d2c872f1ca2ac4ccc`, whose parent is the skeleton
+commit `7fe7d67a109ea45aaf84854b06ccda5e85920caf`, qualified at
+`2026-08-23T21:36:53.801Z`. Engineering evidence commit
+`a50fe6a6888614eccdc06b0f1c8b1e631bfb9684` binds the
+[receipt](../evidence/P-0010/receipt.md),
+[manifest](../evidence/P-0010/manifest.json), and
+[AC1-AC11 traceability matrix](../evidence/P-0010/traceability.md). Moved
+from `claimed` to `review` at `2026-08-23T21:38:13.720Z` under
+`review_gate: none`. No HTTP, OIDC, worker, preview, or deployment work is
+claimed by this item.
