@@ -1238,9 +1238,12 @@ version = "0.1.0"
 dependencies = [
  "postgres",
  "postgres-types",
+ "proof-application",
+ "proof-canonical",
  "proof-domain",
  "proof-local",
  "proof-remote",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror",

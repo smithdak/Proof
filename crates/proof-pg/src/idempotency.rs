@@ -57,12 +57,28 @@ pub enum IdempotencyOutcome {
 
 /// Compares a candidate tuple against a prior stored tuple and returns the
 /// replay/conflict/fresh decision.
+///
+/// The "key" is the exact semantic tuple (Workspace, operation/version,
+/// normalized-input digest, requesting and operating Principals, and
+/// Delegation). A missing prior tuple means there is no stored result (a
+/// no-key row skips the lookup entirely and lands here with `prior == None`),
+/// so the attempt is fresh. A present prior tuple that equals the candidate
+/// is the same key plus equivalent input and replays the prior result; a
+/// present prior tuple that differs is the same key plus changed input and is
+/// an idempotency conflict. Presentation identity, signature, time, and
+/// binding instance are not members of the tuple and therefore never
+/// participate in the comparison (contract §"PostgreSQL authoritative unit of
+/// work", step 6).
 #[must_use]
 pub fn replay_or_conflict(
     candidate: &IdempotencyTupleV1,
     prior: Option<&IdempotencyTupleV1>,
 ) -> IdempotencyOutcome {
-    todo!()
+    match prior {
+        None => IdempotencyOutcome::Fresh,
+        Some(stored) if stored == candidate => IdempotencyOutcome::Replayed,
+        Some(_) => IdempotencyOutcome::Conflict,
+    }
 }
 
 /// A savepoint bounding the governed application consequence (contract
@@ -85,6 +101,16 @@ impl<'tx> SavepointGuard<'tx> {
             .savepoint(Self::SAVEPOINT_NAME)
             .map_err(|error| PgError::Transaction(error.to_string()))?;
         Ok(Self { savepoint })
+    }
+
+    /// Returns the savepoint transaction for in-savepoint execution.
+    ///
+    /// Writes made through the returned transaction land after the savepoint
+    /// marker and are undone by [`Self::rollback`] or made permanent by
+    /// [`Self::release`].
+    #[must_use]
+    pub fn transaction(&mut self) -> &mut postgres::Transaction<'tx> {
+        &mut self.savepoint
     }
 
     /// Releases (commits) the savepoint — the authorized success path

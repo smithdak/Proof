@@ -9,11 +9,22 @@
 
 /// Required `synchronous_commit` value (contract §"PostgreSQL authoritative
 /// unit of work").
+///
+/// This is a deployment precondition, not a value the DDL below enforces: the
+/// schema only declares ordinary LOGGED tables, while the runtime verification
+/// of `synchronous_commit`, `fsync`, and `full_page_writes` belongs to
+/// [`PgRuntime::verify_durability_preconditions`](crate::wiring::PgRuntime::verify_durability_preconditions).
 pub const SYNCHRONOUS_COMMIT_REQUIRED: &str = "on";
 /// Required `fsync` value (contract §"PostgreSQL authoritative unit of work").
+///
+/// See [`SYNCHRONOUS_COMMIT_REQUIRED`]: a deployment precondition verified at
+/// runtime, not by the schema.
 pub const FSYNC_REQUIRED: &str = "on";
 /// Required `full_page_writes` value (contract §"PostgreSQL authoritative unit
 /// of work").
+///
+/// See [`SYNCHRONOUS_COMMIT_REQUIRED`]: a deployment precondition verified at
+/// runtime, not by the schema.
 pub const FULL_PAGE_WRITES_REQUIRED: &str = "on";
 
 /// The singleton migration-head ledger table (contract §"Migration and
@@ -35,7 +46,7 @@ pub const MIGRATION_HEAD_DDL: &str = r"CREATE TABLE migration_head (
 pub const WORKSPACE_WRITE_HEAD_DDL: &str = r"CREATE TABLE workspace_write_head (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     workspace_id TEXT NOT NULL,
-    migration_version INTEGER NOT NULL,
+    migration_version INTEGER NOT NULL CHECK (migration_version > 0),
     transaction_sequence BIGINT NOT NULL,
     authority_sequence BIGINT NOT NULL,
     content_sequence BIGINT NOT NULL,

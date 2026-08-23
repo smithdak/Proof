@@ -2,8 +2,12 @@
 //! delivery"). No worker, lease, claim, acknowledgement, or delivery state is
 //! introduced by this item.
 
+use std::time::{Duration, SystemTime};
+
+use postgres::Transaction;
 use proof_domain::{ContentDigest, CorrelationId, Timestamp, WorkspaceId};
 
+use crate::PgError;
 use crate::artifacts::ArtifactKeyV1;
 
 /// One immutable outbox enqueue record (contract §"Transactional outbox and
@@ -78,5 +82,108 @@ impl OutboxEnqueueV1 {
             self.workspace_transaction_sequence,
             self.ordinal,
         )
+    }
+}
+
+/// Enqueues exactly one immutable outbox event in the caller's transaction
+/// (contract §"Transactional outbox and delivery").
+///
+/// This is the enqueue-only boundary: both uniqueness keys are enforced by the
+/// database's `UNIQUE` constraints, and no worker, lease, claim,
+/// acknowledgement, backoff, dead-letter, replay, or delivery state is
+/// introduced by this item.
+///
+/// # Errors
+///
+/// Returns [`PgError::Outbox`] when the event cannot be enqueued, including a
+/// database-level uniqueness violation on either uniqueness key or an out of
+/// range `BIGINT` field.
+pub fn enqueue(transaction: &mut Transaction, event: &OutboxEnqueueV1) -> Result<(), PgError> {
+    let workspace_transaction_sequence = i64::try_from(event.workspace_transaction_sequence)
+        .map_err(|_| {
+            PgError::Outbox("workspace_transaction_sequence exceeds BIGINT range".to_owned())
+        })?;
+    let ordinal = i64::try_from(event.ordinal)
+        .map_err(|_| PgError::Outbox("ordinal exceeds BIGINT range".to_owned()))?;
+    let stream_sequence = i64::try_from(event.stream_sequence)
+        .map_err(|_| PgError::Outbox("stream_sequence exceeds BIGINT range".to_owned()))?;
+    let destination_configuration_version = i64::try_from(event.destination_configuration_version)
+        .map_err(|_| {
+            PgError::Outbox("destination_configuration_version exceeds BIGINT range".to_owned())
+        })?;
+
+    let workspace_id = event.workspace_id.to_string();
+    let effect_digest = event.effect_digest.to_string();
+    let payload_digest = event.payload_digest.map(|value| value.to_string());
+    let artifact_kind = event
+        .artifact_reference
+        .as_ref()
+        .map(|key| key.kind.wire_name());
+    let artifact_digest = event
+        .artifact_reference
+        .as_ref()
+        .map(|key| key.blake3_digest.to_string());
+    let destination_configuration_digest = event.destination_configuration_digest.to_string();
+    let correlation_id = event.correlation_id.map(|value| value.to_string());
+    let causation_id = event.causation_id.clone();
+    let committed_creation_time = timestamp_to_system_time(event.committed_creation_time);
+
+    let params: &[&(dyn postgres::types::ToSql + Sync)] = &[
+        &event.event_id,
+        &workspace_id,
+        &workspace_transaction_sequence,
+        &ordinal,
+        &event.event_type,
+        &event.event_version,
+        &event.ordering_key,
+        &stream_sequence,
+        &effect_digest,
+        &payload_digest,
+        &artifact_kind,
+        &artifact_digest,
+        &destination_configuration_version,
+        &destination_configuration_digest,
+        &correlation_id,
+        &causation_id,
+        &committed_creation_time,
+    ];
+    transaction
+        .execute(
+            "INSERT INTO outbox_events (
+                 event_id, workspace_id, workspace_transaction_sequence, ordinal,
+                 event_type, event_version, ordering_key, stream_sequence,
+                 effect_digest, payload_digest, artifact_kind, artifact_digest,
+                 destination_configuration_version, destination_configuration_digest,
+                 correlation_id, causation_id, committed_creation_time
+             ) VALUES (
+                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                 $15, $16, $17
+             )",
+            params,
+        )
+        .map_err(|error| PgError::Outbox(pg_db_error_message(&error)))?;
+    Ok(())
+}
+
+/// Renders the most specific available PostgreSQL error detail: the
+/// server-supplied severity and message when present (which includes unique
+/// constraint names), otherwise the driver-level description.
+fn pg_db_error_message(error: &postgres::Error) -> String {
+    match error.as_db_error() {
+        Some(db_error) => db_error.to_string(),
+        None => error.to_string(),
+    }
+}
+
+/// Converts a domain [`Timestamp`] into a [`SystemTime`] for `TIMESTAMPTZ`
+/// binding. Microsecond truncation matches PostgreSQL `timestamptz` storage.
+fn timestamp_to_system_time(timestamp: Timestamp) -> SystemTime {
+    let nanos = timestamp.unix_timestamp_nanos();
+    if nanos >= 0 {
+        let nanos = u64::try_from(nanos).unwrap_or(u64::MAX);
+        SystemTime::UNIX_EPOCH + Duration::from_nanos(nanos)
+    } else {
+        let nanos = u64::try_from(nanos.unsigned_abs()).unwrap_or(u64::MAX);
+        SystemTime::UNIX_EPOCH - Duration::from_nanos(nanos)
     }
 }

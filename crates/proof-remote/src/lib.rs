@@ -126,7 +126,7 @@ pub use identity::{
 };
 pub use oracle::{
     IdentityFixtureV1, OidcEnrollmentChallengeV1, OracleConsequence, OracleOutcome, OracleTraceV1,
-    RemoteSemanticOracle, StableProblem,
+    RemoteSemanticOracle, SqliteReferenceBackend, StableProblem, StorageBackend,
 };
 pub use registry::{
     AGENT_AUTHORITY_REGISTRY_SHA256, AUTHORIZATION_RESOURCE_BINDING_DIGEST_CONTEXT,

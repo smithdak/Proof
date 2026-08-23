@@ -1,0 +1,565 @@
+//! Parity implementation tests: the shared oracle runner produces
+//! byte-identical traces on the `SQLite` reference path and the `PostgreSQL` path
+//! for accepted, rejected, replay, and tampered-consequence scenarios.
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
+
+use proof_application::{
+    AddChangeSetEditsCommand, ApprovalName, ApproveChangeSetCommand, BuildLocalizedContextCommand,
+    ChangeSetEdit, ChangeSetId, ChangeSetIntent, CommitChangeSetCommand, CreateChangeSetCommand,
+    CreateEditionCommand, CreateEnvironmentCommand, EditId, EnvironmentId, IdempotencyKey,
+    InitializeWorkspaceCommand, IssueContentResourceIntentCommand, LocaleId,
+    LocalizedContentRepository, LocalizedContentTarget, LocalizedContextLimits,
+    LocalizedPolicyRule, ObjectCreateEdit, ObjectId, PromoteReleaseCommand, ProofId, ReleaseId,
+    SchemaCreateEdit, SchemaId, SchemaVersion, SubmitChangeSetCommand, Timestamp,
+    add_changeset_edits, approve_changeset, commit_changeset, create_changeset, create_edition,
+    create_environment, initialize_workspace, promote_release, submit_changeset,
+    validate_changeset,
+};
+use proof_canonical::{canonicalize, digest as digest_canonical, object_revision_digest};
+use proof_domain::{ArtifactKind, ContentDigest, WorkspaceId};
+use proof_local::{DeterministicLocalAuthorityAdapter, LocalWorkspace};
+use proof_pg::{
+    PgConfig,
+    parity::{
+        ParityOperation, ParityRunner, ParityScenario, PostgresBackend, prepare_parity_backend,
+    },
+    wiring::PgRuntime,
+};
+use proof_remote::identity::{
+    AuthenticatedActorContextApiVersion, AuthenticatedActorContextHumanV2,
+    OidcAuthenticatedSubjectApiVersion, OidcHumanAuthenticationProfile,
+};
+use proof_remote::{
+    AuthenticatedActorContextV2, AuthorityHeadV1, RemoteOperationV1, SqliteReferenceBackend,
+};
+use serde_json::{Value, json};
+
+const WORKSPACE_ID: &str = "019d1000-0000-7000-8000-000000000001";
+const PRINCIPAL_ID: &str = "019d1000-0000-7000-8000-000000000002";
+const CHANGESET_ID: &str = "019d1000-0000-7000-8000-000000000010";
+const SCHEMA_EDIT_ID: &str = "019d1000-0000-7000-8000-000000000011";
+const OBJECT_EDIT_ID: &str = "019d1000-0000-7000-8000-000000000012";
+const OBJECT_ID: &str = "019d1000-0000-7000-8000-000000000013";
+const EDITION_ID: &str = "019d1000-0000-7000-8000-000000000014";
+const RELEASE_ID: &str = "019d1000-0000-7000-8000-000000000015";
+const PROOF_ID: &str = "019d1000-0000-7000-8000-000000000016";
+const INTENT_ID: &str = "019d1000-0000-7000-8000-000000000017";
+const CONTEXT_PACK_ID: &str = "019d1000-0000-7000-8000-000000000018";
+const ENVIRONMENT_ID: &str = "preview";
+const SCHEMA_ID: &str = "campaign";
+const LOCALE: &str = "fr-FR";
+const DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000020";
+const ADD_KEY: &str = "019d1000-0000-7000-8000-000000000021";
+const COMMIT_KEY: &str = "019d1000-0000-7000-8000-000000000022";
+const EDITION_KEY: &str = "019d1000-0000-7000-8000-000000000023";
+const ENVIRONMENT_KEY: &str = "019d1000-0000-7000-8000-000000000024";
+const RELEASE_KEY: &str = "019d1000-0000-7000-8000-000000000025";
+const INTENT_KEY: &str = "019d1000-0000-7000-8000-000000000026";
+const CONTEXT_KEY: &str = "019d1000-0000-7000-8000-000000000027";
+const AUTHENTICATED_AT: &str = "2026-08-20T12:00:00Z";
+const DETERMINISTIC_UID: u64 = 1_001;
+const DETERMINISTIC_SUBJECT_BLIND: [u8; 32] = [0x24; 32];
+
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+static SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn dsn() -> String {
+    std::env::var(proof_pg::DSN_ENV).unwrap_or_else(|_| proof_pg::DEFAULT_DSN.to_owned())
+}
+
+fn fresh_dir() -> PathBuf {
+    let ordinal = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("proof-parity-{}-{ordinal}", std::process::id()));
+    if path.exists() {
+        fs::remove_dir_all(&path).expect("stale parity tempdir must be removable");
+    }
+    fs::create_dir_all(&path).expect("parity tempdir must be creatable");
+    path
+}
+
+fn digest(value: &str) -> ContentDigest {
+    value.parse::<ContentDigest>().expect("fixed digest value")
+}
+
+/// Builds a closed Human actor context carrying the exact operation pair.
+fn actor_context(name: &str, version: &str) -> AuthenticatedActorContextV2 {
+    AuthenticatedActorContextV2::Human(AuthenticatedActorContextHumanV2 {
+        api_version: AuthenticatedActorContextApiVersion::V1,
+        audience: "proof://workspace/019e0000-0000-7000-8000-000000000001".to_owned(),
+        authentication_profile: OidcHumanAuthenticationProfile::V1,
+        oidc_issuer_configuration_digest: digest(
+            "blake3:64cab46b9d5925076a726b80206f365d2e913768a90e0954487cb30b010a9cc7",
+        ),
+        normalized_input_digest: digest(
+            "blake3:b92fec1b2c910e4c3e59bf1ca9c077d7eff73c20e4bcaeb903da8225fc78a73c",
+        ),
+        requesting_subject: proof_remote::OidcAuthenticatedSubjectV1 {
+            api_version: OidcAuthenticatedSubjectApiVersion::V1,
+            issuer: "https://identity.example.test".to_owned(),
+            provider: "proof/oidc".to_owned(),
+            subject: "human-alice".to_owned(),
+        },
+        requesting_subject_commitment: digest(
+            "blake3:d527780fd72191afe371293b1f2224af4196fb0f7e5ea281831ee2c793e7c3f2",
+        ),
+        requesting_binding_id: "019e0000-0000-7000-8000-000000000011".to_owned(),
+        requesting_binding_record_digest: digest(
+            "blake3:07c47a343c09eb7a58fc86a1c0ec07d5e54dbf0b23ce5a1eb3aee946dff6ce39",
+        ),
+        requesting_principal_id: "019e0000-0000-7000-8000-000000000002".to_owned(),
+        authentication_event_id: "019e0000-0000-7000-8000-000000000012".to_owned(),
+        authentication_event_digest: digest(
+            "blake3:8d9e13564123e941ec953411f221b77088566e2421a757edf4895b627b83ee94",
+        ),
+        operation: RemoteOperationV1 {
+            name: name.to_owned(),
+            version: version.to_owned(),
+        },
+        authenticated_at: "2026-08-23T02:00:00Z"
+            .parse::<Timestamp>()
+            .expect("fixed actor-context timestamp"),
+        evaluated_authority_head: AuthorityHeadV1 {
+            sequence: 41,
+            record_digest: digest(
+                "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+            ),
+        },
+        workspace_id: "019e0000-0000-7000-8000-000000000001".to_owned(),
+    })
+}
+
+fn schema_edit(edit_id: &str, schema_id: &str) -> ChangeSetEdit {
+    let document = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+            "legal": { "type": "string" },
+            "slug": { "type": "string" },
+            "title": { "type": "string" },
+        },
+        "required": ["legal", "slug", "title"],
+        "type": "object",
+        "x-proof-localizable": ["/legal", "/title"],
+    });
+    let canonical = canonicalize(&document).unwrap();
+    ChangeSetEdit::SchemaCreate(SchemaCreateEdit {
+        edit_id: edit_id.parse::<EditId>().unwrap(),
+        schema_id: SchemaId::new(schema_id).unwrap(),
+        schema_version: SchemaVersion::new(1).unwrap(),
+        canonical_document: canonical.as_str().to_owned(),
+        document_digest: digest_canonical(ArtifactKind::SchemaVersionV1, &canonical),
+    })
+}
+
+fn object_edit(edit_id: &str, object_id: &str, schema_id: &str, content: &Value) -> ChangeSetEdit {
+    let object_id = object_id.parse::<ObjectId>().unwrap();
+    let schema_id = SchemaId::new(schema_id).unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let canonical = canonicalize(content).unwrap();
+    let object_digest =
+        object_revision_digest(object_id, &schema_id, schema_version, content).unwrap();
+    ChangeSetEdit::ObjectCreate(ObjectCreateEdit {
+        edit_id: edit_id.parse::<EditId>().unwrap(),
+        object_id,
+        schema_id,
+        schema_version,
+        canonical_content: canonical.as_str().to_owned(),
+        object_digest,
+    })
+}
+
+/// A released v1 baseline plus a built localized `ContextPack`, so the
+/// deterministic oracle can reproduce both `workspace.status/v1` and a keyed
+/// `context.build/v2` replay.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixture makes the released baseline, resource intent, and ContextPack explicit"
+)]
+fn north_star_workspace(root: &Path) -> (LocalWorkspace, ContentDigest) {
+    let workspace = LocalWorkspace::with_deterministic_authority_adapter(
+        root,
+        DeterministicLocalAuthorityAdapter::new(
+            DETERMINISTIC_UID,
+            AUTHENTICATED_AT
+                .parse::<Timestamp>()
+                .expect("fixed timestamp"),
+            DETERMINISTIC_SUBJECT_BLIND,
+        ),
+    )
+    .expect("the deterministic Workspace must select the fresh root");
+
+    initialize_workspace(
+        &workspace,
+        InitializeWorkspaceCommand {
+            workspace_id: WORKSPACE_ID.parse().expect("fixed workspace identity"),
+            bootstrap_principal_id: PRINCIPAL_ID.parse().expect("fixed principal identity"),
+        },
+    )
+    .expect("the deterministic Workspace must initialize");
+
+    create_changeset(
+        &workspace,
+        CreateChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse::<ChangeSetId>().unwrap(),
+            intent: ChangeSetIntent::new("Create the parity source").unwrap(),
+            requested_base_state: None,
+            idempotency_key: DRAFT_KEY.parse::<IdempotencyKey>().unwrap(),
+            created_at: "2026-08-21T10:00:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    add_changeset_edits(
+        &workspace,
+        AddChangeSetEditsCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            edits: vec![
+                schema_edit(SCHEMA_EDIT_ID, SCHEMA_ID),
+                object_edit(
+                    OBJECT_EDIT_ID,
+                    OBJECT_ID,
+                    SCHEMA_ID,
+                    &serde_json::json!({
+                        "legal": "Standard terms apply",
+                        "slug": "summer-campaign",
+                        "title": "Summer campaign",
+                    }),
+                ),
+            ],
+            idempotency_key: ADD_KEY.parse().unwrap(),
+        },
+    )
+    .unwrap();
+    assert!(
+        validate_changeset(&workspace, CHANGESET_ID.parse().unwrap())
+            .unwrap()
+            .valid
+    );
+    submit_changeset(
+        &workspace,
+        SubmitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            submitted_at: "2026-08-21T10:01:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    approve_changeset(
+        &workspace,
+        ApproveChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            approval: ApprovalName::new("editorial").unwrap(),
+            approved_at: "2026-08-21T10:02:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    commit_changeset(
+        &workspace,
+        CommitChangeSetCommand {
+            changeset_id: CHANGESET_ID.parse().unwrap(),
+            idempotency_key: COMMIT_KEY.parse().unwrap(),
+            committed_at: "2026-08-21T10:03:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    create_edition(
+        &workspace,
+        CreateEditionCommand {
+            edition_id: EDITION_ID.parse().unwrap(),
+            idempotency_key: EDITION_KEY.parse().unwrap(),
+            created_at: "2026-08-21T10:04:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    create_environment(
+        &workspace,
+        CreateEnvironmentCommand {
+            environment_id: ENVIRONMENT_ID.parse::<EnvironmentId>().unwrap(),
+            target_kind: "proof.local/released-state/v1".to_owned(),
+            policy_profile: "proof.local/release-policy/v1".to_owned(),
+            required_approval: ApprovalName::new("editorial").unwrap(),
+            idempotency_key: ENVIRONMENT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T10:05:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+    promote_release(
+        &workspace,
+        PromoteReleaseCommand {
+            release_id: RELEASE_ID.parse::<ReleaseId>().unwrap(),
+            proof_id: PROOF_ID.parse::<ProofId>().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            edition_id: EDITION_ID.parse().unwrap(),
+            idempotency_key: RELEASE_KEY.parse().unwrap(),
+            released_at: "2026-08-21T10:06:00Z".parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    let object_id = OBJECT_ID.parse::<ObjectId>().unwrap();
+    let schema_id = SchemaId::new(SCHEMA_ID).unwrap();
+    let intent = workspace
+        .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            intent_id: INTENT_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse::<EnvironmentId>().unwrap(),
+            targets: vec![LocalizedContentTarget {
+                object_id,
+                schema_id: schema_id.clone(),
+                locale: LOCALE.parse::<LocaleId>().unwrap(),
+            }],
+            idempotency_key: INTENT_KEY.parse().unwrap(),
+            issued_at: "2026-08-21T12:00:08Z".parse().unwrap(),
+        })
+        .unwrap();
+
+    let _context = workspace
+        .build_localized_context(BuildLocalizedContextCommand {
+            context_pack_id: CONTEXT_PACK_ID.parse().unwrap(),
+            resource_intent_id: intent.intent_id,
+            resource_intent_digest: intent.intent_digest,
+            policy_rules: vec![LocalizedPolicyRule {
+                locale: LOCALE.parse().unwrap(),
+                pointer: "/legal".to_owned(),
+                disallowed_values: vec!["Forbidden terms".to_owned()],
+            }],
+            limits: LocalizedContextLimits {
+                max_objects: 1,
+                max_edits: 2,
+                max_validation_attempts: 2,
+                max_bytes: 65_536,
+            },
+            idempotency_key: CONTEXT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T12:00:10Z".parse().unwrap(),
+            expires_at: "2026-08-21T13:00:10Z".parse().unwrap(),
+        })
+        .unwrap();
+
+    (workspace, intent.intent_digest)
+}
+
+fn context_build_input(intent_digest: ContentDigest) -> Value {
+    json!({
+        "api_version": "proof.dev/operation/context.build/v2",
+        "context_pack_id": CONTEXT_PACK_ID,
+        "created_at": "2026-08-21T12:00:10Z",
+        "expires_at": "2026-08-21T13:00:10Z",
+        "idempotency_key": CONTEXT_KEY,
+        "limits": {
+            "max_bytes": 65_536,
+            "max_edits": 2,
+            "max_objects": 1,
+            "max_validation_attempts": 2,
+        },
+        "policy_rules": [{
+            "disallowed_values": ["Forbidden terms"],
+            "locale": LOCALE,
+            "pointer": "/legal",
+        }],
+        "resource_intent_digest": intent_digest.to_string(),
+        "resource_intent_id": INTENT_ID,
+    })
+}
+
+/// An isolated parity fixture: a deterministic `SQLite` Workspace plus a
+/// dedicated `PostgreSQL` schema populated by the verified parity import.
+struct ParityFixture {
+    workspace: LocalWorkspace,
+    intent_digest: ContentDigest,
+    runtime: PgRuntime,
+    schema: String,
+    root: PathBuf,
+}
+
+impl ParityFixture {
+    fn new() -> Self {
+        let root = fresh_dir();
+        let (workspace, intent_digest) = north_star_workspace(&root);
+
+        let runtime = PgRuntime::connect(PgConfig::new(
+            dsn(),
+            WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+            Duration::from_secs(30),
+        ))
+        .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+
+        let schema = format!(
+            "p0010_parity_{}_{}",
+            std::process::id(),
+            SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+
+        let mut fixture = Self {
+            workspace,
+            intent_digest,
+            runtime,
+            schema,
+            root,
+        };
+        fixture
+            .runtime
+            .client_mut()
+            .batch_execute(&format!("CREATE SCHEMA \"{}\"", fixture.schema))
+            .expect("create isolated parity schema");
+        fixture
+            .runtime
+            .client_mut()
+            .batch_execute(&format!("SET search_path TO \"{}\"", fixture.schema))
+            .expect("set parity search path");
+
+        prepare_parity_backend(&fixture.workspace, &mut fixture.runtime)
+            .expect("verified SQLite-to-PostgreSQL parity import");
+
+        fixture
+    }
+}
+
+impl Drop for ParityFixture {
+    fn drop(&mut self) {
+        let _ = self
+            .runtime
+            .client_mut()
+            .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", self.schema));
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn workspace_status_scenario() -> ParityScenario {
+    ParityScenario {
+        name: "workspace.status/v1 accepted".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: json!({}),
+            actor_context: actor_context(
+                "workspace.status",
+                "proof.dev/operation/workspace.status/v1",
+            ),
+        }],
+        expected_trace_digests: Vec::new(),
+    }
+}
+
+fn context_build_scenario(intent_digest: ContentDigest) -> ParityScenario {
+    ParityScenario {
+        name: "context.build/v2 keyed replay".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: context_build_input(intent_digest),
+            actor_context: actor_context("context.build", "proof.dev/operation/context.build/v2"),
+        }],
+        expected_trace_digests: Vec::new(),
+    }
+}
+
+fn rejected_input_scenario() -> ParityScenario {
+    ParityScenario {
+        name: "changeset.get/v2 rejected input".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: json!({
+                "api_version": "proof.dev/operation/changeset.get/v2",
+                "changeset_id": "not-a-uuid",
+            }),
+            actor_context: actor_context("changeset.get", "proof.dev/operation/changeset.get/v2"),
+        }],
+        expected_trace_digests: Vec::new(),
+    }
+}
+
+#[test]
+fn workspace_status_trace_is_byte_identical() {
+    let mut fixture = ParityFixture::new();
+    let runner = ParityRunner::new();
+    let scenario = workspace_status_scenario();
+
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .unwrap();
+}
+
+#[test]
+fn localized_context_build_replay_trace_is_byte_identical() {
+    let mut fixture = ParityFixture::new();
+    let runner = ParityRunner::new();
+    let scenario = context_build_scenario(fixture.intent_digest);
+
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+    // A keyed operation replays the prior committed result without drift.
+    let sqlite_replay = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+    assert_eq!(sqlite_traces, sqlite_replay, "SQLite replay must not drift");
+
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+    let postgres_replay = runner.run_postgres(&scenario, &mut postgres).unwrap();
+    assert_eq!(
+        postgres_traces, postgres_replay,
+        "PostgreSQL replay must not drift"
+    );
+
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .unwrap();
+}
+
+#[test]
+fn rejected_input_trace_is_byte_identical() {
+    let mut fixture = ParityFixture::new();
+    let runner = ParityRunner::new();
+    let scenario = rejected_input_scenario();
+
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .unwrap();
+}
+
+#[test]
+fn tampered_postgres_consequence_diverges() {
+    let mut fixture = ParityFixture::new();
+    let runner = ParityRunner::new();
+    let scenario = context_build_scenario(fixture.intent_digest);
+
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .unwrap();
+
+    // Tamper the PG consequence: overwrite the imported ContextPack digest so
+    // the reconstructed `context_pack_digest` (and therefore the signed
+    // consequence digest) no longer reproduces the reference.
+    let tampered = "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    fixture
+        .runtime
+        .client_mut()
+        .execute(
+            "UPDATE facts SET fact_digest = $1 WHERE fact_id = $2",
+            &[&tampered, &format!("context_pack/{CONTEXT_PACK_ID}")],
+        )
+        .unwrap();
+
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let tampered_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+
+    assert!(
+        runner
+            .assert_identical(&sqlite_traces, &tampered_traces)
+            .is_err(),
+        "a tampered PostgreSQL consequence must produce a divergent trace"
+    );
+}

@@ -11,16 +11,15 @@
 
 //! PostgreSQL parity foundation for Proof.
 //!
-//! This crate is the compiling skeleton for the second dependency-ordered
-//! successor of the accepted [single-Workspace collaboration-server contract].
-//! It declares the complete public type and function surface of the durable
-//! PostgreSQL adapter — the immutable checksummed migration ledger, the
-//! serializable Workspace write lane with the twelve-step unit of work, keyed
-//! idempotency and the savepoint rule, the immutable artifact catalog and
-//! durability boundary, transactional outbox enqueue, projection rebuild, the
-//! verified SQLite-to-PostgreSQL import, and the shared storage-backend
-//! boundary — with `todo!()` bodies for later parallel implementation. The
-//! retained SQLite reference semantics live in [`proof_local`]; the shared
+//! This crate is the PostgreSQL parity foundation — the second
+//! dependency-ordered successor of the accepted [single-Workspace
+//! collaboration-server contract]. It implements the durable PostgreSQL
+//! adapter — the immutable checksummed migration ledger, the serializable
+//! Workspace write lane with the twelve-step unit of work, keyed idempotency
+//! and the savepoint rule, the immutable artifact catalog and durability
+//! boundary, transactional outbox enqueue, projection rebuild, the verified
+//! SQLite-to-PostgreSQL import, and the shared storage-backend parity boundary.
+//! The retained SQLite reference semantics live in [`proof_local`]; the shared
 //! conformance oracle lives in [`proof_remote`].
 //!
 //! The synchronous [rust-postgres] driver is the selected baseline: blocking

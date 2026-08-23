@@ -87,6 +87,15 @@ pub struct MigrationLedger {
     pub phase: MigrationPhase,
 }
 
+/// The actor recorded in the migration ledger by this crate's migrator.
+///
+/// The ledger is written only by the singleton migrator below, so a fixed
+/// stable actor string is sufficient for the first profile.
+const MIGRATOR_ACTOR: &str = "proof-pg-migrator";
+
+/// The tool version recorded in the migration ledger by this crate's migrator.
+const MIGRATOR_TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 impl MigrationLedger {
     /// Fixed PostgreSQL advisory-lock key that admits exactly one migrator
     /// across transactional and nontransactional phases.
@@ -94,14 +103,27 @@ impl MigrationLedger {
     /// The single durable head row key.
     pub const SINGLETON_HEAD_ROW: i32 = 1;
 
-    /// Verifies the singleton head row is present and coherent.
+    /// Verifies the singleton head snapshot is present and coherent.
+    ///
+    /// A coherent head carries a positive version and a non-dirty phase. A
+    /// `failed` phase is a recorded dirty state that blocks every write until a
+    /// forward repair is selected; a `started` phase is a valid resumable state
+    /// for the (later) nontransactional phases.
     ///
     /// # Errors
     ///
-    /// Returns [`PgError::Migration`] when the ledger cannot be read or is not
-    /// a valid singleton.
+    /// Returns [`PgError::Migration`] when the version is not positive or the
+    /// phase is dirty.
     pub fn verify_head(&self) -> Result<(), PgError> {
-        todo!()
+        if self.head_version == 0 {
+            return Err(PgError::Migration(
+                "migration head is not a valid singleton: version must be positive".to_owned(),
+            ));
+        }
+        if self.phase == MigrationPhase::Failed {
+            return self.refuse_on(MigrationRefusal::DirtyPhase);
+        }
+        Ok(())
     }
 
     /// Fails closed on the supplied refusal reason.
@@ -110,11 +132,87 @@ impl MigrationLedger {
     ///
     /// Always returns [`PgError::Migration`] describing `reason`.
     pub fn refuse_on(&self, reason: MigrationRefusal) -> Result<(), PgError> {
-        todo!()
+        let message = match reason {
+            MigrationRefusal::ChecksumMismatch => format!(
+                "migration checksum mismatch: head version {} digest {} does not match the supplied script bytes",
+                self.head_version, self.head_digest,
+            ),
+            MigrationRefusal::DirtyPhase => format!(
+                "migration head version {} is in a dirty {:?} phase",
+                self.head_version, self.phase,
+            ),
+            MigrationRefusal::UnknownNewer => format!(
+                "migration head version {} is newer than the supplied script version; forward repair required",
+                self.head_version,
+            ),
+            MigrationRefusal::OutsideInterval => format!(
+                "migration head version {} is outside the declared compatibility interval",
+                self.head_version,
+            ),
+        };
+        Err(PgError::Migration(message))
     }
 }
 
+/// Reads the current singleton head snapshot, when a migration has been
+/// committed.
+///
+/// The returned [`MigrationLedger`] is the in-memory mirror of the single
+/// durable `migration_head` row; it is `None` only before the first migration.
+///
+/// # Errors
+///
+/// Returns [`PgError::Migration`] when the row cannot be read or carries an
+/// unparsable digest or phase.
+pub fn read_head(client: &mut Client) -> Result<Option<MigrationLedger>, PgError> {
+    let row = client
+        .query_opt(
+            "SELECT version, script_digest, phase FROM migration_head WHERE singleton = $1",
+            &[&MigrationLedger::SINGLETON_HEAD_ROW],
+        )
+        .map_err(|error| PgError::Migration(format!("cannot read migration head: {error}")))?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let version: i32 = row.get(0);
+    let digest_text: String = row.get(1);
+    let phase_text: String = row.get(2);
+
+    let head_version = u32::try_from(version)
+        .map_err(|_| PgError::Migration(format!("invalid migration head version {version}")))?;
+    let head_digest = digest_text.parse::<ContentDigest>().map_err(|error| {
+        PgError::Migration(format!(
+            "invalid migration head digest {digest_text:?}: {error}"
+        ))
+    })?;
+    let phase = match phase_text.as_str() {
+        "started" => MigrationPhase::Started,
+        "verified" => MigrationPhase::Verified,
+        "failed" => MigrationPhase::Failed,
+        other => {
+            return Err(PgError::Migration(format!(
+                "unknown migration head phase {other:?}"
+            )));
+        }
+    };
+
+    Ok(Some(MigrationLedger {
+        head_version,
+        head_digest,
+        phase,
+    }))
+}
+
 /// Runs the expand/backfill/verify/cutover migration contract for one script.
+///
+/// The fixed advisory lock is taken for the whole read-decide-apply window so
+/// exactly one migrator proceeds; concurrent migrators serialize and observe
+/// the already-advanced head as a no-op. Transactional phases (DDL, backfill,
+/// verification, and version advancement) run in one transaction and record the
+/// `started` then `verified` phase state; a failure records `failed` in a fresh
+/// transaction after the primary transaction rolls back.
 ///
 /// # Errors
 ///
@@ -124,15 +222,197 @@ pub fn run_expand_backfill_verify_cutover(
     client: &mut Client,
     script: &MigrationScriptV1,
 ) -> Result<(), PgError> {
-    todo!()
+    if script.version == 0 {
+        return Err(PgError::Migration(
+            "migration version must be positive".to_owned(),
+        ));
+    }
+
+    client
+        .execute(
+            "SELECT pg_advisory_lock($1)",
+            &[&MigrationLedger::ADVISORY_LOCK_KEY],
+        )
+        .map_err(|error| {
+            PgError::Migration(format!("cannot acquire migration advisory lock: {error}"))
+        })?;
+
+    let result = run_expand_backfill_verify_cutover_locked(client, script);
+
+    if let Err(error) = client.execute(
+        "SELECT pg_advisory_unlock($1)",
+        &[&MigrationLedger::ADVISORY_LOCK_KEY],
+    ) {
+        return Err(PgError::Migration(format!(
+            "cannot release migration advisory lock: {error}"
+        )));
+    }
+
+    result
+}
+
+/// The lock-holding body of [`run_expand_backfill_verify_cutover`].
+fn run_expand_backfill_verify_cutover_locked(
+    client: &mut Client,
+    script: &MigrationScriptV1,
+) -> Result<(), PgError> {
+    let head = read_head(client)?;
+    match head {
+        None => apply_script(client, script),
+        Some(head) if head.head_version < script.version => apply_script(client, script),
+        Some(head) if head.head_version > script.version => {
+            head.refuse_on(MigrationRefusal::UnknownNewer)
+        }
+        Some(head) if head.head_digest != script.digest => {
+            head.refuse_on(MigrationRefusal::ChecksumMismatch)
+        }
+        Some(head) => match head.phase {
+            MigrationPhase::Verified => Ok(()),
+            MigrationPhase::Failed => head.refuse_on(MigrationRefusal::DirtyPhase),
+            MigrationPhase::Started => Err(PgError::Migration(
+                "migration head is in a resumable 'started' phase; this transactional migrator cannot resume it"
+                    .to_owned(),
+            )),
+        },
+    }
+}
+
+/// Applies one pending script transactionally and records the phase state.
+fn apply_script(client: &mut Client, script: &MigrationScriptV1) -> Result<(), PgError> {
+    let version = i32::try_from(script.version).map_err(|_| {
+        PgError::Migration(format!(
+            "migration version {} exceeds the ledger range",
+            script.version
+        ))
+    })?;
+    let digest = script.digest.to_string();
+
+    let applied = (|| -> Result<(), PgError> {
+        let mut tx = client.transaction().map_err(|error| {
+            PgError::Migration(format!("cannot begin migration transaction: {error}"))
+        })?;
+
+        tx.execute(
+            "INSERT INTO migration_head
+                 (singleton, version, name, script_digest, phase, actor, tool_version, started_at)
+             VALUES ($1, $2, $3, $4, 'started', $5, $6, now())
+             ON CONFLICT (singleton) DO UPDATE SET
+                 version = EXCLUDED.version,
+                 name = EXCLUDED.name,
+                 script_digest = EXCLUDED.script_digest,
+                 phase = 'started',
+                 actor = EXCLUDED.actor,
+                 tool_version = EXCLUDED.tool_version,
+                 started_at = now(),
+                 verified_at = NULL",
+            &[
+                &MigrationLedger::SINGLETON_HEAD_ROW,
+                &version,
+                &script.name,
+                &digest,
+                &MIGRATOR_ACTOR,
+                &MIGRATOR_TOOL_VERSION,
+            ],
+        )
+        .map_err(|error| PgError::Migration(format!("cannot record migration start: {error}")))?;
+
+        tx.batch_execute(&script.sql).map_err(|error| {
+            PgError::Migration(format!(
+                "migration script for version {} failed: {error}",
+                script.version
+            ))
+        })?;
+
+        tx.execute(
+            "UPDATE migration_head
+             SET phase = 'verified', verified_at = now()
+             WHERE singleton = $1",
+            &[&MigrationLedger::SINGLETON_HEAD_ROW],
+        )
+        .map_err(|error| {
+            PgError::Migration(format!("cannot record migration verification: {error}"))
+        })?;
+
+        tx.commit()
+            .map_err(|error| PgError::Migration(format!("cannot commit migration: {error}")))
+    })();
+
+    match applied {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            // The primary transaction rolled back; record the dirty phase in a
+            // fresh transaction so future migrators fail closed.
+            if let Err(record_error) = record_failed_phase(client, script, version, &digest) {
+                return Err(PgError::Migration(format!(
+                    "{error}; additionally failed to record the failed phase: {record_error}"
+                )));
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Records the dirty `failed` phase after a migration transaction rolled back.
+fn record_failed_phase(
+    client: &mut Client,
+    script: &MigrationScriptV1,
+    version: i32,
+    digest: &str,
+) -> Result<(), PgError> {
+    let mut tx = client.transaction().map_err(|error| {
+        PgError::Migration(format!("cannot begin failure-record transaction: {error}"))
+    })?;
+
+    tx.execute(
+        "INSERT INTO migration_head
+             (singleton, version, name, script_digest, phase, actor, tool_version, started_at)
+         VALUES ($1, $2, $3, $4, 'failed', $5, $6, now())
+         ON CONFLICT (singleton) DO UPDATE SET
+             version = EXCLUDED.version,
+             name = EXCLUDED.name,
+             script_digest = EXCLUDED.script_digest,
+             phase = 'failed',
+             actor = EXCLUDED.actor,
+             tool_version = EXCLUDED.tool_version,
+             started_at = now(),
+             verified_at = NULL",
+        &[
+            &MigrationLedger::SINGLETON_HEAD_ROW,
+            &version,
+            &script.name,
+            &digest,
+            &MIGRATOR_ACTOR,
+            &MIGRATOR_TOOL_VERSION,
+        ],
+    )
+    .map_err(|error| PgError::Migration(format!("cannot record failed phase: {error}")))?;
+
+    tx.commit()
+        .map_err(|error| PgError::Migration(format!("cannot commit failed phase: {error}")))
 }
 
 /// Verifies that the committed head matches an exact expected script.
 ///
 /// # Errors
 ///
-/// Returns [`PgError::Migration`] when the head version or digest disagrees
-/// with `expected`.
+/// Returns [`PgError::Migration`] when the head is absent, or its version,
+/// digest, or phase disagrees with `expected`.
 pub fn verify_head(client: &mut Client, expected: &MigrationScriptV1) -> Result<(), PgError> {
-    todo!()
+    let head = read_head(client)?.ok_or_else(|| {
+        PgError::Migration("migration head is absent; no migration has been applied".to_owned())
+    })?;
+
+    if head.head_version != expected.version {
+        return Err(PgError::Migration(format!(
+            "migration head version {} does not match expected version {}",
+            head.head_version, expected.version,
+        )));
+    }
+    if head.head_digest != expected.digest {
+        return head.refuse_on(MigrationRefusal::ChecksumMismatch);
+    }
+    if head.phase != MigrationPhase::Verified {
+        return head.refuse_on(MigrationRefusal::DirtyPhase);
+    }
+    Ok(())
 }

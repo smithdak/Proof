@@ -63,7 +63,7 @@ pub struct StableProblem {
 }
 
 /// The typed outcome of one oracle evaluation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum OracleOutcome {
     /// A successful typed application result.
     TypedResult(Value),
@@ -72,18 +72,19 @@ pub enum OracleOutcome {
 }
 
 /// The consequence bound to one oracle evaluation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum OracleConsequence {
     /// Exact domain-separated consequence digest.
-    ConsequenceDigest(ContentDigest),
+    ConsequenceDigest(#[serde(with = "crate::serde_support::display_string")] ContentDigest),
     /// No signed consequence was produced.
     Null,
 }
 
 /// One deterministic, replayable oracle trace.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct OracleTraceV1 {
     /// `proof:remote-normalized-operation-input:v1` digest of the exact input.
+    #[serde(with = "crate::serde_support::display_string")]
     pub normalized_input_digest: ContentDigest,
     /// Exact authority head evaluated by the trace.
     pub evaluated_authority_head: AuthorityHeadV1,
@@ -258,6 +259,54 @@ impl RemoteSemanticOracle {
             outcome,
             consequence,
         })
+    }
+}
+
+/// The shared oracle boundary between the retained SQLite reference path and
+/// the new PostgreSQL path (contract §"Conformance and falsification plan").
+///
+/// This trait lives in `proof-remote` so one shared conformance runner can
+/// produce byte-identical [`OracleTraceV1`] records from either backend without
+/// introducing a `proof-remote -> proof-pg` dependency. The SQLite
+/// implementation ([`SqliteReferenceBackend`]) delegates to
+/// [`RemoteSemanticOracle`]; the PostgreSQL implementation lives in `proof-pg`
+/// and consumes the same shared operation, input, and actor-context vocabulary.
+pub trait StorageBackend {
+    /// Evaluates one normalized operation input plus actor context against the
+    /// backend and returns a deterministic trace.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RemoteError::Oracle`] when the operation cannot be dispatched
+    /// or evaluated deterministically.
+    fn run(
+        &mut self,
+        normalized_input: &Value,
+        actor_context: &AuthenticatedActorContextV2,
+    ) -> Result<OracleTraceV1, RemoteError>;
+}
+
+/// The retained SQLite reference backend, delegating to [`proof_local`] through
+/// [`RemoteSemanticOracle`] (contract §"Conformance and falsification plan").
+pub struct SqliteReferenceBackend<'a> {
+    workspace: &'a proof_local::LocalWorkspace,
+}
+
+impl<'a> SqliteReferenceBackend<'a> {
+    /// Binds the reference backend to a local Workspace.
+    #[must_use]
+    pub const fn new(workspace: &'a proof_local::LocalWorkspace) -> Self {
+        Self { workspace }
+    }
+}
+
+impl StorageBackend for SqliteReferenceBackend<'_> {
+    fn run(
+        &mut self,
+        normalized_input: &Value,
+        actor_context: &AuthenticatedActorContextV2,
+    ) -> Result<OracleTraceV1, RemoteError> {
+        RemoteSemanticOracle::new().run(self.workspace, normalized_input, actor_context)
     }
 }
 

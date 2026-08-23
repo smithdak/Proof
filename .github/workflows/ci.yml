@@ -20,8 +20,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: prooftest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d prooftest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     env:
       CARGO_TERM_COLOR: always
+      PROOF_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/prooftest
 
     steps:
       - name: Check out repository
