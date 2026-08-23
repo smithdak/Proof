@@ -1027,6 +1027,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-remote"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "proof-application",
+ "proof-attestation",
+ "proof-canonical",
+ "proof-domain",
+ "proof-local",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "proof-verifier"
 version = "0.1.0"
 dependencies = [

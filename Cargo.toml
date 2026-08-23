@@ -8,6 +8,7 @@ members = [
     "crates/proof-domain",
     "crates/proof-local",
     "crates/proof-mcp",
+    "crates/proof-remote",
     "crates/proof-verifier",
 ]
 resolver = "3"
