@@ -1,7 +1,7 @@
 ---
 id: P-0009
 title: Implement the remote actor and shared-contract conformance foundation
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0008]
@@ -154,34 +154,34 @@ specifications; their bytes and frozen registry hashes do not change.
 
 ## Acceptance criteria
 
-- [ ] The closed `RemoteAuthorityRecordV1` union constructs, canonicalizes,
+- [x] The closed `RemoteAuthorityRecordV1` union constructs, canonicalizes,
       signs, verifies, and rejects tamper under the exact v1 digest contexts,
       limits, and strict-JSON rules.
-- [ ] Causal chain validation enforces sequence, predecessor, head, and
+- [x] Causal chain validation enforces sequence, predecessor, head, and
       single-active-key signer coherence and rejects fork or reorder
       mutations.
-- [ ] OIDC subject commitment machinery reproduces the retained vectors
+- [x] OIDC subject commitment machinery reproduces the retained vectors
       byte-exactly; public evidence contains no raw issuer/subject, opening,
       or protected input digest.
-- [ ] Both `AuthenticatedActorContextV2` profiles and their
+- [x] Both `AuthenticatedActorContextV2` profiles and their
       `AuthenticatedActorContextEvidenceV2` redactions construct and reject
       substitution.
-- [ ] `ChangeSetApprovalV1` binds its complete closure and rejects every
+- [x] `ChangeSetApprovalV1` binds its complete closure and rejects every
       prohibited approver and stale closure case.
-- [ ] Environment creation/proposal/activation and the assembled
+- [x] Environment creation/proposal/activation and the assembled
       `EnvironmentConfigV2` enforce every cross-check, including distinct
       proposer/activator and exact predecessor/proposal digests.
-- [ ] The three frozen registry SHA-256s recompute identically from committed
+- [x] The three frozen registry SHA-256s recompute identically from committed
       registry bytes; route-qualified lookup, per-row authorization rules,
       and effect-digest rules match the accepted contract row-for-row.
-- [ ] The deterministic oracle reproduces byte-identical traces for shared
+- [x] The deterministic oracle reproduces byte-identical traces for shared
       operations across repeated execution; mutated inputs land in the
       contracted consequence class without executing an HTTP or database
       adapter.
-- [ ] Conformance vectors and rejection mutations are executable in the
+- [x] Conformance vectors and rejection mutations are executable in the
       workspace gate; no server, provider, database, or runtime-parity claim
       is introduced.
-- [ ] The full Linux quality gate passes and durable Engineering evidence
+- [x] The full Linux quality gate passes and durable Engineering evidence
       (receipt, manifest, traceability) binds the item-work commit.
 
 ## Evidence contract
@@ -201,6 +201,16 @@ risks.
 
 Claimed by `deepseek:proof:p-0009` at `2026-08-23T17:52:39.023Z` from
 P-0008 acceptance commit `40b79a50dbff88efca40ee6c64c47e2f4d8d46a4`
-on `proof-architecture/p-0008-collaboration-server-contract`. No server,
-PostgreSQL, OIDC provider, worker, SDK, console, or deployment work is
-claimed by this item.
+on `proof-architecture/p-0008-collaboration-server-contract`.
+
+Engineering qualified immutable candidate
+`3e38f30b95086162816360e68ca9917cf0d06d9b`, whose parent is the skeleton
+commit `b14b22cc9bd898565f5349f0d231d684fdfd26f8`, qualified at
+`2026-08-23T19:17:42.097Z`. Engineering evidence commit
+`89e74c381c5cd486cbfab3762c85ba0fad258e3f` binds the
+[receipt](../evidence/P-0009/receipt.md),
+[manifest](../evidence/P-0009/manifest.json), and
+[AC1-AC10 traceability matrix](../evidence/P-0009/traceability.md). Moved
+from `claimed` to `review` at `2026-08-23T19:19:56.856Z` under
+`review_gate: none`. No server, PostgreSQL, OIDC provider, worker, SDK,
+console, or deployment work is claimed by this item.
