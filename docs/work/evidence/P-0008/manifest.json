@@ -1,0 +1,285 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0008",
+  "base_sha": "bea0075a74237626848e1c2f8bb070248b773863",
+  "claim_commit": "87bddefe700433adc844325b6590a875b93f7117",
+  "intermediate_commits": [],
+  "candidate_parent_sha": "87bddefe700433adc844325b6590a875b93f7117",
+  "candidate_commit": "c461b1b60bece277b88c6a5aee55c200658ab327",
+  "candidate_tree": "20385096a71904103ae898bc127eea6c13980cc8",
+  "item_work_commit": "c461b1b60bece277b88c6a5aee55c200658ab327",
+  "branch": "proof-architecture/p-0008-collaboration-server-contract",
+  "qualified_at": "2026-08-23T11:29:42.553Z",
+  "qualification_state": "decision-qualified-review-eligible",
+  "review_gate": "project-owner",
+  "owner_acceptance_recorded": false,
+  "adr_0013_status": "Proposed",
+  "successors_created": [],
+  "server_implemented": false,
+  "provider_provisioned": false,
+  "deployed": false,
+  "live_remote_verified": false,
+  "milestone_complete": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "base_to_candidate_commit_count": 2,
+    "candidate_path_count": 75,
+    "insertions": 28408,
+    "deletions": 33,
+    "candidate_parent_path_count": 73,
+    "candidate_parent_insertions": 28399,
+    "candidate_parent_deletions": 28,
+    "artifact_digest_status": "75 of 75 exact Git blobs bound by SHA-256",
+    "collaboration_schema_count": 14,
+    "collaboration_json_vector_count": 39,
+    "retained_rust_test_count": 10,
+    "http_route_count": 9,
+    "ordered_human_operation_rows": 23,
+    "total_operation_rows": 40,
+    "evidence_root_count": 6,
+    "rejection_requirement_rows": 158,
+    "http_applicable_rejection_rows": 88,
+    "exact_route_operation_rejection_bindings": 276,
+    "non_http_rejection_rows": 70
+  },
+  "decision_scope": [
+    "one modular server deployment for one Workspace and multiple Principals",
+    "remote OIDC Human and dual Human-Agent authentication with protected subject binding and public commitment evidence",
+    "nine-route HTTP adapter with 23 ordered Human rows and 40 total shared application-operation rows",
+    "authoritative review, approval, Workspace role, policy, and Environment configuration facts with separation of duties",
+    "one serializable Workspace-scoped PostgreSQL unit of work with retry, ambiguous-commit, migration, rebuild, and crash contracts",
+    "immutable artifact catalog, transactional outbox, at-least-once delivery, poison handling, and exact private preview delivery",
+    "logical-map remote evidence export with six roots and independent VerificationTrustPolicyV2 caller inputs",
+    "decision/runtime-separated local-server conformance and falsification plan"
+  ],
+  "environment": {
+    "operating_system": "Ubuntu 24.04.4 LTS",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64-unknown-linux-gnu",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "llvm": "22.1.6",
+    "cargo": "1.97.1 (c980f4866 2026-06-30)",
+    "bubblewrap": "0.9.0",
+    "node": "v22.23.2",
+    "git": "2.43.0"
+  },
+  "commands": [
+    {
+      "command": "rtk cargo fmt --all -- --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "rtk cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "no issues"
+    },
+    {
+      "command": "rtk cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "614 passed across 37 suites; 0 failed; 383.63s; namespace-capable execution included retained bubblewrap tests"
+    },
+    {
+      "command": "rtk cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "7 doc-test suites; 0 tests; 0 failures"
+    },
+    {
+      "command": "rtk node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "203 internal documentation links passed at the immutable candidate"
+    },
+    {
+      "command": "rtk node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "8 work items passed metadata, lifecycle, dependencies, map parity, transitions, and evidence contracts"
+    },
+    {
+      "command": "rtk git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "rtk git status --short",
+      "exit_code": 0,
+      "result": "clean worktree at the immutable candidate"
+    },
+    {
+      "command": "rtk git rev-parse HEAD",
+      "exit_code": 0,
+      "result": "c461b1b60bece277b88c6a5aee55c200658ab327"
+    }
+  ],
+  "same_content_focused_observations": [
+    {
+      "surface": "P-0008 collaboration contract",
+      "result": "10 retained Rust tests passed; all are included in the exact-candidate workspace aggregate"
+    },
+    {
+      "surface": "Schema and vector closure",
+      "result": "14 collaboration Schemas resolve; all 39 JSON vectors validate under their exact closed profiles"
+    },
+    {
+      "surface": "registry and consequence semantics",
+      "result": "9 routes, 23 ordered Human rows, 40 total rows, route-qualified lookup, and all five consequence outcomes are closed"
+    },
+    {
+      "surface": "rejection requirements",
+      "result": "158 unique non-executable requirements: 88 HTTP rows, 276 exact route/operation bindings, and 70 non-HTTP rows"
+    }
+  ],
+  "conformance": {
+    "profile_status": "proposed decision candidate; not implemented or owner-ratified",
+    "accepted_agent_authority_registry_sha256": "b4e67916e0d1cae8e7b73ce681057edcad7f83bc953487ccf127333a3340bca7",
+    "remote_authorization_projection_sha256": "e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b",
+    "complete_http_operation_registry_sha256": "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf",
+    "requested_resources_digest": "blake3:4fbc4c2df1351f3aa3c316102605d07501ecb029064fa661a9516fe05dba3251",
+    "policy_bundle_digest": "blake3:f1a941b4d67907001f74ea5d01fb38f51900ff36fee114fb7fb79dc5ff3e2712",
+    "remote_authorization_decision_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+    "remote_application_consequence_digest": "blake3:e4c349626423fa88dcf844ee026da2cb6e0db2334bb99b6588c55450e19da119",
+    "release_digest": "blake3:cfa65f376f46fa29d5dc723102197442be2d9c84708251edb3153936a77632a1",
+    "release_result_digest": "blake3:31523caf536aa25719fba4395176700b56d7316ce594fe18be1263a62fe781f4",
+    "export_shape": "immutable keyed capture plus fresh status; ready output is an uncompressed logical member map acquired by exact kind and digest",
+    "remote_evidence_suite": "six exact root descriptors and three unmaterialized normative Complete/Incomplete/Invalid successor scenarios",
+    "signed_pair_status": "decoded canonicalizable Agent Allow and successful consequence candidates are retained without matching DSSE envelopes or an execution observation",
+    "hint_policy": "all first-profile producer hint arrays are const empty and never authorize fetching"
+  },
+  "independent_audits": [
+    {
+      "scope": "identity, authority, HTTP registry, storage, delivery, evidence, and documentation semantic gaps",
+      "result": "all concrete gaps found during bounded review were repaired and included in the immutable candidate"
+    },
+    {
+      "scope": "route-qualified consequence selection and all five consequence outcomes",
+      "result": "no remaining decision-contract blocker found after exact row and outcome coverage"
+    },
+    {
+      "scope": "full report first-applicable precedence, trust-policy resolver closure, report phase coupling, and final candidate red team",
+      "result": "the authority-plus-policy counterexample is rejected; all 45 ordered component pairs are exercised; final result clear"
+    }
+  ],
+  "falsification": {
+    "fixed_blockers": [
+      "Agent generic authorization-denial selection could diverge from the accepted evaluator's more specific first-applicable denial ordering",
+      "application-consequence lookup could select by operation name and version without also binding the route authentication profile",
+      "the retained harness did not execute every one of success, replay, idempotency conflict, precondition conflict, and application failure",
+      "a general verification report could name a later invalid component as primary even when an earlier component was also invalid",
+      "trust-policy examples did not initially instantiate every exact root, key, role, registry, disclosure, and limit input through a closed resolver",
+      "documentation initially blurred proposed shape fixtures, decoded signable payloads, signed evidence, and observed runtime reports"
+    ],
+    "result": "all concrete decision-candidate blockers were repaired without expanding implementation claims; focused, adversarial, and exact-candidate gates pass",
+    "strongest_counterargument": "A large contract and structural harness can be internally consistent while remaining expensive to implement or while hiding a privileged boundary in an adapter, database transaction, UI workflow, or producer-controlled evidence input.",
+    "candidate_response": "The decision fixes one shared application path, a single atomic authority/application/evidence unit, authoritative non-UI facts, route-qualified schemas and outcomes, caller-controlled trust, explicit pivot triggers, and a future 1:1 executable rejection matrix; implementation evidence is intentionally still required."
+  },
+  "limitations": [
+    "The candidate qualifies a proposed decision contract, not an HTTP server, PostgreSQL adapter or database, OIDC integration, artifact store, worker, preview renderer, SDK, console, provider, or deployment.",
+    "The 158-row rejection manifest is structurally validated and reserves future test identifiers; it is not executable server evidence.",
+    "The retained Allow decision and successful consequence are decoded canonicalizable signable candidates without matching DSSE envelopes or a runtime observation.",
+    "The retained remote evidence suite is unmaterialized; no logical export map, actual Complete/Incomplete/Invalid report, authenticated readiness fact, globally latest Release proof, or true immediate-Release proof exists.",
+    "Caller trust and checkpoints validate only the disclosed closure and cannot prove that a producer omitted no same-Environment Release or later authority history.",
+    "Environment-creation chronology, causal-head-bearing approval, and complete new direct-Human remote evidence remain required successor closures.",
+    "Missing pre-v14 presentations, some malformed historical idempotency reconstructions, redundant non-authoritative EditBatchV1, and structural-only accepted finding-code coverage remain bounded historical limitations.",
+    "Accepted local same-UID time-of-check/time-of-use limits, hostile same-UID isolation, and Windows identity/runtime containment are not strengthened by this decision.",
+    "A fully compromised database and signing-key boundary can forge a self-consistent later history; independent prior checkpoints bound detection but do not preserve service availability.",
+    "High-cardinality recursive history, physical power-loss durability, backup/restore, orphan garbage collection, production SLOs, and provider behavior are not qualified.",
+    "SDK, console, server framework, PostgreSQL implementation, OIDC provider, artifact store, worker, preview renderer, key provider, hosting topology, and every implementation successor remain in fog until owner acceptance.",
+    "No push, tag, publication, public release, production mutation, live remote verification, or customer proof is claimed.",
+    "Project-owner acceptance, ADR acceptance, successor promotion, and Milestone 3 completion are not claimed by this Engineering packet."
+  ],
+  "artifact_digests": [
+    {"path":"Cargo.lock","git_blob_oid":"26e233f9d23487b0cbd9dcf5850beadea994c582","algorithm":"sha256","digest":"a39822f185fdbf59436c18adf316dbddf6ef0a855822a35b6fad17d36938db7f"},
+    {"path":"README.md","git_blob_oid":"bb51d25423c704785c57a09c45fd1d8b83d3c74b","algorithm":"sha256","digest":"f935c9a4f5b28dc6be82c5102ac78a81b825b1c3e4d8f0543b223f51c1210bcc"},
+    {"path":"conformance/README.md","git_blob_oid":"820d982dbd5bea25aacb5c13d67df30c226bdfeb","algorithm":"sha256","digest":"d38d92a097a712992f0cd2fadc3fa49305dd714c482540ad32b9035360c9e2bb"},
+    {"path":"conformance/v1/collaboration-server/README.md","git_blob_oid":"fa58070cae03b5ac184f7c894d67d56bd495a198","algorithm":"sha256","digest":"a316135ef88a686b981ebbfd70e0aa2414f17aed4edd2031fca80bed0435e8a6"},
+    {"path":"conformance/v1/collaboration-server/schemas/application-operations-v1.schema.json","git_blob_oid":"ff87b85fa233286edf3b11ced7c7e02cbc08ca17","algorithm":"sha256","digest":"8cbacec1a9d2a620b07a8ba97356d9f5e359ae1bef60f98c859304837d6f09ab"},
+    {"path":"conformance/v1/collaboration-server/schemas/artifact-catalog-v1.schema.json","git_blob_oid":"3c6de6a493fbbf5cd92c2fa4d3d74dd825951a8c","algorithm":"sha256","digest":"d6f87439d4433060cf9e8e0f5b464f29d4ae834137470c1ead22ba5c510a1292"},
+    {"path":"conformance/v1/collaboration-server/schemas/collaboration-artifacts-v1.schema.json","git_blob_oid":"51d99d50b9e3126e8bd0409f6b6334e593336ca5","algorithm":"sha256","digest":"045035953e8171911df7cc569c37b42f40e2fc30a60a4741c6257c0b0121a64c"},
+    {"path":"conformance/v1/collaboration-server/schemas/http-envelope-v1.schema.json","git_blob_oid":"3e2ccb4d290805c13ec74cfc0a17f9168092997f","algorithm":"sha256","digest":"5cd76f4bb6ffecfc469457e797d5a3133b317e78354251128628b1a4b53335b4"},
+    {"path":"conformance/v1/collaboration-server/schemas/http-operation-registry-v1.schema.json","git_blob_oid":"abe27783d8a1b9b48a1892de67dc1a070703996a","algorithm":"sha256","digest":"2c7aef9f6a804d4913531a5ea3342fd417bee5428120c9c9d9850a7b0cf37d24"},
+    {"path":"conformance/v1/collaboration-server/schemas/migration-rebuild-v1.schema.json","git_blob_oid":"dc03e78fab7d4f653bbdb9e34da213b7c95ef94d","algorithm":"sha256","digest":"f2cfe17f1f1f2fb2d8c8684a5bc6a98d35cfefbf9585f740300b5396b20f9eaf"},
+    {"path":"conformance/v1/collaboration-server/schemas/outbox-delivery-v1.schema.json","git_blob_oid":"5a93ab214bfbebda7ff69523fbb6d884f7a58b98","algorithm":"sha256","digest":"846dee0d73f6511bf04df3ef73664d2fedde2bd348b5562e8a8dc7f6c4437c25"},
+    {"path":"conformance/v1/collaboration-server/schemas/preview-delivery-v1.schema.json","git_blob_oid":"c4c18dce69d115fe961d58999005b22bf915c258","algorithm":"sha256","digest":"cfe01ca7ff8c1719898a4c7330608dd7b467f607a34bfc317457190d1cc88d70"},
+    {"path":"conformance/v1/collaboration-server/schemas/rejected-case-manifest-v1.schema.json","git_blob_oid":"0057064302710e250c69e0628c646e6dda501b71","algorithm":"sha256","digest":"d707fe38cbe35883e4dd6ae11d33a64043c323c3685ea03185f87928e36e0c26"},
+    {"path":"conformance/v1/collaboration-server/schemas/remote-auth-v1.schema.json","git_blob_oid":"6a74c24bc81c79de11a3c8f674f98af3dd79e35b","algorithm":"sha256","digest":"6dcc9ad7305f5e3cb3955bb61ddca810d4893694b8f8e8133b6d725b80f17dad"},
+    {"path":"conformance/v1/collaboration-server/schemas/remote-authority-dsse-vector-v1.schema.json","git_blob_oid":"a3268294df59e23e5db2b7e56278c6603aebe302","algorithm":"sha256","digest":"467fdcb6f82a737adf4c12f41d9b4bd83855d6c01e4a20f329a1116c5be0a2cd"},
+    {"path":"conformance/v1/collaboration-server/schemas/remote-evidence-v2.schema.json","git_blob_oid":"60b03dc72c7e0d9e2d9e1b5ff4f0cdac24097268","algorithm":"sha256","digest":"80940815f62d7e229b090cf6ec0ccb464b2e4a2633f85ceaf1b7ff4b4c2177c7"},
+    {"path":"conformance/v1/collaboration-server/schemas/storage-delivery-contract-manifest-v1.schema.json","git_blob_oid":"1453b06c4a659172c5f6e7da8764ea755a5061cb","algorithm":"sha256","digest":"dddf26d529e1389c7b137764298a7ad5c3947a4ed17bf4884f7a21d2639556dc"},
+    {"path":"conformance/v1/collaboration-server/schemas/storage-transaction-v1.schema.json","git_blob_oid":"f5dd913ed1184dd2666c866ea5891cd6dc30b4f1","algorithm":"sha256","digest":"1bb8d3826772ec57656c7438f1efd351ebaeed4873cde9ba20d13f70787ea9a8"},
+    {"path":"conformance/v1/collaboration-server/vectors/artifact-catalog.valid.json","git_blob_oid":"80720abe9609c7677dd6813ac5f4261fb7fa8111","algorithm":"sha256","digest":"4a969384174a4b9bae3e7920c9bc03ad86a83f87bd9bb789ba638fd8ad667a80"},
+    {"path":"conformance/v1/collaboration-server/vectors/authenticated-actor-context-evidence-v2.human-agent.valid.json","git_blob_oid":"b715da147bfe7b2f718ea478935f2961af3d9870","algorithm":"sha256","digest":"68574eddf6c1edbb3d6dab2ec312f2151b18c6fd73122fea3c74e459960c4c40"},
+    {"path":"conformance/v1/collaboration-server/vectors/authenticated-actor-context-evidence-v2.human.valid.json","git_blob_oid":"032045ab60a695f689cbe3e14b1b2fa0d916621c","algorithm":"sha256","digest":"1fda252daf767bc01c2ab97554e8449165d1d85d2c9138240068913d027eeaf8"},
+    {"path":"conformance/v1/collaboration-server/vectors/authenticated-actor-context-v2.human-agent.valid.json","git_blob_oid":"52e4870ea1d8cce11e8cae0c02732864bdd7745b","algorithm":"sha256","digest":"56cab5709ea5110b4b2c5a215d5d2dd068a7f14d7b4d9c9860352c9aa6020658"},
+    {"path":"conformance/v1/collaboration-server/vectors/authenticated-actor-context-v2.human.valid.json","git_blob_oid":"a434801b1db17afcaa7429feefde225e844ba467","algorithm":"sha256","digest":"a441cc5fc8c44d7ae588bfcda95da569692607813f1f20911bacfa332bc6eaf7"},
+    {"path":"conformance/v1/collaboration-server/vectors/changeset-approval.valid.json","git_blob_oid":"55c226b8f95f0943d48292350386c3ab690d8226","algorithm":"sha256","digest":"588783b24346e0168ac4c16b2be57e408f8f2108be5f14a1a64f02fa43c90c19"},
+    {"path":"conformance/v1/collaboration-server/vectors/changeset-get-input.private-test.json","git_blob_oid":"74afbc61e121c9fd0199334415878e558d1db862","algorithm":"sha256","digest":"9dfddd1f202850f2478fbdf3a15de2eb43db7547627e691de0d8d04f266d40d0"},
+    {"path":"conformance/v1/collaboration-server/vectors/delivery-management-fact.valid.json","git_blob_oid":"773962a1e1f7ee7926284a2089ba5fbf14b7ad0c","algorithm":"sha256","digest":"024553ce24e73f01ec47341e20f7d68a05db602b96840b89aa2aca8e60c269e4"},
+    {"path":"conformance/v1/collaboration-server/vectors/environment-config-activation.valid.json","git_blob_oid":"dd52336333fd404c4ed98691110195ae0b6932d4","algorithm":"sha256","digest":"9ee627a67020ffd0583c9c3cf4ed5aba0561966d93d74d972f7c6e4c6cc57b4a"},
+    {"path":"conformance/v1/collaboration-server/vectors/environment-config-proposal.valid.json","git_blob_oid":"1ec80032ea2bce7c743624286e9c62f382c5cfed","algorithm":"sha256","digest":"101c13bd54621cc91342472f28f7362d044abbf90b4357ec294e4ef5b0b7ce64"},
+    {"path":"conformance/v1/collaboration-server/vectors/environment-config-v2.valid.json","git_blob_oid":"c31ca091dbf31b7a3d2fce26b406c5ebfa66a60e","algorithm":"sha256","digest":"ac84c36b92de43763542bf2695f8aea779cdb9edc0ddbee7e5f454b52600806f"},
+    {"path":"conformance/v1/collaboration-server/vectors/environment-creation.valid.json","git_blob_oid":"6d396552c1370155c03a46f520877b1dc9df9023","algorithm":"sha256","digest":"9fa0ceda964da26835030a7fae48f0dc0ba3bfa5a10d9fc37efff216a05d002b"},
+    {"path":"conformance/v1/collaboration-server/vectors/http-agent-operation.valid.json","git_blob_oid":"ed02382872fca9be152c7deae2ceae6e0f78687e","algorithm":"sha256","digest":"3148819196d5d48703df46a2f749974c03e100ddf2bb76ff96a89f49eceef5cb"},
+    {"path":"conformance/v1/collaboration-server/vectors/http-human-operation.valid.json","git_blob_oid":"4ebae1d45d6a67984e172d642a0a6c06ef6e7cc5","algorithm":"sha256","digest":"a0574459a364e3e5655ae68f591d65ed6fb02362c6a8d45e04ec7d7fee4130ea"},
+    {"path":"conformance/v1/collaboration-server/vectors/http-operation-registry.valid.json","git_blob_oid":"1b9a2777f75a6faa5e74cde016661a5ef64745d6","algorithm":"sha256","digest":"5b067ef5b8b7eb1a7a1112026c17bf90506b0093e916f442c0d0f93dd1ad9582"},
+    {"path":"conformance/v1/collaboration-server/vectors/migration-rebuild.valid.json","git_blob_oid":"4d40283df9c240ca86d853b492971e913c3061af","algorithm":"sha256","digest":"48820c0be55fbb2883fda5bc277f64dd1ab62ead1961582949a88ede254ab86a"},
+    {"path":"conformance/v1/collaboration-server/vectors/oidc-issuer-configuration.valid.json","git_blob_oid":"3c127473efa646696ec33b01de2209f9136b5846","algorithm":"sha256","digest":"216b715b705c059e167909275cbde2c484a6729dd0e0a66b99c1ffe0b146d86d"},
+    {"path":"conformance/v1/collaboration-server/vectors/oidc-principal-binding-revocation.valid.json","git_blob_oid":"d0e6192a132aa4eaf6c2fb13880132af6403bc4e","algorithm":"sha256","digest":"a471ab0512bd03fc8e32d06d9a8cdbfc45413d78d3d93503383fb029d2a4b349"},
+    {"path":"conformance/v1/collaboration-server/vectors/oidc-principal-binding.private-test.json","git_blob_oid":"2cc3c251583a9c9080914a193aa85e7702f107c4","algorithm":"sha256","digest":"789a7dfd41772820faf69acf9ab686b0a96456a05b602a259607c25afcb87c31"},
+    {"path":"conformance/v1/collaboration-server/vectors/oidc-principal-binding.valid.json","git_blob_oid":"a57d63efd473e28182e8be4e6d6dcc0030a7940c","algorithm":"sha256","digest":"04b05eb78b0371dc31cf4c1d1da6d6f78eaf782a08dcca716c9056e89cb9bcef"},
+    {"path":"conformance/v1/collaboration-server/vectors/oidc-subject-commitment-opening.private-test.json","git_blob_oid":"dc7d6a8f5f499f044aafc763fa74b8e06124aaa2","algorithm":"sha256","digest":"210b44b735d76cb7ed05373c9cc9d83029195fff0f76a7ce0c6488f37917b79d"},
+    {"path":"conformance/v1/collaboration-server/vectors/oidc-subject-commitment.input.private-test.json","git_blob_oid":"427535cc9308cb31898a02a1cbc5b7836f3abff8","algorithm":"sha256","digest":"242c5d1d95a9cacdba649c4e99d38d25b01d9487ec9fcad56749e751daeb5876"},
+    {"path":"conformance/v1/collaboration-server/vectors/outbox-delivery.valid.json","git_blob_oid":"7636fa703a62818ffd0b94e7174dc9ddcceecea7","algorithm":"sha256","digest":"2149188a7aa26b3e230a41669e84e6855aa02f9fa7916fca7d6da1fc0702f7d3"},
+    {"path":"conformance/v1/collaboration-server/vectors/preview-delivery.valid.json","git_blob_oid":"4fab857010664185b92fb1518ad69ab2b12a3f9e","algorithm":"sha256","digest":"30ece16f46c94b14b9c783272fcdbd6973ebf475756ea54d4e5c412af285c3ae"},
+    {"path":"conformance/v1/collaboration-server/vectors/problem.valid.json","git_blob_oid":"2415eaf959e1331f36bfa97178317c2faa8e128f","algorithm":"sha256","digest":"9c28aa4d2cc9803be0d530f16fd25bba2adf96ff70cc27750bb8c9f1c48846d1"},
+    {"path":"conformance/v1/collaboration-server/vectors/rejected-cases.json","git_blob_oid":"f32f3b9e7f73a77a78f20bbd49ac5c6fadda0355","algorithm":"sha256","digest":"91fd35fa2013b7d689ee20895754f5ac6a9483bb992875cb68eafada9ac0884b"},
+    {"path":"conformance/v1/collaboration-server/vectors/release-create-input.private-test.json","git_blob_oid":"2395ecd5b8f60a63639edee4bb3680c5c5d443ec","algorithm":"sha256","digest":"b53d7a2bc984f123f7c74579930da6ea25c2f53a396fcc3e8da5f152630a2987"},
+    {"path":"conformance/v1/collaboration-server/vectors/release-create-result.private-test.json","git_blob_oid":"7011b1e5695b7c17b242a279e07df5cb88ea3604","algorithm":"sha256","digest":"a07a3a70fc05768d3bc2baf8b2863732fd00895591d38762d602b42a926329a4"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-application-consequence.valid.json","git_blob_oid":"bffabb56d2b7d0607c3612209c9ab0c755f45395","algorithm":"sha256","digest":"befd9ea465ffdddef19f2e2f8512ff0b249cdd26951369cd6fe965d68986e311"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-authentication-event.valid.json","git_blob_oid":"8cc7e366dee4fc987108c1461a80ca8ac65e0e8e","algorithm":"sha256","digest":"9221a8473e800b45dad9eaccf457168d9b8c51eafe7da64e3571ea57b0952333"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-authority-record-envelope.valid.json","git_blob_oid":"ef1f0324861f7bd0ef57fa49d0f1be438ac9c3ec","algorithm":"sha256","digest":"883ce8444b0d7e6b63b296506d6db431c3e91d0a06445620c510623ce46fcddb"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-authority-record.dsse-bytes.valid.json","git_blob_oid":"8974b581ee510f0f90ca62eab2753104738616d3","algorithm":"sha256","digest":"493f694ed57e5169099a77d592f96e5614919629227fac99123b6f35bee6e953"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-authorization-decision.valid.json","git_blob_oid":"aab17ca4d8585941bad213f3b83741f5c61ae214","algorithm":"sha256","digest":"e60dd1111339f3e1f3f5b4d7037a1486bd9c0f3c7d74a191c6b34d0f951c6d2c"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-evidence-v2.valid.json","git_blob_oid":"51ef1bb36bc294fca654832a6c52eabacec342e9","algorithm":"sha256","digest":"2be3da7c6e1a249eb10a46177788e1e741ccfba831f44f6229c3d6c1508aae41"},
+    {"path":"conformance/v1/collaboration-server/vectors/remote-principal-status.valid.json","git_blob_oid":"a2af3115ee8b4672e84c94399acbf33db9158e44","algorithm":"sha256","digest":"242d389c90f106660073087148054411bbc30eb228eebedf993670168f60fbc1"},
+    {"path":"conformance/v1/collaboration-server/vectors/storage-delivery-contract-manifest.valid.json","git_blob_oid":"375ef5a70220b9abe1c5f1f8d04df5edf279d7b5","algorithm":"sha256","digest":"642d82cb7c1d888c99966faedb56d41e4b6e18c4f947d576c7bfbcc99e51e76d"},
+    {"path":"conformance/v1/collaboration-server/vectors/storage-transaction-traces.valid.json","git_blob_oid":"e4246ca520a92094e3cf9c2ddde5b2bb9e3509b2","algorithm":"sha256","digest":"d902953944b47161c1a842ef332e4d431b6c272f0b9bee8b905042c031f0de0d"},
+    {"path":"conformance/v1/collaboration-server/vectors/workspace-role-assignment.valid.json","git_blob_oid":"74e2312531faf172d91ab6a9a5efe2187a08d8f7","algorithm":"sha256","digest":"47fe40c1e1b4cfe8be384c2bd3f10e6383ccd5525d4d4ba7c4dad95ef992eeb3"},
+    {"path":"conformance/v1/collaboration-server/vectors/workspace-role-revocation.valid.json","git_blob_oid":"c52ee7bfacf0d56e0565cc5ab12c68d898d7fa67","algorithm":"sha256","digest":"1e4c796e4fba3658ea4d0ff8f7346cd4fd9bba74328a0b4b618a0dce68bc5cd2"},
+    {"path":"crates/proof-local/Cargo.toml","git_blob_oid":"3e4872b398fddb18afdc5e73318102d386123922","algorithm":"sha256","digest":"1010ec7dd4827e2bd0c5d692bb051ff8ef87204ef14d1b91f38bb62ffcb35da6"},
+    {"path":"crates/proof-local/tests/p0008_collaboration_contract.rs","git_blob_oid":"961f65ab405f80b8b74b95178064580259df3d16","algorithm":"sha256","digest":"e3ecf135b657b82a854ae7c940eb4ba128c7e961dce57e67d072585c6c7f2257"},
+    {"path":"docs/README.md","git_blob_oid":"93cd95083596eadaa5db606100fec3f679b03817","algorithm":"sha256","digest":"00e7b8c0d714ced9931a96d321a3ecbf2dfdf002fa749d666c2117a8e6916ca0"},
+    {"path":"docs/architecture/authenticated-actor.md","git_blob_oid":"2115921421d9cc7ea9db0b13ce792386f7c8fb04","algorithm":"sha256","digest":"1ac05bc2256db12f30e1b0bffde3dac1b8494cc6de17320a04ddba3891625064"},
+    {"path":"docs/architecture/collaboration-server.md","git_blob_oid":"14fe47671fe6d2893d4383539f13faaec2395631","algorithm":"sha256","digest":"f2d277ad98e06691dd54b66675e69291e4e78fd4ed7c7d82e460751bbc47123c"},
+    {"path":"docs/architecture/domain-model.md","git_blob_oid":"a37e15b938ecd2e3c1a13e8402a3c48788f997f5","algorithm":"sha256","digest":"3e46c4b6813d169b3da4c6bad48c5590c9a8a16ce9ca1a6497a4657546ec5544"},
+    {"path":"docs/architecture/overview.md","git_blob_oid":"28c76b9a88e62a33665db3703f14c751185432b4","algorithm":"sha256","digest":"296b3b9711251001ba7c7653ddc6629b9a9ddf7a8b9615d104a4ea552cfacdd7"},
+    {"path":"docs/architecture/proof-model.md","git_blob_oid":"f762ab53a06e327f38e0b1baa349324fb6d54352","algorithm":"sha256","digest":"5153de97e964d95a41e6531709193d295414d7b22b5aa20b64c881312ea3bf25"},
+    {"path":"docs/architecture/testing.md","git_blob_oid":"8632dc99fd8050c1c82e24177e77efb48fd5b932","algorithm":"sha256","digest":"aac5db439339c20ced18e12428f106093f4f1c762ab81f8a03a460a9a816dc38"},
+    {"path":"docs/architecture/threat-model.md","git_blob_oid":"1b0b7fce2c6335045e1f1a27256c062f50bf876c","algorithm":"sha256","digest":"66a00f82c56c8d59c98c75b9d8977432d25d7ff68cdc391d70394feb996b51f0"},
+    {"path":"docs/decisions/0013-single-workspace-collaboration-server.md","git_blob_oid":"d2f7c5154f727f11b5852491fd84bd137503bfc9","algorithm":"sha256","digest":"b90b68660aef235b5c9c7051c28c724f533d9fa55d00ad13e35a22834a83dbd4"},
+    {"path":"docs/decisions/README.md","git_blob_oid":"4f3fe96022dc7dfceb3d368d481d633b02a97754","algorithm":"sha256","digest":"8c321ad24f9947bbbd58d745b8146dc560302ef8cfb008c0c284a7a3c90b4abe"},
+    {"path":"docs/product/roadmap.md","git_blob_oid":"134c6247c59766fcc4ac13cf23f22201ae806966","algorithm":"sha256","digest":"95fd74f92b13ee9917dff4f8b6d79aacdf646513b0ac278f51e1083a3c9bb808"},
+    {"path":"docs/product/scope.md","git_blob_oid":"41a58a6465d93131c00135c970a51cd32c71ebfc","algorithm":"sha256","digest":"49e1122d3f960eec5174fe470fd109db0916a321be2163874d02aeeca7bed33f"},
+    {"path":"docs/reference/errors.md","git_blob_oid":"af8bc0ca630c57f30c1a26ec91564a4ac777ae21","algorithm":"sha256","digest":"62563bc9bdcd420c1a4fc3ccfa7ae768bde52260104cf9889b49065a8ede1d3f"},
+    {"path":"docs/reference/standards.md","git_blob_oid":"182e1ac1f0a9c2057f8e378e676c158c791df1b2","algorithm":"sha256","digest":"97d55fdd558f073559293894b13f781b534b208b0f737ca34111246a16cf6dcd"},
+    {"path":"docs/work/items/P-0008-ratify-collaboration-server-contract.md","git_blob_oid":"c5bfdb57e8a6eacc4182c1c232ad8ef551699b93","algorithm":"sha256","digest":"0f864f15cdebed1626a0dbf2d2cc44f445f4ca1b3f2c9d542972571e63edce58"},
+    {"path":"docs/work/map.md","git_blob_oid":"cf0ad0dd9f875eb7ae25ac945eb7b4f400f6d198","algorithm":"sha256","digest":"54114904306664d83650704f27a0f836a535a39e66a54c673f1c2f3f93fda80c"}
+  ],
+  "artifact_digest_note": "SHA-256 was computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; evidence files are intentionally outside the candidate inventory and are not self-referenced.",
+  "evidence_paths": [
+    "docs/work/evidence/P-0008/receipt.md",
+    "docs/work/evidence/P-0008/manifest.json",
+    "docs/work/evidence/P-0008/traceability.md"
+  ],
+  "gate_state": {
+    "decision_contract_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "focused_falsification_review": "supported",
+    "project_owner_review_eligible": true,
+    "owner_disposition_executed": false,
+    "adr_acceptance_executed": false,
+    "successor_creation_executed": false,
+    "implementation_executed": false,
+    "milestone_completion_executed": false
+  }
+}
