@@ -22,7 +22,7 @@ Accepted. P-0009 remote actor and shared-contract conformance is complete
 with candidate `3e38f30`, P-0010 PostgreSQL parity foundation is complete
 with candidate `4410b46`, P-0011 HTTP and OIDC server boundary is complete
 with candidate `ed6a06e`, and P-0012 artifact outbox and private preview
-delivery is the promoted Milestone 3 implementation frontier. No
+delivery is the promoted and claimed Milestone 3 implementation frontier. No
 collaboration-server
 implementation, provider, deployment, or live remote result is claimed yet.
 implementation, provider, deployment, or live remote result is claimed yet.
@@ -74,7 +74,7 @@ implementation, provider, deployment, or live remote result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the artifact outbox and private preview delivery](items/P-0012-artifact-outbox-private-preview.md) | `ready` | P-0011 | Implement the outbox worker with generation-scoped leased claims, counted attempts, backoff, dead-letter and poison management, authorized replay and abandonment with DeliveryManagementFactV1, the filesystem-backed private preview materialization with ready-last manifests and monotonic alias, and the delivery projection and management operations through the P-0010 unit of work. |
+| [Implement the artifact outbox and private preview delivery](items/P-0012-artifact-outbox-private-preview.md) | `claimed` | P-0011 | Implement the outbox worker with generation-scoped leased claims, counted attempts, backoff, dead-letter and poison management, authorized replay and abandonment with DeliveryManagementFactV1, the filesystem-backed private preview materialization with ready-last manifests and monotonic alias, and the delivery projection and management operations through the P-0010 unit of work. |
 
 ## Next
 

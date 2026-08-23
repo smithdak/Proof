@@ -1,13 +1,13 @@
 ---
 id: P-0012
 title: Implement the artifact outbox and private preview delivery
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0011]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: deepseek:proof:p-0012
+claimed_at: 2026-08-23T23:21:15.788Z
+base_sha: 5e1810e89571d87840fb9af6b56eb44f728f351c
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -179,5 +179,9 @@ criterion-level traceability matrix.
 
 Ready at `2026-08-23T23:20:07.742Z` after P-0011 candidate
 `ed6a06eb9710ab98792e11f5b7a42d56d2832e65` closed with Engineering evidence
-commit `cddb5355abc3ec5d228bbc511da26e8ed45be6c3`. Not claimed. No SDK,
-console, provider, or deployment work is claimed by this promotion.
+commit `cddb5355abc3ec5d228bbc511da26e8ed45be6c3`.
+
+Claimed by `deepseek:proof:p-0012` at `2026-08-23T23:21:15.788Z` from
+P-0011 completion commit `5e1810e89571d87840fb9af6b56eb44f728f351c`
+on `proof-architecture/p-0008-collaboration-server-contract`. No SDK,
+console, provider, or deployment work is claimed by this item.
