@@ -1,7 +1,7 @@
 ---
 id: P-0009
 title: Implement the remote actor and shared-contract conformance foundation
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0008]
@@ -212,5 +212,7 @@ commit `b14b22cc9bd898565f5349f0d231d684fdfd26f8`, qualified at
 [manifest](../evidence/P-0009/manifest.json), and
 [AC1-AC10 traceability matrix](../evidence/P-0009/traceability.md). Moved
 from `claimed` to `review` at `2026-08-23T19:19:56.856Z` under
-`review_gate: none`. No server, PostgreSQL, OIDC provider, worker, SDK,
-console, or deployment work is claimed by this item.
+`review_gate: none`, then to `done` at `2026-08-23T19:21:12.000Z` after the
+complete Linux gate recorded in the receipt. Successor P-0010 PostgreSQL
+parity foundation is promoted to `ready`; no HTTP, OIDC, worker, preview, or
+deployment work is claimed by this completion.

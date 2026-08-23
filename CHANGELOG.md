@@ -6,6 +6,16 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented the remote actor and shared-contract conformance foundation
+  (P-0009): the closed `RemoteAuthorityRecordV1` payload union with a
+  single-signature DSSE envelope and causal chain validation; OIDC subject
+  commitment machinery; `AuthenticatedActorContextV2`/`AuthenticatedActorContextEvidenceV2`
+  profiles with public redaction; causal `ChangeSetApprovalV1` and
+  `EnvironmentConfigV2` closures; the closed 23-row Human registry, 14-pair
+  Agent projection, and nine-route surface with the three frozen registry
+  SHA-256s recomputed byte-exactly; and the deterministic
+  `RemoteSemanticOracle` producing byte-identical shared-operation traces over
+  the SQLite reference path.
 - Ratified the single-Workspace Milestone 3 collaboration-server decision:
   project owner `smithdak` accepted P-0008 candidate `c461b1b` and Engineering
   evidence `4ac62e9` at `2026-08-23T17:48:11.461Z`, ADR-0013 is Accepted, and

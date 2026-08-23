@@ -169,8 +169,9 @@ same-origin OIDC Human session plus the
 existing Agent signature, one serialized PostgreSQL authority unit, causal
 approval/configuration evidence, immutable artifact staging, and an
 at-least-once outbox. The first dependency-ordered successor, P-0009 remote
-actor and shared-contract conformance, is promoted; no server implementation
-or provider choice is made yet. Its retained contract fixtures
+actor and shared-contract conformance, is complete and the PostgreSQL parity
+foundation (P-0010) is promoted; no server, provider, or deployment choice
+is made yet. Its retained contract fixtures
 are decision examples, not evidence that a server route, database, provider,
 worker, or deployment exists or passes qualification.
 

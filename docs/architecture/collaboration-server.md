@@ -1290,6 +1290,12 @@ this dependency order, promoting one at a time:
    independent verification, then run the complete local/server north star and
    security/crash matrix.
 
+P-0009 has implemented the first successor: remote authority payloads and
+envelopes, actor contexts and evidence redaction, OIDC subject commitments,
+causal approval and Environment configuration closures, the closed registries
+with their frozen hashes, and the deterministic semantic oracle over the
+SQLite reference path. The remaining successors above are unchanged.
+
 Only the first dependency-ready item is promoted after acceptance. SDKs,
 console, provider selection/provisioning, deployment, public preview,
 workload identity, KMS/HSM, backup/restore, HA, multi-region operation,
