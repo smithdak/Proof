@@ -20,7 +20,7 @@ Project owner `smithdak` accepted P-0008 candidate `c461b1b`, bound by
 decision evidence `4ac62e9`, at `2026-08-23T17:48:11.461Z`. ADR-0013 is
 Accepted and the contract's first dependency-ordered implementation
 successor, P-0009 remote actor and shared-contract conformance, is promoted
-to `ready`. No collaboration-server implementation, provider, deployment, or
+and claimed. No collaboration-server implementation, provider, deployment, or
 live remote result is claimed yet.
 
 ## Operating notes
@@ -70,7 +70,7 @@ live remote result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the remote actor and shared-contract conformance foundation](items/P-0009-remote-actor-shared-contract-conformance.md) | `ready` | P-0008 | Implement the versioned remote authority payloads, actor contexts and subject commitments, causal approval and Environment configuration closures, the closed registries with their frozen hashes, and the deterministic local/server semantic oracle, with executable conformance vectors and no live provider. |
+| [Implement the remote actor and shared-contract conformance foundation](items/P-0009-remote-actor-shared-contract-conformance.md) | `claimed` | P-0008 | Implement the versioned remote authority payloads, actor contexts and subject commitments, causal approval and Environment configuration closures, the closed registries with their frozen hashes, and the deterministic local/server semantic oracle, with executable conformance vectors and no live provider. |
 
 ## Next
 

@@ -1,13 +1,13 @@
 ---
 id: P-0009
 title: Implement the remote actor and shared-contract conformance foundation
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0008]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: deepseek:proof:p-0009
+claimed_at: 2026-08-23T17:52:39.023Z
+base_sha: 40b79a50dbff88efca40ee6c64c47e2f4d8d46a4
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -197,5 +197,10 @@ matrix binding every acceptance criterion to retained tests and vectors.
 Ready at `2026-08-23T17:48:11.461Z` after project owner `smithdak` accepted
 P-0008 candidate `c461b1b60bece277b88c6a5aee55c200658ab327`, Engineering
 evidence `4ac62e9e2c42d7a586785095b58f060648975649`, and its bounded residual
-risks. Not claimed. No server, PostgreSQL, OIDC provider, worker, SDK,
-console, or deployment work is claimed by this promotion.
+risks.
+
+Claimed by `deepseek:proof:p-0009` at `2026-08-23T17:52:39.023Z` from
+P-0008 acceptance commit `40b79a50dbff88efca40ee6c64c47e2f4d8d46a4`
+on `proof-architecture/p-0008-collaboration-server-contract`. No server,
+PostgreSQL, OIDC provider, worker, SDK, console, or deployment work is
+claimed by this item.
