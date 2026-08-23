@@ -1,7 +1,7 @@
 ---
 id: P-0011
 title: Implement the HTTP and OIDC server boundary
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0010]
@@ -184,34 +184,34 @@ ADR-0013 remains the implementation authority.
 
 ## Acceptance criteria
 
-- [ ] The nine-route surface and the four transport routes dispatch exactly
+- [x] The nine-route surface and the four transport routes dispatch exactly
       per the closed registry with route-qualified cross-checks; unknown
       routes/versions/members fail closed with the route-specific Problem
       profile.
-- [ ] Raw-body and canonical-request limits are enforced independently;
+- [x] Raw-body and canonical-request limits are enforced independently;
       malformed, duplicate-name, non-I-JSON, and oversized requests reject
       with the exact 400/413/415 Problems.
-- [ ] The BFF completes the Authorization Code plus PKCE flow against the
+- [x] The BFF completes the Authorization Code plus PKCE flow against the
       deterministic issuer with state/nonce/iss/aud/azp/exp/skew checks and
       rejects every abuse vector in the retained matrix.
-- [ ] Sessions are opaque, hashed-at-rest, flagged-correctly, bounded,
+- [x] Sessions are opaque, hashed-at-rest, flagged-correctly, bounded,
       rotated, revocable, and re-resolved per call; logout converges for
       exact replay and already-revoked handles.
-- [ ] The CSRF synchronizer is digest-stored, session-bound, rotated, and
+- [x] The CSRF synchronizer is digest-stored, session-bound, rotated, and
       required with exact `Origin` on every unsafe authenticated request;
       CORS is disabled.
-- [ ] The Agent route requires both a live requesting-Human session and a
+- [x] The Agent route requires both a live requesting-Human session and a
       fresh single-use verified Agent presentation; neither credential can
       substitute for the other.
-- [ ] Every owned Human and Agent row commits its decision, governed fact,
+- [x] Every owned Human and Agent row commits its decision, governed fact,
       and consequence through one P-0010 unit of work with the exact
       per-row effect digest and timestamp field.
-- [ ] The status/Problem mapping matches the accepted registry, including
+- [x] The status/Problem mapping matches the accepted registry, including
       disclosure-neutral 401 and the retryable 504 ambiguous-commit result;
       no public response leaks raw claims, subjects, tokens, or SQL.
-- [ ] Rate limiting, the 30-second deadline, and the 4,194,304-byte response
+- [x] Rate limiting, the 30-second deadline, and the 4,194,304-byte response
       bound behave as adapter controls and never as authority.
-- [ ] The full Linux quality gate passes and durable Engineering evidence
+- [x] The full Linux quality gate passes and durable Engineering evidence
       (receipt, manifest, traceability) binds the item-work commit.
 
 ## Evidence contract
@@ -229,5 +229,16 @@ commit `a50fe6a6888614eccdc06b0f1c8b1e631bfb9684`.
 
 Claimed by `deepseek:proof:p-0011` at `2026-08-23T21:39:34.672Z` from
 P-0010 completion commit `57c8615c0b9e05e7b408f0bd1fc4e99e176113d7`
-on `proof-architecture/p-0008-collaboration-server-contract`. No HTTP,
-OIDC, worker, preview, or deployment work is claimed by this item.
+on `proof-architecture/p-0008-collaboration-server-contract`.
+
+Engineering qualified immutable candidate
+`ed6a06eb9710ab98792e11f5b7a42d56d2832e65`, whose parent is the skeleton
+commit `5248ea2ee43643933fc057dbf6bb3fbca7eece85`, qualified at
+`2026-08-23T23:18:18.331Z`. Engineering evidence commit
+`cddb5355abc3ec5d228bbc511da26e8ed45be6c3` binds the
+[receipt](../evidence/P-0011/receipt.md),
+[manifest](../evidence/P-0011/manifest.json), and
+[AC1-AC10 traceability matrix](../evidence/P-0011/traceability.md). Moved
+from `claimed` to `review` at `2026-08-23T23:19:51.900Z` under
+`review_gate: none`. No live provider, worker, preview, export, or
+deployment work is claimed by this item.
