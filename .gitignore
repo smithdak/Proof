@@ -1,3 +1,7 @@
 /target/
 /.proof/
 
+
+/.swarm-reports
+/tools
+/.agents

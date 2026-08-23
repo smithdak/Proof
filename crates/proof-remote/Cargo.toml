@@ -6,7 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
 blake3.workspace = true
+ed25519-dalek.workspace = true
 proof-application = { path = "../proof-application" }
 proof-attestation = { path = "../proof-attestation" }
 proof-canonical = { path = "../proof-canonical" }

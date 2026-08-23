@@ -8,7 +8,10 @@
 use proof_domain::{ContentDigest, Timestamp};
 use serde::{Deserialize, Serialize};
 
-use crate::{AuthorityHeadV1, RemoteError};
+use crate::{
+    AuthorityHeadV1, RemoteError, authority::REMOTE_AUTHORITY_RECORD_DIGEST_CONTEXT,
+    derive_key_digest,
+};
 
 /// BLAKE3-256 derive-key context for `environment_config_digest` and
 /// `normalized_configuration_digest`.
@@ -197,7 +200,61 @@ impl ChangeSetApprovalV1 {
     /// Returns [`RemoteError::Governance`] on any prohibited-approver or stale
     /// closure violation.
     pub fn validate_prohibited_approvers(&self) -> Result<(), RemoteError> {
-        todo!()
+        // The approval must extend its exact evaluated authority head: the new
+        // sequence is head.sequence + 1 and the immediate predecessor digest is
+        // head.record_digest. A mismatch marks an incomplete or stale closure.
+        let expected_sequence = self
+            .evaluated_authority_head
+            .sequence
+            .checked_add(1)
+            .ok_or_else(|| {
+                RemoteError::Governance(
+                    "approval authority sequence overflows the causal head".to_owned(),
+                )
+            })?;
+        if self.authority_sequence != expected_sequence {
+            return Err(RemoteError::Governance(
+                "approval does not extend the evaluated authority head by exactly one sequence"
+                    .to_owned(),
+            ));
+        }
+        if self.previous_authority_record_digest != self.evaluated_authority_head.record_digest {
+            return Err(RemoteError::Governance(
+                "approval does not chain from the exact immediate prior authority head".to_owned(),
+            ));
+        }
+
+        // The closed separation-of-duties inequalities: the approving Human must
+        // be distinct from the requester, the contributing operating Agent, the
+        // publisher Agent, and the active configuration activator; and the
+        // requesting Human must be distinct from the operating Agent.
+        if self.approver_principal_id == self.requesting_principal_id {
+            return Err(RemoteError::Governance(
+                "approver must not be the ChangeSet requesting Human".to_owned(),
+            ));
+        }
+        if self.approver_principal_id == self.operating_principal_id {
+            return Err(RemoteError::Governance(
+                "approver must not be a contributing operating Agent".to_owned(),
+            ));
+        }
+        if self.approver_principal_id == self.publisher_principal_id {
+            return Err(RemoteError::Governance(
+                "approver must not be the publisher Agent".to_owned(),
+            ));
+        }
+        if self.approver_principal_id == self.environment_activated_by_principal_id {
+            return Err(RemoteError::Governance(
+                "approver must not be the active configuration activator".to_owned(),
+            ));
+        }
+        if self.requesting_principal_id == self.operating_principal_id {
+            return Err(RemoteError::Governance(
+                "requesting Human must be distinct from the operating Agent".to_owned(),
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -360,6 +417,180 @@ pub struct EnvironmentConfigV2 {
 /// # Errors
 ///
 /// Returns [`RemoteError::Governance`] on any cross-check violation.
+#[allow(clippy::too_many_lines)]
 pub fn validate_environment_config_v2(config: &EnvironmentConfigV2) -> Result<(), RemoteError> {
-    todo!()
+    let creation = &config.environment_creation;
+    let proposal = &config.proposal;
+    let activation = &config.activation;
+
+    // Workspace identity must agree across the closure and all three records.
+    if config.workspace_id != creation.workspace_id
+        || config.workspace_id != proposal.workspace_id
+        || config.workspace_id != activation.workspace_id
+    {
+        return Err(RemoteError::Governance(
+            "Workspace identity disagrees across the configuration closure".to_owned(),
+        ));
+    }
+
+    // Environment identity must agree across the closure and all three records.
+    if config.environment_id != creation.environment_id
+        || config.environment_id != proposal.environment_id
+        || config.environment_id != activation.environment_id
+    {
+        return Err(RemoteError::Governance(
+            "Environment identity disagrees across the configuration closure".to_owned(),
+        ));
+    }
+
+    // Positive chronology: creation precedes proposal, which precedes
+    // activation, both in recorded time and in authority sequence.
+    if creation.created_at > proposal.proposed_at || proposal.proposed_at > activation.activated_at
+    {
+        return Err(RemoteError::Governance(
+            "configuration chronology is out of order".to_owned(),
+        ));
+    }
+    if creation.authority_sequence >= proposal.authority_sequence
+        || proposal.authority_sequence >= activation.authority_sequence
+    {
+        return Err(RemoteError::Governance(
+            "configuration authority sequences are not chronologically ordered".to_owned(),
+        ));
+    }
+
+    // The closure's positive configuration version must equal the activation's.
+    if config.environment_config_version == 0 {
+        return Err(RemoteError::Governance(
+            "environment configuration version must be positive".to_owned(),
+        ));
+    }
+    if config.environment_config_version != activation.environment_config_version {
+        return Err(RemoteError::Governance(
+            "environment configuration version disagrees with the activation".to_owned(),
+        ));
+    }
+
+    // Exact expected predecessor version/digest equality across the closure,
+    // the proposal, and the activation.
+    if config.predecessor_config_version != proposal.expected_predecessor_config_version
+        || config.predecessor_config_version != activation.predecessor_config_version
+    {
+        return Err(RemoteError::Governance(
+            "predecessor configuration version disagrees across the closure".to_owned(),
+        ));
+    }
+    if config.predecessor_config_digest != proposal.expected_predecessor_config_digest
+        || config.predecessor_config_digest != activation.predecessor_config_digest
+    {
+        return Err(RemoteError::Governance(
+            "predecessor configuration digest disagrees across the closure".to_owned(),
+        ));
+    }
+
+    // The assembled normalized configuration must equal the proposal's and its
+    // digest must agree across the proposal and the activation.
+    if config.normalized_configuration != proposal.normalized_configuration {
+        return Err(RemoteError::Governance(
+            "normalized configuration disagrees with the proposal".to_owned(),
+        ));
+    }
+    if config.normalized_configuration_digest != proposal.normalized_configuration_digest
+        || config.normalized_configuration_digest != activation.normalized_configuration_digest
+    {
+        return Err(RemoteError::Governance(
+            "normalized configuration digest disagrees across the closure".to_owned(),
+        ));
+    }
+
+    // Both environment_config_digest and normalized_configuration_digest are the
+    // RFC 8785 / BLAKE3-256 digest of the normalized configuration under
+    // `proof:environment-config:v2`.
+    let computed_config_digest = canonical_derive_key_digest(
+        ENVIRONMENT_CONFIG_DIGEST_CONTEXT,
+        &config.normalized_configuration,
+    )?;
+    if config.normalized_configuration_digest != computed_config_digest
+        || config.environment_config_digest != computed_config_digest
+        || config.environment_config_digest != config.normalized_configuration_digest
+    {
+        return Err(RemoteError::Governance(
+            "environment configuration digest does not match the normalized configuration digest under proof:environment-config:v2"
+                .to_owned(),
+        ));
+    }
+    if config.environment_config_digest != activation.environment_config_digest {
+        return Err(RemoteError::Governance(
+            "environment configuration digest disagrees with the activation".to_owned(),
+        ));
+    }
+
+    // The activation must reference the exact embedded proposal identity and
+    // payload digest.
+    if activation.proposal_id != proposal.proposal_id {
+        return Err(RemoteError::Governance(
+            "activation references a different proposal identity".to_owned(),
+        ));
+    }
+    if config.proposal_record_digest != activation.proposal_digest {
+        return Err(RemoteError::Governance(
+            "proposal record digest disagrees with the activation proposal digest".to_owned(),
+        ));
+    }
+
+    // The creation payload digest must equal both the activation's copied
+    // creation digest and the recomputed digest of the embedded creation record.
+    if config.environment_creation_record_digest != activation.environment_creation_record_digest {
+        return Err(RemoteError::Governance(
+            "environment creation record digest disagrees with the activation".to_owned(),
+        ));
+    }
+    let computed_creation_digest =
+        canonical_derive_key_digest(REMOTE_AUTHORITY_RECORD_DIGEST_CONTEXT, creation)?;
+    if config.environment_creation_record_digest != computed_creation_digest {
+        return Err(RemoteError::Governance(
+            "environment creation record digest does not match the decoded creation record"
+                .to_owned(),
+        ));
+    }
+
+    // Every creation field copied into the activation must match the embedded
+    // creation record.
+    if activation.environment_created_at != creation.created_at
+        || activation.environment_created_by_principal_id != creation.created_by_principal_id
+        || activation.environment_created_by_actor_context_digest
+            != creation.created_by_actor_context_digest
+        || activation.environment_creation_authority_sequence != creation.authority_sequence
+    {
+        return Err(RemoteError::Governance(
+            "activation copied creation fields disagree with the creation record".to_owned(),
+        ));
+    }
+
+    // The proposer and activator must be distinct enabled Humans.
+    if proposal.proposed_by_principal_id == activation.activated_by_principal_id {
+        return Err(RemoteError::Governance(
+            "proposer and activator must be distinct Humans".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Computes a domain-separated BLAKE3-256 digest over the strict RFC 8785
+/// canonical bytes of a typed remote payload.
+///
+/// # Errors
+///
+/// Returns [`RemoteError::Canonical`] when the value cannot be serialized or
+/// canonicalized under the RFC 8785 profile.
+fn canonical_derive_key_digest<T: Serialize>(
+    context: &str,
+    value: &T,
+) -> Result<ContentDigest, RemoteError> {
+    let json =
+        serde_json::to_value(value).map_err(|error| RemoteError::Canonical(error.to_string()))?;
+    let canonical = proof_canonical::canonicalize(&json)
+        .map_err(|error| RemoteError::Canonical(error.to_string()))?;
+    Ok(derive_key_digest(context, canonical.as_bytes()))
 }

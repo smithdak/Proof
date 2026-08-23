@@ -1030,7 +1030,9 @@ dependencies = [
 name = "proof-remote"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "blake3",
+ "ed25519-dalek",
  "proof-application",
  "proof-attestation",
  "proof-canonical",

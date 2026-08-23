@@ -14,12 +14,9 @@
 //! boundary ratified by the accepted
 //! [single-Workspace collaboration-server contract] and
 //! [ADR-0013]. Its types round-trip the closed JSON Schemas and vectors retained
-//! under `conformance/v1/collaboration-server/`.
-//!
-//! The bodies of the construction, canonicalization, signing, verification, and
-//! validation functions are intentionally stubbed with `todo!()`: this crate is
-//! the interface contract for the follow-up implementation swarm, so the type
-//! surface is complete and precise while the logic is added later.
+//! under `conformance/v1/collaboration-server/`, and its construction,
+//! canonicalization, signing, verification, digest, and validation functions are
+//! fully implemented and exercised by the `tests/` integration binaries.
 //!
 //! [single-Workspace collaboration-server contract]: https://proof.dev/docs/architecture/collaboration-server
 //! [ADR-0013]: https://proof.dev/docs/decisions/0013-single-workspace-collaboration-server
@@ -98,18 +95,21 @@ pub fn derive_key_digest(context: &str, canonical_bytes: &[u8]) -> ContentDigest
 }
 
 pub use authority::{
-    ActiveAuthorityKeyResolver, ParsedRemoteAuthorityRecordEnvelope,
-    REMOTE_AUTHORITY_RECORD_ENVELOPE_DIGEST_CONTEXT, REMOTE_AUTHORITY_RECORD_PAYLOAD_TYPE,
+    ActiveAuthorityKeyResolver, MAX_REMOTE_AUTHORITY_ENVELOPE_BYTES,
+    MAX_REMOTE_AUTHORITY_PAYLOAD_BYTES, ParsedRemoteAuthorityRecordEnvelope,
+    REMOTE_AUTHORITY_RECORD_DIGEST_CONTEXT, REMOTE_AUTHORITY_RECORD_ENVELOPE_DIGEST_CONTEXT,
+    REMOTE_AUTHORITY_RECORD_PAYLOAD_TYPE, REMOTE_AUTHORITY_SIGNATURE_COUNT,
     RemoteAuthorityRecordEnvelopeV1, RemoteAuthorityRecordV1, RemotePrincipalStatusV2,
     RemotePrincipalType, SignedRemoteAuthorityRecordEnvelope, VerifiedRemoteAuthorityRecord,
     VerifiedRemoteAuthorityRecordEnvelope, WorkspaceRole, WorkspaceRoleAssignmentV1,
-    WorkspaceRoleRevocationV1, parse_remote_authority_record_envelope,
+    WorkspaceRoleRevocationV1, parse_remote_authority_record_envelope, remote_authority_pae,
     sign_remote_authority_record, validate_chain, verify_remote_authority_record_envelope,
 };
 pub use governance::{
-    ApprovalPolicyV1, ChangeSetApprovalV1, DeliveryConfigurationV1, EnvironmentConfigActivationV1,
-    EnvironmentConfigProposalV1, EnvironmentConfigV2, EnvironmentCreationV1,
-    NormalizedEnvironmentConfigurationV1, validate_environment_config_v2,
+    ApprovalDecision, ApprovalPolicyV1, ChangeSetApprovalV1, DeliveryConfigurationV1,
+    ENVIRONMENT_CONFIG_DIGEST_CONTEXT, EnvironmentConfigActivationV1, EnvironmentConfigProposalV1,
+    EnvironmentConfigV2, EnvironmentCreationV1, NormalizedEnvironmentConfigurationV1,
+    validate_environment_config_v2,
 };
 pub use identity::{
     AUTHENTICATED_ACTOR_CONTEXT_EVIDENCE_DIGEST_CONTEXT, AgentSubjectV1,
@@ -119,20 +119,28 @@ pub use identity::{
     OidcPrincipalBindingPrivateV1, OidcPrincipalBindingRevocationV1, OidcPrincipalBindingV1,
     OidcSubjectCommitmentInputV1, OidcSubjectCommitmentOpeningV1, OperatingBindingReferenceV1,
     PUBLIC_OPERATION_INPUT_PROJECTION_DIGEST_CONTEXT, REMOTE_AUTHENTICATION_EVENT_DIGEST_CONTEXT,
-    REMOTE_NORMALIZED_OPERATION_INPUT_DIGEST_CONTEXT, RemoteAuthenticationEventV1,
+    REMOTE_NORMALIZED_OPERATION_INPUT_DIGEST_CONTEXT, RemoteAuthenticationEventV1, decode_blind,
+    encode_blind, generate_subject_commitment_blind, normalized_operation_input_digest,
+    oidc_discovery_metadata_digest, public_operation_input_projection_digest,
+    subject_commitment_digest,
 };
 pub use oracle::{
-    IdentityFixtureV1, OracleConsequence, OracleOutcome, OracleTraceV1, RemoteSemanticOracle,
-    StableProblem,
+    IdentityFixtureV1, OidcEnrollmentChallengeV1, OracleConsequence, OracleOutcome, OracleTraceV1,
+    RemoteSemanticOracle, StableProblem,
 };
 pub use registry::{
-    AGENT_AUTHORITY_REGISTRY_SHA256, AgentAuthorizationV1, AgentOperationProjectionV1,
-    ApplicationConsequenceOutcome, ApplicationKeyKind, AuthorizationDecisionKind,
-    COMPLETE_HTTP_OPERATION_REGISTRY_SHA256, DelegationEvaluationV1, EffectDigestRule,
+    AGENT_AUTHORITY_REGISTRY_SHA256, AUTHORIZATION_RESOURCE_BINDING_DIGEST_CONTEXT,
+    AgentAuthorizationV1, AgentOperationProjectionV1, ApplicationConsequenceOutcome,
+    ApplicationKeyKind, AuthorizationDecisionKind, COMPLETE_HTTP_OPERATION_REGISTRY_SHA256,
+    DELIVERY_MANAGEMENT_FACT_DIGEST_CONTEXT, DelegationEvaluationV1, EffectDigestRule,
     EffectTimestampField, EffectiveConstraintsV1, HttpRouteV1, HumanOperationRegistryV1,
-    OperatingBindingEvaluationV1, PrincipalStateV1, REMOTE_AUTHORIZATION_PROJECTION_SHA256,
-    RemoteApplicationConsequenceV1, RemoteAuthorizationDecisionV1, RequestedResourcesV1,
-    application_problem_digest_preimage, authorization_resource_binding_digest,
-    operation_effect_digest, remote_authorization_policy_selection_digest,
+    OPERATION_EFFECT_DIGEST_CONTEXT, OperatingBindingEvaluationV1, PrincipalStateV1,
+    REMOTE_AUTHORIZATION_POLICY_SELECTION_DIGEST_CONTEXT, REMOTE_AUTHORIZATION_PROJECTION_SHA256,
+    REQUESTED_AUTHORIZATION_RESOURCES_DIGEST_CONTEXT, RemoteApplicationConsequenceV1,
+    RemoteAuthorizationDecisionV1, RequestedResourcesV1, application_problem_digest_preimage,
+    authorization_resource_binding_digest, canonical_sha256_hex, classify_consequence_outcome,
+    cross_check_route_operation, effect_timestamp_field, operation_effect_digest, operation_major,
+    recompute_agent_authority_registry_sha256, recompute_complete_http_operation_registry_sha256,
+    recompute_remote_authorization_projection_sha256, remote_authorization_policy_selection_digest,
     requested_authorization_resources_digest,
 };
