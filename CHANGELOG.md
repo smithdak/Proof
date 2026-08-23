@@ -6,6 +6,16 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented the HTTP and OIDC server boundary (P-0011): the exact
+  nine-route HTTP surface with strict raw and canonical body limits,
+  route-qualified registry dispatch, the same-origin confidential OIDC BFF
+  with Authorization Code plus PKCE against a deterministic Ed25519 issuer,
+  opaque hashed-at-rest sessions with bounded lifetimes and revocation
+  convergence, the session-bound CSRF synchronizer with exact `Origin`
+  enforcement, dual Human-session plus Agent-command authentication,
+  per-row authorization with signed remote decisions and consequences
+  through the PostgreSQL unit of work, the exact 41-tuple Problem registry
+  with disclosure-neutral mapping, and the retained abuse matrix.
 - Implemented the PostgreSQL parity foundation (P-0010): the checksummed
   migration ledger with a singleton migrator, the serializable Workspace
   write-lane authoritative transaction with the twelve-step contract

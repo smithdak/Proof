@@ -1,7 +1,7 @@
 ---
 id: P-0011
 title: Implement the HTTP and OIDC server boundary
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0010]
@@ -240,5 +240,8 @@ commit `5248ea2ee43643933fc057dbf6bb3fbca7eece85`, qualified at
 [manifest](../evidence/P-0011/manifest.json), and
 [AC1-AC10 traceability matrix](../evidence/P-0011/traceability.md). Moved
 from `claimed` to `review` at `2026-08-23T23:19:51.900Z` under
-`review_gate: none`. No live provider, worker, preview, export, or
-deployment work is claimed by this item.
+`review_gate: none`, then to `done` at `2026-08-23T23:20:07.742Z` after the
+complete Linux gate recorded in the receipt. Successor P-0012 artifact
+outbox and private preview delivery is promoted to `ready`; no live
+provider, worker, preview, export, or deployment work is claimed by this
+completion.

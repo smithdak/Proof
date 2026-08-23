@@ -168,9 +168,10 @@ is project-owner accepted and ADR-0013 is Accepted. Its boundary requires a
 same-origin OIDC Human session plus the
 existing Agent signature, one serialized PostgreSQL authority unit, causal
 approval/configuration evidence, immutable artifact staging, and an
-at-least-once outbox. The first two dependency-ordered successors — P-0009
-remote actor and shared-contract conformance and P-0010 PostgreSQL parity
-foundation — are complete, and P-0011 HTTP and OIDC server boundary is
+at-least-once outbox. The first three dependency-ordered successors — P-0009
+remote actor and shared-contract conformance, P-0010 PostgreSQL parity
+foundation, and P-0011 HTTP and OIDC server boundary — are complete, and
+P-0012 artifact outbox and private preview delivery is
 promoted; no server, provider, or deployment choice
 is made yet. Its retained contract fixtures
 are decision examples, not evidence that a server route, database, provider,

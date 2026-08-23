@@ -1299,6 +1299,10 @@ PostgreSQL migration ledger, serializable unit of work with keyed
 idempotency and the savepoint rule, bounded retry and ambiguous-commit
 reconciliation, the artifact catalog, outbox enqueue, projection rebuild,
 the verified import, and byte-identical SQLite/PostgreSQL oracle traces.
+P-0011 has implemented the third successor: the nine-route HTTP surface,
+the same-origin OIDC BFF against a deterministic issuer, bounded sessions
+and CSRF, dual authentication, and the signed decision/consequence path
+through the PostgreSQL unit of work.
 The remaining successors above are unchanged.
 
 Only the first dependency-ready item is promoted after acceptance. SDKs,
