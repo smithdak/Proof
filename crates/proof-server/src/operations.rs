@@ -999,3 +999,111 @@ fn read_idempotency_prior(
         prior_result_digest: Some(prior_result_digest),
     })
 }
+
+// ---------------------------------------------------------------------------
+// P-0012 additive delivery and preview executor signatures (stubs).
+// ---------------------------------------------------------------------------
+
+/// `delivery.get/v1` — the typed transport projection of the exact mutable
+/// delivery state (contract §"Human and control operation registry",
+/// §"Transactional outbox and delivery").
+///
+/// # Errors
+///
+/// Returns [`ServerError`] on any authentication, authorization, storage, or
+/// projection failure.
+pub fn delivery_get_v1(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    let _ = (state, operation, normalized_input, actor_context, decision);
+    todo!("project the exact mutable delivery state through one unit of work")
+}
+
+/// `delivery.replay/v1` (`environment.admin`) — increments the generation,
+/// resets `attempts_in_generation`, and returns `pending` while preserving
+/// event, delivery, and payload identities and the append-only attempt history
+/// (contract §"Human and control operation registry", §"Immutable artifacts
+/// and delivery").
+///
+/// # Errors
+///
+/// Returns [`ServerError`] on any authentication, authorization, storage, or
+/// replay failure.
+pub fn delivery_replay_v1(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    let _ = (state, operation, normalized_input, actor_context, decision);
+    todo!(
+        "append a DeliveryManagementFactV1, increment the generation, reset attempts_in_generation, and return pending through one unit of work"
+    )
+}
+
+/// `delivery.abandon/v1` (`environment.activator`) — keeps the current
+/// generation, records null `to_generation`, and sets terminal `abandoned`
+/// (contract §"Human and control operation registry", §"Immutable artifacts
+/// and delivery").
+///
+/// # Errors
+///
+/// Returns [`ServerError`] on any authentication, authorization, storage, or
+/// abandonment failure.
+pub fn delivery_abandon_v1(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    let _ = (state, operation, normalized_input, actor_context, decision);
+    todo!("append a DeliveryManagementFactV1 and set terminal abandoned through one unit of work")
+}
+
+/// Exact private preview object projection (contract §"Preview delivery").
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreviewObjectResultV1 {
+    /// Release identity (UUIDv7).
+    pub release_id: String,
+    /// Exact Release digest.
+    pub release_digest: ContentDigest,
+    /// Exact Edition digest.
+    pub edition_digest: ContentDigest,
+    /// Exact rendition digest.
+    pub rendition_digest: ContentDigest,
+    /// Strong HTTP ETag over the immutable manifest digest.
+    pub etag: String,
+    /// Exact `private, no-store` cache control.
+    pub cache_control: &'static str,
+    /// The exact immutable Release snapshot projection body.
+    pub body: Value,
+}
+
+/// The preview route serving signature: exact JSON only after that Release's
+/// ready marker exists, identifying Release ID/digest, Edition digest, and
+/// rendition digest, with a strong ETag and `Cache-Control: private,
+/// no-store`, no locale fallback, no renderer, no template engine, no
+/// arbitrary fetch (contract §"Preview delivery").
+///
+/// # Errors
+///
+/// Returns [`ServerError`] when the ready manifest is absent, the snapshot
+/// fails verification, or the projection cannot be built.
+pub fn serve_preview_object(
+    state: &AppState,
+    environment: &str,
+    release_id: &str,
+    object_id: &str,
+    locale: &str,
+) -> Result<PreviewObjectResultV1, ServerError> {
+    let _ = (state, environment, release_id, object_id, locale);
+    todo!(
+        "serve the exact immutable Release snapshot once its ready marker exists; no locale fallback, no renderer"
+    )
+}

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AuthorityHeadV1, RemoteError, authority::REMOTE_AUTHORITY_RECORD_DIGEST_CONTEXT,
-    derive_key_digest,
+    derive_key_digest, registry::DELIVERY_MANAGEMENT_FACT_DIGEST_CONTEXT,
 };
 
 /// BLAKE3-256 derive-key context for `environment_config_digest` and
@@ -575,6 +575,78 @@ pub fn validate_environment_config_v2(config: &EnvironmentConfigV2) -> Result<()
     }
 
     Ok(())
+}
+
+api_version!(
+    DeliveryManagementFactApiVersion,
+    "proof.dev/delivery-management-fact/v1"
+);
+
+/// The closed delivery-management action (`replay`/`abandon`).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryManagementAction {
+    Replay,
+    Abandon,
+}
+
+/// Immutable delivery-management fact (schema `deliveryManagementFactV1`).
+///
+/// Replay by `environment.admin` or abandonment by `environment.activator`
+/// appends exactly one of these facts, digested under
+/// `proof:delivery-management-fact:v1`. It is deliberately NOT a
+/// [`RemoteAuthorityRecordV1`](crate::authority::RemoteAuthorityRecordV1)
+/// payload: the signed
+/// [`RemoteAuthorizationDecisionV1`](crate::registry::RemoteAuthorizationDecisionV1)
+/// authorizes it and the successful signed
+/// [`RemoteApplicationConsequenceV1`](crate::registry::RemoteApplicationConsequenceV1)
+/// binds its exact digest in `application_effect_digest` (contract §"Immutable
+/// artifacts and delivery").
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryManagementFactV1 {
+    pub api_version: DeliveryManagementFactApiVersion,
+    /// Workspace identity (UUIDv7).
+    pub workspace_id: String,
+    /// Fact identity (UUIDv7).
+    pub fact_id: String,
+    pub action: DeliveryManagementAction,
+    /// Outbox event identity (UUIDv7).
+    pub event_id: String,
+    /// Stable delivery identity (UUIDv7).
+    pub delivery_id: String,
+    /// The generation this fact governs.
+    pub generation: u64,
+    /// Replay target generation; `null` for abandonment.
+    pub to_generation: Option<u64>,
+    /// Acting Principal identity (UUIDv7).
+    pub actor_principal_id: String,
+    #[serde(with = "crate::serde_support::display_string")]
+    pub actor_context_digest: ContentDigest,
+    /// Governing decision identity (UUIDv7).
+    pub decision_id: String,
+    #[serde(with = "crate::serde_support::display_string")]
+    pub decision_digest: ContentDigest,
+    #[serde(with = "crate::serde_support::display_string")]
+    pub consequence_digest: ContentDigest,
+    pub evaluated_authority_head: AuthorityHeadV1,
+    #[serde(with = "crate::serde_support::display_string")]
+    pub recorded_at: Timestamp,
+    pub authority_sequence: u64,
+    #[serde(with = "crate::serde_support::display_string")]
+    pub previous_authority_record_digest: ContentDigest,
+    pub authority_key_id: String,
+}
+
+impl DeliveryManagementFactV1 {
+    /// Computes the `proof:delivery-management-fact:v1` digest of this fact.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RemoteError::Canonical`] when the fact cannot be canonicalized.
+    pub fn digest(&self) -> Result<ContentDigest, RemoteError> {
+        canonical_derive_key_digest(DELIVERY_MANAGEMENT_FACT_DIGEST_CONTEXT, self)
+    }
 }
 
 /// Computes a domain-separated BLAKE3-256 digest over the strict RFC 8785

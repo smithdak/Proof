@@ -5,6 +5,7 @@ members = [
     "crates/proof-attestation",
     "crates/proof-canonical",
     "crates/proof-cli",
+    "crates/proof-delivery",
     "crates/proof-domain",
     "crates/proof-local",
     "crates/proof-mcp",

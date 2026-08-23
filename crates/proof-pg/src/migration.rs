@@ -495,3 +495,87 @@ pub fn session_boundary_migration_v2() -> MigrationScriptV1 {
         SESSION_BOUNDARY_V2_DDL,
     )
 }
+
+// ---------------------------------------------------------------------------
+// Additive v3 delivery-state migration (declared for `proof-delivery`).
+// ---------------------------------------------------------------------------
+
+/// The additive delivery-state migration version (contract §"Migration and
+/// projection rebuild", §"Transactional outbox and delivery").
+///
+/// The P-0010 base schema (see [`crate::schema::ALL_TABLE_DDL`]) is migration
+/// version 1 and the `proof-server` session boundary is version 2. The
+/// `proof-delivery` crate owns this minimal additive migration constant and
+/// version bump: it advances the immutable ledger to version 3 with the
+/// mutable per-generation delivery state, append-only delivery attempts, and
+/// immutable delivery-management facts its worker and preview boundary
+/// require. The integrator drives it through
+/// [`run_expand_backfill_verify_cutover`]; this crate only declares it.
+pub const DELIVERY_STATE_MIGRATION_VERSION: u32 = 3;
+
+/// Stable migration name for the additive v3 delivery state.
+pub const DELIVERY_STATE_MIGRATION_NAME: &str = "delivery-state-attempts-management-facts";
+
+/// Exact additive v3 DDL: mutable per-generation delivery state, append-only
+/// delivery attempts, and immutable delivery-management facts (contract
+/// §"Transactional outbox and delivery", §"Preview delivery").
+///
+/// All three tables are ordinary LOGGED storage; none is `UNLOGGED`. The
+/// delivery state stores only a hash of the random lease token, never the raw
+/// token. The mutable alias and the preview filesystem live in the
+/// `proof-delivery` crate, not in this migration.
+pub const DELIVERY_STATE_V3_DDL: &str = r"CREATE TABLE delivery_state (
+    event_id TEXT NOT NULL,
+    delivery_id TEXT NOT NULL,
+    generation BIGINT NOT NULL CHECK (generation > 0),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'in-flight', 'delivered', 'dead-letter', 'abandoned')),
+    next_attempt_at TIMESTAMPTZ,
+    attempts_in_generation BIGINT NOT NULL DEFAULT 0 CHECK (attempts_in_generation >= 0),
+    lease_token_hash TEXT,
+    lease_expires_at TIMESTAMPTZ,
+    receipt_digest TEXT,
+    generation_started_at TIMESTAMPTZ NOT NULL,
+    committed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (event_id, delivery_id, generation)
+);
+
+CREATE TABLE delivery_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    delivery_id TEXT NOT NULL,
+    generation BIGINT NOT NULL CHECK (generation > 0),
+    attempt_number BIGINT NOT NULL CHECK (attempt_number > 0),
+    lease_token_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempted_at TIMESTAMPTZ NOT NULL,
+    terminal_at TIMESTAMPTZ,
+    UNIQUE (event_id, delivery_id, generation, attempt_number)
+);
+
+CREATE TABLE delivery_management_facts (
+    fact_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    delivery_id TEXT NOT NULL,
+    generation BIGINT NOT NULL CHECK (generation > 0),
+    action TEXT NOT NULL CHECK (action IN ('replay', 'abandon')),
+    fact_digest TEXT NOT NULL UNIQUE,
+    payload BYTEA NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL
+);";
+
+/// Constructs the additive v3 delivery-state migration script.
+///
+/// This binds [`DELIVERY_STATE_MIGRATION_VERSION`],
+/// [`DELIVERY_STATE_MIGRATION_NAME`], and [`DELIVERY_STATE_V3_DDL`] into an
+/// immutable, checksummed [`MigrationScriptV1`] whose exact-bytes digest is
+/// domain-separated under
+/// [`MIGRATION_SCRIPT_DIGEST_CONTEXT`](crate::migration::MIGRATION_SCRIPT_DIGEST_CONTEXT).
+#[must_use]
+pub fn delivery_state_migration_v3() -> MigrationScriptV1 {
+    MigrationScriptV1::new(
+        DELIVERY_STATE_MIGRATION_VERSION,
+        DELIVERY_STATE_MIGRATION_NAME,
+        DELIVERY_STATE_V3_DDL,
+    )
+}

@@ -1382,6 +1382,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-delivery"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "getrandom 0.4.3",
+ "proof-attestation",
+ "proof-canonical",
+ "proof-domain",
+ "proof-pg",
+ "proof-remote",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "proof-domain"
 version = "0.1.0"
 dependencies = [

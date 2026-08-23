@@ -107,6 +107,7 @@ pub use authority::{
 };
 pub use governance::{
     ApprovalDecision, ApprovalPolicyV1, ChangeSetApprovalV1, DeliveryConfigurationV1,
+    DeliveryManagementAction, DeliveryManagementFactApiVersion, DeliveryManagementFactV1,
     ENVIRONMENT_CONFIG_DIGEST_CONTEXT, EnvironmentConfigActivationV1, EnvironmentConfigProposalV1,
     EnvironmentConfigV2, EnvironmentCreationV1, NormalizedEnvironmentConfigurationV1,
     validate_environment_config_v2,
