@@ -20,7 +20,8 @@ Project owner `smithdak` accepted P-0008 candidate `c461b1b`, bound by
 decision evidence `4ac62e9`, at `2026-08-23T17:48:11.461Z`. ADR-0013 is
 Accepted. P-0009 remote actor and shared-contract conformance is complete
 with candidate `3e38f30`, and P-0010 PostgreSQL parity foundation is the
-promoted Milestone 3 implementation frontier. No collaboration-server
+promoted and claimed Milestone 3 implementation frontier. No
+collaboration-server
 implementation, provider, deployment, or live remote result is claimed yet.
 
 ## Operating notes
@@ -70,7 +71,7 @@ implementation, provider, deployment, or live remote result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the PostgreSQL parity foundation](items/P-0010-postgresql-parity-foundation.md) | `ready` | P-0009 | Implement the checksummed migration ledger, the serializable Workspace write-lane authoritative transaction with keyed idempotency and the savepoint rule, bounded retry and ambiguous-commit reconciliation, the artifact catalog with atomic PostgreSQL storage of fork-capable signed bytes, outbox enqueue, projection generation swaps, the verified SQLite-to-PostgreSQL import, and the shared oracle runner with byte-identical SQLite/PostgreSQL traces. |
+| [Implement the PostgreSQL parity foundation](items/P-0010-postgresql-parity-foundation.md) | `claimed` | P-0009 | Implement the checksummed migration ledger, the serializable Workspace write-lane authoritative transaction with keyed idempotency and the savepoint rule, bounded retry and ambiguous-commit reconciliation, the artifact catalog with atomic PostgreSQL storage of fork-capable signed bytes, outbox enqueue, projection generation swaps, the verified SQLite-to-PostgreSQL import, and the shared oracle runner with byte-identical SQLite/PostgreSQL traces. |
 
 ## Next
 

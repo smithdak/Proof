@@ -1,13 +1,13 @@
 ---
 id: P-0010
 title: Implement the PostgreSQL parity foundation
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0009]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: deepseek:proof:p-0010
+claimed_at: 2026-08-23T19:21:15.237Z
+base_sha: 559ef7cb39b557b7ebf0a57053b93e21592196c8
 review_gate: none
 accepted_by: null
 accepted_at: null
@@ -212,5 +212,9 @@ matrix.
 
 Ready at `2026-08-23T19:21:12.000Z` after P-0009 candidate
 `3e38f30b95086162816360e68ca9917cf0d06d9b` closed with Engineering evidence
-commit `89e74c381c5cd486cbfab3762c85ba0fad258e3f`. Not claimed. No HTTP,
-OIDC, worker, preview, or deployment work is claimed by this promotion.
+commit `89e74c381c5cd486cbfab3762c85ba0fad258e3f`.
+
+Claimed by `deepseek:proof:p-0010` at `2026-08-23T19:21:15.237Z` from
+P-0009 completion commit `559ef7cb39b557b7ebf0a57053b93e21592196c8`
+on `proof-architecture/p-0008-collaboration-server-contract`. No HTTP,
+OIDC, worker, preview, or deployment work is claimed by this item.
