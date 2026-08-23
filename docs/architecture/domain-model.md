@@ -210,7 +210,7 @@ Environment configuration is versioned and includes:
 The current Release pointer is a derived projection of immutable Release facts,
 not an administrator-editable member of a configuration artifact.
 
-**Proposed P-0008 profile:** `EnvironmentConfigV2` retains immutable creation
+**Accepted P-0008 profile:** `EnvironmentConfigV2` retains immutable creation
 actor/time/causal position, predecessor configuration, policy and separation
 rules, and distinct proposal/activation facts. It never embeds a mutable
 current-Release value. `ChangeSetApprovalV1` is the authoritative remote review
@@ -383,9 +383,9 @@ the selected trust policy can validate them without disclosure. A pinned
 authority head proves the supplied prefix boundary, not that the supplied
 Release is globally latest or the true immediate same-Environment Release.
 
-## Proposed P-0008 remote collaboration types
+## Accepted P-0008 remote collaboration types
 
-The proposed server profile adds `OidcAuthenticatedSubjectV1`,
+The accepted server profile adds `OidcAuthenticatedSubjectV1`,
 `OidcPrincipalBindingV1`, `RemoteAuthenticationEventV1`,
 `AuthenticatedActorContextV2`, `WorkspaceRoleAssignmentV1`,
 `WorkspaceRoleRevocationV1`, `ChangeSetApprovalV1`, `EnvironmentConfigV2`,

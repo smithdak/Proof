@@ -1,14 +1,14 @@
-# Proposed single-Workspace collaboration-server contract
+# Accepted single-Workspace collaboration-server contract
 
-**Status:** Proposed for P-0008 project-owner review
+**Status:** Accepted — ratified for P-0008 by project owner `smithdak` at `2026-08-23T17:48:11.461Z`
 **Profile:** `proof.server/single-workspace/v1`
 **Date:** 2026-08-23
 
 > This document is a decision contract, not an implementation claim. No server,
 > PostgreSQL schema, identity-provider connection, worker, preview host, or
-> deployment exists because of this proposal. The local contracts and accepted
-> P-0006 evidence remain authoritative until the project owner accepts P-0008
-> and later implementation items qualify this profile.
+> deployment exists because of this acceptance. The local contracts and accepted
+> P-0006 evidence remain authoritative until later implementation items qualify
+> this profile.
 
 ## Decision and bounded guarantee
 
@@ -1270,9 +1270,9 @@ or stable team/deployment ownership—not speculation.
 
 ## Successor order after owner acceptance
 
-No implementation successor exists or becomes ready while P-0008 is in review.
-After explicit project-owner acceptance, create only decision-complete items in
-this dependency order:
+No implementation successor existed or became ready while P-0008 was in
+review. After owner acceptance, create only decision-complete items in
+this dependency order, promoting one at a time:
 
 1. **Remote actor and shared contract conformance:** implement the remote Human
    binding/context, causal approval/configuration contracts, registries, and a
@@ -1323,7 +1323,7 @@ PostgreSQL major version an accepted implementation choice.
 
 ## Decision record and reopen conditions
 
-The proposed durable decision is [ADR-0013](../decisions/0013-single-workspace-collaboration-server.md).
+The accepted durable decision is [ADR-0013](../decisions/0013-single-workspace-collaboration-server.md).
 Reopen it before implementation if the first remote Agent must run unattended,
 more than one issuer or Workspace is required, public/anonymous preview enters
 scope, approval needs quorum/revocation/multiple stages, arbitrary webhook

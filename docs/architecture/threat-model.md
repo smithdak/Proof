@@ -102,16 +102,16 @@ predecessor can authorize an attacker successor or fork. Trust stops at the last
 independently pinned pre-compromise checkpoint; recovery needs a future explicit
 trust epoch/re-anchor rather than ordinary rotation.
 
-### Proposed P-0008 server trust boundary
+### Accepted P-0008 server trust boundary
 
-P-0008 proposes, but does not implement, one configured Workspace behind a
+The accepted P-0008 contract specifies, but does not implement, one configured Workspace behind a
 same-origin OIDC Backend for Frontend. Direct Human calls require a live opaque
 server session. Agent calls additionally require the accepted single-use Agent
 signature; the Human session derives the requester and the Agent binding derives
 the operator. Neither request identifiers, Delegation, OIDC groups, forwarded
 headers, nor the connection may select identity, Workspace, or authority.
 
-The proposed network path adds these adversaries and controls:
+The network path adds these adversaries and controls:
 
 - an unauthenticated network attacker or hostile proxy is bounded by TLS,
   trusted-proxy allowlisting, strict JSON/Schemas/limits, and rejection of every

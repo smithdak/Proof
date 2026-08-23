@@ -164,12 +164,13 @@ under explicit caller trust. See the accepted
 **Outcome:** A team can review, approve, publish, and verify changes remotely while preserving local semantics.
 
 **Status:** [P-0008](../work/items/P-0008-ratify-collaboration-server-contract.md)
-has a proposed single-Workspace decision candidate awaiting project-owner
-review. Its boundary requires a same-origin OIDC Human session plus the
+is project-owner accepted and ADR-0013 is Accepted. Its boundary requires a
+same-origin OIDC Human session plus the
 existing Agent signature, one serialized PostgreSQL authority unit, causal
 approval/configuration evidence, immutable artifact staging, and an
-at-least-once outbox. Project-owner acceptance is pending; no server
-implementation or provider choice is promoted. Its retained contract fixtures
+at-least-once outbox. The first dependency-ordered successor, P-0009 remote
+actor and shared-contract conformance, is promoted; no server implementation
+or provider choice is made yet. Its retained contract fixtures
 are decision examples, not evidence that a server route, database, provider,
 worker, or deployment exists or passes qualification.
 

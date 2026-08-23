@@ -9,8 +9,9 @@ It treats content mutation as a governed transaction. Every proposed change has 
 ## Project status
 
 **Milestones 1 and 2 complete — local proof loop plus bounded local Linux
-Agent authority. P-0008 has a proposed collaboration-server decision candidate;
-project-owner ratification and implementation remain pending.**
+Agent authority. P-0008 is project-owner accepted; P-0009 remote actor and
+shared-contract conformance is the promoted Milestone 3 implementation
+frontier.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -36,10 +37,12 @@ latest or true immediate same-Environment Release. The accepted Linux
 qualification runs the signer and clean verifier under a distinct UID with only
 the bounded broker or read-only evidence inputs. Mutually hostile same-UID
 isolation, Windows runtime containment, server execution, deployment, and a
-public release remain unqualified. P-0008 has a proposed single-Workspace
+public release remain unqualified. P-0008 has an accepted single-Workspace
 server boundary for OIDC Human sessions, dual Human-plus-Agent requests,
 PostgreSQL parity, causal approval, at-least-once preview delivery, and remote
-evidence; it is a decision candidate, not an implemented capability.
+evidence; it is a ratified decision contract, not an implemented capability.
+P-0009 implements the remote actor and shared-contract conformance foundation
+that every later server adapter consumes.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -54,7 +57,7 @@ qualification or a published Windows support claim.
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
 | Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 server not implemented |
-| Milestone 3 contract | Proposed P-0008 decision candidate; project-owner ratification pending |
+| Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23); first successor P-0009 promoted |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 

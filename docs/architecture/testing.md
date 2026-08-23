@@ -63,7 +63,7 @@ authority/Release key, ambient CLI, or network-resolution access; the verifier
 receives no private key. Server tests will run the same scenarios over HTTP
 after the Milestone 3 contract is ratified.
 
-### Proposed P-0008 local/server conformance
+### Accepted P-0008 local/server conformance
 
 P-0008 separates three evidence classes: retained local executable evidence,
 decision-contract Schemas/vectors validated with the proposal, and future
@@ -78,7 +78,7 @@ requirements. A runtime `RemoteVerificationReportV2` is the general closed
 outcome type; the exact three-scenario `conformanceReport` is its narrower
 qualification subtype.
 
-The proposed server matrix requires:
+The server matrix requires:
 
 - local and HTTP adapters to normalize to the same operation input, result,
   Problem, state digest, and evidence consequence for every accepted and
@@ -104,7 +104,7 @@ The proposed server matrix requires:
   ready producer state.
 
 No row is considered passed until its later implementation successor runs the
-test. The normative proposed matrix is in the
+test. The normative matrix is in the
 [collaboration-server contract](collaboration-server.md).
 
 ### Security tests

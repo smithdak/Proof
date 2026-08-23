@@ -1,8 +1,9 @@
 # ADR-0013: Begin remote collaboration with one Workspace and one server
 
-**Status:** Proposed
+**Status:** Accepted
 **Constitutional:** No
 **Date:** 2026-08-23
+**Last revised:** 2026-08-23 — accepted by project owner `smithdak` at `2026-08-23T17:48:11.461Z`; first successor promoted
 
 ## Context
 
@@ -440,9 +441,11 @@ profiles as the Milestone 3 server boundary.
 - A server-produced evidence bundle remains untrusted until evaluated against
   independent caller inputs. Running the producer remotely does not strengthen
   freshness or latest-history claims by itself.
-- This Proposed decision authorizes no implementation successor, provider
+- This decision authorized no implementation successor, provider
   provisioning, deployment, or production mutation before project-owner
-  acceptance.
+  acceptance. Acceptance promoted only the first dependency-ordered successor,
+  P-0009 remote actor and shared-contract conformance; later successors are
+  created in the accepted order as their blockers close.
 
 ## Explicit nonclaims
 

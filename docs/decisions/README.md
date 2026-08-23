@@ -26,7 +26,7 @@ Architecture decision records preserve the context and consequences of durable c
 | [0010](0010-dual-era-mcp.md) | Prefer stateless MCP 2026 while retaining legacy initialization | Accepted |
 | [0011](0011-local-agent-command-authentication.md) | Authenticate local Agent commands with bound Ed25519 credentials | Accepted |
 | [0012](0012-localized-object-renditions.md) | Represent localization as subordinate Object renditions | Accepted |
-| [0013](0013-single-workspace-collaboration-server.md) | Begin remote collaboration with one Workspace and one server | Proposed |
+| [0013](0013-single-workspace-collaboration-server.md) | Begin remote collaboration with one Workspace and one server | Accepted |
 
 ## Template
 

@@ -16,10 +16,12 @@ caller trust, and distinct-UID broker containment. It does not qualify a
 collaboration server, HTTP/PostgreSQL parity, Windows runtime, deployment, or
 public release.
 
-P-0008 candidate `c461b1b`, bound by decision evidence `4ac62e9`, is
-decision-qualified and awaiting project-owner review. ADR-0013 remains
-Proposed, the successor count remains zero, and no collaboration-server
-implementation, provider, deployment, or live remote result is claimed.
+Project owner `smithdak` accepted P-0008 candidate `c461b1b`, bound by
+decision evidence `4ac62e9`, at `2026-08-23T17:48:11.461Z`. ADR-0013 is
+Accepted and the contract's first dependency-ordered implementation
+successor, P-0009 remote actor and shared-contract conformance, is promoted
+to `ready`. No collaboration-server implementation, provider, deployment, or
+live remote result is claimed yet.
 
 ## Operating notes
 
@@ -68,21 +70,23 @@ implementation, provider, deployment, or live remote result is claimed.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `review` | P-0006 | Review the exact remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance decision candidate and residuals. |
+| [Implement the remote actor and shared-contract conformance foundation](items/P-0009-remote-actor-shared-contract-conformance.md) | `ready` | P-0008 | Implement the versioned remote authority payloads, actor contexts and subject commitments, causal approval and Environment configuration closures, the closed registries with their frozen hashes, and the deterministic local/server semantic oracle, with executable conformance vectors and no live provider. |
 
 ## Next
 
-No implementation item is promoted. P-0008 candidate `c461b1b`, bound by
-decision evidence `4ac62e9`, awaits project-owner disposition. No framework,
-database, identity, worker, SDK, console, provider, or deployment work becomes
-claimable before that acceptance.
+Only P-0009 is promoted. The accepted contract names the remaining
+successors — PostgreSQL parity foundation, HTTP/OIDC server boundary,
+artifact/outbox/private preview, and remote evidence and Milestone 3
+qualification — but none is created or promoted before P-0009 closes. No
+framework, database, identity, worker, SDK, console, provider, or deployment
+work becomes claimable before that closure.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | P-0008 is decision-qualified in owner review; no successor exists or is promoted. |
+| None | n/a | n/a | P-0009 is the promoted first successor; later successors are named by the accepted contract but not yet created. |
 
 ## Completed
 
@@ -95,6 +99,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `done` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
 | [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `done` | P-0005 | Qualified and accepted the bounded local Linux Agent loop, portable closure, independent verifier, and distinct-UID containment. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
+| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `done` | P-0006 | Ratified the exact remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance contract; ADR-0013 Accepted; P-0009 promoted. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
 is accepted as `done` through Assurance record `29ad9d9`. Historical
@@ -112,8 +117,10 @@ Linux gate and was accepted with its bounded residual risks by project owner
 
 P-0001 closed baseline qualification. P-0002 and P-0003 are closed product and
 architecture decisions. P-0008 candidate `c461b1b`, bound by decision evidence
-`4ac62e9`, is qualified but remains Proposed pending owner disposition; later
-accepted decision results accumulate here.
+`4ac62e9`, was accepted by project owner `smithdak` at
+`2026-08-23T17:48:11.461Z`; ADR-0013 is Accepted and the first dependency-ordered
+implementation successor is promoted. Later accepted decision results
+accumulate here.
 
 ### Ratified P-0002 profile
 
@@ -167,10 +174,11 @@ claims remain outside the bounded result.
 
 ## Fog — not yet specifiable as implementation
 
-- P-0008 owns the collaboration-server contract and successor decomposition.
-  HTTP/server framework, PostgreSQL adapter and migrations, OIDC Human identity
-  and sessions, artifact storage, outbox/workers, SDKs, console, and preview
-  delivery remain unnamed implementation items until that decision is accepted.
+- P-0009 owns the remote actor and shared-contract conformance foundation.
+  The accepted contract names the remaining successors — PostgreSQL parity,
+  HTTP/OIDC boundary, artifact/outbox/private preview, and remote evidence
+  qualification — but their items, framework, provider, and deployment
+  choices remain uncreated until P-0009 closes and the next is promoted.
 - Environment configuration update, disablement, and signing-key lifecycle.
 - P-0006 hardening beyond the accepted claim: global-latest Release
   transparency, chronology-bearing Environment and approval successors,
@@ -187,7 +195,7 @@ claims remain outside the bounded result.
 
 ## Out of scope for this destination
 
-- Milestone 3 implementation before P-0008 ratifies its contracts and ordering.
+- Milestone 3 successors beyond the promoted P-0009 before it closes.
 - Enterprise federation/provisioning and SCIM, workload identity, KMS/HSM,
   high availability, backup, and disaster recovery.
 - Public release, package publication, push, tag, or license selection.
@@ -195,6 +203,6 @@ claims remain outside the bounded result.
   and other deliberate product deferrals.
 
 The strongest rejected route is starting Axum, SQLx/PostgreSQL, an IdP, or a
-web console now. That would freeze transport, identity, transaction, and
-collaboration semantics before P-0008 establishes the shared local/server
-contract and conformance boundary.
+web console before P-0009's remote actor and semantic-oracle foundation
+closes. That would freeze transport, identity, transaction, and collaboration
+implementations before the shared local/server conformance boundary exists.

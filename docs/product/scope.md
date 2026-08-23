@@ -36,12 +36,12 @@ producing Workspace, private keys, or network resolution. That bounded result
 does not supply locale fallback, a collaboration server, cross-platform
 containment, deployment, or public release.
 
-**Proposed P-0008 Milestone 3 boundary:** The first collaboration server is one
+**Accepted P-0008 Milestone 3 boundary:** The first collaboration server is one
 Workspace with multiple remote Human Principals and one bounded Agent. It keeps
 the exact-locale, one-ChangeSet Edition/Release, and portable-trust semantics
 above; a server adapter cannot add fallback, UI-owned workflow, ambient
-publication, or producer-selected verifier trust. This remains a proposed
-contract, not implemented scope.
+publication, or producer-selected verifier trust. This remains an accepted
+decision contract, not implemented scope.
 
 ### Change and publication
 

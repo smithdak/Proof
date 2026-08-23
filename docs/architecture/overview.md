@@ -190,7 +190,7 @@ this local file-backed one.
 
 The same conformance suite must pass in both modes. Storage-specific behavior cannot leak into domain semantics.
 
-**Proposed P-0008 first server profile:** The exact bounded topology and
+**Accepted P-0008 first server profile:** The exact bounded topology and
 transaction semantics are in the
 [collaboration-server contract](collaboration-server.md). One deployment fixes
 one Workspace, uses a same-origin OIDC Human session plus the existing Agent
@@ -200,7 +200,7 @@ authority-neutral blobs, stores fork-capable signed bytes atomically in
 PostgreSQL, and exposes external mirrors/effects only from a committed
 at-least-once outbox. Workload identity, managed key custody, multiple
 Workspaces, provider selection, and deployment remain later work. This is a
-proposed decision, not implemented server parity.
+accepted decision, not implemented server parity.
 
 ## Extension model
 

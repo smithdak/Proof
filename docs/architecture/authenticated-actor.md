@@ -735,9 +735,9 @@ producer supplied the latest or complete authority history. Even with the
 expected authority head, the bundle does not prove that its Release is globally
 latest or the true immediate same-Environment Release.
 
-## Proposed P-0008 remote actor successor
+## Accepted P-0008 remote actor successor
 
-P-0008 does not widen the local v1 types. The proposed server profile adds an
+P-0008 does not widen the local v1 types. The accepted server profile adds an
 `AuthenticatedActorContextV2` derived only by an identity adapter. Its
 Human-only form binds one preconfigured OIDC `{issuer, subject}` through a
 versioned `OidcPrincipalBindingV1`; its Agent form independently combines that

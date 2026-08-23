@@ -133,9 +133,9 @@ OAuth/OIDC, SPIFFE, JOSE access tokens, platform attestation, and KMS/HSM-backed
 credentials remain future identity-adapter choices. They do not alter the
 application actor-context contract or make transport/session metadata authority.
 
-## Proposed P-0008 server standards profile
+## Accepted P-0008 server standards profile
 
-P-0008 proposes one same-origin confidential OIDC Backend for Frontend. Its
+P-0008 fixes one same-origin confidential OIDC Backend for Frontend. Its
 exact issuer/subject/audience/time/signature checks follow
 [OpenID Connect Core 1.0, second errata](https://openid.net/specs/openid-connect-core-1_0-errata2.html)
 and [Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html).
@@ -164,7 +164,7 @@ coordination, durability settings, and nontransactional index phases use
 [WAL configuration](https://www.postgresql.org/docs/18/runtime-config-wal.html),
 and [`CREATE INDEX CONCURRENTLY`](https://www.postgresql.org/docs/18/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY).
 These references constrain a future adapter without selecting a provider or
-claiming server implementation. The complete proposed profile is the
+claiming server implementation. The complete accepted profile is the
 [collaboration-server contract](../architecture/collaboration-server.md).
 
 ## Proof artifact profile

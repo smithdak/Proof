@@ -53,9 +53,9 @@ The controlled HTTPS problem-type URI is finalized before the first public compa
 
 HTTP adds `status`; local interfaces may omit it when no transport status exists. `detail`, `instance`, and extension fields are problem-specific.
 
-## Proposed P-0008 HTTP projection
+## Accepted P-0008 HTTP projection
 
-The proposed collaboration server defines a versioned, disclosure-neutral HTTP
+The accepted collaboration-server contract defines a versioned, disclosure-neutral HTTP
 projection. It preserves a stable post-authentication application code as the
 public `code` when that code is safe for the exact row, but deliberately
 collapses unknown issuer/subject/binding/key, invalid token/signature, disabled
@@ -173,7 +173,7 @@ always expires the HttpOnly cookie, and converges on `200` with
 
 Before identity or Agent proof, unknown issuer, subject, key, binding, and
 invalid token/signature all project to `proof.auth.denied`. Protected audit
-evidence may retain the exact reason. This proposed mapping is a decision
+evidence may retain the exact reason. This mapping is a decision
 contract only; P-0008 implements no HTTP endpoint.
 
 ## Findings
@@ -200,14 +200,14 @@ An error-level finding blocks the current transition. Warnings never conceal blo
 - `proof.input.invalid_json`
 - `proof.input.schema_mismatch`
 - `proof.input.too_large`
-- `proof.input.unsupported_media_type` (proposed P-0008 HTTP projection)
+- `proof.input.unsupported_media_type` (accepted P-0008 HTTP projection)
 - `proof.input.unsupported_version`
 
 ### Authentication and authority
 
 - `proof.auth.unauthenticated`
 - `proof.auth.denied`
-- `proof.auth.csrf_denied` (proposed P-0008 HTTP projection)
+- `proof.auth.csrf_denied` (accepted P-0008 HTTP projection)
 - `proof.delegation.expired`
 - `proof.delegation.revoked`
 - `proof.delegation.scope_exceeded`
@@ -394,15 +394,15 @@ reserve a successful idempotency result.
 - `proof.signature.untrusted_key`
 - `proof.evidence.incomplete`
 - `proof.artifact.unsupported_algorithm`
-- `proof.integrity.failure` (proposed P-0008 disclosure-neutral server stop)
+- `proof.integrity.failure` (accepted P-0008 disclosure-neutral server stop)
 
 ### Availability and internal
 
 - `proof.dependency.unavailable`
-- `proof.rate_limit.exceeded` (proposed P-0008 HTTP adapter control)
+- `proof.rate_limit.exceeded` (accepted P-0008 HTTP adapter control)
 - `proof.operation.timeout`
-- `proof.operation.unknown_outcome` (proposed P-0008 ambiguous commit result)
-- `proof.storage.conflict` (proposed P-0008 exhausted serializable retry)
+- `proof.operation.unknown_outcome` (accepted P-0008 ambiguous commit result)
+- `proof.storage.conflict` (accepted P-0008 exhausted serializable retry)
 - `proof.operation.cancelled`
 - `proof.internal`
 

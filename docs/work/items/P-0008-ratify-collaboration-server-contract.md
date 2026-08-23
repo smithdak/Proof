@@ -1,7 +1,7 @@
 ---
 id: P-0008
 title: Ratify the single-Workspace Milestone 3 collaboration-server contract
-status: review
+status: done
 wave: now
 kind: decision
 blocked_by: [P-0006]
@@ -9,8 +9,8 @@ claimed_by: codex:/root:p-0008
 claimed_at: 2026-08-23T01:03:25.765Z
 base_sha: bea0075a74237626848e1c2f8bb070248b773863
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-23T17:48:11.461Z
 ---
 
 # Ratify the single-Workspace Milestone 3 collaboration-server contract
@@ -152,7 +152,7 @@ server slice and its immediate successors sharp.
       and Workspace isolation.
 - [x] The strongest rejected decomposition and its kill or pivot triggers are
       recorded.
-- [ ] The project owner accepts the decision before any implementation
+- [x] The project owner accepts the decision before any implementation
       successor becomes `ready`.
 - [x] Only decision-complete successors are created; SDK, console, deployment,
       and other uncertainty remain in fog.
@@ -186,15 +186,23 @@ Decision-qualified immutable candidate
 [AC1-AC14 traceability matrix](../evidence/P-0008/traceability.md). Moved from
 `claimed` to `review` at `2026-08-23T11:50:00.907Z`.
 
-Project-owner disposition remains pending: `accepted_by` and `accepted_at`
-remain null, ADR-0013 remains Proposed, and no implementation successor was
-created or promoted. This review handoff claims no server, PostgreSQL, OIDC,
+Project owner `smithdak` explicitly accepted immutable candidate
+`c461b1b60bece277b88c6a5aee55c200658ab327`, Engineering evidence commit
+`4ac62e9e2c42d7a586785095b58f060648975649`, and every documented residual
+risk at `2026-08-23T17:48:11.461Z`, with review-transition commit
+`bf0bfd2bb652f6b10bd004d6f98ef33c947b7f82` as the acceptance base. P-0008
+moved from `review` to `done`, ADR-0013 is Accepted, and the contract's first
+dependency-ordered implementation successor, P-0009 remote actor and
+shared-contract conformance, is promoted to `ready`. Acceptance does not
+expand the evidence to runtime server parity, PostgreSQL, OIDC,
 artifact-store, worker, preview, SDK, console, provider, deployment, live
-remote verification, publication, production mutation, or Milestone 3
-completion.
+remote verification, or production behavior: each remains a later
+implementation or qualification claim.
 
 ## Residual risks and next-wave update
 
-Keep HTTP/server framework choice, PostgreSQL implementation, OIDC provider,
-artifact store, worker/outbox, SDKs, console, and deployment topology in fog
-until this decision establishes their exact contracts and dependency order.
+The decision now establishes the exact contracts and dependency order.
+Successor items are created only in that order as their blockers close; P-0009
+is promoted, and PostgreSQL parity, HTTP/OIDC boundary, artifact/outbox/preview
+delivery, and remote evidence qualification remain uncreated fog until P-0009
+closes.

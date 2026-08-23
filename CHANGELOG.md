@@ -6,6 +6,11 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Ratified the single-Workspace Milestone 3 collaboration-server decision:
+  project owner `smithdak` accepted P-0008 candidate `c461b1b` and Engineering
+  evidence `4ac62e9` at `2026-08-23T17:48:11.461Z`, ADR-0013 is Accepted, and
+  the first dependency-ordered implementation successor, P-0009 remote actor
+  and shared-contract conformance, is promoted.
 - Added portable `AuthorityEvidenceBundleV1` export and the independent
   `proof-verifier`, with separate caller-supplied Release and authority trust,
   an optional authority-head checkpoint, frozen golden vectors, and

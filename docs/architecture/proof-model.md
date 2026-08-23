@@ -353,7 +353,7 @@ exhaustive Invalid classification is not claimed.
 
 Verification does not fetch arbitrary URLs automatically. External resolution requires an allowlisted resolver and explicit network policy.
 
-## Proposed P-0008 remote evidence profile
+## Accepted P-0008 remote evidence profile
 
 `RemoteEvidenceBundleV2` prospectively describes an exact uncompressed logical
 member map, not an archive or compressed carrier. Its manifest has exactly six
