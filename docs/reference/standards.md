@@ -1,7 +1,7 @@
 # Standards profile
 
 **Status:** Ratified baseline  
-**As of:** August 21, 2026
+**As of:** August 23, 2026
 
 Proof uses established standards where they provide stable semantics or interoperability. Referencing a standard does not imply implementing every optional feature.
 
@@ -121,10 +121,13 @@ profile is the [authenticated actor contract](../architecture/authenticated-acto
   transition, v1 continuity is unrecoverable. Preserving existing history is
   required; a new epoch or re-anchor requires a future ADR and Schema plus
   explicit caller trust.
-- The future P-0006 `AuthorityEvidenceBundleV1` authenticates its authority
-  closure under an explicit authority trust root separate from the
-  Release-signing root. Its exact container and golden vectors remain a P-0006
-  contract and are not implemented by P-0003, P-0004, or P-0005.
+- P-0006 `AuthorityEvidenceBundleV1` authenticates its authority closure under
+  an explicit authority trust root separate from the Release-signing root. Its
+  exact container, trust/checkpoint inputs, and Complete, Incomplete, and
+  Invalid golden vectors are implemented under
+  [`conformance/v1/portable-proof/`](../../conformance/v1/portable-proof/README.md).
+  A matching authority-head checkpoint proves the supplied prefix boundary,
+  not globally latest Release history.
 
 OAuth/OIDC, SPIFFE, JOSE access tokens, platform attestation, and KMS/HSM-backed
 credentials remain future identity-adapter choices. They do not alter the

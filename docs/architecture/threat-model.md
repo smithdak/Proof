@@ -1,13 +1,16 @@
 # Threat model
 
-**Status:** Ratified baseline with implemented bounded local authenticated-mutation controls
-**Baseline:** August 21, 2026
+**Status:** Ratified baseline with completed bounded local Linux Milestone 2 controls
+**Baseline:** August 23, 2026
 
-> **Implemented P-0004/P-0005 profile:** The local authentication, replay,
-> authority-log, and localized-consequence controls labeled below are
-> implemented for all 14 enabled operations. Portable authority bundles,
-> hostile-process containment, and publication remain P-0006 qualification
-> work. The normative contract is the
+> **Implemented P-0004/P-0005/P-0006 profile:** Local authentication, replay,
+> authority-log, and localized-consequence controls cover all 14 enabled
+> operations. P-0006 additionally qualifies the retained 11-operation
+> localized north star, a `workspace.status` distinct-UID broker probe, portable
+> Release-closure verification, and clean distinct-UID verifier containment.
+> Same-UID hostile-process isolation, Windows runtime containment,
+> collaboration-server operation, deployment, and public release are not
+> qualified. The normative actor contract is the
 > [authenticated actor contract](authenticated-actor.md).
 
 This threat model defines the security boundaries that shape Proof's architecture. It is updated when a new interface, trust relationship, or deployment mode is introduced.
@@ -158,7 +161,7 @@ unknown credentials and invalid signatures have equivalent public behavior.
 
 **Threats:** Edit substitution after approval, partial write, stale base overwrite, duplicate commit after timeout.
 
-**Controls:** canonical ChangeSet digest, atomic transaction, optimistic concurrency, Human approval bound to digest, Workspace-global successful idempotency record committed with effects, signed localized result/consequence commitment, append-only authoritative facts, and v13 projection verification.
+**Controls:** canonical ChangeSet digest, atomic transaction, optimistic concurrency, Human approval bound to digest, Workspace-global successful idempotency record committed with effects, signed localized result/consequence commitment, append-only authoritative facts, and v14 persisted presentation/consequence integrity verification.
 
 ### Ratified P-0003 profile — presentation replay and substitution
 
@@ -188,17 +191,27 @@ localized operation set.
 
 **Threats:** altered Edition, substituted subject or localized result, forged Proof, deleted or swapped consequence/global-key rows, deleted history, algorithm confusion.
 
-**Controls:** immutable artifacts, algorithm-qualified digests, domain separation, DSSE typed envelope, signed result/effect commitment, v13 local consequence reconstruction, in-toto subjects, explicit trust policy, independent golden-vector verification, retention controls.
+**Controls:** immutable artifacts, algorithm-qualified digests, domain separation, DSSE typed envelopes, signed result/effect commitments, v14 presentation and local-consequence reconstruction, in-toto subjects, explicit caller trust, independent golden-vector verification, and retention controls.
 
-**Ratified P-0003 profile:** P-0006 portable verification receives the future
-`AuthorityEvidenceBundleV1` and every required binding, `DelegationV2`,
-revocation, authenticated-command, and authorization-decision artifact. Trust
-comes from caller-supplied authority and
-Release roots, never self-described producer keys. Missing protected evidence
-returns an explicit incomplete verdict; a raw provider subject or private key is
-never exported. A supplied authority-log prefix proves history completeness or
-rollback resistance only when the verifier also pins an independently retained
-expected authority head or a later checkpoint that commits it.
+**Implemented P-0006 profile:** `AuthorityEvidenceBundleV1` carries or resolves
+the required Release/content closure, binding, direct `DelegationV2`,
+revocation, authenticated-command presentation, authorization decision,
+localized consequence, and policy/key evidence. The standalone
+`proof-verifier` uses an independent parser, canonicalizer, Schema validator,
+authority replay, and content reconstruction path. Trust comes from separate
+caller-supplied authority and Release roots, never self-described producer
+keys. Missing required evidence reports Incomplete; conclusive supplied
+tamper, contradiction, or semantic falsity reports Invalid. Raw provider
+subjects, private keys, credentials, and protected subject openings are not
+exported by default.
+
+An independently retained expected authority head lets the verifier reject
+mutation, truncation, a fork, or rollback of the supplied authority prefix
+relative to that pin. It does not prove that the supplied Release is globally
+latest or the true immediate same-Environment Release. The exported Environment
+configuration lacks Environment creation time, and v2 approvals do not carry
+an exact authority causal-head reference; those chronology boundaries are
+accepted residuals.
 
 ### Sensitive-data disclosure
 
@@ -255,6 +268,16 @@ The conformance and red-team suite includes:
   ContextPack digest, ChangeSet, Edition, Release, or superseded v1 write
   operation after signing; registry, command, transitive-artifact, and selector
   bindings must fail closed.
+- **Implemented P-0006 profile:** Each supplied portable artifact is withheld or
+  tampered independently; required absence reports Incomplete, while conclusive
+  signature, digest, chronology, or semantic contradiction reports Invalid.
+  Path and symlink substitutions fail at the container boundary.
+- **Implemented P-0006 profile:** A distinct-UID signer receives only fixed
+  framed input or typed MCP arguments plus its scoped Agent credential. It
+  cannot access the repository, Workspace, Workspace authority or
+  Release-signing private keys, ambient Human CLI, or Agent-selected paths. A
+  clean verifier receives only read-only bundle and caller-trust inputs, with no
+  private key, in a separate network namespace.
 
 ## Security review gates
 
@@ -271,13 +294,13 @@ A milestone cannot ship until:
 
 Detailed deployment threats for multi-region operation, tenant isolation, browser sessions, plugin sandboxing, and managed key custody are completed before their respective milestones. They are not assumed safe by this initial model.
 
-The **Ratified P-0003 profile** is intentionally local and Unix-qualified. It
-does not qualify Windows identity, enterprise OIDC/SPIFFE, remote attestation,
-managed KMS/HSM custody, server sessions, or multi-tenant authority storage.
-It also does not isolate mutually hostile processes under the same Unix UID;
-such a process is inside the Human/admin boundary and may bypass the Agent path,
-not merely steal a file-backed Agent key. Milestone 2 qualification therefore
-requires a distinct UID, container, or sandbox that denies the Agent repository,
-raw CLI, and private Workspace access and exposes only the brokered adapter
-channel. A requirement to isolate mutually hostile same-UID processes triggers
-a protected-broker or workload-identity redesign.
+The accepted Milestone 2 profile is intentionally local, Linux-qualified, and
+single-Workspace. It does not qualify Windows identity, enterprise OIDC/SPIFFE,
+remote attestation, managed KMS/HSM custody, server sessions, or multi-tenant
+authority storage. It also does not isolate mutually hostile processes under
+the same Unix UID; such a process is inside the Human/admin boundary and may
+bypass the Agent path, not merely steal a file-backed Agent key. P-0006
+qualified the narrower distinct-UID bubblewrap boundary that denies the Agent
+repository, raw CLI, private Workspace, and Agent-selected paths and exposes
+only the brokered adapter channel. A requirement to isolate mutually hostile
+same-UID processes triggers a protected-broker or workload-identity redesign.

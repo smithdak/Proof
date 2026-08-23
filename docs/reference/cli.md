@@ -1,8 +1,8 @@
 # CLI contract
 
-**Status:** Milestone 1 implemented; Milestone 2 bounded local authenticated mutation implemented
+**Status:** Milestones 1 and 2 complete for the bounded local Linux profile
 
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
 The `proof` executable is the first complete interface to the product. It is designed for interactive human use, shell composition, and reliable agent invocation.
 
@@ -59,8 +59,10 @@ proof delegation grant|get|list|revoke|verify
 proof context build|get|inspect|export|verify
 proof receipt get|list|verify
 proof audit query|export
+proof evidence export
 proof serve
 proof verify <SUBJECT>
+proof-verifier verify
 ```
 
 Objects intentionally have no direct `create`, `update`, or `delete` commands. Object mutations are Edits in a ChangeSet.
@@ -82,7 +84,9 @@ proof principal create-agent
 proof delegation grant|get|revoke|verify
 proof context build|get|verify
 proof capability list
+proof evidence export --release-id <UUID> --directory <DIR> [--include-subject-opening]
 proof verify --file <PATH> --trusted-key-id <ed25519:HEX> --expected-envelope-digest <blake3:HEX>
+proof-verifier verify --bundle <DIR> --trust <FILE> [--checkpoint <FILE>] [--external-root <PATH>]...
 ```
 
 The ambient Human CLI retains explicit Principal and Delegation selectors for
@@ -97,7 +101,20 @@ An Environment is a logical, versioned release target and policy binding; it is 
 
 A ContextPack is a bounded, immutable package assembled from exact released Objects under an explicit Agent Principal and Delegation. Object count, canonical byte size, task identity, expiry, and idempotency are part of the operation input and persisted evidence.
 
-The standalone offline verifier checks canonical DSSE/in-toto bytes, a caller-supplied expected envelope digest, and the Ed25519 signature against a caller-supplied trusted key ID. It does not verify Workspace policy or persisted Release evidence. `release verify` is the operation that verifies the persisted local Release, Proof subjects, evidence, and configured trust.
+The `proof verify` command checks canonical DSSE/in-toto bytes, a
+caller-supplied expected envelope digest, and the Ed25519 signature against a
+caller-supplied trusted key ID. It does not verify Workspace policy or
+persisted Release evidence. `release verify` verifies the persisted local
+Release, Proof subjects, evidence, and configured trust.
+
+`proof evidence export` materializes a new portable bundle directory without
+overwriting an existing path. The separate `proof-verifier` reconstructs its
+transitive content and authority closure without the producing Workspace or
+private keys. It requires caller trust, accepts an optional independent
+authority-head checkpoint and external roots, writes one canonical report, and
+returns `0` for Complete, `20` for Incomplete, `21` for Invalid, or `64` for
+usage/input failure. A checkpoint establishes the supplied authority-prefix
+boundary, not a globally latest Release.
 
 The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP
 `2025-11-25` for capability discovery and all 14 enabled authenticated
@@ -108,10 +125,11 @@ they do not require `initialize`. Legacy clients retain the `initialize` /
 `notifications/initialized` path. Both eras carry the exact authenticated DSSE
 string in `params._meta["dev.proof/authentication"]` and enter the same
 application executor. Session state and request identifiers are not authority.
-This is a bounded local delegated-mutation surface, not a collaboration server,
-portable evidence bundle, containment proof, or publication claim.
+This is one bounded local broker surface, not a collaboration server or public
+publication claim. Portable export, independent verification, and containment
+are qualified separately by P-0006 rather than inferred from MCP transport.
 
-### Implemented P-0004/P-0005 profile — authenticated Agent invocation
+### Implemented P-0004/P-0005/P-0006 profile — authenticated Agent invocation
 
 The bounded local profile is implemented for the fixed 14-row operation
 registry. The normative contract is the

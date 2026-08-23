@@ -1,7 +1,7 @@
 # Architecture overview
 
 **Status:** Ratified direction  
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
 ## Architectural style
 
@@ -139,8 +139,8 @@ requires an independently pinned authority-head checkpoint.
 
 P-0005 cross-links Agent identity, decision, result, and raw P-0007 effect in
 the v13 localized consequence. It does not reinterpret P-0007 Release identity
-or its Human release-policy decision; P-0006 must carry both closures for
-portable verification.
+or its Human release-policy decision; P-0006 carries and independently verifies
+both closures in `AuthorityEvidenceBundleV1`.
 
 ## Transaction boundaries
 
@@ -174,9 +174,10 @@ use the direct-Human path without Agent authentication. Per-Agent Ed25519 proof
 of possession is a containment control only when the Agent workload is outside
 that UID/filesystem boundary and calls Proof through a Human-owned broker or
 adapter; same-UID execution supplies attribution and integrity only. Milestone 2
-must demonstrate a distinct UID, container, or sandbox denying repository, raw
-CLI, and private Workspace access. Mutually hostile same-UID isolation requires
-a protected broker or workload-identity profile, not this local file-backed one.
+qualification demonstrates a distinct-UID Linux sandbox denying repository,
+raw CLI, private Workspace, and Agent-selected paths. Mutually hostile same-UID
+isolation still requires a protected broker or workload-identity profile, not
+this local file-backed one.
 
 ### Server
 

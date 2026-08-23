@@ -1,7 +1,7 @@
 # Roadmap and MVP
 
 **Status:** Ratified product sequence  
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
 The roadmap is organized around complete capability loops rather than feature count. Each milestone must produce an independently usable and testable system slice.
 
@@ -40,6 +40,13 @@ The roadmap is organized around complete capability loops rather than feature co
 
 **Outcome:** An agent can safely complete the same loop inside bounded authority.
 
+**Status:** Complete for the accepted bounded local Linux profile through
+P-0006 candidate `ea35e093daed50017684f7da53373cbb70af753a` and Engineering
+evidence `7df66d98b38155f9c6fec1549dbb1c17ebabdb3c`. Project owner
+`smithdak` accepted that candidate, evidence, and the documented residual risks
+at `2026-08-23T00:34:50.674Z`; the canonical disposition is in the
+[P-0006 completion record](../work/items/P-0006-close-milestone-2.md#completion-record).
+
 - Principal registry and local identities.
 - Scoped, expiring Delegations.
 - ContextPack construction and redaction.
@@ -49,14 +56,14 @@ The roadmap is organized around complete capability loops rather than feature co
 - Stable MCP adapter with protocol negotiation.
 - Agent-security abuse cases and conformance tests.
 
-**Implemented P-0004/P-0005 local profile:** Milestone 2 uses distinct local per-Agent Ed25519
-proof-of-possession credentials, adapter-derived authenticated actor context,
-single-use signed command presentations, one direct Human-to-Agent
+**Implemented P-0004/P-0005/P-0006 local profile:** Milestone 2 uses distinct
+local per-Agent Ed25519 proof-of-possession credentials, adapter-derived
+authenticated actor context, single-use signed command presentations, one direct Human-to-Agent
 `DelegationV2`, and a separately rooted append-only authority log. CLI and both
 MCP eras treat supplied Principal and Delegation identifiers as cross-checks or
-selectors, never authority. P-0006 then defines and qualifies the portable
+selectors, never authority. P-0006 defines and qualifies the portable
 `AuthorityEvidenceBundleV1`, including an independently pinned authority-head
-checkpoint when rollback or latest-history completeness must be detected. The
+checkpoint when authority-prefix rollback or truncation must be detected. The
 local SQLite-plus-file-signer profile does not prevent restoration of a valid
 older authority prefix or fork. P-0004 implements this kernel for the three
 retained v1 reads; P-0005 composes it with all 11 localized v2 operations. Its
@@ -132,20 +139,33 @@ prerequisite, so P-0005 does not introduce separate Agent content semantics.
   reconciles all 11 with the three retained v1 reads and freezes their exact
   resource projections; P-0005 enables them through the P-0004 kernel.
 - Each localized Allow signs the exact application result and consequence.
-  Storage schema v13 cross-links the per-presentation decision and effect and
-  enforces Workspace-global successful application keys. Exact replay still
-  requires fresh authentication and current-state authorization.
+  Storage schema v14 persists the canonical authenticated-command input and
+  signed envelope before the cross-linked per-presentation decision, effect,
+  and Workspace-global successful application key. Exact replay still requires
+  fresh authentication and current-state authorization.
 
 P-0005 composes P-0007 and P-0004 and supplies bounded local authenticated
-Agent mutation and local delegated evidence. P-0006 still must qualify the
-complete north-star loop, portable verification, containment, and publication.
-Until P-0006 passes, the Milestone 2 exit condition remains unmet.
+Agent mutation and local delegated evidence. P-0006 qualifies the complete
+north-star loop across application, CLI, modern MCP, and legacy MCP; portable
+clean-directory verification; and distinct-UID Linux broker containment. Its
+accepted residuals exclude global-latest Release claims, independent
+Environment-creation chronology, exact v2 approval causal heads, hostile
+same-UID isolation, Windows runtime containment, server parity, deployment, and
+public release.
 
-**Exit condition:** An agent can complete the north-star localization scenario without unrestricted repository access or privileged commands.
+**Exit condition:** Achieved for the bounded local Linux profile: an Agent
+completes the north-star localization scenario without unrestricted repository
+access or privileged commands, and the resulting closure verifies independently
+under explicit caller trust. See the accepted
+[P-0006 work item](../work/items/P-0006-close-milestone-2.md).
 
 ## Milestone 3 — Collaboration server
 
 **Outcome:** A team can review, approve, publish, and verify changes remotely while preserving local semantics.
+
+**Status:** Contract discovery is ready in
+[P-0008](../work/items/P-0008-ratify-collaboration-server-contract.md). No
+server implementation or provider choice is yet promoted.
 
 - HTTP API and PostgreSQL persistence adapter.
 - Collaborative review and approval.

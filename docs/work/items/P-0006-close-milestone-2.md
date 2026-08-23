@@ -1,7 +1,7 @@
 ---
 id: P-0006
 title: Close Milestone 2 with independently verifiable evidence and conformance
-status: review
+status: done
 wave: now
 kind: qualification
 blocked_by: [P-0005]
@@ -9,8 +9,8 @@ claimed_by: codex:/root:p-0006
 claimed_at: 2026-08-21T16:36:33.390Z
 base_sha: 0a5becaf9794d81c9a5b1d7118e190b16dd247d2
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-23T00:34:50.674Z
 ---
 
 # Close Milestone 2 with independently verifiable evidence and conformance
@@ -41,8 +41,9 @@ controlling contract is the
 P-0002 and P-0007 have closed the Human-path write-resource contract, P-0003
 is accepted with its exact operation/projection registry, P-0004 implements
 the bounded local authenticated read profile, and P-0005 implements the
-complete delegated localized-write path. P-0006 now has an engineering-qualified
-candidate awaiting project-owner review.
+complete delegated localized-write path. P-0006 candidate
+`ea35e093daed50017684f7da53373cbb70af753a` is engineering-qualified and
+project-owner accepted.
 
 ## P-0005 consequence and Release reshape
 
@@ -221,12 +222,12 @@ projection-reconstruction or serialization path.
 - [x] A traceability matrix enumerates C1-C24 with executable accepted/rejected
       coverage or a justified `not applicable` result, and covers every public
       error added or materially affected by Milestone 2.
-- [ ] Abuse tests and a final falsification review find no open Milestone 2
+- [x] Abuse tests and a final falsification review find no open Milestone 2
       blocker; residual risks are explicitly accepted or moved to map fog.
-- [ ] The project owner explicitly accepts the exit evidence and residual risks
+- [x] The project owner explicitly accepts the exit evidence and residual risks
       before this item moves from `review` to `done`.
 - [x] The full Linux quality gate passes and durable evidence is recorded.
-- [ ] Only then are Milestone 2 status claims changed to complete and the first
+- [x] Only then are Milestone 2 status claims changed to complete and the first
       Milestone 3 discovery items created.
 
 ## Required evidence
@@ -259,14 +260,32 @@ which binds the
 [receipt](../evidence/P-0006/receipt.md),
 [manifest](../evidence/P-0006/manifest.json), and
 [C1-C24 traceability matrix](../evidence/P-0006/traceability.md). Moved from
-`claimed` to `review` at `2026-08-22T22:58:18Z`. Project-owner disposition
-remains pending: `accepted_by` and `accepted_at` remain null, and neither
-P-0006 nor Milestone 2 is complete. The abuse tests and falsification review
-found no Engineering blocker; their combined acceptance checkbox remains open
-because residual-risk disposition is part of the pending owner review.
+`claimed` to `review` at `2026-08-22T22:58:18Z`. At that transition,
+project-owner disposition remained pending, `accepted_by` and `accepted_at`
+were null, and neither P-0006 nor Milestone 2 was complete. The abuse tests and
+falsification review had found no Engineering blocker; their combined
+acceptance checkbox remained open for owner residual-risk disposition.
+
+Project owner `smithdak` explicitly accepted candidate
+`ea35e093daed50017684f7da53373cbb70af753a`, Engineering evidence commit
+`7df66d98b38155f9c6fec1549dbb1c17ebabdb3c`, and every documented residual
+risk at `2026-08-23T00:34:50.674Z`, with review-transition commit
+`fb0762a5eb87d1a7c1da8181fd1b39e2dc4702dd` as the acceptance base. P-0006
+moved from `review` to `done`; the bounded local Linux Milestone 2 profile is
+complete. Acceptance does not expand the evidence to globally latest Release
+history, independent
+Environment-creation chronology, exact approval causal heads, hostile same-UID
+isolation, Windows runtime containment, a collaboration server,
+HTTP/PostgreSQL parity, deployment, public release, push, tag, or live remote
+state. The first Milestone 3 decision item, P-0008, is promoted to `ready`; no
+implementation successor is promoted before that decision is ratified.
 
 ## Residual risks and next-wave update
 
-If the exit gate passes, chart only the newly visible Milestone 3 route. Do not
-bulk-create server, enterprise, or Windows tickets before their contracts are
+The accepted residuals remain bounded limitations rather than erased risks.
+Their complete Engineering list is bound by evidence commit
+`7df66d98b38155f9c6fec1549dbb1c17ebabdb3c` and carried forward in the
+[receipt](../evidence/P-0006/receipt.md). P-0008 owns the newly visible
+single-Workspace collaboration-server contract. Server, enterprise, Windows,
+and public-release implementation remain unpromoted until their contracts are
 sharp.

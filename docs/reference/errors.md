@@ -1,7 +1,7 @@
 # Error model
 
 **Status:** Stable local contract
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
 Proof uses one conceptual error model across CLI, HTTP, SDK, and MCP adapters. HTTP serialization follows RFC 9457 Problem Details.
 
@@ -276,6 +276,15 @@ Workspace-global application idempotency key.
 
 The operation and Problem mappings are versioned machine-readable application
 contracts and are projected identically by CLI and both MCP protocol eras.
+
+The standalone portable verifier has a separate closed
+[`proof.verify.` finding-code registry](../../conformance/v1/verifier-finding-codes.json):
+156 structured report findings plus two CLI diagnostics. Thirty codes have
+direct behavioral assertions; the remaining 128 have structural
+emitted-source/registry equality guards and do not claim dedicated branch-level
+tests. Semantic verifier outcomes are Complete, Incomplete, and Invalid;
+usage/input failures are separate CLI diagnostics with exit 64 rather than
+application Problem responses.
 
 ## Retry guidance
 

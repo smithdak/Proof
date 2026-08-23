@@ -2,9 +2,9 @@
 
 **Status:** Ratified by P-0002 and ADR-0012
 
-**Version:** 0.3
+**Version:** 0.4
 
-**As of:** August 21, 2026
+**As of:** August 23, 2026
 
 **Review gate:** Project owner
 
@@ -12,7 +12,8 @@ This contract defines the smallest complete content-mutation profile required
 for the Milestone 2 north-star scenario. Project-owner acceptance of P-0002
 ratified [ADR-0012](../decisions/0012-localized-object-renditions.md). It has a
 Human-operated implementation through P-0007 and a bounded authenticated Agent
-composition through P-0005.
+composition through P-0005. P-0006 independently qualifies its complete
+portable content, authority, Edition, Release, and Proof closure.
 
 P-0007 implemented and proved the human-operated content foundation defined
 here. P-0004 implemented the authority kernel, and P-0005 binds it to these
@@ -24,6 +25,7 @@ v2 pairs and exact resource projections.
 | --- | --- | --- |
 | 0.2 | 2026-08-20 | Ratified localized content contract with Human-path P-0007 implementation. |
 | 0.3 | 2026-08-21 | Implemented the bounded P-0005 Agent binding, signed result/consequence closure, and v13 local persistence. |
+| 0.4 | 2026-08-23 | Qualified the P-0006 portable closure, independent verifier, complete north star, and distinct-UID Linux containment. |
 
 ## Decision
 
@@ -669,8 +671,8 @@ P-0005:
    enforcement.
 4. **P-0005 — implemented local profile:** bind the proven P-0007 operations to
    authenticated Agent authority and demonstrate denial/transport parity.
-5. **P-0006:** export and independently verify the combined content, authority,
-   Edition, Release, and Proof closure.
+5. **P-0006 — complete:** export and independently verify the combined content,
+   authority, Edition, Release, and Proof closure under explicit caller trust.
 
 P-0007 prevented P-0005 from simultaneously inventing content semantics and
 debugging Agent authorization. It also yields a human-path oracle against which

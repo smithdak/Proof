@@ -1,10 +1,10 @@
 # Authenticated actor contract
 
-**Status:** Ratified by P-0003; bounded local profile implemented through P-0005
+**Status:** Ratified by P-0003; bounded local Linux profile complete through P-0006
 
-**Version:** 1.2
+**Version:** 1.3
 
-**As of:** August 21, 2026
+**As of:** August 23, 2026
 **Review gate:** Project owner
 
 This document is ratified by
@@ -12,8 +12,9 @@ This document is ratified by
 P-0004 implements the authenticated Human-to-Agent kernel and three retained
 v1 reads. P-0005 binds the 11 localized v2 operation contracts to P-0007's
 Human-issued intent, ContextPack, and content lifecycle without granting Agents
-closure issuance or approval. P-0006 still owns portable authority bundles and
-the Milestone 2 containment and publication qualification.
+closure issuance or approval. P-0006 implements portable authority bundles and
+independent verification and qualifies the distinct-UID Linux containment
+boundary. It does not qualify a server, deployment, or public release.
 
 | Revision | Date | Decision state |
 | --- | --- | --- |
@@ -22,6 +23,7 @@ the Milestone 2 containment and publication qualification.
 | 1.0 | 2026-08-20 | Ratified by project-owner acceptance; implementation remains owned by P-0004. |
 | 1.1 | 2026-08-20 | Implemented the bounded local read profile through P-0004; delegated mutation and portable bundles remain downstream. |
 | 1.2 | 2026-08-21 | Implemented all 14 fixed registry rows through P-0005; added signed localized result/consequence commitment and v13 local evidence/global-key persistence. |
+| 1.3 | 2026-08-23 | Completed P-0006 portable closure, storage v14 presentation persistence, independent verification, and distinct-UID Linux containment qualification. |
 
 ## Decision
 
@@ -698,9 +700,9 @@ caller-supplied Principal identifier.
 ## Portable authority evidence
 
 P-0004/P-0005 persist canonical authority facts, decisions, localized
-consequences, and successful application-key history. P-0006 defines the
-`AuthorityEvidenceBundleV1` transport and independent verifier. A complete
-bundle for one consequential Agent action must carry
+consequences, and successful application-key history. P-0006 implements the
+`AuthorityEvidenceBundleV1` transport and independent `proof-verifier`. A
+complete bundle for one consequential Agent action must carry
 or resolve:
 
 - the exact signed authenticated command and normalized command input;
@@ -729,7 +731,9 @@ caller policy. Private keys are never portable. A signed local timestamp remains
 a producer assertion; no third-party civil-time claim is made. Without an
 independently pinned later authority head, verification can
 establish internal validity of the supplied prefix but MUST NOT claim that the
-producer supplied the latest or complete history.
+producer supplied the latest or complete authority history. Even with the
+expected authority head, the bundle does not prove that its Release is globally
+latest or the true immediate same-Environment Release.
 
 ## Error contract
 
@@ -819,15 +823,16 @@ P-0005 owns the bounded composition only:
 - require fresh authentication and current-state authorization before exact
   replay disclosure.
 
-It does not define portable bundle containment, independent publication
-verification, chained Delegation, new grant axes, or a broader content model;
-those remain P-0006 or later work.
+P-0005 alone does not define portable bundle containment or independent
+verification. P-0006 adds those bounded capabilities without adding chained
+Delegation, new grant axes, a broader content model, deployment, or public
+release.
 
 ## Conformance and falsification
 
 The ratified machine contracts and vectors live under
 [`conformance/v1/authority/`](../../conformance/v1/authority/README.md). The
-implemented P-0004/P-0005 profile requires at least:
+implemented P-0004/P-0005/P-0006 profile requires at least:
 
 - exact canonical payload, DSSE PAE, public key, key ID, signature, envelope,
   and digest reproduction by an independent implementation;
@@ -853,11 +858,16 @@ implemented P-0004/P-0005 profile requires at least:
   deletion/tamper/swap, global-key collision, and stale replay tests;
 - proof that Agent execution cannot issue/replace resource intent or
   ContextPack closure and cannot approve a ChangeSet;
-- denial atomicity and disclosure-neutral errors; and
+- denial atomicity and disclosure-neutral errors;
 - no private key, raw OS subject, bearer credential, prompt, or runtime metadata
   in persisted or ordinary public authority artifacts; only the explicit
   synthetic conformance opening and policy-controlled protected audit
-  disclosure may contain a subject-plus-blind opening.
+  disclosure may contain a subject-plus-blind opening;
+- clean-directory portable verification under explicit caller trust, with
+  deterministic Complete, Incomplete, and Invalid component-tamper outcomes;
+  and
+- distinct-UID Linux signer and verifier execution denied repository,
+  Workspace, private-key, raw-CLI, path-selection, and ambient-network access.
 
 ## Volatility isolation
 
@@ -868,14 +878,16 @@ implemented P-0004/P-0005 profile requires at least:
   v1 profile; a cryptographic change creates a new profile.
 - Direct Delegation is `DelegationV2`; future chaining cannot silently change
   its meaning.
-- The final portable bundle, containment proof, and publication qualification
-  remain deferred to P-0006; P-0005 provides the local evidence inputs only.
+- P-0006 fixes the v1 portable bundle and distinct-UID Linux containment
+  profile. Server identity, stronger workload containment, Windows runtime,
+  deployment, and public-release qualification remain adapter or later work.
 
 ## Decision record
 
 | Decision | Accepted by | Accepted at | Consequence |
 | --- | --- | --- | --- |
 | Bounded local Human-to-Agent profile and ADR-0011's C4 replacement | `smithdak` | `2026-08-20T19:52:12.756Z` | P-0004 is ready; a protected workload identity remains a future adapter or reopen trigger. |
+| Bounded local Linux portable closure and containment qualification | `smithdak` | `2026-08-23T00:34:50.674Z` | Milestone 2 is complete; the collaboration-server contract becomes the next decision frontier. |
 
 No operation-version, locale, resource-axis, retry-class, or projection question
 remains open inside this ratified profile. A newly required source-locale grant,
@@ -884,8 +896,8 @@ reopen trigger, not an implementation choice for P-0004.
 
 ## Kill and pivot triggers
 
-Reopen this local profile if any of the following becomes a
-Milestone 2 requirement:
+Reopen this accepted local profile if a future requirement introduces any of
+the following:
 
 - mutually hostile processes sharing one Unix UID must be isolated;
 - Proof must attest a binary, container, model, or runtime measurement;
@@ -894,11 +906,12 @@ Milestone 2 requirement:
 - a client cannot preserve exact signed authentication metadata; or
 - replay reservation cannot be atomic with authorization and consequence.
 
-Database-prefix rollback resistance is not part of the local file-backed
-profile. If protection against an attacker who can restore both SQLite and its
-local authority state becomes a Milestone 2 requirement, P-0006 must add or
-qualify a stateful external signer, monotonic checkpoint, or transparency
-boundary and reopen this decision.
+Same-store global freshness remains outside the accepted local file-backed
+profile. P-0006 qualifies comparison with an independently retained expected
+authority head, but not a globally latest Release or a transparency service. A
+future requirement to prove global freshness must add a stateful external
+signer, monotonic checkpoint, or transparency boundary and reopen this
+decision.
 
 The first three triggers point to a daemon or SPIFFE-style workload-attestation
 boundary with protected keys. The fourth requires a bounded `DelegationV3`.
@@ -906,10 +919,11 @@ The fifth requires an authenticated adapter wrapper. The sixth requires a
 server-challenge protocol or transaction redesign; replay protection must not be
 weakened silently.
 
-P-0006 must run the Milestone 2 north-star with the Agent outside the bootstrap
-UID/private-Workspace boundary and prove that it receives only the authenticated
-adapter surface. A same-UID demonstration may test canonical attribution, but
-it is not evidence that Delegation contains the Agent.
+P-0006 ran the Milestone 2 north star with the Agent outside the bootstrap
+UID/private-Workspace boundary and proved that it receives only the
+authenticated adapter surface. The accepted result is Linux- and
+distinct-UID-specific; a same-UID demonstration remains attribution evidence,
+not proof that Delegation contains the Agent.
 
 ## Alternatives considered
 

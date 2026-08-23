@@ -1,7 +1,7 @@
 # Scope and non-goals
 
 **Status:** Ratified  
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
 ## Product boundary
 
@@ -20,7 +20,7 @@ The CMS boundary contains the capabilities required to define, govern, publish, 
 - Query and content-delivery contracts.
 - Complete history and reproducible state.
 
-**Implemented P-0002/P-0007/P-0005 Milestone 2 slice:** Milestone 2 supports
+**Implemented P-0002/P-0007/P-0005/P-0006 Milestone 2 slice:** Milestone 2 supports
 one deliberately narrower localization profile. An
 existing locale-neutral Object revision is the source; each target
 is an append-only localized rendition keyed by an exact `(object_id, locale)`
@@ -29,6 +29,12 @@ rendition and no mutation of the source Object, Schema, relationships, or
 lifecycle. Delivery is exact-locale only: a missing rendition is reported as
 missing, never resolved through fallback or a general variant engine. The
 broader locale, variant, and fallback scope above remains later product scope.
+
+The accepted local Linux slice also exports a portable authority/content
+closure and verifies it independently under explicit caller trust, without the
+producing Workspace, private keys, or network resolution. That bounded result
+does not supply locale fallback, a collaboration server, cross-platform
+containment, deployment, or public release.
 
 ### Change and publication
 
@@ -65,7 +71,9 @@ Edition, Release, and migration contracts on the authenticated Human path.
 P-0005 composes those proven content semantics with the P-0004 authorization
 kernel; it does not invent a separate Agent content model. The composition is
 bounded: the Human issues intent and ContextPack closure and approves, while
-the Agent executes only the 11 fixed localized v2 operations.
+the Agent executes only the 11 fixed localized v2 operations. P-0006 qualifies
+that exact composition through portable verification and distinct-UID Linux
+broker containment without broadening its content or authority semantics.
 
 ### Enterprise operation
 

@@ -6,6 +6,17 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Added portable `AuthorityEvidenceBundleV1` export and the independent
+  `proof-verifier`, with separate caller-supplied Release and authority trust,
+  an optional authority-head checkpoint, frozen golden vectors, and
+  deterministic Complete, Incomplete, and Invalid reports.
+- Added storage v14 persistence for canonical authenticated-command inputs and
+  signed presentation envelopes, with atomic migration from every supported
+  v1-v13 Workspace and no fabricated historical presentation bytes.
+- Qualified the complete bounded local Linux Milestone 2 north star across the
+  application contract, CLI, modern MCP, and legacy MCP, including structured
+  repair, Human approval, portable independent verification, and clean
+  distinct-UID signer/verifier containment.
 - Added a pinned Ubuntu quality gate for formatting, Clippy, workspace tests,
   documentation tests, documentation links, and the repository work-control
   validator.

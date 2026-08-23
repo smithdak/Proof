@@ -1,13 +1,13 @@
 # Domain model
 
 **Status:** Ratified baseline  
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
-> **Implemented P-0004/P-0005 profile:** The authenticated-actor, localized
-> consequence, and authority-evidence additions below are normative
-> architecture and are persisted by storage schema v13. The migration preserves
-> the meaning and bytes of historical
-> Release evidence.
+> **Implemented P-0004/P-0005/P-0006 profile:** The authenticated-actor and
+> localized-consequence additions below are normative architecture. Storage
+> schema v14 persists their exact local presentation and evidence preimages;
+> P-0006 exports the portable authority/content bundle. The migration preserves
+> the meaning and bytes of historical Release evidence.
 > The normative contract is the [authenticated actor contract](authenticated-actor.md).
 >
 > **Ratified P-0002 profile:** Localized existing-Object mutation is modeled as
@@ -347,16 +347,19 @@ complete-intent or staged released-query projections in
 them. The Agent cannot issue or replace the resource intent or ContextPack and
 cannot approve a ChangeSet.
 
-## Ratified P-0003 profile — portable authority closure
+## Implemented P-0006 profile — portable authority closure
 
-P-0006 will define `AuthorityEvidenceBundleV1`; it is not an implemented bundle
-contract in P-0003, P-0004, or P-0005. The future bundle is rooted in the
-separate authority trust domain and carries the exact `binding_id`, binding-issue
+P-0006 implements `AuthorityEvidenceBundleV1` and an independent verifier. The
+bundle is rooted in the separate authority trust domain and carries or resolves
+the exact `binding_id`, binding-issue
 authority sequence and record digest, subject commitment, direct `DelegationV2`
-and applicable revocation records, consumed
-`AuthenticatedCommandV1`, `AuthorizationDecisionV2`, `AuthorityRecordV1`
-positions, and required policy identifiers. A Release Proof will refer to the
-bundle or its selected authority-closure commitment under the P-0006 contract.
+and applicable revocation records, consumed `AuthenticatedCommandV1`
+presentations or explicit external commitments,
+`AuthorizationDecisionV2`, `AuthorityRecordV1`
+positions, and required policy identifiers. A portable Release closure refers
+to the bundle's selected authority and content artifacts under the P-0006
+contract.
+
 When a verifier must detect prefix truncation or rollback rather than only
 validate the supplied prefix internally, the bundle also needs an independently
 retained expected authority head or a later checkpoint that commits it.
@@ -364,7 +367,9 @@ retained expected authority head or a later checkpoint that commits it.
 An independent verifier receives the bundle, referenced canonical artifacts,
 and explicit caller-supplied authority trust roots. Withheld protected values
 remain commitments and make the authority-evidence verdict incomplete unless
-the selected trust policy can validate them without disclosure.
+the selected trust policy can validate them without disclosure. A pinned
+authority head proves the supplied prefix boundary, not that the supplied
+Release is globally latest or the true immediate same-Environment Release.
 
 ## Known State
 

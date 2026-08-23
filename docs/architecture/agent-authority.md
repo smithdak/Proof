@@ -1,13 +1,15 @@
 # Agent authority and ContextPacks
 
-**Status:** Ratified architecture; bounded local authenticated mutation implemented
-**Baseline:** August 21, 2026
+**Status:** Ratified architecture; bounded local Linux Milestone 2 profile complete
+**Baseline:** August 23, 2026
 
-> **Implemented P-0004/P-0005 profile:** Every section carrying the P-0003
+> **Implemented P-0004/P-0005/P-0006 profile:** Every section carrying the P-0003
 > label is normative architecture. P-0004 implements the bounded local kernel
 > and three retained v1 reads; P-0005 enables the 11 localized v2 operations.
-> P-0006 owns the portable evidence bundle, containment, and publication
-> qualification.
+> P-0006 implements the portable evidence bundle and independent verifier and
+> qualifies distinct-UID Linux broker containment. Server operation, hostile
+> same-UID isolation, Windows containment, deployment, and public release remain
+> outside the accepted profile.
 >
 > The complete contract is the [authenticated actor contract](authenticated-actor.md);
 > this document summarizes its consequences for Agent authority.
@@ -458,14 +460,18 @@ public `requesting_subject_commitment`, raw-UID-free
 `AuthenticatedActorContextEvidenceV1`, semantic `CommandInputV1` digest,
 authenticated-command envelope digest,
 direct `DelegationV2` digest and as-of revocation position,
-`AuthorizationDecisionV2` digest, and authority-log position. Portable closure
-is deferred to P-0006 as `AuthorityEvidenceBundleV1`; it must supply those
-canonical artifacts under an explicit caller-trusted authority root and, when
-history completeness is claimed, an independently pinned expected authority
-head. Identifiers or producer self-consistency alone do not establish trust.
+`AuthorizationDecisionV2` digest, and authority-log position. P-0006 implements
+portable closure as `AuthorityEvidenceBundleV1`; it carries or resolves those
+canonical artifacts, using explicit external commitments when bytes are
+unavailable, under an explicit caller-trusted authority root and, when
+authority-prefix rollback or truncation detection is required, an independently
+pinned expected authority head. Identifiers or producer self-consistency alone
+do not establish trust, unresolved required evidence remains Incomplete, and
+the checkpoint does not establish a globally latest Release.
 
 For localized v2 Allows, local evidence also includes the signed result kind,
-result contract and digest, application-consequence digest, the v13
-per-presentation consequence row, and the successful Workspace-global
-application-key row when one exists. That local cross-link is an input to
-P-0006; it is not itself a portable evidence bundle or containment proof.
+result contract and digest, application-consequence digest, the
+per-presentation consequence row retained by storage v14, and the successful
+Workspace-global application-key row when one exists. P-0006 exports and
+independently verifies that cross-link as part of the portable closure; the
+local rows alone are not a portable evidence bundle or containment proof.

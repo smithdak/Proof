@@ -4,7 +4,7 @@
 
 **Constitutional:** Yes — replaces C4
 **Date:** 2026-08-17
-**Last revised:** 2026-08-20 — accepted after reconciliation with ADR-0012 and P-0007
+**Last revised:** 2026-08-23 — P-0006 implementation status appended
 
 ## Context
 
@@ -73,6 +73,16 @@ The local Agent authentication profile is defined by the
   operations authorize the complete verified intent, never a filtered subset.
 - OIDC, SPIFFE, Windows credentials, KMS/HSM, workload measurement, and the
   final portable evidence bundle remain deferred adapters or later work.
+
+### Subsequent implementation status
+
+The final bullet above records the boundary when this decision was accepted.
+P-0006 later implemented `AuthorityEvidenceBundleV1`, independent portable
+verification, storage v14 presentation persistence, and distinct-UID Linux
+broker containment, and project owner `smithdak` accepted that bounded result
+at `2026-08-23T00:34:50.674Z`. OIDC, SPIFFE, Windows credentials, KMS/HSM,
+workload measurement, hostile same-UID isolation, server operation, deployment,
+and public release remain deferred.
 
 ## Constitutional change
 
@@ -195,3 +205,7 @@ falsification vectors are part of the linked contract and
   provider subject disclosure.
 - P-0006 must independently verify the transitive authority closure with
   caller-supplied trust roots and separate validity/completeness verdicts.
+
+P-0004 and P-0006 subsequently satisfied the two implementation obligations
+above for the accepted bounded local Linux profile. Their original normative
+wording is retained as decision history.

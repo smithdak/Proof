@@ -1,21 +1,20 @@
-# Rolling-wave work map — Milestone 2 agent authority
+# Rolling-wave work map — Milestone 3 collaboration server
 
 ## Destination
 
-Milestone 2 is complete when an adapter-authenticated local actor bound to an
-Agent Principal can execute Proof's complete content-change and Release loop
-under bounded Delegation and a task-specific ContextPack, with human approval,
-independently verifiable evidence, structured repair, and no privileged
-interface.
+Milestone 3 delivers a single-Workspace collaboration server through which a
+team can review, approve, publish, and verify changes remotely while preserving
+the accepted local application and domain semantics. Its exit requires the same
+conformance suite to pass against local and server modes.
 
-P-0005 candidate `c6f6ca8` and Engineering evidence `03fd4ea` are the clean,
-qualified delegated-mutation baseline for P-0006 portable verification and
-Milestone 2 closure. P-0006 candidate `ea35e09`, bound by Engineering evidence
-`7df66d9` (initial packet `029f803`), is engineering-qualified and awaiting
-project-owner review. Milestone 2 is not complete. Collaboration-server and
-enterprise deployment work begin
-only after the project owner accepts the Milestone 2 exit evidence and residual
-risks.
+The bounded local Linux Milestone 2 profile is complete. Project owner
+`smithdak` accepted P-0006 candidate `ea35e09`, Engineering evidence `7df66d9`
+(initial packet `029f803`), and its documented residual risks at
+`2026-08-23T00:34:50.674Z`. The accepted result covers portable authority and
+content closure, independent clean-directory verification under explicit
+caller trust, and distinct-UID broker containment. It does not qualify a
+collaboration server, HTTP/PostgreSQL parity, Windows runtime, deployment, or
+public release.
 
 ## Operating notes
 
@@ -55,8 +54,8 @@ risks.
 - [Agent authority](../architecture/agent-authority.md) requires explicit
   requesting and operating identities, bounded Delegation, ContextPacks,
   repair, human approval, re-authorization, Release, and verification.
-- [The roadmap](../product/roadmap.md) requires Milestone 2 before the
-  collaboration server.
+- [The roadmap](../product/roadmap.md) requires local/server semantic parity and
+  one complete remote collaboration loop for Milestone 3.
 - Environment is a versioned delivery target and current-Release pointer;
   ContextPack is the bounded package supplied to an agent.
 
@@ -64,21 +63,20 @@ risks.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `review` | P-0005 | Review engineering-qualified repair, abuse-resistance, adapter-parity, portable-closure, containment, and independent-verification evidence. |
+| [Ratify the single-Workspace Milestone 3 collaboration-server contract](items/P-0008-ratify-collaboration-server-contract.md) | `ready` | P-0006 | Fix the remote identity, HTTP/application parity, PostgreSQL transaction, review, outbox, evidence, and conformance boundaries before implementation. |
 
 ## Next
 
-No later item is promoted. P-0006 remains the sole active frontier while its
-engineering-qualified candidate awaits project-owner disposition. Milestone 3
-remains in fog until P-0006 completes the independently verifiable exit and
-exposes the next decision boundary.
+No implementation item is promoted. P-0008 must ratify the smallest server
+slice and expose its dependency order before any framework, database, identity,
+worker, SDK, or console work becomes claimable.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | No successor is promoted while P-0006 is in project-owner review. |
+| None | n/a | n/a | P-0008 must make the first implementation successor decision-complete. |
 
 ## Completed
 
@@ -89,6 +87,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `done` | P-0001, P-0002 | Ratified the bounded local authenticated-actor, direct Delegation, and current-authorization retry contract. |
 | [Implement the authenticated authorization kernel](items/P-0004-implement-authorization-kernel.md) | `done` | P-0003 | Bind authenticated actors to Principals and produce exact delegated decisions. |
 | [Deliver delegated mutation through a verified Release](items/P-0005-deliver-delegated-mutation.md) | `done` | P-0004, P-0007 | Bind Agent authority to the proven localized-content path through approval, consequence, and Proof. |
+| [Close Milestone 2 with independently verifiable evidence and conformance](items/P-0006-close-milestone-2.md) | `done` | P-0005 | Qualified and accepted the bounded local Linux Agent loop, portable closure, independent verifier, and distinct-UID containment. |
 | [Implement the localized content foundation](items/P-0007-implement-localized-content-foundation.md) | `done` | P-0002 | Prove exact-locale revision, repair, Edition, and Release semantics through the Human path. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
@@ -98,9 +97,10 @@ relabeled by completion. P-0004 candidate `8788847`, bound through Engineering
 evidence `e6843ad`, passed the bounded local authorization-kernel gate and is
 `done` under `review_gate: none`. P-0005 candidate `c6f6ca8`, bound through
 Engineering evidence `03fd4ea`, passed the bounded delegated-mutation gate and
-is `done` under `review_gate: none`; P-0006 candidate `ea35e09`, bound by
-Engineering evidence `7df66d9` (initial packet `029f803`), is the Milestone 2
-closure frontier awaiting project-owner review.
+is `done` under `review_gate: none`. P-0006 candidate `ea35e09`, bound by
+Engineering evidence `7df66d9` (initial packet `029f803`), passed the complete
+Linux gate and was accepted with its bounded residual risks by project owner
+`smithdak` at `2026-08-23T00:34:50.674Z`; Milestone 2 is complete.
 
 ## Decisions so far
 
@@ -117,8 +117,8 @@ baseline and exactly one authorized committed ChangeSet. Campaign/subtree
 selection resolves to exact Object IDs before grant issuance; no new
 `DelegationV2` resource dimension is required. P-0007 implements and qualifies
 that foundation through the Human path. P-0004 implements authenticated Agent
-reads, P-0005 implements delegated localized mutation, and the P-0006 candidate
-under review verifies the portable Milestone 2 closure.
+reads, P-0005 implements delegated localized mutation, and P-0006 independently
+verifies the accepted portable Milestone 2 closure.
 
 ### Ratified P-0003 profile
 
@@ -131,7 +131,7 @@ both MCP eras treat Principal and Delegation identifiers as cross-checks or
 selectors rather than authority. This is accepted architecture, not an
 implementation-status claim by itself. P-0004 implements its bounded local read
 profile, P-0005 implements the 11 localized v2 operations, and P-0006 has an
-engineering-qualified candidate under project-owner review.
+accepted independent bundle/verifier and containment qualification.
 
 Candidate `38999d0` was qualified and accepted by project owner `smithdak` at
 `2026-08-20T19:52:12.756Z`. It aligns
@@ -145,16 +145,29 @@ acceptance, and falsification record are bound by the
 The controlling contract is the
 [authenticated actor contract](../architecture/authenticated-actor.md).
 
+### Accepted P-0006 Milestone 2 closure
+
+P-0006 implements `AuthorityEvidenceBundleV1`, storage v14 presentation
+persistence, a producer-independent `proof-verifier`, frozen Complete,
+Incomplete, and Invalid vectors, application/CLI/modern-MCP/legacy-MCP
+north-star parity, and Linux distinct-UID signer/verifier containment. The
+accepted checkpoint proves the supplied authority prefix under explicit caller
+trust; it does not prove a globally latest or true immediate same-Environment
+Release. Environment-creation chronology, v2 approval causal-head ambiguity,
+same-UID hostile-process isolation, Windows containment, and server/deployment
+claims remain outside the bounded result.
+
 ## Fog — not yet specifiable as implementation
 
-- The collaboration-server decomposition: HTTP surface, PostgreSQL adapter,
-  outbox, OIDC, SDKs, and human console. It sharpens only after P-0006.
+- P-0008 owns the collaboration-server contract and successor decomposition.
+  HTTP/server framework, PostgreSQL adapter and migrations, OIDC Human identity
+  and sessions, artifact storage, outbox/workers, SDKs, console, and preview
+  delivery remain unnamed implementation items until that decision is accepted.
 - Environment configuration update, disablement, and signing-key lifecycle.
-- The **Ratified P-0003 profile** names an `AuthorityEvidenceBundleV1`; P-0006
-  candidate `ea35e09` selects and implements its exact container, supplied
-  artifact layout, independent serialization path, disclosure behavior, and
-  golden vectors. That selection remains unratified until project-owner
-  acceptance.
+- P-0006 hardening beyond the accepted claim: global-latest Release
+  transparency, chronology-bearing Environment and approval successors,
+  complete direct-Human v2 evidence, exhaustive behavioral finding coverage,
+  and stronger same-UID or Windows containment.
 - Windows identity, protected key storage, crash semantics, and live runtime
   qualification.
 - Cross-worktree claim locking, GitHub mirroring, and lifecycle automation
@@ -166,13 +179,14 @@ The controlling contract is the
 
 ## Out of scope for this destination
 
-- Milestone 3 collaboration-server implementation.
-- Enterprise OIDC, workload identity, KMS/HSM, high availability, backup, and
-  disaster recovery.
+- Milestone 3 implementation before P-0008 ratifies its contracts and ordering.
+- Enterprise federation/provisioning and SCIM, workload identity, KMS/HSM,
+  high availability, backup, and disaster recovery.
 - Public release, package publication, push, tag, or license selection.
 - Personalization, experimentation, visual page building, DAM transformation,
   and other deliberate product deferrals.
 
-The strongest rejected route is starting Axum, PostgreSQL, or OIDC now. That
-would duplicate unresolved authority and evidence semantics in a second adapter
-before the local write path satisfies Milestone 2.
+The strongest rejected route is starting Axum, SQLx/PostgreSQL, an IdP, or a
+web console now. That would freeze transport, identity, transaction, and
+collaboration semantics before P-0008 establishes the shared local/server
+contract and conformance boundary.

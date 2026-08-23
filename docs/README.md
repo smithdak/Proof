@@ -3,15 +3,19 @@
 This documentation separates durable product and architectural decisions from
 changeable implementation details. Milestone 1's local proof loop, P-0007's
 exact-locale Human content foundation, P-0004's authenticated Agent kernel, and
-P-0005's bounded delegated-localization profile are implemented. Per-Agent
+P-0005's bounded delegated-localization profile are implemented. P-0006 closes
+the bounded local Linux Milestone 2 profile. Per-Agent
 Ed25519 bindings, direct bounded Delegations, single-use commands, canonical
 authorization decisions, and CLI plus modern and legacy MCP broker paths cover
 all 14 enabled operations. The 11 localized `/v2` operations consume immutable
 Human-issued intent and ContextPack closure; Agents cannot issue or replace
 that closure or approve a ChangeSet. Signed result/effect commitments and the
-v13 consequence and global-key ledgers make their local outcomes verifiable.
-Portable authority bundles, containment qualification, the collaboration
-server, and a public release remain unimplemented.
+v14 presentation, consequence, and global-key ledgers make their local outcomes
+verifiable. `AuthorityEvidenceBundleV1`, the independent `proof-verifier`,
+frozen portable vectors, and distinct-UID Linux signer/verifier containment are
+qualified. Same-UID hostile-process isolation, Windows runtime containment, the
+collaboration server, deployment, and a public release remain unimplemented or
+unqualified.
 
 ## Reading paths
 
@@ -78,8 +82,8 @@ Documentation changes follow a docs-as-code workflow:
 
 ## Current baseline
 
-**Baseline date:** August 21, 2026
+**Baseline date:** August 23, 2026
 
-**Product phase:** Milestone 1 complete; Milestone 2 bounded local authenticated mutation implemented, portable qualification next
+**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 collaboration-server contract discovery next
 
-**Documentation version:** 0.3
+**Documentation version:** 0.4

@@ -1,7 +1,7 @@
 # Testing and verification strategy
 
-**Status:** Ratified methodology  
-**Baseline:** August 3, 2026
+**Status:** Ratified methodology with completed bounded local Linux Milestone 2 qualification
+**Baseline:** August 23, 2026
 
 Proof's correctness claim depends on executable evidence. Tests are organized around invariants and state transitions rather than crate coverage percentages alone.
 
@@ -37,9 +37,16 @@ Version-controlled fixtures define compatibility for:
 - ChangeSet and Edition manifests.
 - DSSE pre-authentication encoding.
 - Signed Proof envelopes.
+- Portable `AuthorityEvidenceBundleV1` directories, caller trust policies,
+  authority-head checkpoints, and canonical Complete, Incomplete, and Invalid
+  verifier reports.
 - Structured errors and CLI JSON results.
 
 Vectors include valid, malformed, ambiguous, oversized, unsupported-version, and tampered cases. At least one verifier implementation must consume vectors without using the producer's serialization path.
+
+P-0006 satisfies that independence requirement with `proof-verifier`, which
+does not depend on producer-side Workspace reconstruction or serialization and
+consumes frozen portable fixtures under explicit caller trust.
 
 ### Adapter contract tests
 
@@ -47,7 +54,14 @@ Persistence, identity, key, policy, and delivery adapters run shared behavioral 
 
 ### End-to-end tests
 
-End-to-end scenarios run the actual CLI through the local proof loop. Server tests run the same scenarios over HTTP. MCP tests invoke the same operations through protocol conformance fixtures.
+End-to-end scenarios run the actual CLI through the local proof loop. The
+retained Milestone 2 north star also runs the same semantic lifecycle through
+the application contract, CLI, modern MCP, and legacy MCP. Its Agent signer and
+clean verifier execute under a distinct Linux UID. The signer receives its
+scoped Agent credential but no repository, private Workspace, Workspace
+authority/Release key, ambient CLI, or network-resolution access; the verifier
+receives no private key. Server tests will run the same scenarios over HTTP
+after the Milestone 3 contract is ratified.
 
 ### Security tests
 
@@ -56,6 +70,11 @@ End-to-end scenarios run the actual CLI through the local proof loop. Server tes
 - Test denial behavior for revoked, expired, malformed, and cyclic Delegations.
 - Test archive traversal, symlink, URL-resolution, and decompression limits.
 - Test crash consistency and recovery at transaction boundaries.
+- Tamper or withhold every supplied portable-evidence component and verify
+  deterministic Complete, Incomplete, or Invalid classification without
+  producer authority.
+- Exercise fixed-input broker boundaries, path-shaped arguments, symlinks,
+  distinct-UID containment, and clean-directory verification.
 - Use concurrency model checking for critical queues, locks, and outbox behavior where applicable.
 
 ### Migration tests
@@ -74,6 +93,13 @@ cargo test --locked --doc --workspace --all-features
 node scripts/check-doc-links.mjs
 node scripts/check-work-items.mjs
 ```
+
+The accepted P-0006 candidate passed this complete gate on Ubuntu 24.04: 604
+tests across 36 suites with zero failures, strict Clippy with warnings denied,
+doc tests, documentation links, and work-control validation. Namespace-capable
+execution ran the retained bubblewrap containment tests rather than skipping
+them. This remains Linux qualification, not cross-platform or release
+eligibility.
 
 This is a quality gate, not release eligibility. The planned release and
 tooling baseline remains:
@@ -100,6 +126,12 @@ eligibility requires:
 - Every security boundary covered by abuse cases.
 
 Coverage trends must not regress materially, but a numeric percentage cannot replace these gates.
+
+P-0006 maps C1-C24 to retained accepted and rejected paths. Its closed public
+verifier registry contains 158 codes: 30 have direct behavioral assertions and
+128 have structural emitted-source/registry equality guards. The structural
+classification satisfies P-0006 enumeration but does not claim a dedicated
+branch-level test for each code or weaken future release-eligibility coverage.
 
 ## Determinism policy
 
@@ -130,3 +162,7 @@ A release candidate is eligible only when it has:
 - Signed build artifacts and provenance attestation.
 - Reproducibility comparison where the platform permits it.
 - Verification of bundled Proof golden vectors using the released binary.
+
+Milestone 2 completion does not satisfy this release gate: signed build
+artifacts, an SBOM, provenance, reproducibility comparison, public distribution,
+and supported-platform qualification remain future work.

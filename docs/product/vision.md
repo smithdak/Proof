@@ -1,7 +1,7 @@
 # Vision and product thesis
 
 **Status:** Ratified  
-**Baseline:** August 21, 2026
+**Baseline:** August 23, 2026
 
 ## Product statement
 
@@ -90,11 +90,13 @@ An enterprise delegates an agent authority to localize a product launch into two
 
 That complete loop—not content generation alone—is the product.
 
-### Implemented P-0007/P-0005 local interpretation
+### Implemented P-0007/P-0005/P-0006 local interpretation
 
 This interpretation is implemented for both the Human content path and the
-bounded authenticated Agent path. It does not change the ratified north-star
-outcome or imply portable containment or publication qualification.
+bounded authenticated Agent path. P-0006 additionally qualifies its portable
+closure, independent verification, and distinct-UID Linux broker containment.
+It does not imply hostile same-UID isolation, server deployment, or public
+release qualification.
 
 For Milestone 2, the campaign and content-subtree descriptions are task intent,
 not dynamic authorization resources. Before work begins, the Human resolves
@@ -120,6 +122,7 @@ P-0007 implements the Human-path content foundation, P-0004 implements the
 authenticated Agent kernel, and P-0005 binds all 11 localized v2 operations to
 that exact foundation. The Human still issues immutable resource intent and the
 ContextPack and performs approval; the Agent cannot create or replace closure
-or approve. P-0006 remains responsible for portable authority evidence,
-hostile-process containment, independent end-to-end verification, and
-publication qualification.
+or approve. P-0006 exports the resulting portable authority/content evidence
+and independently verifies the end-to-end closure under explicit caller trust.
+A caller-supplied matching authority-head checkpoint bounds the supplied
+authority prefix; it does not prove that the Release is globally latest.

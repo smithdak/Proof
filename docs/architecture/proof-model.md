@@ -1,14 +1,14 @@
 # Proof model
 
-**Status:** Ratified architecture; P-0007 content and P-0004/P-0005 local authority path implemented
-**Baseline:** August 21, 2026
+**Status:** Ratified architecture; bounded local Linux content and authority closure complete through P-0006
+**Baseline:** August 23, 2026
 
-> **Implemented P-0004/P-0005 profile:** The authority additions below are
+> **Implemented P-0004/P-0005/P-0006 profile:** The authority additions below are
 > normative architecture; local authority records and localized consequence
-> cross-links are implemented. They do not
-> change existing Release Proof bytes or claim that the future portable
-> `AuthorityEvidenceBundleV1` is implemented.
-> The normative proposal is the [authenticated actor contract](authenticated-actor.md).
+> cross-links, portable `AuthorityEvidenceBundleV1`, storage v14 presentation
+> evidence, and independent verifier are implemented. They do not change
+> existing Release Proof bytes.
+> The normative contract is the [authenticated actor contract](authenticated-actor.md).
 >
 > **Ratified P-0002 profile:** The localized-content and exact-delta additions
 > below are project-owner accepted. They require versioned Release and
@@ -161,9 +161,9 @@ The bounded P-0005 implementation does not rewrite P-0007 Release or Release
 Proof identity. `ReleaseV2.principal_id` remains the requesting Human, and its
 `authorization_decision_digest` remains the P-0007 Human release-policy
 decision. Agent identity, authority decision, result commitment, and raw P-0007
-effect are cross-linked in the separate v13 localized consequence. P-0006 must
-carry and verify both closures; the illustrative embedded Agent authority block
-above is not a claim about current Release Proof bytes.
+effect are cross-linked in the retained localized consequence. P-0006 carries
+and independently verifies both closures; the illustrative embedded Agent
+authority block above is not a claim about current Release Proof bytes.
 
 `requesting_subject_commitment` is a hiding commitment formed with a 32-byte
 blind, not a checksum of a raw UID. The actor-context digest uses only that
@@ -178,28 +178,31 @@ P-0004/P-0005 record canonical `PrincipalBindingV1`, `AuthenticatedCommandV1`,
 `AuthorizationDecisionV2`, and `AuthorityRecordV1` artifacts in
 the separately rooted authority log. A localized Allow also signs its exact
 result contract, result kind and digest, and application-consequence digest;
-storage v13 cross-links that decision to one per-presentation consequence and,
-for success, a Workspace-global application-key record. This local closure does
-not claim to be a portable bundle.
+storage v14 preserves the localized consequence and Workspace-global
+application-key record and additionally persists the canonical command input
+and signed presentation envelope. These local rows alone do not claim to be a
+portable bundle.
 
 Here `command_digest` is the semantic `CommandInputV1` digest. It is not an
 additional signed-payload digest; the authenticated-command envelope digest
 already commits the exact signed payload.
 
-P-0006 defines the future `AuthorityEvidenceBundleV1`. That bundle must include
+P-0006 implements `AuthorityEvidenceBundleV1`. The bundle carries or resolves
 the transitive authority records needed to verify the recorded action at its
-causal position, be authenticated by an authority root distinct from the
-Release-signing root, and be consumable with explicit caller-supplied trust
-policy. Producer-exported identifiers, digests, or self-described keys establish
-consistency only, not trust.
+causal position, using explicit external commitments for unavailable bytes. It
+is authenticated by an authority root distinct from the
+Release-signing root, and is consumed with explicit caller-supplied trust
+policy. Producer-exported identifiers, digests, or self-described keys
+establish consistency only, not trust.
 The bundle carries or resolves the strict raw-UID-free
 `AuthenticatedActorContextEvidenceV1` digest preimage used by P-0004.
 The authority hash chain detects mutation, deletion, or reordering only relative
 to a trusted later head. A supplied signed prefix cannot establish that no valid
-older prefix or fork was restored from the same mutable store. Any P-0006 claim
-of rollback resistance or complete latest history therefore requires an
-independently retained expected authority head or a later checkpoint committing
-it.
+older prefix or fork was restored from the same mutable store. P-0006 therefore
+accepts an independently retained expected authority head or later committing
+checkpoint when the caller requires rollback or truncation detection. That pin
+does not prove that the supplied Release is globally latest or the true
+immediate same-Environment Release.
 Loss of the predecessor authority private key before a dual-signed transition
 makes v1 continuity unrecoverable. Existing history remains verifiable, but no
 current-profile export may claim recovered continuity. A new authority epoch or
@@ -207,7 +210,7 @@ re-anchor requires a future ADR and Schema plus explicit caller trust.
 
 ## Ratified P-0002 profile — localized-content causality
 
-The next localized-content Release predicate version commits enough evidence
+The localized-content Release predicate version commits enough evidence
 to distinguish an authorized target set from the exact state actually released.
 It carries or references:
 
@@ -247,9 +250,9 @@ and policy results that made the ChangeSet acceptable. A legal-quality claim is
 supported only by a named validator or approval whose artifact digest is in the
 closure.
 
-The portable authority closure proposed by P-0003 remains separate. P-0005
-binds `AuthorizationDecisionV2` to the content operation, exact resource intent,
-application result, and effect closure. P-0006 then verifies both closures under
+The portable authority closure defined by P-0003 remains separately rooted.
+P-0005 binds `AuthorizationDecisionV2` to the content operation, exact resource intent,
+application result, and effect closure. P-0006 verifies both closures under
 explicit caller-supplied trust roots and reports content integrity, validation,
 authority, Release signature, and evidence completeness as separate verdict
 dimensions.
@@ -331,16 +334,22 @@ A verifier:
 9. Checks revocation and time-sensitive policy using recorded evidence.
 10. Returns a structured verification report.
 
-**Ratified P-0003 profile:** Full authority verification additionally validates
-the future `AuthorityEvidenceBundleV1`, its authority-root authentication, the
+**Implemented P-0006 profile:** Full authority verification validates
+`AuthorityEvidenceBundleV1`, its authority-root authentication, the
 subject commitment and active binding at the recorded position, the single-use
 `AuthenticatedCommandV1`, direct `DelegationV2` issue and revocation records,
 and `AuthorizationDecisionV2`. Cryptographic validity, Release-subject
 validity, authority validity, policy validity, and evidence completeness are
 separate verdict dimensions.
 Without an independently pinned expected authority head, the verifier may
-report internal validity of the supplied authority prefix but not latest-history
-completeness or rollback resistance.
+report internal validity of the supplied authority prefix but not prefix
+freshness or rollback resistance. With a matching pin, it still does not claim
+globally latest Release history.
+
+Historical direct-Human v2 evidence without the delegated Agent consequence
+companion is conservatively Incomplete. Unavailable pre-v14 presentations and
+some malformed idempotency reconstructions may also report Incomplete;
+exhaustive Invalid classification is not claimed.
 
 Verification does not fetch arbitrary URLs automatically. External resolution requires an allowlisted resolver and explicit network policy.
 
@@ -357,7 +366,12 @@ When evidence is restricted:
 
 ## Portability
 
-Proof artifacts are independent of a running CMS instance. A standalone `proof verify` implementation must be able to validate an envelope and supplied subjects offline, provided the trust roots and required evidence are available.
+Proof artifacts are independent of a running CMS instance. The `proof verify`
+command validates one envelope and its supplied subjects offline. The separate
+`proof-verifier` validates the transitive portable Release, content, approval,
+policy, and authority closure from `AuthorityEvidenceBundleV1`, caller trust,
+and an optional authority-head checkpoint without the producing Workspace or
+private keys.
 
 Under the **Ratified P-0003 profile**, raw provider subjects, private keys, and
 credential handles are never portable evidence. The public
