@@ -85,8 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `review` | none | Implement `agent-binding.issue/v1` and `oidc-binding.issue/v1` end to end so an external Human or Agent caller obtains working credentials instead of a pending Problem. |
-| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `blocked` | P-0014 | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
+| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `ready` | none | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
 
 ## Next
 
@@ -120,6 +119,8 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | [Implement the HTTP and OIDC server boundary](items/P-0011-http-oidc-server-boundary.md) | `done` | P-0010 | Implemented the exact nine-route HTTP surface, the same-origin OIDC BFF against a deterministic issuer, opaque bounded sessions and the CSRF synchronizer, dual Human-plus-Agent authentication, per-row authorization with signed decisions and consequences through the P-0010 unit of work, the exact 41-tuple Problem registry, and the retained abuse matrix; P-0012 promoted. |
 | [Implement the artifact outbox and private preview delivery](items/P-0012-artifact-outbox-private-preview.md) | `done` | P-0011 | Implemented the generation-scoped leased outbox worker with counted attempts and dead-letter/poison management, authorized replay and abandonment with DeliveryManagementFactV1, the filesystem-backed private preview adapter with ready-last manifests and the four alias outcomes, and the delivery projection and serving; P-0013 promoted. |
 | [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `done` | P-0012 | Implemented the six-root RemoteEvidenceBundleV2 logical member map, keyed export capture with byte-identical replay and the no-key lifecycle read, exact-triple artifact acquisition, proof-verifier remote-authority and remote-evidence v2 modes under caller trust with the three retained conformance scenarios, and the complete remote north-star over HTTP+PostgreSQL reaching verifier Complete; audited the 158-code rejection registry, completed the nine-boundary crash matrix, and produced the per-step-classified local/server oracle conformance report. Accepted by project owner `smithdak` at `2026-08-24T13:30:25.292Z`; Milestone 3 is complete. |
+
+| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `done` | none | Implemented `agent-binding.issue/v1` with pre-transaction proof-of-possession verification and single-use challenge consumption, and `oidc-binding.issue/v1` with server-owned blind generation and paired public/protected facts, both through the unchanged P-0010 unit of work; issued Agent credentials authenticate end to end through the dual boundary and complete a governed read, issued OIDC pairs resolve their subjects at login; two retained conformance vectors pin the artifact shapes; zero frozen vectors changed; full Linux gate green. Item-work commit `857734f`. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
 is accepted as `done` through Assurance record `29ad9d9`. Historical

@@ -15,7 +15,9 @@
  "qualified_at": "2026-08-24T15:41:00.000Z",
  "qualification_state": "implementation-qualified-review-eligible",
  "review_gate": "none",
- "successors_created": [],
+ "successors_created": [
+  "P-0015"
+ ],
  "deployed": false,
  "milestone_complete": false,
  "public_release": false,

@@ -1,10 +1,10 @@
 ---
 id: P-0015
 title: Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: implementation
-blocked_by: [P-0014]
+blocked_by: []
 claimed_by: null
 claimed_at: null
 base_sha: null

@@ -1,7 +1,7 @@
 ---
 id: P-0014
 title: Implement route-complete enrollment with usable credentials
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: []
