@@ -10,8 +10,9 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 **Milestones 1 and 2 complete — local proof loop plus bounded local Linux
 Agent authority. P-0008 is project-owner accepted; P-0009 through P-0012
-are complete, and P-0013 remote evidence and Milestone 3 qualification is
-the promoted frontier.**
+are complete, and P-0013 remote evidence is implemented and
+engineering-qualified, awaiting the project-owner acceptance gate for the
+Milestone 3 exit.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -51,9 +52,18 @@ idempotency, artifact catalog, outbox enqueue, projection rebuild, import,
 and byte-identical SQLite/PostgreSQL traces. P-0011 has implemented the
 HTTP and OIDC server boundary — the exact nine-route surface, the
 same-origin BFF, bounded sessions and CSRF, dual authentication, and the
-signed decision/consequence path. P-0012 has implemented the outbox worker
-and private preview delivery. P-0013 implements remote evidence export,
-independent verification, and the Milestone 3 qualification.
+signed decision/consequence path. P-0012 has implemented the outbox worker and private preview delivery. P-0013
+implements remote evidence export, independent verification, and the
+Milestone 3 qualification wave: the six-root `RemoteEvidenceBundleV2`
+logical member map with deterministic paths and closed violation taxonomy,
+keyed export capture with byte-identical replay plus the no-key lifecycle
+read, exact-triple artifact acquisition, `proof-verifier` remote authority
+and remote-evidence v2 modes under explicit caller trust, the closed
+`RemoteVerificationReportV2` with its three retained conformance scenarios,
+the complete remote north-star (two Humans, one Agent) end to end over HTTP
+and PostgreSQL reaching verifier Complete, the audited 158-code rejection
+matrix, the completed crash matrix, and a per-step-classified local/server
+conformance report. Milestone 3 closes only on project-owner acceptance.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -67,8 +77,8 @@ qualification or a published Windows support claim.
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
-| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009, P-0010), server boundary (P-0011), and delivery (P-0012) implemented; remote evidence and qualification remain |
-| Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23); first successor P-0009 promoted |
+| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009, P-0010), server boundary (P-0011), delivery (P-0012), and remote evidence with qualification evidence (P-0013) implemented; project-owner exit acceptance remains |
+| Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23); P-0013 in review under the project-owner gate |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 
@@ -276,10 +286,14 @@ The planned first release is one complete local vertical slice:
 
 ## Contributing and security
 
-Proof has completed its local proof loop and bounded local Linux Agent-authority
-profile, including portable independent verification and distinct-UID broker
-containment. Collaboration-server, cross-platform, deployment, and public
-release qualification remain. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+Proof has completed its local proof loop, bounded local Linux Agent-authority
+profile, and the Milestone 3 collaboration-server implementation through
+remote evidence: portable independent verification, distinct-UID broker
+containment, the HTTP/OIDC server boundary with PostgreSQL parity, outbox
+preview delivery, and engineering-qualified remote evidence export plus
+independent verification. Project-owner exit acceptance, cross-platform,
+deployment, and public release qualification remain. Read
+[CONTRIBUTING.md](CONTRIBUTING.md)
 before proposing a change. Report vulnerabilities according to
 [SECURITY.md](SECURITY.md); do not open public security issues.
 

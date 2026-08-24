@@ -6,6 +6,20 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented remote evidence and the Milestone 3 qualification wave
+  (P-0013): the exact six-root `RemoteEvidenceBundleV2` uncompressed logical
+  member map with deterministic artifact paths and a closed Invalid taxonomy,
+  keyed immutable `evidence.export/v2` capture with byte-identical replay and
+  the separate no-key `evidence.export.get/v1` lifecycle read, exact
+  `(export_id, kind, digest)` triple artifact acquisition over its HTTP
+  route, `proof-verifier` remote-authority and remote-evidence v2 modes under
+  explicit caller trust with inert producer hints, the closed
+  `RemoteVerificationReportV2` with its three retained conformance scenarios,
+  the complete remote north-star (two Humans, one Agent) end to end over HTTP
+  and PostgreSQL reaching verifier Complete, the audited 158-code finding
+  registry with exhaustive coverage partitioning, the completed nine-boundary
+  crash matrix, and a per-step-classified local/server oracle conformance
+  report.
 - Implemented the artifact outbox and private preview delivery (P-0012):
   the generation-scoped leased outbox worker with deterministic stream
   claims, counted attempts, bounded exponential backoff, dead-letter and

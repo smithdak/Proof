@@ -21,10 +21,11 @@ decision evidence `4ac62e9`, at `2026-08-23T17:48:11.461Z`. ADR-0013 is
 Accepted. P-0009 remote actor and shared-contract conformance is complete
 with candidate `3e38f30`, P-0010 PostgreSQL parity foundation is complete
 with candidate `4410b46`, P-0011 HTTP and OIDC server boundary is complete
-with candidate `ed6a06e`, P-0012 artifact outbox and private preview
-delivery is complete with candidate `9c282ea`, and P-0013 remote evidence
-and Milestone 3 qualification is the promoted and claimed Milestone 3
-frontier. No collaboration-server implementation, provider, deployment, or live remote
+with candidate `ed6a06e`, and P-0012 artifact outbox and private preview
+delivery is complete with candidate `9c282ea`. P-0013 remote evidence and
+Milestone 3 qualification is implemented and engineering-qualified with
+candidate `1fb53b8`; it is in `review` awaiting project-owner acceptance of
+the Milestone 3 exit evidence and residuals. No collaboration-server implementation, provider, deployment, or live remote
 result is claimed yet.
 
 ## Operating notes
@@ -74,14 +75,15 @@ result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `claimed` | P-0012 | Implement the six-root RemoteEvidenceBundleV2 logical member map, immutable keyed export capture with the separate no-key status read, kind-and-digest artifact acquisition, the proof-verifier remote authority and remote evidence v2 modes under explicit caller trust, the closed RemoteVerificationReportV2 with its conformanceReport subtype, and the complete remote north-star with the retained rejection, crash, and security matrices — then obtain project-owner acceptance of the Milestone 3 exit evidence and residuals. |
+| [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `review` | P-0012 | Engineering qualification is complete at candidate `1fb53b8` (remote evidence export, verifier v2 modes, three conformance scenarios, remote north-star over HTTP+PostgreSQL reaching verifier Complete, audited 158-code rejection matrix, completed crash matrix, three-runner conformance report, full Linux gate). Awaiting the project-owner acceptance gate before `review` → `done`. |
 
 ## Next
 
-Only P-0013 is promoted; it is the accepted contract's fifth and final
-successor. No SDK, console, provider, or deployment work becomes claimable
-before it closes, and Milestone 3 completion requires project-owner
-acceptance of its exit evidence.
+P-0013 is in `review` under `review_gate: project-owner`; no successor is
+claimable until the project owner accepts or reworks it. If accepted,
+Milestone 3 closes and the next destination (SDKs, console, providers,
+deployment, public preview) must be shaped by a project-owner decision
+before any item becomes `ready`.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.

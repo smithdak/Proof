@@ -1,7 +1,7 @@
 ---
 id: P-0013
 title: Implement remote evidence and qualify Milestone 3
-status: claimed
+status: review
 wave: now
 kind: qualification
 blocked_by: [P-0012]
@@ -162,32 +162,32 @@ ADR-0013 remains the implementation authority.
 
 ## Acceptance criteria
 
-- [ ] The six-root logical member map exports and re-imports exactly with
+- [x] The six-root logical member map exports and re-imports exactly with
       reserved descriptors, deterministic paths, kind/digest/length checks,
       and every path/limit violation classified Invalid.
-- [ ] Keyed export capture always returns the pending create result and
+- [x] Keyed export capture always returns the pending create result and
       replays it byte-identically; the no-key status read observes the
       mutable ready transition independently.
-- [ ] Artifact acquisition is addressed and authorized by the exact
+- [x] Artifact acquisition is addressed and authorized by the exact
       kind-and-digest triple with no cross-kind alias.
-- [ ] The remote authority and remote evidence verifier modes reconstruct
+- [x] The remote authority and remote evidence verifier modes reconstruct
       the supplied closure under explicit caller trust and classify
       Complete, Incomplete, and Invalid exactly, including the three
       conformance scenarios.
-- [ ] Producer hint arrays are inert; no producer metadata can establish
+- [x] Producer hint arrays are inert; no producer metadata can establish
       freshness, readiness, or latest-history claims in Complete.
-- [ ] The complete remote north-star (two Humans and one Agent) passes end
+- [x] The complete remote north-star (two Humans and one Agent) passes end
       to end over HTTP and PostgreSQL with every separation-of-duties
       check.
-- [ ] The retained rejection matrix (158 rows) maps one-to-one to executable
+- [x] The retained rejection matrix (158 rows) maps one-to-one to executable
       tests where applicable; every applicable rejection executes and
       fails closed.
-- [ ] The crash matrix covers artifact preparation, authoritative
+- [x] The crash matrix covers artifact preparation, authoritative
       transaction boundaries, outbox claim/send/acknowledgement, lease
       expiry, retry, poison handling, replay, and preview application.
-- [ ] The local/server conformance report proves byte-identical shared
+- [x] The local/server conformance report proves byte-identical shared
       oracle traces in both modes.
-- [ ] The full Linux quality gate passes and durable Engineering evidence
+- [x] The full Linux quality gate passes and durable Engineering evidence
       (receipt, manifest, traceability) binds the item-work commit.
 - [ ] The project owner explicitly accepts the Milestone 3 exit evidence
       and residual boundaries before this item moves from `review` to
@@ -212,3 +212,14 @@ Claimed by `deepseek:proof:p-0013` at `2026-08-24T01:30:26.291Z` from
 P-0012 completion commit `ab3071349162a945e698036070f72a64441e17ba`
 on `proof-architecture/p-0008-collaboration-server-contract`. No
 deployment, provider, or production work is claimed by this item.
+
+Engineering qualified immutable candidate
+`1fb53b893b35cf3910f47b4d35ade59ceecfb62a`, whose parent is the skeleton
+commit `fde6c2814533bd73c0d67553049a8709ac2fbc7f`, qualified at
+`2026-08-24T12:58:37.054Z`. Engineering evidence commit
+`97f31fd` binds the [receipt](../evidence/P-0013/receipt.md),
+[manifest](../evidence/P-0013/manifest.json), and
+[AC1-AC11 traceability matrix](../evidence/P-0013/traceability.md).
+Moved from `claimed` to `review` under `review_gate: project-owner`;
+Milestone 3 completion additionally requires the project owner's explicit
+acceptance of the exit evidence and residual boundaries.
