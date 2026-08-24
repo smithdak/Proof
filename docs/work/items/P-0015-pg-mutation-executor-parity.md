@@ -155,6 +155,25 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   serializer, and projection updates. A retained test proves byte-identical
   traces for accepted submit, keyed replay, and time-shifted rejection. Five
   of the eleven mutation rows now have byte-identical executors.
+- Slice 9 (2026-08-24): `changeset.diff/v2` and `object.query_released/v2`
+  mirrored — diff reuses the proposal/effective ports over an
+  evidence-missing guard; released queries resolve Environment pointers,
+  Release metadata (now carrying released_at), v2 Edition facts, and
+  rendition-at-head lookups with full canonical content reproduction. A
+  retained test proves byte-identical rejection traces for v1 releases on the
+  north-star baseline. Nine of the eleven localized `/v2` rows now execute
+  through the PG executor.
+- Slice 10 (2026-08-24): import pipeline extended so post-commit sources
+  migrate cleanly — Object/Schema authoritative sequences, approval/commit/
+  edition records with verified digests, Known State head plus predecessor
+  artifact chain as system facts, v2-aware source verification and projection
+  rebuild (locale references from rendition projections), validation facts
+  embedding parsed findings, commit records carrying serialized renditions,
+  and a pinned projection-import count update. Two rows remain:
+  `release.create/v2` (requires threading the workspace's file-backed Ed25519
+  release signer into the PG backend — keys live outside the store by design)
+  and `context.build/v2` build-semantics (the existing arm reads imported
+  packs; the build path needs the `context_resources` port).
 - Slice 8 (2026-08-24): `changeset.commit/v2` mirrored end to end —
   keyed replay over commit operation facts with effect reproduction, Approved
   gating with imported approval evidence, seal-head verification, write-head
