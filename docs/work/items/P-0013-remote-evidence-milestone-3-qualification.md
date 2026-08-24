@@ -1,13 +1,13 @@
 ---
 id: P-0013
 title: Implement remote evidence and qualify Milestone 3
-status: ready
+status: claimed
 wave: now
 kind: qualification
 blocked_by: [P-0012]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: deepseek:proof:p-0013
+claimed_at: 2026-08-24T01:30:26.291Z
+base_sha: ab3071349162a945e698036070f72a64441e17ba
 review_gate: project-owner
 accepted_by: null
 accepted_at: null
@@ -206,5 +206,9 @@ project owner's explicit acceptance recorded in this item.
 
 Ready at `2026-08-24T01:28:44.000Z` after P-0012 candidate
 `9c282ea66d588250fc6cc8a58a2aacf8320dee45` closed with Engineering evidence
-commit `9ae3cfaadb8b18c94b3f353e827aecf07c4203dd`. Not claimed. No
-deployment, provider, or production work is claimed by this promotion.
+commit `9ae3cfaadb8b18c94b3f353e827aecf07c4203dd`.
+
+Claimed by `deepseek:proof:p-0013` at `2026-08-24T01:30:26.291Z` from
+P-0012 completion commit `ab3071349162a945e698036070f72a64441e17ba`
+on `proof-architecture/p-0008-collaboration-server-contract`. No
+deployment, provider, or production work is claimed by this item.

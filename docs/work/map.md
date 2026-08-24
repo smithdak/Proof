@@ -23,8 +23,8 @@ with candidate `3e38f30`, P-0010 PostgreSQL parity foundation is complete
 with candidate `4410b46`, P-0011 HTTP and OIDC server boundary is complete
 with candidate `ed6a06e`, P-0012 artifact outbox and private preview
 delivery is complete with candidate `9c282ea`, and P-0013 remote evidence
-and Milestone 3 qualification is the promoted Milestone 3 frontier. No
-collaboration-server implementation, provider, deployment, or live remote
+and Milestone 3 qualification is the promoted and claimed Milestone 3
+frontier. No collaboration-server implementation, provider, deployment, or live remote
 result is claimed yet.
 
 ## Operating notes
@@ -74,7 +74,7 @@ result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `ready` | P-0012 | Implement the six-root RemoteEvidenceBundleV2 logical member map, immutable keyed export capture with the separate no-key status read, kind-and-digest artifact acquisition, the proof-verifier remote authority and remote evidence v2 modes under explicit caller trust, the closed RemoteVerificationReportV2 with its conformanceReport subtype, and the complete remote north-star with the retained rejection, crash, and security matrices — then obtain project-owner acceptance of the Milestone 3 exit evidence and residuals. |
+| [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `claimed` | P-0012 | Implement the six-root RemoteEvidenceBundleV2 logical member map, immutable keyed export capture with the separate no-key status read, kind-and-digest artifact acquisition, the proof-verifier remote authority and remote evidence v2 modes under explicit caller trust, the closed RemoteVerificationReportV2 with its conformanceReport subtype, and the complete remote north-star with the retained rejection, crash, and security matrices — then obtain project-owner acceptance of the Milestone 3 exit evidence and residuals. |
 
 ## Next
 
