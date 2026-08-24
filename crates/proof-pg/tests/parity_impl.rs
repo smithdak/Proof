@@ -1180,3 +1180,152 @@ fn changeset_add_traces_are_byte_identical() {
         .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn changeset_validate_traces_are_byte_identical() {
+    use proof_application::{ChangeSetIntent, CreateLocalizedChangeSetCommand};
+    use proof_pg::parity::PostgresBackend as PgBackendAlias;
+    use proof_remote::OracleOutcome;
+
+    const L_CHANGESET_ID: &str = "019d1000-0000-7000-8000-000000000033";
+    const L_DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000043";
+    const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
+        seed_localized_intent_and_context(&workspace);
+    let _changeset = workspace
+        .create_localized_changeset(CreateLocalizedChangeSetCommand {
+            changeset_id: L_CHANGESET_ID.parse().unwrap(),
+            intent: ChangeSetIntent::new("Translate the campaign").unwrap(),
+            resource_intent_id: intent_id,
+            resource_intent_digest: intent_digest,
+            context_pack_id,
+            context_pack_digest,
+            idempotency_key: L_DRAFT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T11:02:00Z".parse().unwrap(),
+        })
+        .expect("localized ChangeSet creates");
+
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_validate_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let object_id = OBJECT_ID;
+    let schema_id = SchemaId::new(SCHEMA_ID.to_owned()).unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let source = serde_json::json!({
+        "legal": "Standard terms apply",
+        "slug": "summer-campaign",
+        "title": "Summer campaign",
+    });
+    let source_digest = object_revision_digest(
+        object_id.parse().unwrap(),
+        &schema_id,
+        schema_version,
+        &source,
+    )
+    .unwrap()
+    .to_string();
+    let edit_input = |locale: &str, legal: &str, title: &str| {
+        serde_json::json!({
+            "api_version": "proof.dev/edit/v2",
+            "content": {"legal": legal, "slug": "summer-campaign", "title": title},
+            "expected_source": {
+                "digest": source_digest,
+                "revision": 1,
+                "schema_id": SCHEMA_ID,
+                "schema_version": 1,
+            },
+            "expected_target": Value::Null,
+            "kind": "object.locale.put",
+            "locale": locale,
+            "object_id": object_id,
+            "repair_of_validation_result_digest": Value::Null,
+            "supersedes_edit_id": Value::Null,
+        })
+    };
+    let add_input = serde_json::json!({
+        "api_version": "proof.dev/operation/changeset.add/v2",
+        "changeset_id": L_CHANGESET_ID,
+        "edits": [
+            edit_input("es-ES", "Se aplican términos estándar", "Campaña de verano"),
+            edit_input("fr-FR", "Garantie absolue", "Campagne d’été"),
+        ],
+        "idempotency_key": L_ADD_KEY,
+    });
+    let validate_input = serde_json::json!({
+        "api_version": "proof.dev/operation/changeset.validate/v2",
+        "changeset_id": L_CHANGESET_ID,
+    });
+    let scenario = ParityScenario {
+        name: "changeset.add then changeset.validate".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: add_input,
+                actor_context: actor_context(
+                    "changeset.add",
+                    "proof.dev/operation/changeset.add/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: validate_input,
+                actor_context: actor_context(
+                    "changeset.validate",
+                    "proof.dev/operation/changeset.validate/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+
+    let mut sqlite_backend = SqliteReferenceBackend::new(&workspace);
+    let mut postgres_backend = PgBackendAlias::new(&mut runtime);
+    let runner = ParityRunner::new();
+    let sqlite_traces = runner
+        .run_sqlite(&scenario, &mut sqlite_backend)
+        .expect("SQLite reference traces");
+    let postgres_traces = runner
+        .run_postgres(&scenario, &mut postgres_backend)
+        .expect("PostgreSQL traces");
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("byte-identical traces");
+
+    match &postgres_traces[1].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["valid"], false);
+            assert_eq!(result["status"], "draft");
+            assert_eq!(result["findings"].as_array().map(Vec::len), Some(1));
+            assert_eq!(result["findings"][0]["severity"], "error");
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("expected a typed validation result, got {other:?}")
+        }
+    }
+
+    let _ = runtime
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
+}

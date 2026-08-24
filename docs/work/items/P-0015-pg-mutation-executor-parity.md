@@ -139,6 +139,15 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   evidence rules, and idempotent projection updates. A retained test proves
   byte-identical accepted and keyed-replay traces against SQLite. Three of the
   eleven mutation rows now have byte-identical executors.
+- Slice 6 (2026-08-24): `changeset.validate/v2` mirrored end to end —
+  validation-chain reconstruction from facts, Ready short-circuit, baseline
+  currency, effective-target/intent equality, attempt limits, policy-rule
+  parsing with canonical-envelope checks, finding generation and ordering,
+  `ValidationResultsV2` manifest reproduction, seal derivation, and lifecycle
+  projection updates. A retained composed test proves byte-identical add +
+  validate traces against SQLite, exercising the invalid path (one
+  prohibited-legal-claim finding). Four of the eleven mutation rows now have
+  byte-identical executors.
 
 ## Completion record
 

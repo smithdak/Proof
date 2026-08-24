@@ -12,9 +12,12 @@
 use proof_application::Timestamp;
 use proof_application::authority::{
     AuthorityOperation, LocalizedChangeSetAddInputV2, LocalizedChangeSetCreateInputV2,
-    LocalizedChangeSetGetInputV2, LocalizedContextBuildInputV2, WorkspaceStatusInputV1,
+    LocalizedChangeSetGetInputV2, LocalizedChangeSetValidateInputV2, LocalizedContextBuildInputV2,
+    WorkspaceStatusInputV1,
 };
-use proof_application::{AddLocalizedEditsCommand, AddedLocalizedEdits, ObjectLocalePutInput};
+use proof_application::{
+    AddLocalizedEditsCommand, AddedLocalizedEdits, LocalizedValidation, ObjectLocalePutInput,
+};
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
 use proof_remote::{
@@ -366,6 +369,35 @@ fn run_postgres_operation(
                         evaluated_authority_head,
                         result,
                         Some(effect),
+                    )
+                }
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
+        }
+        AuthorityOperation::ChangesetValidateV2 => {
+            let Ok(input) = parse_input::<LocalizedChangeSetValidateInputV2>(normalized_input)
+            else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            match pg_validate_changeset(runtime, input.changeset_id) {
+                Ok(validation) => {
+                    let result = proof_remote::oracle::serialize_localized_validation(&validation);
+                    success_trace(
+                        &operation,
+                        normalized_input,
+                        evaluated_authority_head,
+                        result,
+                        Some(validation.validation_results_digest),
                     )
                 }
                 Err(error) => stable_problem_trace(
@@ -953,7 +985,9 @@ fn import_localized_validations(
     let mut statement = connection
         .prepare(
             "SELECT changeset_id, attempt, results_json, results_digest, valid,
-                    sealed_changeset_digest, proposal_digest, findings_json
+                    sealed_changeset_digest, proposal_digest, findings_json,
+                    previous_result_digest, effective_leaf_digest, policy_digest,
+                    validator
              FROM localized_validations ORDER BY changeset_id, attempt",
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -968,6 +1002,10 @@ fn import_localized_validations(
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, String>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, String>(11)?,
             ))
         })
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -981,6 +1019,10 @@ fn import_localized_validations(
             sealed,
             proposal_digest,
             findings,
+            previous,
+            effective_leaf,
+            policy,
+            validator_text,
         ) = row.map_err(|error| PgError::Import(error.to_string()))?;
         let results_digest = results_digest
             .parse::<ContentDigest>()
@@ -1002,13 +1044,19 @@ fn import_localized_validations(
         })?;
         let body = serde_json::json!({
             "api_version": "proof.dev/parity/localized-validation/v1",
-            "changeset_id": changeset_id,
             "attempt": attempt,
-            "valid": valid != 0,
+            "changeset_id": changeset_id,
+            "effective_leaf_digest": effective_leaf,
+            "findings": findings,
+            "policy_digest": policy,
+            "previous_result_digest": previous,
             "proposal_digest": proposal_digest,
+            "results": serde_json::from_str::<Value>(&results_json)
+                .map_err(|error| PgError::Import(error.to_string()))?,
             "results_digest": results_digest.to_string(),
             "sealed_changeset_digest": sealed,
-            "findings": findings,
+            "valid": valid != 0,
+            "validator": validator_text,
         });
         let canonical_body =
             canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
@@ -3381,4 +3429,521 @@ fn set_string_at_pointer(
     *slot = Value::String(replacement);
     let _ = Entry::Vacant;
     Ok(())
+}
+
+/// Ports `validate_changeset` over imported parity facts.
+#[allow(clippy::too_many_lines)]
+fn pg_validate_changeset(
+    runtime: &mut PgRuntime,
+    changeset_id: proof_application::ChangeSetId,
+) -> Result<LocalizedValidation, String> {
+    use proof_application::{
+        ChangeSetStatus, LOCALIZED_CONTENT_VALIDATOR, LocalizedContentTarget,
+        PROHIBITED_LEGAL_CLAIM_CODE, Severity,
+    };
+    const INVALID: &str = "proof.input.schema_mismatch";
+    let mut changeset = load_pg_localized_changeset(runtime, &changeset_id.to_string())?;
+    let principal = parity_principal(runtime)?;
+    if changeset.principal_id != principal {
+        return Err("proof.resource.not_found".to_owned());
+    }
+    let chain = pg_validation_chain(runtime, &changeset_id.to_string())?;
+    if changeset.status == ChangeSetStatus::Ready {
+        return chain
+            .last()
+            .cloned()
+            .ok_or_else(|| integrity_code("Ready ChangeSet lacks validation"));
+    }
+    if changeset.status != ChangeSetStatus::Draft || changeset.edits.is_empty() {
+        return Err(INVALID.to_owned());
+    }
+    let intent_manifest = require_fact_json(
+        runtime,
+        &format!("resource_intent/{}", changeset.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let environment_id = json_str(&intent_manifest, "environment_id")?;
+    let current_baseline = pg_current_baseline(runtime, environment_id)?;
+    if current_baseline.known_state.authoritative_sequence
+        != changeset.base_state.authoritative_sequence
+        || current_baseline.known_state.digest != changeset.base_state.digest
+    {
+        return Err("proof.state.conflict".to_owned());
+    }
+    let (proposal_digest, effective_leaf_digest, effective_edits) = pg_proposal(&changeset)?;
+    let effective_targets = effective_edits
+        .iter()
+        .map(|edit| LocalizedContentTarget {
+            object_id: edit.input.object_id,
+            schema_id: edit.input.expected_source.schema_id.clone(),
+            locale: edit.input.locale.clone(),
+        })
+        .collect::<Vec<_>>();
+    let intent_targets = intent_manifest
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| integrity_code("intent targets"))?
+        .iter()
+        .map(|target| {
+            Ok(LocalizedContentTarget {
+                object_id: json_str(target, "object_id")?
+                    .parse()
+                    .map_err(|_| INVALID)?,
+                schema_id: proof_domain::SchemaId::new(json_str(target, "schema_id")?)
+                    .map_err(|_| INVALID)?,
+                locale: json_str(target, "locale")?.parse().map_err(|_| INVALID)?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if effective_targets != intent_targets {
+        return Err(INVALID.to_owned());
+    }
+    let context_fact_id = format!("context_pack/{}", changeset.context_pack_id);
+    let context_manifest =
+        require_fact_json(runtime, &context_fact_id, "proof.resource.not_found")?;
+    let context_pack_digest: ContentDigest = fact_digest_of(runtime, &context_fact_id)?;
+    let max_attempts = context_manifest
+        .get("limits")
+        .and_then(|limits| limits.get("max_validation_attempts"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| integrity_code("pack limits"))?;
+    let attempt = u32::try_from(chain.len())
+        .map_err(|_| "proof.input.limit_exceeded".to_owned())?
+        .checked_add(1)
+        .ok_or_else(|| "proof.input.limit_exceeded".to_owned())?;
+    if attempt > max_attempts {
+        return Err("proof.input.limit_exceeded".to_owned());
+    }
+    let previous = chain.last().map(|result| result.validation_results_digest);
+    let rules = pg_policy_rules(
+        context_manifest
+            .get("policy")
+            .ok_or_else(|| integrity_code("pack policy"))?,
+    )?;
+    let policy_digest: ContentDigest = json_str(&context_manifest, "policy_digest")?
+        .parse()
+        .map_err(|_| integrity_code("policy digest"))?;
+    let mut findings = Vec::new();
+    for edit in &effective_edits {
+        let localized_value: Value = serde_json::from_str(edit.input.canonical_content.as_str())
+            .map_err(|error| integrity_code(&error.to_string()))?;
+        for rule in rules.iter().filter(|rule| rule.locale == edit.input.locale) {
+            let segments = parse_pointer(&rule.pointer)?;
+            let value = string_at_pointer(&localized_value, &segments)?;
+            if rule
+                .disallowed_values
+                .binary_search_by(|candidate| candidate.as_str().cmp(value))
+                .is_ok()
+            {
+                findings.push(proof_application::LocalizedFinding {
+                    code: PROHIBITED_LEGAL_CLAIM_CODE.to_owned(),
+                    severity: Severity::Error,
+                    edit_id: edit.edit_id,
+                    object_id: edit.input.object_id,
+                    locale: edit.input.locale.clone(),
+                    pointer: Some(rule.pointer.clone()),
+                    validator: LOCALIZED_CONTENT_VALIDATOR.to_owned(),
+                    policy_digest,
+                });
+            }
+        }
+    }
+    findings.sort_by(|left, right| {
+        (
+            left.object_id,
+            &left.locale,
+            left.pointer.as_deref().unwrap_or_default(),
+            left.edit_id,
+        )
+            .cmp(&(
+                right.object_id,
+                &right.locale,
+                right.pointer.as_deref().unwrap_or_default(),
+                right.edit_id,
+            ))
+    });
+    let valid = findings.is_empty();
+    let schema_digests = pg_context_schema_digests(&context_manifest)?;
+    let manifest_value = validation_manifest_value(
+        changeset_id,
+        attempt,
+        previous,
+        proposal_digest,
+        effective_leaf_digest,
+        context_pack_digest,
+        policy_digest,
+        &schema_digests,
+        &findings,
+    );
+    let manifest =
+        canonicalize(&manifest_value).map_err(|error| integrity_code(&error.to_string()))?;
+    let validation_results_digest =
+        digest(proof_domain::ArtifactKind::ValidationResultsV2, &manifest);
+    let sealed_changeset_digest = valid
+        .then(|| seal_digest(proposal_digest, validation_results_digest))
+        .transpose()?;
+    let workspace_id = workspace_id_of(runtime)?;
+    let body = serde_json::json!({
+        "api_version": "proof.dev/parity/localized-validation/v1",
+        "attempt": attempt,
+        "changeset_id": changeset.changeset_id.to_string(),
+        "effective_leaf_digest": effective_leaf_digest.to_string(),
+        "findings": findings_value(&findings),
+        "policy_digest": policy_digest.to_string(),
+        "previous_result_digest": previous.map(|value| value.to_string()),
+        "proposal_digest": proposal_digest.to_string(),
+        "results": manifest_value,
+        "results_digest": validation_results_digest.to_string(),
+        "sealed_changeset_digest": sealed_changeset_digest.map(|value| value.to_string()),
+        "valid": valid,
+        "validator": LOCALIZED_CONTENT_VALIDATOR,
+    });
+    insert_fact(
+        runtime,
+        &format!(
+            "localized_validation/{}/{}",
+            changeset.changeset_id, attempt
+        ),
+        &workspace_id,
+        FACT_KIND_LOCALIZED_VALIDATION,
+        &derive_key_digest(
+            "proof:parity:localized-validation:v1",
+            body.to_string().as_bytes(),
+        ),
+        &serde_json::to_vec(&body).map_err(|e| integrity_code(&e.to_string()))?,
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let prior_body = require_fact_json(
+        runtime,
+        &format!("localized_changeset/{}", changeset.changeset_id),
+        "proof.resource.not_found",
+    )?;
+    let mut updated = prior_body.clone();
+    updated["lifecycle_status"] = Value::String(if valid { "ready" } else { "draft" }.into());
+    updated["sealed_changeset_digest"] = sealed_changeset_digest
+        .as_ref()
+        .map_or(Value::Null, |value| Value::String(value.to_string()));
+    upsert_parity_fact(
+        runtime,
+        &workspace_id,
+        &format!("localized_changeset/{}", changeset.changeset_id),
+        FACT_KIND_LOCALIZED_CHANGESET,
+        &updated,
+        "proof:parity:localized-changeset:v1",
+    )?;
+    changeset.status = if valid {
+        ChangeSetStatus::Ready
+    } else {
+        ChangeSetStatus::Draft
+    };
+    Ok(LocalizedValidation {
+        changeset_id: changeset.changeset_id,
+        attempt,
+        previous_validation_result_digest: previous,
+        proposal_digest,
+        effective_leaf_digest,
+        valid,
+        findings,
+        validation_results_digest,
+        sealed_changeset_digest,
+        status: changeset.status,
+    })
+}
+
+/// Ports `load_validation_chain` over validation facts.
+fn pg_validation_chain(
+    runtime: &mut PgRuntime,
+    changeset_id: &str,
+) -> Result<Vec<LocalizedValidation>, String> {
+    use proof_application::{ChangeSetStatus, Severity};
+    let rows = {
+        let client = runtime.client_mut();
+        client.query(
+            "SELECT body FROM facts WHERE fact_kind = $1 AND fact_id LIKE $2 ORDER BY fact_id",
+            &[
+                &FACT_KIND_LOCALIZED_VALIDATION,
+                &format!("localized_validation/{changeset_id}/%"),
+            ],
+        )
+    }
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let mut chain = Vec::with_capacity(rows.len());
+    for row in rows {
+        let body: Vec<u8> = row.get(0);
+        let value: Value =
+            serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+        let findings = value
+            .get("findings")
+            .and_then(Value::as_array)
+            .ok_or_else(|| integrity_code("validation findings"))?
+            .iter()
+            .map(|finding| {
+                Ok(proof_application::LocalizedFinding {
+                    code: json_str(finding, "code")?.to_owned(),
+                    severity: match json_str(finding, "severity")? {
+                        "info" => Severity::Info,
+                        "warning" => Severity::Warning,
+                        _ => Severity::Error,
+                    },
+                    edit_id: json_str(finding, "edit_id")?
+                        .parse()
+                        .map_err(|_| integrity_code("finding edit identity"))?,
+                    object_id: json_str(finding, "object_id")?
+                        .parse()
+                        .map_err(|_| integrity_code("finding object identity"))?,
+                    locale: json_str(finding, "locale")?
+                        .parse()
+                        .map_err(|_| integrity_code("finding locale"))?,
+                    pointer: finding
+                        .get("pointer")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    validator: json_str(finding, "validator")?.to_owned(),
+                    policy_digest: json_str(finding, "policy_digest")?
+                        .parse()
+                        .map_err(|_| integrity_code("finding policy digest"))?,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        chain.push(LocalizedValidation {
+            changeset_id: json_str(&value, "changeset_id")?
+                .parse()
+                .map_err(|_| integrity_code("validation identity"))?,
+            attempt: u32::try_from(
+                value
+                    .get("attempt")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| integrity_code("validation attempt"))?,
+            )
+            .map_err(|_| integrity_code("attempt range"))?,
+            previous_validation_result_digest: value
+                .get("previous_result_digest")
+                .and_then(Value::as_str)
+                .map(str::parse)
+                .transpose()
+                .map_err(|_| integrity_code("previous digest"))?,
+            proposal_digest: json_str(&value, "proposal_digest")?
+                .parse()
+                .map_err(|_| integrity_code("proposal digest"))?,
+            effective_leaf_digest: json_str(&value, "effective_leaf_digest")?
+                .parse()
+                .map_err(|_| integrity_code("leaf digest"))?,
+            valid: value
+                .get("valid")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| integrity_code("validation verdict"))?,
+            findings,
+            validation_results_digest: json_str(&value, "results_digest")?
+                .parse()
+                .map_err(|_| integrity_code("results digest"))?,
+            sealed_changeset_digest: value
+                .get("sealed_changeset_digest")
+                .and_then(Value::as_str)
+                .map(str::parse)
+                .transpose()
+                .map_err(|_| integrity_code("seal digest"))?,
+            status: if value
+                .get("valid")
+                .and_then(Value::as_bool)
+                .unwrap_or_default()
+            {
+                ChangeSetStatus::Ready
+            } else {
+                ChangeSetStatus::Draft
+            },
+        });
+    }
+    Ok(chain)
+}
+
+/// Ports `proposal`: digests plus the ordered effective Edit set.
+fn pg_proposal(
+    changeset: &LocalizedChangeSet,
+) -> Result<(ContentDigest, ContentDigest, Vec<LocalizedEdit>), String> {
+    let mut effective = changeset
+        .edits
+        .iter()
+        .filter(|edit| edit.effective)
+        .cloned()
+        .collect::<Vec<_>>();
+    effective.sort_by(|left, right| {
+        (&left.input.object_id, &left.input.locale)
+            .cmp(&(&right.input.object_id, &right.input.locale))
+    });
+    let pair = proposal_digests(changeset)?;
+    Ok((pair.0, pair.1, effective))
+}
+
+/// Ports `normalized_policy_rules` + strict policy-envelope parsing.
+fn pg_policy_rules(policy: &Value) -> Result<Vec<proof_application::LocalizedPolicyRule>, String> {
+    use proof_application::LocalizedPolicyRule;
+    const INTEGRITY_FAIL: &str = "proof.digest.mismatch";
+    let object = policy
+        .as_object()
+        .ok_or_else(|| INTEGRITY_FAIL.to_owned())?;
+    if object.len() != 2
+        || object.get("api_version").and_then(Value::as_str)
+            != Some("proof.dev/localized-content-policy/v1")
+    {
+        return Err(INTEGRITY_FAIL.to_owned());
+    }
+    let rules = policy
+        .get("rules")
+        .and_then(Value::as_array)
+        .ok_or_else(|| INTEGRITY_FAIL.to_owned())?;
+    let mut parsed = Vec::with_capacity(rules.len());
+    for rule in rules {
+        let rule = rule.as_object().ok_or_else(|| INTEGRITY_FAIL.to_owned())?;
+        if rule.len() != 3 {
+            return Err(INTEGRITY_FAIL.to_owned());
+        }
+        let values = rule
+            .get("disallowed_values")
+            .and_then(Value::as_array)
+            .ok_or_else(|| INTEGRITY_FAIL.to_owned())?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| INTEGRITY_FAIL.to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let rule_value = Value::Object(rule.clone());
+        parsed.push(LocalizedPolicyRule {
+            locale: json_str(&rule_value, "locale")?
+                .parse()
+                .map_err(|_| INTEGRITY_FAIL.to_owned())?,
+            pointer: json_str(&rule_value, "pointer")?.to_owned(),
+            disallowed_values: values,
+        });
+    }
+    for rule in &parsed {
+        parse_pointer(&rule.pointer)?;
+        if rule.disallowed_values.is_empty() {
+            return Err(INTEGRITY_FAIL.to_owned());
+        }
+        let mut sorted = rule.disallowed_values.clone();
+        sorted.sort();
+        if sorted.windows(2).any(|pair| pair[0] == pair[1]) || sorted != rule.disallowed_values {
+            return Err(INTEGRITY_FAIL.to_owned());
+        }
+    }
+    Ok(parsed)
+}
+
+/// Ports `context_schema_digests`.
+fn pg_context_schema_digests(context_manifest: &Value) -> Result<Vec<Value>, String> {
+    let resources = context_manifest
+        .get("resources")
+        .and_then(Value::as_array)
+        .ok_or_else(|| integrity_code("pack resources"))?;
+    let mut schemas = std::collections::BTreeMap::<(String, u32), String>::new();
+    for resource in resources {
+        let schema = resource
+            .get("schema")
+            .and_then(Value::as_object)
+            .ok_or_else(|| integrity_code("pack schema"))?;
+        let schema_id = schema
+            .get("schema_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("pack schema identity"))?
+            .to_owned();
+        let version = schema
+            .get("schema_version")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| integrity_code("pack schema version"))?;
+        let digest_text = schema
+            .get("document_digest")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("pack schema digest"))?
+            .to_owned();
+        if let Some(existing) = schemas.insert((schema_id, version), digest_text.clone())
+            && existing != digest_text
+        {
+            return Err(integrity_code(
+                "ContextPack repeats one Schema with different bytes",
+            ));
+        }
+    }
+    Ok(schemas
+        .into_iter()
+        .map(|((schema_id, schema_version), document_digest)| {
+            serde_json::json!({
+                "document_digest": document_digest,
+                "schema_id": schema_id,
+                "schema_version": schema_version,
+            })
+        })
+        .collect())
+}
+
+/// Ports `findings_value`.
+fn findings_value(findings: &[proof_application::LocalizedFinding]) -> Vec<Value> {
+    use proof_application::Severity;
+    findings
+        .iter()
+        .map(|finding| {
+            serde_json::json!({
+                "code": finding.code,
+                "edit_id": finding.edit_id.to_string(),
+                "locale": finding.locale.as_str(),
+                "object_id": finding.object_id.to_string(),
+                "pointer": finding.pointer,
+                "policy_digest": finding.policy_digest.to_string(),
+                "severity": match finding.severity {
+                    Severity::Info => "info",
+                    Severity::Warning => "warning",
+                    Severity::Error => "error",
+                },
+                "validator": finding.validator,
+            })
+        })
+        .collect()
+}
+
+/// Ports `validation_manifest` as a JSON value.
+#[allow(clippy::too_many_arguments)]
+fn validation_manifest_value(
+    changeset_id: proof_application::ChangeSetId,
+    attempt: u32,
+    previous: Option<ContentDigest>,
+    proposal_digest: ContentDigest,
+    effective_leaf_digest: ContentDigest,
+    context_pack_digest: ContentDigest,
+    policy_digest: ContentDigest,
+    schema_digests: &[Value],
+    findings: &[proof_application::LocalizedFinding],
+) -> Value {
+    use proof_application::LOCALIZED_CONTENT_VALIDATOR;
+    serde_json::json!({
+        "api_version": "proof.dev/validation-results/v2",
+        "attempt": attempt,
+        "changeset_id": changeset_id.to_string(),
+        "context_pack_digest": context_pack_digest.to_string(),
+        "effective_leaf_digest": effective_leaf_digest.to_string(),
+        "findings": findings_value(findings),
+        "policy_digest": policy_digest.to_string(),
+        "previous_validation_result_digest": previous.map(|value| value.to_string()),
+        "proposal_digest": proposal_digest.to_string(),
+        "schema_digests": schema_digests,
+        "valid": findings.is_empty(),
+        "validator": LOCALIZED_CONTENT_VALIDATOR,
+    })
+}
+
+/// Ports `seal_digest`.
+fn seal_digest(
+    proposal_digest: ContentDigest,
+    validation_results_digest: ContentDigest,
+) -> Result<ContentDigest, String> {
+    let seal = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/changeset-seal/v2",
+        "proposal_digest": proposal_digest.to_string(),
+        "validation_results_digest": validation_results_digest.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(digest(proof_domain::ArtifactKind::ChangeSetV2, &seal))
 }

@@ -891,7 +891,8 @@ fn serialize_localized_change_set_diff(diff: &LocalizedChangeSetDiff) -> Value {
     })
 }
 
-fn serialize_localized_validation(validation: &LocalizedValidation) -> Value {
+#[must_use]
+pub fn serialize_localized_validation(validation: &LocalizedValidation) -> Value {
     serde_json::json!({
         "changeset_id": validation.changeset_id.to_string(),
         "attempt": validation.attempt,
