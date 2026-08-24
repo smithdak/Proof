@@ -1305,8 +1305,13 @@ and CSRF, dual authentication, and the signed decision/consequence path
 through the PostgreSQL unit of work. P-0012 has implemented the fourth
 successor: the leased generation-scoped outbox worker, poison management,
 the private preview adapter with ready-last manifests and the four alias
-outcomes, and the delivery projection and serving.
-The remaining successor above is unchanged.
+outcomes, and the delivery projection and serving. P-0013 has implemented
+the fifth and final successor: remote evidence export, independent
+verification under caller trust with the three retained conformance
+scenarios, and the Milestone 3 qualification (remote north star over HTTP
+and PostgreSQL, rejection/crash matrices, local/server oracle conformance).
+Project owner `smithdak` accepted the Milestone 3 exit evidence at
+`2026-08-24T13:30:25.292Z`.
 
 Only the first dependency-ready item is promoted after acceptance. SDKs,
 console, provider selection/provisioning, deployment, public preview,

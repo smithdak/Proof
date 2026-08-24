@@ -1,11 +1,14 @@
-# Rolling-wave work map — Milestone 3 collaboration server
+# Rolling-wave work map — post-Milestone-3
 
 ## Destination
 
-Milestone 3 delivers a single-Workspace collaboration server through which a
+Milestone 3 delivered a single-Workspace collaboration server through which a
 team can review, approve, publish, and verify changes remotely while preserving
-the accepted local application and domain semantics. Its exit requires the same
-conformance suite to pass against local and server modes.
+the accepted local application and domain semantics, with the same
+conformance suite passing against local and server modes. Project owner
+`smithdak` accepted its exit evidence on 2026-08-24; the destination is
+closed. The next destination is unshaped and requires a project-owner
+decision.
 
 The bounded local Linux Milestone 2 profile is complete. Project owner
 `smithdak` accepted P-0006 candidate `ea35e09`, Engineering evidence `7df66d9`
@@ -21,12 +24,12 @@ decision evidence `4ac62e9`, at `2026-08-23T17:48:11.461Z`. ADR-0013 is
 Accepted. P-0009 remote actor and shared-contract conformance is complete
 with candidate `3e38f30`, P-0010 PostgreSQL parity foundation is complete
 with candidate `4410b46`, P-0011 HTTP and OIDC server boundary is complete
-with candidate `ed6a06e`, and P-0012 artifact outbox and private preview
-delivery is complete with candidate `9c282ea`. P-0013 remote evidence and
-Milestone 3 qualification is implemented and engineering-qualified with
-candidate `1fb53b8`; it is in `review` awaiting project-owner acceptance of
-the Milestone 3 exit evidence and residuals. No collaboration-server implementation, provider, deployment, or live remote
-result is claimed yet.
+with candidate `ed6a06e`, P-0012 artifact outbox and private preview
+delivery is complete with candidate `9c282ea`, and P-0013 remote evidence
+and Milestone 3 qualification is complete with engineering-qualified
+candidate `1fb53b8` (plus polish commit `509c6e0`), accepted by project
+owner `smithdak` at `2026-08-24T13:30:25.292Z`. **Milestone 3 is
+complete.** No provider, deployment, or live remote operation exists.
 
 ## Operating notes
 
@@ -75,22 +78,23 @@ result is claimed yet.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `review` | P-0012 | Engineering qualification is complete at candidate `1fb53b8` (remote evidence export, verifier v2 modes, three conformance scenarios, remote north-star over HTTP+PostgreSQL reaching verifier Complete, audited 158-code rejection matrix, completed crash matrix, three-runner conformance report, full Linux gate). Awaiting the project-owner acceptance gate before `review` → `done`. |
+| None | n/a | n/a | Milestone 3 is complete and accepted. The next destination must be shaped by a project-owner decision before any item becomes `ready`. |
 
 ## Next
 
-P-0013 is in `review` under `review_gate: project-owner`; no successor is
-claimable until the project owner accepts or reworks it. If accepted,
-Milestone 3 closes and the next destination (SDKs, console, providers,
-deployment, public preview) must be shaped by a project-owner decision
-before any item becomes `ready`.
+Nothing is claimable. P-0013 was the accepted contract's fifth and final
+successor; with its acceptance the Milestone 3 destination is closed. The
+newly visible frontier — SDKs, console, provider selection/provisioning,
+deployment, public preview, and the deferred parity/enrollment residuals —
+is fog until a project-owner decision names the next destination and its
+first item.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | P-0013 is the final successor; no further successor is named by the accepted contract. |
+| None | n/a | n/a | No successor is named; shaping requires a project-owner decision. |
 
 ## Completed
 
@@ -108,6 +112,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 | [Implement the PostgreSQL parity foundation](items/P-0010-postgresql-parity-foundation.md) | `done` | P-0009 | Implemented the checksummed migration ledger, the serializable Workspace write-lane unit of work with keyed idempotency and the savepoint rule, bounded retry and ambiguous-commit reconciliation, the artifact catalog with atomic signed-byte storage, outbox enqueue, projection generation swaps, the verified SQLite-to-PostgreSQL import, and byte-identical SQLite/PostgreSQL oracle traces; P-0011 promoted. |
 | [Implement the HTTP and OIDC server boundary](items/P-0011-http-oidc-server-boundary.md) | `done` | P-0010 | Implemented the exact nine-route HTTP surface, the same-origin OIDC BFF against a deterministic issuer, opaque bounded sessions and the CSRF synchronizer, dual Human-plus-Agent authentication, per-row authorization with signed decisions and consequences through the P-0010 unit of work, the exact 41-tuple Problem registry, and the retained abuse matrix; P-0012 promoted. |
 | [Implement the artifact outbox and private preview delivery](items/P-0012-artifact-outbox-private-preview.md) | `done` | P-0011 | Implemented the generation-scoped leased outbox worker with counted attempts and dead-letter/poison management, authorized replay and abandonment with DeliveryManagementFactV1, the filesystem-backed private preview adapter with ready-last manifests and the four alias outcomes, and the delivery projection and serving; P-0013 promoted. |
+| [Implement remote evidence and qualify Milestone 3](items/P-0013-remote-evidence-milestone-3-qualification.md) | `done` | P-0012 | Implemented the six-root RemoteEvidenceBundleV2 logical member map, keyed export capture with byte-identical replay and the no-key lifecycle read, exact-triple artifact acquisition, proof-verifier remote-authority and remote-evidence v2 modes under caller trust with the three retained conformance scenarios, and the complete remote north-star over HTTP+PostgreSQL reaching verifier Complete; audited the 158-code rejection registry, completed the nine-boundary crash matrix, and produced the per-step-classified local/server oracle conformance report. Accepted by project owner `smithdak` at `2026-08-24T13:30:25.292Z`; Milestone 3 is complete. |
 
 P-0007 replacement candidate `4715314` passed the independent G1-G14 gate and
 is accepted as `done` through Assurance record `29ad9d9`. Historical
@@ -182,10 +187,14 @@ claims remain outside the bounded result.
 
 ## Fog — not yet specifiable as implementation
 
-- P-0013 owns remote evidence and the Milestone 3 qualification. SDKs,
+- The next destination after accepted Milestone 3. SDKs,
   console, provider selection/provisioning, deployment, public preview,
   workload identity, KMS/HSM, backup/restore, HA, multi-region operation,
   multi-Workspace tenancy, and public release remain fog.
+- Residuals recorded by P-0013's acceptance: the PG-backed application
+  semantic executor for full mutation-row local/server trace parity
+  (P-0010's "not yet mirrored" residual), and route-complete enrollment
+  (`agent-binding.issue/v1`, OIDC binding issuance) with usable credentials.
 - Environment configuration update, disablement, and signing-key lifecycle.
 - P-0006 hardening beyond the accepted claim: global-latest Release
   transparency, chronology-bearing Environment and approval successors,
@@ -202,7 +211,8 @@ claims remain outside the bounded result.
 
 ## Out of scope for this destination
 
-- Milestone 3 successors beyond the promoted P-0013 before it closes.
+- The next destination beyond accepted Milestone 3 until the project owner
+  names and shapes it.
 - Enterprise federation/provisioning and SCIM, workload identity, KMS/HSM,
   high availability, backup, and disaster recovery.
 - Public release, package publication, push, tag, or license selection.

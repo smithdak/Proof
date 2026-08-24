@@ -8,11 +8,10 @@ It treats content mutation as a governed transaction. Every proposed change has 
 
 ## Project status
 
-**Milestones 1 and 2 complete — local proof loop plus bounded local Linux
-Agent authority. P-0008 is project-owner accepted; P-0009 through P-0012
-are complete, and P-0013 remote evidence is implemented and
-engineering-qualified, awaiting the project-owner acceptance gate for the
-Milestone 3 exit.**
+**Milestones 1 through 3 complete. The local proof loop, the bounded local
+Linux Agent authority, and the single-Workspace collaboration server with
+remote evidence and independent verification are implemented, qualified,
+and project-owner accepted. The next destination is unshaped.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -37,7 +36,7 @@ checkpoint bounds the supplied authority prefix; it does not prove a globally
 latest or true immediate same-Environment Release. The accepted Linux
 qualification runs the signer and clean verifier under a distinct UID with only
 the bounded broker or read-only evidence inputs. Mutually hostile same-UID
-isolation, Windows runtime containment, server execution, deployment, and a
+isolation, Windows runtime containment, deployment, and a
 public release remain unqualified. P-0008 has an accepted single-Workspace
 server boundary for OIDC Human sessions, dual Human-plus-Agent requests,
 PostgreSQL parity, causal approval, at-least-once preview delivery, and remote
@@ -52,18 +51,20 @@ idempotency, artifact catalog, outbox enqueue, projection rebuild, import,
 and byte-identical SQLite/PostgreSQL traces. P-0011 has implemented the
 HTTP and OIDC server boundary — the exact nine-route surface, the
 same-origin BFF, bounded sessions and CSRF, dual authentication, and the
-signed decision/consequence path. P-0012 has implemented the outbox worker and private preview delivery. P-0013
-implements remote evidence export, independent verification, and the
-Milestone 3 qualification wave: the six-root `RemoteEvidenceBundleV2`
-logical member map with deterministic paths and closed violation taxonomy,
-keyed export capture with byte-identical replay plus the no-key lifecycle
-read, exact-triple artifact acquisition, `proof-verifier` remote authority
-and remote-evidence v2 modes under explicit caller trust, the closed
-`RemoteVerificationReportV2` with its three retained conformance scenarios,
-the complete remote north-star (two Humans, one Agent) end to end over HTTP
-and PostgreSQL reaching verifier Complete, the audited 158-code rejection
-matrix, the completed crash matrix, and a per-step-classified local/server
-conformance report. Milestone 3 closes only on project-owner acceptance.
+signed decision/consequence path. P-0012 has implemented the outbox worker
+and private preview delivery. P-0013 has implemented remote evidence export,
+independent verification, and the Milestone 3 qualification: the six-root
+`RemoteEvidenceBundleV2` logical member map with deterministic paths and
+closed violation taxonomy, keyed export capture with byte-identical replay
+plus the no-key lifecycle read, exact-triple artifact acquisition,
+`proof-verifier` remote authority and remote-evidence v2 modes under
+explicit caller trust, the closed `RemoteVerificationReportV2` with its
+three retained conformance scenarios, the complete remote north-star (two
+Humans, one Agent) end to end over HTTP and PostgreSQL reaching verifier
+Complete, the audited 158-code rejection matrix, the completed crash
+matrix, and a per-step-classified local/server conformance report.
+Project owner `smithdak` accepted the Milestone 3 exit evidence at
+`2026-08-24T13:30:25.292Z`.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -77,8 +78,8 @@ qualification or a published Windows support claim.
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
-| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009, P-0010), server boundary (P-0011), delivery (P-0012), and remote evidence with qualification evidence (P-0013) implemented; project-owner exit acceptance remains |
-| Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23); P-0013 in review under the project-owner gate |
+| Rust implementation | Milestones 1 through 3 complete for the implemented profile; the next destination (SDKs, console, providers, deployment, public preview) is unshaped |
+| Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23) and complete (P-0013 accepted on 2026-08-24) |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |
 
@@ -290,10 +291,10 @@ Proof has completed its local proof loop, bounded local Linux Agent-authority
 profile, and the Milestone 3 collaboration-server implementation through
 remote evidence: portable independent verification, distinct-UID broker
 containment, the HTTP/OIDC server boundary with PostgreSQL parity, outbox
-preview delivery, and engineering-qualified remote evidence export plus
-independent verification. Project-owner exit acceptance, cross-platform,
-deployment, and public release qualification remain. Read
-[CONTRIBUTING.md](CONTRIBUTING.md)
+preview delivery, and project-owner-accepted remote evidence export plus
+independent verification. The next destination (SDKs, console, providers,
+deployment, public preview) is unshaped; cross-platform and public release
+qualification remain. Read [CONTRIBUTING.md](CONTRIBUTING.md)
 before proposing a change. Report vulnerabilities according to
 [SECURITY.md](SECURITY.md); do not open public security issues.
 

@@ -1,7 +1,7 @@
 ---
 id: P-0013
 title: Implement remote evidence and qualify Milestone 3
-status: review
+status: done
 wave: now
 kind: qualification
 blocked_by: [P-0012]
@@ -9,8 +9,8 @@ claimed_by: deepseek:proof:p-0013
 claimed_at: 2026-08-24T01:30:26.291Z
 base_sha: ab3071349162a945e698036070f72a64441e17ba
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-24T13:30:25.292Z
 ---
 
 # Implement remote evidence and qualify Milestone 3
@@ -189,7 +189,7 @@ ADR-0013 remains the implementation authority.
       oracle traces in both modes.
 - [x] The full Linux quality gate passes and durable Engineering evidence
       (receipt, manifest, traceability) binds the item-work commit.
-- [ ] The project owner explicitly accepts the Milestone 3 exit evidence
+- [x] The project owner explicitly accepts the Milestone 3 exit evidence
       and residual boundaries before this item moves from `review` to
       `done`.
 
@@ -226,3 +226,10 @@ evidence commit `97f31fd` binds the [receipt](../evidence/P-0013/receipt.md),
 Moved from `claimed` to `review` under `review_gate: project-owner`;
 Milestone 3 completion additionally requires the project owner's explicit
 acceptance of the exit evidence and residual boundaries.
+
+Accepted by project owner `smithdak` at `2026-08-24T13:30:25.292Z`; moved
+from `review` to `done`. Milestone 3 is complete: the single-Workspace
+collaboration server implements review, approval, publication, delivery,
+and independently verifiable remote evidence under the accepted contract.
+No SDK, console, provider, deployment, or production work is claimed by
+this completion; the next destination awaits a project-owner decision.
