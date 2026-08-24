@@ -113,6 +113,17 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   P-0013 conformance report classification for this row flipped from the
   ratified not-mirrored residual to byte-identical accordingly.
 
+- Slice 3 (2026-08-24): the parity importer now also carries Environment
+  current-Release pointers, scalar Release/Edition metadata, and Known State
+  head facts, and the executor gained `changeset.create/v2` with full
+  reference semantics — request/effect digest computation, keyed replay with
+  field-drift detection, intent/pack digest cross-checks, issuer and policy
+  window checks, baseline-currency verification over imported pointers, and
+  idempotent operation facts. A retained test proves byte-identical accepted
+  and keyed-replay traces against SQLite. Two of the eleven mutation rows now
+  have byte-identical executors (`changeset.get/v2`, `changeset.create/v2`);
+  the remaining nine follow the identical template.
+
 ## Completion record
 
 Populated after acceptance.

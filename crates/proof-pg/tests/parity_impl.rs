@@ -564,43 +564,32 @@ fn tampered_postgres_consequence_diverges() {
     );
 }
 
-/// Seeds one complete localized flow (intent, `ContextPack`, `ChangeSet`,
-/// two Edits across locales, one failing validation) and returns its
-/// `ChangeSet` identity. Only `/legal` and `/title` vary from the source
-/// Object because non-localizable fields must be inherited verbatim.
-#[allow(clippy::too_many_lines)]
-fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeSetId {
+/// Seeds only the localized intent and `ContextPack` prerequisites, returning
+/// `(intent_id, intent_digest, context_pack_id, context_pack_digest)` so
+/// executor tests can drive the `ChangeSet` lifecycle through both backends.
+fn seed_localized_intent_and_context(
+    workspace: &LocalWorkspace,
+) -> (
+    proof_application::ContentResourceIntentId,
+    ContentDigest,
+    proof_application::ContextPackId,
+    ContentDigest,
+) {
     use proof_application::{
-        AddLocalizedEditsCommand, BuildLocalizedContextCommand, ContentResourceIntentId,
-        ContextPackId, CreateLocalizedChangeSetCommand, EditId, ExpectedLocalizedSource,
+        BuildLocalizedContextCommand, ContentResourceIntentId, ContextPackId,
         IssueContentResourceIntentCommand, LocaleId, LocalizedContentRepository,
-        LocalizedContentTarget, LocalizedContextLimits, LocalizedPolicyRule, ObjectLocalePutInput,
-        ObjectRevision,
+        LocalizedContentTarget, LocalizedPolicyRule,
     };
     const L_INTENT_ID: &str = "019d1000-0000-7000-8000-000000000031";
     const L_CONTEXT_ID: &str = "019d1000-0000-7000-8000-000000000032";
-    const L_CHANGESET_ID: &str = "019d1000-0000-7000-8000-000000000033";
-    const L_ES_EDIT: &str = "019d1000-0000-7000-8000-000000000034";
-    const L_FR_EDIT: &str = "019d1000-0000-7000-8000-000000000035";
     const L_INTENT_KEY: &str = "019d1000-0000-7000-8000-000000000041";
     const L_CONTEXT_KEY: &str = "019d1000-0000-7000-8000-000000000042";
-    const L_DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000043";
-    const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
 
     let repository: &dyn LocalizedContentRepository = workspace;
     let object_id = OBJECT_ID.parse().unwrap();
     let schema_id = SchemaId::new(SCHEMA_ID.to_owned()).unwrap();
-    let schema_version = SchemaVersion::new(1).unwrap();
-    let source = serde_json::json!({
-        "legal": "Standard terms apply",
-        "slug": "summer-campaign",
-        "title": "Summer campaign",
-    });
-    let source_digest =
-        object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap();
     let es = LocaleId::new("es-ES").unwrap();
     let fr = LocaleId::new("fr-FR").unwrap();
-
     let intent = repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
             intent_id: L_INTENT_ID.parse::<ContentResourceIntentId>().unwrap(),
@@ -613,8 +602,8 @@ fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeS
                 },
                 LocalizedContentTarget {
                     object_id,
-                    schema_id: schema_id.clone(),
-                    locale: fr.clone(),
+                    schema_id,
+                    locale: fr,
                 },
             ],
             idempotency_key: L_INTENT_KEY.parse().unwrap(),
@@ -627,7 +616,7 @@ fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeS
             resource_intent_id: intent.intent_id,
             resource_intent_digest: intent.intent_digest,
             policy_rules: vec![LocalizedPolicyRule {
-                locale: fr.clone(),
+                locale: LocaleId::new("fr-FR").unwrap(),
                 pointer: "/legal".to_owned(),
                 disallowed_values: vec!["Garantie absolue".to_owned()],
             }],
@@ -642,14 +631,53 @@ fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeS
             expires_at: "2026-08-22T11:01:00Z".parse().unwrap(),
         })
         .expect("localized ContextPack builds");
+    (
+        intent.intent_id,
+        intent.intent_digest,
+        context.context_pack_id,
+        context.context_pack_digest,
+    )
+}
+
+/// Seeds one complete localized flow (intent, `ContextPack`, `ChangeSet`,
+/// two Edits across locales, one failing validation) and returns its
+/// `ChangeSet` identity. Only `/legal` and `/title` vary from the source
+/// Object because non-localizable fields must be inherited verbatim.
+#[allow(clippy::too_many_lines)]
+fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeSetId {
+    use proof_application::{
+        AddLocalizedEditsCommand, CreateLocalizedChangeSetCommand, EditId, ExpectedLocalizedSource,
+        LocaleId, LocalizedContentRepository, ObjectLocalePutInput, ObjectRevision,
+    };
+    const L_CHANGESET_ID: &str = "019d1000-0000-7000-8000-000000000033";
+    const L_ES_EDIT: &str = "019d1000-0000-7000-8000-000000000034";
+    const L_FR_EDIT: &str = "019d1000-0000-7000-8000-000000000035";
+    const L_DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000043";
+    const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
+
+    let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
+        seed_localized_intent_and_context(workspace);
+    let repository: &dyn LocalizedContentRepository = workspace;
+    let object_id = OBJECT_ID.parse().unwrap();
+    let schema_id = SchemaId::new(SCHEMA_ID.to_owned()).unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let source = serde_json::json!({
+        "legal": "Standard terms apply",
+        "slug": "summer-campaign",
+        "title": "Summer campaign",
+    });
+    let source_digest =
+        object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap();
+    let es = LocaleId::new("es-ES").unwrap();
+
     let changeset = repository
         .create_localized_changeset(CreateLocalizedChangeSetCommand {
             changeset_id: L_CHANGESET_ID.parse().unwrap(),
             intent: ChangeSetIntent::new("Translate the campaign").unwrap(),
-            resource_intent_id: intent.intent_id,
-            resource_intent_digest: intent.intent_digest,
-            context_pack_id: context.context_pack_id,
-            context_pack_digest: context.context_pack_digest,
+            resource_intent_id: intent_id,
+            resource_intent_digest: intent_digest,
+            context_pack_id,
+            context_pack_digest,
             idempotency_key: L_DRAFT_KEY.parse().unwrap(),
             created_at: "2026-08-21T11:02:00Z".parse().unwrap(),
         })
@@ -900,6 +928,105 @@ fn changeset_get_traces_are_byte_identical() {
         }
         other @ OracleOutcome::TypedResult(_) => {
             panic!("expected a stable problem, got {other:?}")
+        }
+    }
+
+    let _ = runtime
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn changeset_create_traces_are_byte_identical() {
+    use proof_pg::parity::PostgresBackend as PgBackendAlias;
+    use proof_remote::OracleOutcome;
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
+        seed_localized_intent_and_context(&workspace);
+
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_create_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let create_input = json!({
+        "api_version": "proof.dev/operation/changeset.create/v2",
+        "changeset_id": "019d1000-0000-7000-8000-000000000036",
+        "context_pack_digest": context_pack_digest.to_string(),
+        "context_pack_id": context_pack_id.to_string(),
+        "created_at": "2026-08-21T11:05:00Z",
+        "idempotency_key": "019d1000-0000-7000-8000-000000000045",
+        "intent": "Translate the campaign into two locales",
+        "resource_intent_digest": intent_digest.to_string(),
+        "resource_intent_id": intent_id.to_string(),
+    });
+    let scenario = ParityScenario {
+        name: "changeset.create/v2 accepted plus keyed replay".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: create_input.clone(),
+                actor_context: actor_context(
+                    "changeset.create",
+                    "proof.dev/operation/changeset.create/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: create_input,
+                actor_context: actor_context(
+                    "changeset.create",
+                    "proof.dev/operation/changeset.create/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+
+    let mut sqlite_backend = SqliteReferenceBackend::new(&workspace);
+    let mut postgres_backend = PgBackendAlias::new(&mut runtime);
+    let runner = ParityRunner::new();
+    let sqlite_traces = runner
+        .run_sqlite(&scenario, &mut sqlite_backend)
+        .expect("SQLite reference traces");
+    let postgres_traces = runner
+        .run_postgres(&scenario, &mut postgres_backend)
+        .expect("PostgreSQL traces");
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("byte-identical traces");
+
+    for trace in &postgres_traces {
+        match &trace.outcome {
+            OracleOutcome::TypedResult(result) => {
+                assert_eq!(result["status"], "draft");
+                assert_eq!(
+                    result["edits"].as_array().map(Vec::len),
+                    Some(0),
+                    "a fresh draft carries no edits"
+                );
+            }
+            other @ OracleOutcome::StableProblem(_) => {
+                panic!("expected typed results on both steps, got {other:?}")
+            }
         }
     }
 

@@ -9,9 +9,10 @@
 //! scenario/runner, and the SQLite-to-PostgreSQL parity import that persists
 //! the localized content facts the wave-1 importer did not.
 
+use proof_application::Timestamp;
 use proof_application::authority::{
-    AuthorityOperation, LocalizedChangeSetGetInputV2, LocalizedContextBuildInputV2,
-    WorkspaceStatusInputV1,
+    AuthorityOperation, LocalizedChangeSetCreateInputV2, LocalizedChangeSetGetInputV2,
+    LocalizedContextBuildInputV2, WorkspaceStatusInputV1,
 };
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
@@ -276,6 +277,7 @@ fn success_trace(
 }
 
 /// Dispatches one resolved operation against the PostgreSQL state.
+#[allow(clippy::too_many_lines)]
 fn run_postgres_operation(
     runtime: &mut PgRuntime,
     normalized_input: &Value,
@@ -352,6 +354,37 @@ fn run_postgres_operation(
                     proof_remote::oracle::serialize_localized_changeset(&changeset),
                     None,
                 ),
+                Err(code) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &code,
+                ),
+            }
+        }
+        AuthorityOperation::ChangesetCreateV2 => {
+            let Ok(input) = parse_input::<LocalizedChangeSetCreateInputV2>(normalized_input) else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            let command = input.into_application_command();
+            match pg_create_changeset(runtime, &command) {
+                Ok(changeset) => {
+                    let result = proof_remote::oracle::serialize_localized_changeset(&changeset);
+                    let effect = operation_effect_digest(&result)
+                        .map_err(|error| PgError::Integrity(error.to_string()))?;
+                    success_trace(
+                        &operation,
+                        normalized_input,
+                        evaluated_authority_head,
+                        result,
+                        Some(effect),
+                    )
+                }
                 Err(code) => stable_problem_trace(
                     &operation,
                     normalized_input,
@@ -507,6 +540,11 @@ fn import_parity_facts(
     import_localized_changesets(runtime, &connection, &workspace_id)?;
     import_localized_edits(runtime, &connection, &workspace_id)?;
     import_localized_validations(runtime, &connection, &workspace_id)?;
+    import_resource_intent_meta(runtime, &connection, &workspace_id)?;
+    import_known_state_head(runtime, &connection, &workspace_id)?;
+    import_environment_current_releases(runtime, &connection, &workspace_id)?;
+    import_release_metadata(runtime, &connection, &workspace_id)?;
+    import_edition_metadata(runtime, &connection, &workspace_id)?;
     Ok(())
 }
 
@@ -707,7 +745,7 @@ fn import_localized_changesets(
                     resource_intent_digest, context_pack_id, context_pack_digest,
                     base_state_api_version, base_authoritative_sequence, base_state_digest,
                     created_at, lifecycle_status, proposal_digest, effective_leaf_digest,
-                    sealed_changeset_digest
+                    sealed_changeset_digest, idempotency_key, effect_digest
              FROM localized_changesets ORDER BY changeset_id",
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -729,6 +767,8 @@ fn import_localized_changesets(
                 row.get::<_, Option<String>>(12)?,
                 row.get::<_, Option<String>>(13)?,
                 row.get::<_, Option<String>>(14)?,
+                row.get::<_, String>(15)?,
+                row.get::<_, String>(16)?,
             ))
         })
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -749,7 +789,10 @@ fn import_localized_changesets(
             proposal_digest,
             effective_leaf_digest,
             sealed_changeset_digest,
+            idempotency_key,
+            effect_digest,
         ) = row.map_err(|error| PgError::Import(error.to_string()))?;
+        let _ = effect_digest;
         let base_sequence = u64::try_from(base_authoritative_sequence).map_err(|_| {
             PgError::Import("imported base authoritative sequence is negative".to_owned())
         })?;
@@ -790,6 +833,7 @@ fn import_localized_changesets(
             "base_authoritative_sequence": base_sequence,
             "base_state_digest": base_state_digest,
             "created_at": created_at,
+            "idempotency_key": idempotency_key,
             "lifecycle_status": lifecycle_status,
             "proposal_digest": proposal_digest,
             "effective_leaf_digest": effective_leaf_digest,
@@ -959,8 +1003,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Maps an internal reconstruction failure onto the exact stable problem code
 /// the SQLite path selects for integrity failures.
-fn integrity_code(context: &str) -> String {
-    let _ = context;
+fn integrity_code(_context: &str) -> String {
     "proof.digest.mismatch".to_owned()
 }
 
@@ -1187,6 +1230,26 @@ fn proposal_digests(
 }
 
 /// Parses stored canonical bytes into a strict JSON value.
+/// Reads one fact's recorded digest.
+fn fact_digest_of(runtime: &mut PgRuntime, fact_id: &str) -> Result<ContentDigest, String> {
+    let row = {
+        let client = runtime.client_mut();
+        client
+            .query_opt(
+                "SELECT fact_digest FROM facts WHERE fact_id = $1",
+                &[&fact_id],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    row.map(|row| {
+        let raw: String = row.get(0);
+        raw
+    })
+    .ok_or_else(|| "proof.resource.not_found".to_owned())?
+    .parse()
+    .map_err(|_| integrity_code("stored digest"))
+}
+
 fn parse_canonical_value(canonical_json: &str) -> Result<Value, String> {
     proof_canonical::parse_strict(canonical_json.as_bytes())
         .map_err(|error| integrity_code(&error.to_string()))
@@ -1506,6 +1569,781 @@ fn verify_all_repair_edges_pg(
         if !matches {
             return Err("proof.validation.repair_evidence_invalid".to_owned());
         }
+    }
+    Ok(())
+}
+
+/// Persists every current-Release Environment pointer.
+fn import_environment_current_releases(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT current.environment_id, current.release_id
+             FROM environment_current_releases AS current
+             JOIN environments AS env ON env.environment_id = current.environment_id
+             WHERE env.workspace_id = ?1 ORDER BY current.environment_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (environment_id, release_id) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/environment-current/v1",
+            "environment_id": environment_id,
+            "release_id": release_id,
+        });
+        let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        let fact_digest =
+            derive_key_digest("proof:parity:environment-current:v1", canonical.as_bytes());
+        insert_fact(
+            runtime,
+            &format!("environment_current/{environment_id}"),
+            workspace_id,
+            "environment_current",
+            &fact_digest,
+            canonical.as_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists the scalar Release metadata the baseline reconstruction needs,
+/// alongside the wave-1 importer's verified canonical manifest facts.
+fn import_release_metadata(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT release_id, api_version, edition_id, edition_digest,
+                    release_digest
+             FROM releases ORDER BY release_sequence",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (release_id, api_version, edition_id, edition_digest, release_digest) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/release-metadata/v1",
+            "release_id": release_id,
+            "release_api_version": api_version,
+            "release_digest": release_digest,
+            "edition_id": edition_id,
+            "edition_digest": edition_digest,
+        });
+        let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        let fact_digest =
+            derive_key_digest("proof:parity:release-metadata:v1", canonical.as_bytes());
+        insert_fact(
+            runtime,
+            &format!("release_meta/{release_id}"),
+            workspace_id,
+            "release_meta",
+            &fact_digest,
+            canonical.as_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists the scalar Edition metadata the baseline reconstruction needs.
+fn import_edition_metadata(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT edition_id, api_version, edition_digest, state_digest,
+                    authoritative_sequence
+             FROM editions ORDER BY edition_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (edition_id, api_version, edition_digest, state_digest, authoritative_sequence) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/edition-metadata/v1",
+            "edition_id": edition_id,
+            "edition_api_version": api_version,
+            "edition_digest": edition_digest,
+            "state_digest": state_digest,
+            "authoritative_sequence": authoritative_sequence,
+        });
+        let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        let fact_digest =
+            derive_key_digest("proof:parity:edition-metadata:v1", canonical.as_bytes());
+        insert_fact(
+            runtime,
+            &format!("edition_meta/{edition_id}"),
+            workspace_id,
+            "edition_meta",
+            &fact_digest,
+            canonical.as_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists the Known State singleton reference the baseline port consumes.
+fn import_known_state_head(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let (api_version, sequence, state_digest): (String, i64, String) = connection
+        .query_row(
+            "SELECT api_version, authoritative_sequence, state_digest
+             FROM known_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let body = serde_json::json!({
+        "api_version": "proof.dev/parity/known-state-head/v1",
+        "known_state_api_version": api_version,
+        "authoritative_sequence": u64::try_from(sequence)
+            .map_err(|_| PgError::Import("negative Known State sequence".to_owned()))?,
+        "state_digest": state_digest,
+    });
+    let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+    let fact_digest = derive_key_digest("proof:parity:known-state-head:v1", canonical.as_bytes());
+    insert_fact(
+        runtime,
+        "known_state/head",
+        workspace_id,
+        "known_state_head",
+        &fact_digest,
+        canonical.as_bytes(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// P-0015 slice 3: the changeset.create/v2 executor over imported facts.
+// ---------------------------------------------------------------------------
+
+use proof_application::{
+    CreateLocalizedChangeSetCommand, EditionArtifactReference, LocalizedContentBaseline,
+    PrincipalId, ReleaseArtifactReference,
+};
+
+fn fact_json(runtime: &mut PgRuntime, fact_id: &str) -> Result<Option<Value>, String> {
+    let row = {
+        let client = runtime.client_mut();
+        client
+            .query_opt("SELECT body FROM facts WHERE fact_id = $1", &[&fact_id])
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    match row {
+        None => Ok(None),
+        Some(row) => {
+            let body: Vec<u8> = row.get(0);
+            serde_json::from_slice(&body)
+                .map(Some)
+                .map_err(|error| integrity_code(&error.to_string()))
+        }
+    }
+}
+
+fn require_fact_json(
+    runtime: &mut PgRuntime,
+    fact_id: &str,
+    missing: &str,
+) -> Result<Value, String> {
+    fact_json(runtime, fact_id)?.ok_or_else(|| missing.to_owned())
+}
+
+/// Resolves the acting principal exactly as the SQLite path does: from the
+/// imported Workspace identity, never from request-carried identifiers.
+fn parity_principal(runtime: &mut PgRuntime) -> Result<PrincipalId, String> {
+    let metadata = require_fact_json(runtime, "workspace/metadata", "proof.resource.not_found")?;
+    metadata
+        .get("principal_id")
+        .and_then(Value::as_str)
+        .and_then(|raw| raw.parse().ok())
+        .ok_or_else(|| integrity_code("workspace principal"))
+}
+
+/// Ports `current_baseline` over the imported pointer, release, edition, and
+/// Known State facts.
+#[allow(clippy::too_many_lines)]
+fn pg_current_baseline(
+    runtime: &mut PgRuntime,
+    environment_id: &str,
+) -> Result<LocalizedContentBaseline, String> {
+    let pointer = require_fact_json(
+        runtime,
+        &format!("environment_current/{environment_id}"),
+        "proof.resource.not_found",
+    )?;
+    let release_id = pointer
+        .get("release_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("pointer release"))?;
+    let release_meta = require_fact_json(
+        runtime,
+        &format!("release_meta/{release_id}"),
+        "proof.resource.not_found",
+    )?;
+    let release_api_version = release_meta
+        .get("release_api_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("release version"))?
+        .to_owned();
+    let edition_id = release_meta
+        .get("edition_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("release edition"))?
+        .to_owned();
+    let release_edition_digest = release_meta
+        .get("edition_digest")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("release edition digest"))?
+        .to_owned();
+    let edition_meta = require_fact_json(
+        runtime,
+        &format!("edition_meta/{edition_id}"),
+        "proof.resource.not_found",
+    )?;
+    let edition_api_version = edition_meta
+        .get("edition_api_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("edition version"))?
+        .to_owned();
+    let edition_digest: ContentDigest = edition_meta
+        .get("edition_digest")
+        .and_then(Value::as_str)
+        .and_then(|raw| raw.parse().ok())
+        .ok_or_else(|| integrity_code("edition digest"))?;
+    if release_edition_digest != edition_digest.to_string() {
+        return Err(integrity_code("Release and Edition digests differ"));
+    }
+    let state_digest: ContentDigest = edition_meta
+        .get("state_digest")
+        .and_then(Value::as_str)
+        .and_then(|raw| raw.parse().ok())
+        .ok_or_else(|| integrity_code("edition state"))?;
+    let state_sequence = edition_meta
+        .get("authoritative_sequence")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| integrity_code("edition sequence"))?;
+
+    let head = require_fact_json(runtime, "known_state/head", "proof.resource.not_found")?;
+    let head_api_version = head
+        .get("known_state_api_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("state version"))?
+        .to_owned();
+    let head_digest: ContentDigest = head
+        .get("state_digest")
+        .and_then(Value::as_str)
+        .and_then(|raw| raw.parse().ok())
+        .ok_or_else(|| integrity_code("state digest"))?;
+    let head_sequence = head
+        .get("authoritative_sequence")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| integrity_code("state sequence"))?;
+    if head_digest != state_digest || head_sequence != state_sequence {
+        return Err("proof.state.conflict".to_owned());
+    }
+    if release_api_version.ends_with("/v1") != edition_api_version.ends_with("/v1") {
+        return Err(integrity_code("Release/Edition version pair"));
+    }
+    Ok(LocalizedContentBaseline {
+        release: ReleaseArtifactReference {
+            api_version: release_api_version,
+            release_id: release_id
+                .parse()
+                .map_err(|_| integrity_code("release identity"))?,
+            digest: release_meta
+                .get("release_digest")
+                .and_then(Value::as_str)
+                .and_then(|raw| raw.parse().ok())
+                .ok_or_else(|| integrity_code("release digest"))?,
+        },
+        edition: EditionArtifactReference {
+            api_version: edition_api_version,
+            edition_id: edition_id
+                .parse()
+                .map_err(|_| integrity_code("edition identity"))?,
+            digest: edition_digest,
+        },
+        known_state: KnownStateArtifactReference {
+            api_version: head_api_version,
+            authoritative_sequence: head_sequence,
+            digest: head_digest,
+        },
+    })
+}
+
+/// Fetches one imported canonical manifest as raw JSON.
+fn pg_manifest(runtime: &mut PgRuntime, prefix: &str, identity: &str) -> Result<Value, String> {
+    require_fact_json(
+        runtime,
+        &format!("{prefix}/{identity}"),
+        "proof.resource.not_found",
+    )
+}
+
+fn json_str<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code(key))
+}
+
+/// Parses the imported intent manifest's baseline triple.
+fn parse_baseline(value: &Value) -> Result<LocalizedContentBaseline, String> {
+    let base = value
+        .get("base")
+        .ok_or_else(|| integrity_code("intent base"))?;
+    let known = base
+        .get("known_state")
+        .ok_or_else(|| integrity_code("intent base state"))?;
+    Ok(LocalizedContentBaseline {
+        release: ReleaseArtifactReference {
+            api_version: json_str(
+                base.get("release")
+                    .ok_or_else(|| integrity_code("intent base release"))?,
+                "api_version",
+            )?
+            .to_owned(),
+            release_id: json_str(
+                base.get("release")
+                    .ok_or_else(|| integrity_code("intent base release"))?,
+                "release_id",
+            )?
+            .parse()
+            .map_err(|_| integrity_code("release id"))?,
+            digest: json_str(
+                base.get("release")
+                    .ok_or_else(|| integrity_code("intent base release"))?,
+                "digest",
+            )?
+            .parse()
+            .map_err(|_| integrity_code("release digest"))?,
+        },
+        edition: EditionArtifactReference {
+            api_version: json_str(
+                base.get("edition")
+                    .ok_or_else(|| integrity_code("intent base edition"))?,
+                "api_version",
+            )?
+            .to_owned(),
+            edition_id: json_str(
+                base.get("edition")
+                    .ok_or_else(|| integrity_code("intent base edition"))?,
+                "edition_id",
+            )?
+            .parse()
+            .map_err(|_| integrity_code("edition id"))?,
+            digest: json_str(
+                base.get("edition")
+                    .ok_or_else(|| integrity_code("intent base edition"))?,
+                "digest",
+            )?
+            .parse()
+            .map_err(|_| integrity_code("edition digest"))?,
+        },
+        known_state: KnownStateArtifactReference {
+            api_version: json_str(known, "api_version")?.to_owned(),
+            authoritative_sequence: known
+                .get("authoritative_sequence")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| integrity_code("state sequence"))?,
+            digest: json_str(known, "digest")?
+                .parse()
+                .map_err(|_| integrity_code("state digest"))?,
+        },
+    })
+}
+
+/// Ports the reference `changeset.create/v2` operation over imported facts.
+#[allow(clippy::too_many_lines)]
+fn pg_create_changeset(
+    runtime: &mut PgRuntime,
+    command: &CreateLocalizedChangeSetCommand,
+) -> Result<LocalizedChangeSet, String> {
+    let request = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation/changeset.create/v2",
+        "changeset_id": command.changeset_id.to_string(),
+        "context_pack_digest": command.context_pack_digest.to_string(),
+        "context_pack_id": command.context_pack_id.to_string(),
+        "created_at": command.created_at.to_string(),
+        "idempotency_key": command.idempotency_key.to_string(),
+        "intent": command.intent.as_str(),
+        "resource_intent_digest": command.resource_intent_digest.to_string(),
+        "resource_intent_id": command.resource_intent_id.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let request_digest = digest(proof_domain::ArtifactKind::OperationEffectV1, &request);
+
+    let principal = parity_principal(runtime)?;
+    let op_fact_id = format!(
+        "op_changeset_create/{principal}/{key}",
+        key = command.idempotency_key
+    );
+    if let Some(prior) = fact_json(runtime, &op_fact_id)? {
+        let stored_effect = prior
+            .get("effect_digest")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("op effect"))?;
+        let prior_changeset = prior
+            .get("changeset_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("op changeset"))?;
+        let current = load_pg_localized_changeset(runtime, prior_changeset)?;
+        let original = LocalizedChangeSet {
+            changeset_id: command.changeset_id,
+            workspace_id: current.workspace_id,
+            principal_id: current.principal_id,
+            intent: command.intent.clone(),
+            resource_intent_id: command.resource_intent_id,
+            resource_intent_digest: command.resource_intent_digest,
+            context_pack_id: command.context_pack_id,
+            context_pack_digest: command.context_pack_digest,
+            base_state: current.base_state.clone(),
+            created_at: command.created_at,
+            status: ChangeSetStatus::Draft,
+            edits: Vec::new(),
+            proposal_digest: None,
+            sealed_changeset_digest: None,
+        };
+        let expected = creation_effect(request_digest, &original)?;
+        if stored_effect != expected.to_string() {
+            return Err("proof.idempotency.key_reused".to_owned());
+        }
+        if current.changeset_id != original.changeset_id
+            || current.workspace_id != original.workspace_id
+            || current.principal_id != original.principal_id
+            || current.intent != original.intent
+            || current.resource_intent_id != original.resource_intent_id
+            || current.resource_intent_digest != original.resource_intent_digest
+            || current.context_pack_id != original.context_pack_id
+            || current.context_pack_digest != original.context_pack_digest
+            || current.base_state != original.base_state
+            || current.created_at != original.created_at
+        {
+            return Err(integrity_code(
+                "localized ChangeSet creation fields differ from the operation effect",
+            ));
+        }
+        return Ok(current);
+    }
+
+    let intent_value = pg_manifest(
+        runtime,
+        "resource_intent",
+        &command.resource_intent_id.to_string(),
+    )?;
+    let intent_meta = require_fact_json(
+        runtime,
+        &format!("resource_intent_meta/{}", command.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let context_fact_id = format!("context_pack/{}", command.context_pack_id);
+    let context_value = require_fact_json(runtime, &context_fact_id, "proof.resource.not_found")?;
+    // The pack manifest excludes its own digest; recompute it from the
+    // imported canonical bytes.
+    let stored_pack_digest = fact_digest_of(runtime, &context_fact_id)?;
+    let stored_intent_digest: ContentDigest = json_str(&intent_meta, "intent_digest")?
+        .parse()
+        .map_err(|_| integrity_code("intent digest"))?;
+    let pack_intent_id = context_value
+        .get("resource_intent")
+        .and_then(|intent| intent.get("intent_id"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("pack intent reference"))?
+        .to_owned();
+    if stored_intent_digest != command.resource_intent_digest
+        || pack_intent_id != command.resource_intent_id.to_string()
+        || json_str(&context_value, "resource_intent_digest")?
+            != command.resource_intent_digest.to_string()
+        || stored_pack_digest != command.context_pack_digest
+    {
+        return Err("proof.input.intent_mismatch".to_owned());
+    }
+    if json_str(&intent_meta, "issued_by_principal_id")? != principal.to_string() {
+        return Err("proof.resource.not_found".to_owned());
+    }
+    let context_created: Timestamp = json_str(&context_value, "created_at")?
+        .parse()
+        .map_err(|_| integrity_code("pack created_at"))?;
+    let context_expires: Timestamp = json_str(&context_value, "expires_at")?
+        .parse()
+        .map_err(|_| integrity_code("pack expires_at"))?;
+    if command.created_at < context_created || command.created_at >= context_expires {
+        return Err("proof.policy.denied".to_owned());
+    }
+    let environment_id = json_str(&intent_meta, "environment_id")?.to_owned();
+    let intent_issued_by = json_str(&intent_meta, "issued_by_principal_id")?.to_owned();
+    let _ = intent_issued_by;
+    let current_baseline = pg_current_baseline(runtime, &environment_id)?;
+    if current_baseline != parse_baseline(&intent_value)? {
+        return Err("proof.state.conflict".to_owned());
+    }
+    let candidate_exists = fact_json(
+        runtime,
+        &format!("localized_changeset/{}", command.changeset_id),
+    )?
+    .is_some();
+    if candidate_exists {
+        return Err(integrity_code(
+            "candidate ChangeSet identity already exists",
+        ));
+    }
+
+    let workspace_id = workspace_id_of(runtime)?;
+    let draft = LocalizedChangeSet {
+        changeset_id: command.changeset_id,
+        workspace_id: parse_workspace(&workspace_id)?,
+        principal_id: principal,
+        intent: command.intent.clone(),
+        resource_intent_id: command.resource_intent_id,
+        resource_intent_digest: command.resource_intent_digest,
+        context_pack_id: command.context_pack_id,
+        context_pack_digest: command.context_pack_digest,
+        base_state: current_baseline.known_state.clone(),
+        created_at: command.created_at,
+        status: ChangeSetStatus::Draft,
+        edits: Vec::new(),
+        proposal_digest: None,
+        sealed_changeset_digest: None,
+    };
+    let effect_digest = creation_effect(request_digest, &draft)?;
+
+    // Persist the working-state projection and its idempotent operation fact.
+    let body = serde_json::json!({
+        "api_version": "proof.dev/parity/localized-changeset/v1",
+        "changeset_id": draft.changeset_id.to_string(),
+        "workspace_id": draft.workspace_id.to_string(),
+        "principal_id": draft.principal_id.to_string(),
+        "intent": draft.intent.as_str(),
+        "resource_intent_id": draft.resource_intent_id.to_string(),
+        "resource_intent_digest": draft.resource_intent_digest.to_string(),
+        "context_pack_id": draft.context_pack_id.to_string(),
+        "context_pack_digest": draft.context_pack_digest.to_string(),
+        "base_state_api_version": draft.base_state.api_version,
+        "base_authoritative_sequence": draft.base_state.authoritative_sequence,
+        "base_state_digest": draft.base_state.digest.to_string(),
+        "created_at": draft.created_at.to_string(),
+        "idempotency_key": command.idempotency_key.to_string(),
+        "lifecycle_status": "draft",
+        "proposal_digest": Value::Null,
+        "effective_leaf_digest": Value::Null,
+        "sealed_changeset_digest": Value::Null,
+    });
+    let workspace_id = workspace_id_of(runtime)?;
+    upsert_parity_fact(
+        runtime,
+        &workspace_id,
+        &format!("localized_changeset/{}", draft.changeset_id),
+        "localized_changeset",
+        &body,
+        "proof:parity:localized-changeset:v1",
+    )?;
+    let op_body = serde_json::json!({
+        "api_version": "proof.dev/parity/changeset-create-operation/v1",
+        "principal_id": principal.to_string(),
+        "idempotency_key": command.idempotency_key.to_string(),
+        "changeset_id": draft.changeset_id.to_string(),
+        "effect_digest": effect_digest.to_string(),
+    });
+    insert_parity_op_fact(runtime, &op_fact_id, &op_body)?;
+
+    load_pg_localized_changeset(runtime, &command.changeset_id.to_string())
+}
+
+fn workspace_id_of(runtime: &mut PgRuntime) -> Result<String, String> {
+    let metadata = require_fact_json(runtime, "workspace/metadata", "proof.resource.not_found")?;
+    metadata
+        .get("workspace_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| integrity_code("workspace identity"))
+}
+
+fn parse_workspace(raw: &str) -> Result<proof_domain::WorkspaceId, String> {
+    raw.parse()
+        .map_err(|_| integrity_code("workspace identity"))
+}
+
+/// Ports `changeset_creation_effect`.
+fn creation_effect(
+    request_digest: ContentDigest,
+    changeset: &LocalizedChangeSet,
+) -> Result<ContentDigest, String> {
+    let effect = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": "changeset.create/v2",
+        "request_digest": request_digest.to_string(),
+        "result": {
+            "base_state": {
+                "api_version": changeset.base_state.api_version,
+                "authoritative_sequence": changeset.base_state.authoritative_sequence,
+                "digest": changeset.base_state.digest.to_string(),
+            },
+            "changeset_id": changeset.changeset_id.to_string(),
+            "context_pack_digest": changeset.context_pack_digest.to_string(),
+            "context_pack_id": changeset.context_pack_id.to_string(),
+            "resource_intent_digest": changeset.resource_intent_digest.to_string(),
+            "resource_intent_id": changeset.resource_intent_id.to_string(),
+            "status": "draft",
+        },
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(digest(
+        proof_domain::ArtifactKind::OperationEffectV1,
+        &effect,
+    ))
+}
+
+/// Inserts or replaces one mutable parity working-state projection fact.
+fn upsert_parity_fact(
+    runtime: &mut PgRuntime,
+    workspace_id: &str,
+    fact_id: &str,
+    kind: &str,
+    body: &Value,
+    digest_context: &str,
+) -> Result<(), String> {
+    let canonical = canonicalize(body).map_err(|error| integrity_code(&error.to_string()))?;
+    let fact_digest = derive_key_digest(digest_context, canonical.as_bytes());
+    let client = runtime.client_mut();
+    client
+        .execute(
+            "INSERT INTO facts (
+                 fact_id, workspace_id, fact_kind, authority_sequence, fact_digest, body, committed_at
+             ) VALUES ($1, $2, $3, 0, $4, $5, now())
+             ON CONFLICT (fact_id) DO UPDATE SET
+                 fact_digest = EXCLUDED.fact_digest,
+                 body = EXCLUDED.body,
+                 committed_at = now()",
+            &[
+                &fact_id,
+                &workspace_id,
+                &kind,
+                &fact_digest.to_string(),
+                &canonical.as_bytes().to_vec(),
+            ],
+        )
+        .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(())
+}
+
+/// Inserts one immutable idempotent-operation fact; a conflicting identity is
+/// an integrity failure exactly like the reference storage.
+fn insert_parity_op_fact(
+    runtime: &mut PgRuntime,
+    fact_id: &str,
+    body: &Value,
+) -> Result<(), String> {
+    let canonical = canonicalize(body).map_err(|error| integrity_code(&error.to_string()))?;
+    let fact_digest = derive_key_digest(
+        "proof:parity:changeset-create-operation:v1",
+        canonical.as_bytes(),
+    );
+    let workspace_id = workspace_id_of(runtime)?;
+    let inserted = {
+        let client = runtime.client_mut();
+        client
+            .execute(
+                "INSERT INTO facts (
+                     fact_id, workspace_id, fact_kind, authority_sequence, fact_digest, body, committed_at
+                 ) VALUES ($1, $2, 'changeset_create_operation', 0, $3, $4, now())
+                 ON CONFLICT (fact_id) DO NOTHING",
+                &[
+                    &fact_id,
+                    &workspace_id,
+                    &fact_digest.to_string(),
+                    &canonical.as_bytes().to_vec(),
+                ],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    if inserted == 0 {
+        return Err(integrity_code("operation fact identity already exists"));
+    }
+    Ok(())
+}
+
+/// Persists the scalar resource-intent metadata (the canonical manifest
+/// intentionally excludes its own digest).
+fn import_resource_intent_meta(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT intent_id, issued_by_principal_id, environment_id, intent_digest
+             FROM content_resource_intents ORDER BY intent_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (intent_id, issued_by, environment_id, intent_digest) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/resource-intent-metadata/v1",
+            "intent_id": intent_id,
+            "issued_by_principal_id": issued_by,
+            "environment_id": environment_id,
+            "intent_digest": intent_digest,
+        });
+        let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        let fact_digest = derive_key_digest(
+            "proof:parity:resource-intent-metadata:v1",
+            canonical.as_bytes(),
+        );
+        insert_fact(
+            runtime,
+            &format!("resource_intent_meta/{intent_id}"),
+            workspace_id,
+            "resource_intent_meta",
+            &fact_digest,
+            canonical.as_bytes(),
+        )?;
     }
     Ok(())
 }
