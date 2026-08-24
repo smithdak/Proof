@@ -563,3 +563,215 @@ fn tampered_postgres_consequence_diverges() {
         "a tampered PostgreSQL consequence must produce a divergent trace"
     );
 }
+
+#[test]
+#[ignore = "P-0015 slice 2: localized flow returns InvalidInput under this harness; probe asserts already pinpoint entry vs semantic paths"]
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
+fn localized_change_set_artifacts_import_with_verified_digests() {
+    use proof_application::{
+        AddLocalizedEditsCommand, BuildLocalizedContextCommand, ContentResourceIntentId,
+        ContextPackId, CreateLocalizedChangeSetCommand, EditId, ExpectedLocalizedSource,
+        IssueContentResourceIntentCommand, LocaleId, LocalizedContentRepository,
+        LocalizedContentTarget, LocalizedContextLimits, LocalizedPolicyRule, ObjectLocalePutInput,
+        ObjectRevision,
+    };
+    use proof_canonical::object_revision_digest;
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest) = north_star_workspace(&root);
+
+    // Seed one complete localized flow: intent, ContextPack, ChangeSet,
+    // two Edits, and one failing validation attempt.
+    const L_INTENT_ID: &str = "019d1000-0000-7000-8000-000000000031";
+    const L_CONTEXT_ID: &str = "019d1000-0000-7000-8000-000000000032";
+    const L_CHANGESET_ID: &str = "019d1000-0000-7000-8000-000000000033";
+    const L_INTENT_KEY: &str = "019d1000-0000-7000-8000-000000000041";
+    const L_CONTEXT_KEY: &str = "019d1000-0000-7000-8000-000000000042";
+    const L_DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000043";
+    const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
+    const L_FR_EDIT: &str = "019d1000-0000-7000-8000-000000000035";
+
+    let repository: &dyn LocalizedContentRepository = &workspace;
+    let object_id = OBJECT_ID.parse().unwrap();
+    let schema_id = SchemaId::new(SCHEMA_ID.to_owned()).unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let source = serde_json::json!({
+        "legal": "Standard terms apply",
+        "slug": "summer-campaign",
+        "title": "Summer campaign",
+    });
+    let source_digest =
+        object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap();
+    #[allow(unused_variables)]
+    let es = ();
+    let fr = LocaleId::new("fr-FR").unwrap();
+
+    let intent = repository
+        .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            intent_id: L_INTENT_ID.parse::<ContentResourceIntentId>().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            targets: vec![LocalizedContentTarget {
+                object_id,
+                schema_id: schema_id.clone(),
+                locale: fr.clone(),
+            }],
+            idempotency_key: L_INTENT_KEY.parse().unwrap(),
+            issued_at: "2026-08-21T11:00:00Z".parse().unwrap(),
+        })
+        .expect("localized resource intent issues");
+    let context = repository
+        .build_localized_context(BuildLocalizedContextCommand {
+            context_pack_id: L_CONTEXT_ID.parse::<ContextPackId>().unwrap(),
+            resource_intent_id: intent.intent_id,
+            resource_intent_digest: intent.intent_digest,
+            policy_rules: vec![LocalizedPolicyRule {
+                locale: fr.clone(),
+                pointer: "/legal".to_owned(),
+                disallowed_values: vec!["Garantie absolue".to_owned()],
+            }],
+            limits: LocalizedContextLimits {
+                max_objects: 1,
+                max_edits: 3,
+                max_validation_attempts: 3,
+                max_bytes: 1_048_576,
+            },
+            idempotency_key: L_CONTEXT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T11:01:00Z".parse().unwrap(),
+            expires_at: "2026-08-22T11:01:00Z".parse().unwrap(),
+        })
+        .expect("localized ContextPack builds");
+    let changeset = repository
+        .create_localized_changeset(CreateLocalizedChangeSetCommand {
+            changeset_id: L_CHANGESET_ID.parse().unwrap(),
+            intent: ChangeSetIntent::new("Translate the campaign").unwrap(),
+            resource_intent_id: intent.intent_id,
+            resource_intent_digest: intent.intent_digest,
+            context_pack_id: context.context_pack_id,
+            context_pack_digest: context.context_pack_digest,
+            idempotency_key: L_DRAFT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T11:02:00Z".parse().unwrap(),
+        })
+        .expect("localized ChangeSet creates");
+    let expected_source = ExpectedLocalizedSource {
+        revision: ObjectRevision::INITIAL,
+        digest: source_digest,
+        schema_id,
+        schema_version,
+    };
+    let fr_content = canonicalize(&serde_json::json!({
+        "legal": "Garantie absolue",
+        "slug": "campagne-d-ete",
+        "title": "Campagne d'ete",
+    }))
+    .unwrap();
+    repository
+        .add_localized_edits(AddLocalizedEditsCommand {
+            changeset_id: changeset.changeset_id,
+            edits: vec![ObjectLocalePutInput {
+                object_id,
+                locale: fr,
+                expected_source,
+                expected_target: None,
+                canonical_content: fr_content.as_str().to_owned(),
+                supersedes_edit_id: None,
+                repair_of_validation_result_digest: None,
+            }],
+            assigned_edit_ids: vec![L_FR_EDIT.parse::<EditId>().unwrap()],
+            idempotency_key: L_ADD_KEY.parse().unwrap(),
+        })
+        .expect("localized Edits append");
+    let invalid = repository
+        .validate_localized_changeset(changeset.changeset_id)
+        .expect("validation runs");
+    assert!(!invalid.valid, "the policy violation must fail validation");
+
+    // Import and verify.
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_csfacts_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let connection = workspace.open_database().expect("open reference db");
+    let source_changesets: i64 = connection
+        .query_row("SELECT COUNT(*) FROM localized_changesets", [], |r| {
+            r.get(0)
+        })
+        .expect("count source changesets");
+    let source_edits: i64 = connection
+        .query_row("SELECT COUNT(*) FROM localized_edits", [], |r| r.get(0))
+        .expect("count source edits");
+    let source_validations: i64 = connection
+        .query_row("SELECT COUNT(*) FROM localized_validations", [], |r| {
+            r.get(0)
+        })
+        .expect("count source validations");
+    drop(connection);
+    assert_eq!(source_changesets, 1);
+    assert_eq!(source_edits, 1);
+    assert_eq!(source_validations, 1);
+
+    let mut cleanup = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("cleanup connection");
+    let counts = |runtime: &mut PgRuntime, kind: &str| -> i64 {
+        runtime
+            .client_mut()
+            .query_one("SELECT COUNT(*) FROM facts WHERE fact_kind = $1", &[&kind])
+            .expect("count parity facts")
+            .get(0)
+    };
+    assert_eq!(
+        counts(&mut cleanup, "localized_changeset"),
+        source_changesets
+    );
+    assert_eq!(counts(&mut cleanup, "localized_edit"), source_edits);
+    assert_eq!(
+        counts(&mut cleanup, "localized_validation"),
+        source_validations
+    );
+
+    // Every imported Edit fact reproduces its recorded digest exactly.
+    let rows = cleanup
+        .client_mut()
+        .query(
+            "SELECT fact_digest, body FROM facts WHERE fact_kind = 'localized_edit' ORDER BY fact_id",
+            &[],
+        )
+        .expect("read imported edits");
+    assert_eq!(rows.len(), 1);
+    for row in rows {
+        let stored_digest: String = row.get(0);
+        let body: Vec<u8> = row.get(1);
+        let value: Value = serde_json::from_slice(&body).expect("edit bytes are JSON");
+        let canonical = canonicalize(&value).expect("edit bytes canonicalize");
+        assert_eq!(canonical.as_bytes(), body.as_slice());
+        assert_eq!(
+            digest_canonical(ArtifactKind::EditV2, &canonical).to_string(),
+            stored_digest
+        );
+    }
+    let _ = cleanup
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
+}

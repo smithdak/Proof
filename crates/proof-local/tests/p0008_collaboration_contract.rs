@@ -219,6 +219,10 @@ fn vector_schema_reference(file_name: &str, value: &Value) -> &'static str {
         "proof.dev/http-agent-operation-request/v1"
         | "proof.dev/http-human-operation-request/v1"
         | "proof.dev/http-problem/v1" => HTTP_SCHEMA_ID,
+        "proof.dev/conformance/enrollment-agent-binding/v1"
+        | "proof.dev/conformance/enrollment-oidc-binding/v1" => {
+            "https://proof.dev/schema/conformance/collaboration-server/enrollment-vector/v1"
+        }
         "proof.dev/http-operation-registry/v1" => {
             "https://proof.dev/schema/collaboration-server/http-operation-registry/v1"
         }
@@ -694,7 +698,7 @@ fn collaboration_schemas_resolve_and_every_checked_in_vector_is_closed() {
     let vector_paths = sorted_json_files(&collaboration_path("vectors"));
     assert_eq!(
         vector_paths.len(),
-        39,
+        41,
         "the accepted-vector inventory changed"
     );
     for path in vector_paths {

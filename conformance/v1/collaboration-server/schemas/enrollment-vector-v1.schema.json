@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proof.dev/schema/conformance/collaboration-server/enrollment-vector/v1",
+  "title": "P-0014 enrollment conformance vector",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "enum": [
+        "proof.dev/conformance/enrollment-agent-binding/v1",
+        "proof.dev/conformance/enrollment-oidc-binding/v1"
+      ]
+    },
+    "note": { "type": "string" },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": {
+          "enum": [
+            "proof.dev/operation/agent-binding.issue/v1",
+            "proof.dev/operation/oidc-binding.issue/v1"
+          ]
+        }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "input_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "challenge_shape": { "type": "object" },
+    "issued_binding_shape": { "type": "object" },
+    "governed_fact": { "type": "object" },
+    "outcome_rules": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string" }
+    },
+    "server_derived_material": { "type": "object" },
+    "public_binding_shape": { "type": "object" },
+    "protected_opening_shape": { "type": "object" }
+  },
+  "required": ["api_version", "operation", "input_fields", "outcome_rules"],
+  "additionalProperties": false
+}

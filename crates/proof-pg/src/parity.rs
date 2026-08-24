@@ -40,6 +40,12 @@ const FACT_KIND_WORKSPACE_METADATA: &str = "workspace_metadata";
 const FACT_KIND_RESOURCE_INTENT: &str = "resource_intent";
 /// Fact kind marker for an imported localized `ContextPack`.
 const FACT_KIND_CONTEXT_PACK: &str = "context_pack";
+/// Fact kind marker for an imported localized `ChangeSet` row projection.
+const FACT_KIND_LOCALIZED_CHANGESET: &str = "localized_changeset";
+/// Fact kind marker for one imported localized Edit artifact.
+const FACT_KIND_LOCALIZED_EDIT: &str = "localized_edit";
+/// Fact kind marker for one imported localized validation attempt.
+const FACT_KIND_LOCALIZED_VALIDATION: &str = "localized_validation";
 
 /// The PostgreSQL parity backend: it evaluates a shared operation against the
 /// imported, verified PostgreSQL state (contract §"Conformance and
@@ -487,6 +493,9 @@ fn import_parity_facts(
     import_workspace_metadata(runtime, &connection, &workspace_id)?;
     import_resource_intents(runtime, &connection, &workspace_id)?;
     import_context_packs(runtime, &connection, &workspace_id)?;
+    import_localized_changesets(runtime, &connection, &workspace_id)?;
+    import_localized_edits(runtime, &connection, &workspace_id)?;
+    import_localized_validations(runtime, &connection, &workspace_id)?;
     Ok(())
 }
 
@@ -666,5 +675,246 @@ fn insert_fact(
             ],
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
+    Ok(())
+}
+
+/// Persists every localized `ChangeSet` row as a canonical projection fact.
+///
+/// The row is not itself a single digest-addressed artifact, so the fact body
+/// records the exact scalar columns and the fact digest is derived over those
+/// canonical bytes under a parity-specific domain. Edit artifacts carry their
+/// own immutable digests and are verified exactly.
+#[allow(clippy::too_many_lines)]
+fn import_localized_changesets(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, principal_id, intent, resource_intent_id,
+                    resource_intent_digest, context_pack_id, context_pack_digest,
+                    base_state_api_version, base_authoritative_sequence, base_state_digest,
+                    created_at, lifecycle_status, proposal_digest, effective_leaf_digest,
+                    sealed_changeset_digest
+             FROM localized_changesets ORDER BY changeset_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, String>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, String>(11)?,
+                row.get::<_, Option<String>>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, Option<String>>(14)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (
+            changeset_id,
+            principal_id,
+            intent,
+            resource_intent_id,
+            resource_intent_digest,
+            context_pack_id,
+            context_pack_digest,
+            base_state_api_version,
+            base_authoritative_sequence,
+            base_state_digest,
+            created_at,
+            lifecycle_status,
+            proposal_digest,
+            effective_leaf_digest,
+            sealed_changeset_digest,
+        ) = row.map_err(|error| PgError::Import(error.to_string()))?;
+        let base_sequence = u64::try_from(base_authoritative_sequence).map_err(|_| {
+            PgError::Import("imported base authoritative sequence is negative".to_owned())
+        })?;
+        // Cross-check the referenced evidence facts before persisting.
+        let resource_fact_id = format!("resource_intent/{resource_intent_id}");
+        let pack_fact_id = format!("context_pack/{context_pack_id}");
+        for (fact_id, expected_digest) in [
+            (&resource_fact_id, &resource_intent_digest),
+            (&pack_fact_id, &context_pack_digest),
+        ] {
+            let stored: Option<String> = {
+                let client = runtime.client_mut();
+                client
+                    .query_opt(
+                        "SELECT fact_digest FROM facts WHERE fact_id = $1",
+                        &[&fact_id],
+                    )
+                    .map_err(|error| PgError::Import(error.to_string()))?
+                    .map(|row| row.get(0))
+            };
+            if stored.as_deref() != Some(expected_digest.as_str()) {
+                return Err(PgError::Import(format!(
+                    "changeset `{changeset_id}` references `{fact_id}` which is absent or disagrees"
+                )));
+            }
+        }
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/localized-changeset/v1",
+            "changeset_id": changeset_id,
+            "workspace_id": workspace_id,
+            "principal_id": principal_id,
+            "intent": intent,
+            "resource_intent_id": resource_intent_id,
+            "resource_intent_digest": resource_intent_digest,
+            "context_pack_id": context_pack_id,
+            "context_pack_digest": context_pack_digest,
+            "base_state_api_version": base_state_api_version,
+            "base_authoritative_sequence": base_sequence,
+            "base_state_digest": base_state_digest,
+            "created_at": created_at,
+            "lifecycle_status": lifecycle_status,
+            "proposal_digest": proposal_digest,
+            "effective_leaf_digest": effective_leaf_digest,
+            "sealed_changeset_digest": sealed_changeset_digest,
+        });
+        let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        let fact_digest =
+            derive_key_digest("proof:parity:localized-changeset:v1", canonical.as_bytes());
+        insert_fact(
+            runtime,
+            &format!("localized_changeset/{changeset_id}"),
+            workspace_id,
+            FACT_KIND_LOCALIZED_CHANGESET,
+            &fact_digest,
+            canonical.as_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists every localized Edit artifact with its exact digest re-verified
+/// from the stored canonical manifest bytes.
+fn import_localized_edits(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, ordinal, edit_json, edit_digest
+             FROM localized_edits ORDER BY changeset_id, ordinal",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (changeset_id, ordinal, edit_json, edit_digest) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let edit_digest = edit_digest
+            .parse::<ContentDigest>()
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let canonical = verified_manifest_bytes(
+            &edit_json,
+            ArtifactKind::EditV2,
+            edit_digest,
+            &format!("localized Edit `{changeset_id}`#{ordinal}"),
+        )?;
+        insert_fact(
+            runtime,
+            &format!("localized_edit/{changeset_id}/{ordinal:020}"),
+            workspace_id,
+            FACT_KIND_LOCALIZED_EDIT,
+            &edit_digest,
+            &canonical,
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists every localized validation attempt with its results digest
+/// re-verified from the stored canonical results bytes.
+fn import_localized_validations(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, attempt, results_json, results_digest, valid,
+                    sealed_changeset_digest
+             FROM localized_validations ORDER BY changeset_id, attempt",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (changeset_id, attempt, results_json, results_digest, valid, sealed) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let results_digest = results_digest
+            .parse::<ContentDigest>()
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let canonical = verified_manifest_bytes(
+            &results_json,
+            ArtifactKind::ValidationResultsV1,
+            results_digest,
+            &format!("validation `{changeset_id}`#{attempt}"),
+        )
+        .map_err(|error| {
+            if error.to_string().contains("digest mismatch") {
+                PgError::Import(format!(
+                    "validation `{changeset_id}`#{attempt}: results digest mismatch"
+                ))
+            } else {
+                error
+            }
+        })?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/localized-validation/v1",
+            "changeset_id": changeset_id,
+            "attempt": attempt,
+            "valid": valid != 0,
+            "sealed_changeset_digest": sealed,
+        });
+        let canonical_body =
+            canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        let fact_digest = derive_key_digest(
+            "proof:parity:localized-validation:v1",
+            canonical_body.as_bytes(),
+        );
+        let _ = canonical;
+        insert_fact(
+            runtime,
+            &format!("localized_validation/{changeset_id}/{attempt:020}"),
+            workspace_id,
+            FACT_KIND_LOCALIZED_VALIDATION,
+            &fact_digest,
+            canonical_body.as_bytes(),
+        )?;
+    }
     Ok(())
 }

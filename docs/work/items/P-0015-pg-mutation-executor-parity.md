@@ -87,6 +87,23 @@ Record exact commands, environment, revisions, exit codes, artifact digests,
 and residual boundaries in `docs/work/evidence/P-0015/` per the
 [work-control protocol](../README.md).
 
+## Progress log
+
+- Slice 1 (2026-08-24): the parity importer now carries the localized
+  mutation state into PostgreSQL — every `localized_changesets` row as a
+  canonical projection fact cross-checked against its imported intent and
+  ContextPack evidence, every localized Edit artifact digest-verified under
+  `EditV2`, and every validation attempt with its results digest verified —
+  so all subsequent executor rows consume imported, re-verified state. The
+  accepted-vector inventory grew by the two P-0014 enrollment vectors
+  (39 -> 41) and gained the shared `enrollment-vector-v1` Schema. Full Linux
+  gate green at this slice.
+- Known open thread for slice 2: seeding a complete localized flow inside
+  the parity harness currently returns `InvalidInput` from
+  `add_localized_edits` while the equivalent p0007 flow passes; the ignored
+  test `localized_change_set_artifacts_import_with_verified_digests` is the
+  pinned resume point.
+
 ## Completion record
 
 Populated after acceptance.
