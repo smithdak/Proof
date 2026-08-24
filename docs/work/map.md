@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `ready` | none | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
+| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `claimed` | none | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
 
 ## Next
 
