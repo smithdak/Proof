@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `ready` | none | Implement `agent-binding.issue/v1` and `oidc-binding.issue/v1` end to end so an external Human or Agent caller obtains working credentials instead of a pending Problem. |
+| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `claimed` | none | Implement `agent-binding.issue/v1` and `oidc-binding.issue/v1` end to end so an external Human or Agent caller obtains working credentials instead of a pending Problem. |
 
 ## Next
 
