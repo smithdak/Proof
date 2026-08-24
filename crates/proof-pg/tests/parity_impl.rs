@@ -1526,9 +1526,8 @@ fn changeset_submit_traces_are_byte_identical() {
 #[allow(clippy::too_many_lines)]
 fn changeset_commit_traces_are_byte_identical() {
     use proof_application::{
-        AddLocalizedEditsCommand, ApprovalName, ChangeSetIntent, CommitLocalizedChangeSetCommand,
-        CreateLocalizedChangeSetCommand, EditId, ExpectedLocalizedSource, LocaleId,
-        ObjectLocalePutInput, ObjectRevision,
+        AddLocalizedEditsCommand, ApprovalName, ChangeSetIntent, CreateLocalizedChangeSetCommand,
+        EditId, ExpectedLocalizedSource, LocaleId, ObjectLocalePutInput, ObjectRevision,
     };
     use proof_pg::parity::PostgresBackend as PgBackendAlias;
     use proof_remote::OracleOutcome;
@@ -1754,7 +1753,7 @@ fn edition_create_traces_are_byte_identical() {
         locale,
         expected_source: ExpectedLocalizedSource {
             revision: ObjectRevision::INITIAL,
-            digest: source_digest.clone(),
+            digest: source_digest,
             schema_id: schema_id.clone(),
             schema_version,
         },
@@ -1944,7 +1943,7 @@ fn changeset_diff_traces_are_byte_identical() {
         locale,
         expected_source: ExpectedLocalizedSource {
             revision: ObjectRevision::INITIAL,
-            digest: source_digest.clone(),
+            digest: source_digest,
             schema_id: schema_id.clone(),
             schema_version,
         },
