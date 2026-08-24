@@ -6,6 +6,18 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented route-complete enrollment with usable credentials (P-0014):
+  `agent-binding.issue/v1` verifies the caller-supplied enrollment closure
+  (challenge validity, candidate-key proof of possession, and envelope
+  binding) before any transaction and commits the immutable
+  `PrincipalBindingV1` fact with single-use challenge consumption through the
+  P-0010 unit of work; `oidc-binding.issue/v1` generates the fresh blind
+  before the serializable transaction, commits the public commitment-only
+  `OidcPrincipalBindingV1` plus its protected opening as paired facts, and
+  rejects an unpinned issuer configuration or a duplicate subject at the
+  locked snapshot. Issued Agent credentials authenticate end to end through
+  the dual Human-session-plus-presentation boundary and complete governed
+  operations; issued OIDC pairs resolve their subjects at login.
 - Implemented remote evidence and the Milestone 3 qualification wave
   (P-0013): the exact six-root `RemoteEvidenceBundleV2` uncompressed logical
   member map with deterministic artifact paths and a closed Invalid taxonomy,

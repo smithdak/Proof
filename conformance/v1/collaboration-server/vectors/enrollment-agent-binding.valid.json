@@ -1,0 +1,74 @@
+{
+  "api_version": "proof.dev/conformance/enrollment-agent-binding/v1",
+  "note": "Illustrative shape example pinned by P-0014; timestamps, identifiers, and key material are not compatibility constants.",
+  "operation": {
+    "name": "agent-binding.issue",
+    "version": "proof.dev/operation/agent-binding.issue/v1"
+  },
+  "input_fields": [
+    "workspace_id",
+    "principal_id",
+    "public_key",
+    "challenge",
+    "enrollment_envelope",
+    "idempotency_key"
+  ],
+  "challenge_shape": {
+    "api_version": "proof.dev/binding-enrollment-challenge/v1",
+    "fields": [
+      "api_version",
+      "challenge_id",
+      "audience",
+      "workspace_id",
+      "binding_id",
+      "principal_id",
+      "candidate_key_id",
+      "issued_by_principal_id",
+      "issued_at",
+      "expires_at"
+    ],
+    "lifetime_rule": "expires_at - issued_at must not exceed the five-minute authenticated-command maximum"
+  },
+  "issued_binding_shape": {
+    "artifact": "PrincipalBindingV1",
+    "authority_record_variant": "agent-binding-issue",
+    "fields": [
+      "api_version",
+      "authority_sequence",
+      "previous_authority_record_digest",
+      "workspace_id",
+      "binding_id",
+      "principal_id",
+      "principal_type",
+      "authenticated_subject",
+      "algorithm",
+      "public_key",
+      "key_usage",
+      "audience",
+      "enrollment_challenge_digest",
+      "enrollment_envelope_digest",
+      "issued_by_principal_id",
+      "issued_at",
+      "not_before",
+      "expires_at",
+      "supersedes_binding_id"
+    ]
+  },
+  "governed_fact": {
+    "fact_id_prefix": "agent_binding/",
+    "fact_kind": "agent_binding",
+    "fact_digest": "the exact remote-authority-record digest of the issued PrincipalBindingV1",
+    "auxiliary_fact": {
+      "fact_id_prefix": "enrollment_challenge_consumption/",
+      "fact_kind": "enrollment_challenge_consumption",
+      "fact_digest": "the DSSE envelope digest of the consumed challenge presentation"
+    }
+  },
+  "outcome_rules": {
+    "allow": "success whose application_effect_digest equals the governed-fact digest",
+    "identical_replay": "IdempotentReplay disclosing the prior result without a duplicate fact",
+    "changed_re_presentation_same_principals": "IdempotencyConflict under the Workspace-global successful-application key rule",
+    "consumed_or_expired_challenge": "authorized application failure with problem code proof.state.conflict that retains its signed decision",
+    "malformed_closure_foreign_envelope_or_key_mismatch": "input schema mismatch rejected before any transaction"
+  }
+}

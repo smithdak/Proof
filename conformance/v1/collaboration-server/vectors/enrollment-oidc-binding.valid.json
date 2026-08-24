@@ -1,0 +1,66 @@
+{
+  "api_version": "proof.dev/conformance/enrollment-oidc-binding/v1",
+  "note": "Illustrative shape example pinned by P-0014; timestamps, identifiers, subjects, and digests are not compatibility constants.",
+  "operation": {
+    "name": "oidc-binding.issue",
+    "version": "proof.dev/operation/oidc-binding.issue/v1"
+  },
+  "input_fields": [
+    "workspace_id",
+    "principal_id",
+    "subject",
+    "issuer_configuration_digest",
+    "binding_id",
+    "idempotency_key"
+  ],
+  "server_derived_material": {
+    "blind": "a fresh uniformly random 32-byte value generated before the serializable transaction and reused across internal retries of the one application attempt; never caller-selected",
+    "subject_commitment": "BLAKE3-256 derive-key commitment over the exact protected preimage with blind, subject, and Workspace"
+  },
+  "public_binding_shape": {
+    "artifact": "OidcPrincipalBindingV1",
+    "authority_record_variant": "oidc-binding-issue",
+    "fact_id_prefix": "oidc_binding/",
+    "fact_kind": "oidc_public_binding",
+    "fact_digest": "the binding record digest of the public commitment-only record",
+    "fields": [
+      "api_version",
+      "workspace_id",
+      "binding_id",
+      "principal_id",
+      "subject_commitment",
+      "oidc_issuer_configuration_digest",
+      "issued_by_principal_id",
+      "issued_at",
+      "supersedes_binding_id",
+      "evaluated_authority_head",
+      "authority_sequence",
+      "previous_authority_record_digest",
+      "authority_key_id"
+    ]
+  },
+  "protected_opening_shape": {
+    "artifact": "OidcPrincipalBindingPrivateV1",
+    "fact_id_prefix": "oidc_private_binding/",
+    "fact_kind": "oidc_private_binding",
+    "exclusion": "excluded from ordinary logs, Problems, ContextPacks, exports, and public evidence",
+    "fields": [
+      "api_version",
+      "workspace_id",
+      "binding_id",
+      "principal_id",
+      "subject",
+      "subject_commitment",
+      "opening",
+      "oidc_issuer_configuration_digest",
+      "binding_record_digest"
+    ]
+  },
+  "outcome_rules": {
+    "allow": "success committing both paired facts and resolving the exact subject at login",
+    "unpinned_issuer_configuration": "input schema mismatch when issuer_configuration_digest differs from the deployment-pinned issuer",
+    "duplicate_active_subject": "authorized application failure with problem code proof.state.conflict at the locked snapshot when an authentication-valid private binding already carries the exact subject",
+    "changed_re_presentation_same_principals": "IdempotencyConflict under the Workspace-global successful-application key rule",
+    "identical_replay": "IdempotentReplay disclosing the prior result without duplicate facts"
+  }
+}

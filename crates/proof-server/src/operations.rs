@@ -6,8 +6,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use proof_canonical::canonicalize;
-use proof_domain::{ContentDigest, Timestamp};
+use proof_application::authority::{
+    AgentPrincipalType, AuthenticatedCommandKeyUsage, AuthorityAudience, AuthoritySequence,
+    BindingEnrollmentChallengeV1, Ed25519Algorithm, Ed25519KeyId, Ed25519PublicKey,
+    LocalEd25519AuthenticatedSubjectV1, PrincipalBindingApiVersion, PrincipalBindingV1,
+};
+use proof_attestation::authority::{AuthorityPayloadProfile, verify_authority_envelope};
+use proof_canonical::{canonicalize, digest};
+use proof_domain::{ArtifactKind, ContentDigest, Timestamp};
 use proof_pg::{
     PgError,
     idempotency::{IdempotencyOutcome, IdempotencyTupleV1, SavepointGuard, replay_or_conflict},
@@ -19,7 +25,13 @@ use proof_remote::{
         RemoteAuthorityRecordV1, WorkspaceRole, WorkspaceRoleAssignmentApiVersion,
         WorkspaceRoleAssignmentV1, WorkspaceRoleRevocationApiVersion, WorkspaceRoleRevocationV1,
     },
-    identity::AuthenticatedActorContextV2,
+    identity::{
+        AuthenticatedActorContextV2, OidcAuthenticatedSubjectV1, OidcPrincipalBindingApiVersion,
+        OidcPrincipalBindingPrivateApiVersion, OidcPrincipalBindingPrivateV1,
+        OidcPrincipalBindingV1, OidcSubjectCommitmentInputApiVersion, OidcSubjectCommitmentInputV1,
+        OidcSubjectCommitmentOpeningApiVersion, OidcSubjectCommitmentOpeningV1, encode_blind,
+        subject_commitment_digest,
+    },
     registry::{
         AgentOperationProjectionV1, ApplicationConsequenceOutcome, ApplicationKeyKind,
         AuthorizationDecisionKind, EffectDigestRule, HumanOperationRegistryV1,
@@ -91,6 +103,7 @@ impl HumanOperationExecutor {
                 actor_context,
                 decision,
                 FactPlan::RoleAssignment,
+                None,
             ),
             "workspace-role.revoke" => execute_owned(
                 state,
@@ -99,6 +112,14 @@ impl HumanOperationExecutor {
                 actor_context,
                 decision,
                 FactPlan::RoleRevocation,
+                None,
+            ),
+            "agent-binding.issue" | "oidc-binding.issue" => execute_enrollment_owned(
+                state,
+                operation,
+                normalized_input,
+                actor_context,
+                decision,
             ),
             _ => execute_owned(
                 state,
@@ -107,6 +128,7 @@ impl HumanOperationExecutor {
                 actor_context,
                 decision,
                 FactPlan::Generic,
+                None,
             ),
         }
     }
@@ -147,6 +169,7 @@ impl AgentOperationExecutor {
             actor_context,
             decision,
             FactPlan::Generic,
+            None,
         )
     }
 }
@@ -227,6 +250,8 @@ pub const PENDING_DEPENDENCY_OPERATION_NAMES: [&str; 2] =
 enum FactPlan {
     RoleAssignment,
     RoleRevocation,
+    AgentBindingIssue,
+    OidcBindingIssue,
     Generic,
 }
 
@@ -239,6 +264,7 @@ struct GovernedFact {
     body: Vec<u8>,
     effect_authority_head: Option<AuthorityHeadV1>,
     result: Value,
+    auxiliary: Vec<AuxiliaryFact>,
 }
 
 /// The pre-transaction idempotency lookup result.
@@ -339,6 +365,29 @@ macro_rules! persist_consequence_in_tx {
     }};
 }
 
+macro_rules! persist_auxiliaries_in_tx {
+    ($tx:expr, $fact:expr, $auth_seq:expr) => {{
+        let seq = i64::try_from($auth_seq)
+            .map_err(|_| PgError::Integrity("authority sequence out of range".to_owned()))?;
+        for auxiliary in &$fact.auxiliary {
+            $tx.execute(
+                "INSERT INTO facts (
+                     fact_id, workspace_id, fact_kind, authority_sequence, fact_digest, body, committed_at
+                 ) VALUES ($1, $2, $3, $4, $5, $6, now())",
+                &[
+                    &auxiliary.fact_id,
+                    &$fact.workspace_id,
+                    &auxiliary.kind,
+                    &seq,
+                    &auxiliary.digest.to_string(),
+                    &auxiliary.body,
+                ],
+            )
+            .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+        }
+    }};
+}
+
 macro_rules! persist_idempotency_in_tx {
     ($tx:expr, $candidate:expr, $key_kind:expr, $consequence:expr) => {{
         let result = $consequence
@@ -381,6 +430,55 @@ macro_rules! advance_authority_head_in_tx {
     }};
 }
 
+macro_rules! enrollment_precondition_in_tx {
+    ($tx:expr, $plan:expr, $prepared:expr) => {{
+        let problem: Option<&'static str> = match ($plan, $prepared) {
+            (FactPlan::AgentBindingIssue, Some(PreparedEnrollment::Agent(p))) => {
+                let consumed = $tx
+                    .query_opt(
+                        "SELECT 1 FROM facts WHERE fact_id = $1",
+                        &[&p.consumption_fact_id],
+                    )
+                    .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+                let now =
+                    now_timestamp().map_err(|error| PgError::Idempotency(error.to_string()))?;
+                if consumed.is_some()
+                    || now < p.challenge.issued_at
+                    || now >= p.challenge.expires_at
+                {
+                    Some("proof.state.conflict")
+                } else {
+                    None
+                }
+            }
+            (FactPlan::OidcBindingIssue, Some(PreparedEnrollment::Oidc(p))) => {
+                let rows = $tx
+                    .query(
+                        "SELECT body FROM facts WHERE fact_kind = $1",
+                        &[&OIDC_PRIVATE_BINDING_KIND],
+                    )
+                    .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+                let duplicate = rows.iter().any(|row| {
+                    let body: Vec<u8> = row.get(0);
+                    serde_json::from_slice::<OidcPrincipalBindingPrivateV1>(&body)
+                        .is_ok_and(|existing| existing.subject == p.subject)
+                });
+                if duplicate {
+                    Some("proof.state.conflict")
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        problem
+    }};
+}
+
+fn missing_field(field: &str) -> ServerError {
+    ServerError::Dispatch(format!("normalized input is missing `{field}`"))
+}
+
 /// Runs one owned mutation through the P-0010 unit of work.
 #[allow(clippy::too_many_lines)]
 fn execute_owned(
@@ -390,6 +488,7 @@ fn execute_owned(
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
     plan: FactPlan,
+    prepared: Option<&PreparedEnrollment>,
 ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
     if decision.decision == AuthorizationDecisionKind::Deny {
         commit_denial(state, decision)?;
@@ -465,8 +564,28 @@ fn execute_owned(
         },
         apply_consequence: Box::new(move |tx| {
             let auth_seq = read_auth_sequence_in_tx!(tx)?;
+
+            // P-0014: state-dependent enrollment preconditions resolve at the
+            // locked snapshot; an authorized failure commits the decision and
+            // a failure consequence without a governed effect.
+            if let Some(problem_code) = enrollment_precondition_in_tx!(tx, plan, prepared) {
+                let failure = delivery_failure_consequence(
+                    &decision_for_hook,
+                    &operation_for_hook,
+                    problem_code,
+                    auth_seq,
+                )
+                .map_err(|error| PgError::Idempotency(error.to_string()))?;
+                persist_decision_in_tx!(tx, &decision_for_hook);
+                persist_consequence_in_tx!(tx, &failure, auth_seq);
+                advance_authority_head_in_tx!(tx, &consequence_digest(&failure), auth_seq);
+                *built_for_hook.borrow_mut() = Some(failure);
+                return Err(PgError::Idempotency(problem_code.to_owned()));
+            }
+
             let fact = build_governed_fact(
                 plan,
+                prepared,
                 &input_for_hook,
                 &actor_for_hook,
                 &decision_for_hook,
@@ -493,6 +612,7 @@ fn execute_owned(
             {
                 let sp = savepoint.transaction();
                 persist_fact_in_tx!(sp, &fact, auth_seq);
+                persist_auxiliaries_in_tx!(sp, &fact, auth_seq);
                 persist_consequence_in_tx!(sp, &consequence, auth_seq);
                 persist_idempotency_in_tx!(sp, &candidate, key_kind, &consequence);
                 advance_authority_head_in_tx!(sp, &consequence_digest(&consequence), auth_seq);
@@ -566,6 +686,7 @@ fn commit_denial(
 #[allow(clippy::too_many_lines)]
 fn build_governed_fact(
     plan: FactPlan,
+    prepared: Option<&PreparedEnrollment>,
     input: &Value,
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
@@ -611,6 +732,7 @@ fn build_governed_fact(
                     record_digest: fact_digest,
                 }),
                 result,
+                auxiliary: Vec::new(),
             })
         }
         FactPlan::RoleRevocation => {
@@ -658,6 +780,150 @@ fn build_governed_fact(
                     record_digest: fact_digest,
                 }),
                 result,
+                auxiliary: Vec::new(),
+            })
+        }
+        FactPlan::AgentBindingIssue => {
+            let Some(PreparedEnrollment::Agent(prepared)) = prepared else {
+                return Err(ServerError::Internal(
+                    "agent-binding.issue is missing its prepared enrollment closure".to_owned(),
+                ));
+            };
+            let now = now_timestamp()?;
+            let expires_at = Timestamp::from_unix_timestamp_nanos(
+                now.unix_timestamp_nanos()
+                    + i128::from(AGENT_BINDING_VALIDITY_SECS) * 1_000_000_000,
+            )
+            .map_err(|error| ServerError::Internal(error.to_string()))?;
+            let workspace_id = parse_workspace_id(&decision.workspace_id)?;
+            let binding = PrincipalBindingV1 {
+                api_version: PrincipalBindingApiVersion::V1,
+                authority_sequence: AuthoritySequence::new(auth_seq)
+                    .map_err(|error| ServerError::Internal(error.to_string()))?,
+                previous_authority_record_digest: Some(previous_digest),
+                workspace_id,
+                binding_id: prepared.challenge.binding_id,
+                principal_id: prepared.challenge.principal_id,
+                principal_type: AgentPrincipalType::Agent,
+                authenticated_subject: LocalEd25519AuthenticatedSubjectV1::new(&prepared.key_id),
+                algorithm: Ed25519Algorithm::Ed25519,
+                public_key: prepared.public_key.clone(),
+                key_usage: AuthenticatedCommandKeyUsage::AuthenticatedCommand,
+                audience: AuthorityAudience::for_workspace(workspace_id),
+                enrollment_challenge_digest: prepared.challenge_digest,
+                enrollment_envelope_digest: prepared.envelope_digest,
+                issued_by_principal_id: requesting_principal_id(actor_context).parse().map_err(
+                    |_| ServerError::Authorization("invalid issuing Principal identity".to_owned()),
+                )?,
+                issued_at: now,
+                not_before: now,
+                expires_at,
+                supersedes_binding_id: None,
+            };
+            binding
+                .validate()
+                .map_err(|error| ServerError::Internal(error.to_string()))?;
+            let record_digest =
+                RemoteAuthorityRecordV1::agent_binding_issue(binding.clone()).digest();
+            let result = serde_json::to_value(&binding)
+                .map_err(|error| ServerError::Internal(error.to_string()))?;
+            let body = canonical_bytes(&result)?;
+            let consumption_body = canonical_bytes(&json!({
+                "api_version": "proof.dev/enrollment-challenge-consumption/v1",
+                "challenge_digest": prepared.challenge_digest.to_string(),
+                "enrollment_envelope_digest": prepared.envelope_digest.to_string(),
+                "binding_id": binding.binding_id.to_string(),
+                "consumed_by_decision_digest": decision_digest(decision).to_string(),
+                "consumed_at": now.to_string(),
+            }))?;
+            Ok(GovernedFact {
+                fact_id: format!("agent_binding/{}", binding.binding_id),
+                fact_kind: "agent_binding".to_owned(),
+                workspace_id: decision.workspace_id.clone(),
+                fact_digest: record_digest,
+                body,
+                effect_authority_head: Some(AuthorityHeadV1 {
+                    sequence: auth_seq,
+                    record_digest,
+                }),
+                auxiliary: vec![AuxiliaryFact::new(
+                    prepared.consumption_fact_id.clone(),
+                    "enrollment_challenge_consumption",
+                    prepared.envelope_digest,
+                    consumption_body,
+                )],
+                result,
+            })
+        }
+        FactPlan::OidcBindingIssue => {
+            let Some(PreparedEnrollment::Oidc(prepared)) = prepared else {
+                return Err(ServerError::Internal(
+                    "oidc-binding.issue is missing its prepared issuance material".to_owned(),
+                ));
+            };
+            let public = OidcPrincipalBindingV1 {
+                api_version: OidcPrincipalBindingApiVersion::V1,
+                workspace_id: decision.workspace_id.clone(),
+                binding_id: prepared.binding_id.clone(),
+                principal_id: prepared.principal_id.clone(),
+                subject_commitment: prepared.commitment,
+                oidc_issuer_configuration_digest: prepared.issuer_configuration_digest,
+                issued_by_principal_id: requesting_principal_id(actor_context).to_owned(),
+                issued_at: now_timestamp()?,
+                supersedes_binding_id: None,
+                evaluated_authority_head: decision.evaluated_authority_head,
+                authority_sequence: auth_seq,
+                previous_authority_record_digest: previous_digest,
+                authority_key_id: decision.authority_key_id.clone(),
+            };
+            let binding_record_digest = public
+                .binding_record_digest()
+                .map_err(|error| ServerError::Internal(error.to_string()))?;
+            let private = OidcPrincipalBindingPrivateV1 {
+                api_version: OidcPrincipalBindingPrivateApiVersion::V1,
+                workspace_id: decision.workspace_id.clone(),
+                binding_id: prepared.binding_id.clone(),
+                principal_id: prepared.principal_id.clone(),
+                subject: prepared.subject.clone(),
+                subject_commitment: prepared.commitment,
+                opening: OidcSubjectCommitmentOpeningV1 {
+                    api_version: OidcSubjectCommitmentOpeningApiVersion::V1,
+                    commitment: prepared.commitment,
+                    input: OidcSubjectCommitmentInputV1 {
+                        api_version: OidcSubjectCommitmentInputApiVersion::V1,
+                        blind: prepared.blind_b64.clone(),
+                        subject: prepared.subject.clone(),
+                        workspace_id: decision.workspace_id.clone(),
+                    },
+                },
+                oidc_issuer_configuration_digest: prepared.issuer_configuration_digest,
+                binding_record_digest,
+            };
+            let result = serde_json::to_value(&public)
+                .map_err(|error| ServerError::Internal(error.to_string()))?;
+            let body = canonical_bytes(&result)?;
+            let aux_result = serde_json::to_value(&private)
+                .map_err(|error| ServerError::Internal(error.to_string()))?;
+            let aux_body = canonical_bytes(&aux_result)?;
+            let aux_digest = operation_effect_digest(&aux_result)
+                .map_err(|error| ServerError::Internal(error.to_string()))?;
+            Ok(GovernedFact {
+                fact_id: format!("oidc_binding/{}", prepared.binding_id),
+                fact_kind: OIDC_PUBLIC_BINDING_KIND.to_owned(),
+                workspace_id: decision.workspace_id.clone(),
+                fact_digest: binding_record_digest,
+                body,
+                effect_authority_head: Some(AuthorityHeadV1 {
+                    sequence: auth_seq,
+                    record_digest: binding_record_digest,
+                }),
+                auxiliary: vec![AuxiliaryFact::new(
+                    format!("oidc_private_binding/{}", prepared.binding_id),
+                    OIDC_PRIVATE_BINDING_KIND,
+                    aux_digest,
+                    aux_body,
+                )],
+                result,
             })
         }
         FactPlan::Generic => {
@@ -690,6 +956,7 @@ fn build_governed_fact(
                     None
                 },
                 result,
+                auxiliary: Vec::new(),
             })
         }
     }
@@ -1921,4 +2188,232 @@ fn parse_preview_digest(value: &Value, field: &str) -> Result<ContentDigest, Ser
         .ok_or_else(|| ServerError::Internal(format!("preview manifest is missing `{field}`")))?
         .parse::<ContentDigest>()
         .map_err(|error| ServerError::Internal(format!("invalid `{field}` digest: {error}")))
+}
+
+// ---------------------------------------------------------------------------
+// P-0014 enrollment: agent-binding.issue/v1 and oidc-binding.issue/v1
+// (contract §"Human and control operation registry", §"Remote identity
+// vocabulary").
+// ---------------------------------------------------------------------------
+
+/// Frozen Agent binding validity: 90 days from issuance.
+const AGENT_BINDING_VALIDITY_SECS: i64 = 7_776_000;
+
+/// The governed fact kind of the public OIDC Principal binding row.
+const OIDC_PUBLIC_BINDING_KIND: &str = "oidc_public_binding";
+
+/// The governed fact kind of the protected OIDC binding opening row.
+const OIDC_PRIVATE_BINDING_KIND: &str = "oidc_private_binding";
+
+/// One extra immutable fact row persisted inside the same savepoint as its
+/// governing fact.
+struct AuxiliaryFact {
+    fact_id: String,
+    kind: String,
+    digest: ContentDigest,
+    body: Vec<u8>,
+}
+
+impl AuxiliaryFact {
+    fn new(fact_id: String, kind: &str, digest: ContentDigest, body: Vec<u8>) -> Self {
+        Self {
+            fact_id,
+            kind: kind.to_owned(),
+            digest,
+            body,
+        }
+    }
+}
+
+/// Caller-supplied enrollment closure for `agent-binding.issue/v1`, fully
+/// parsed and proof-of-possession verified before any transaction.
+struct PreparedAgentEnrollment {
+    public_key: Ed25519PublicKey,
+    key_id: Ed25519KeyId,
+    challenge: proof_application::authority::BindingEnrollmentChallengeV1,
+    envelope_digest: ContentDigest,
+    challenge_digest: ContentDigest,
+    consumption_fact_id: String,
+}
+
+/// Server-derived material for one `oidc-binding.issue/v1` application. The
+/// blind is generated before the serializable transaction and reused across
+/// internal retries of the one application attempt (contract §"Remote identity
+/// vocabulary").
+struct PreparedOidcIssuance {
+    principal_id: String,
+    subject: OidcAuthenticatedSubjectV1,
+    issuer_configuration_digest: ContentDigest,
+    binding_id: String,
+    commitment: ContentDigest,
+    blind_b64: String,
+}
+
+/// Fully prepared enrollment closure carried into the unit of work.
+enum PreparedEnrollment {
+    Agent(Box<PreparedAgentEnrollment>),
+    Oidc(Box<PreparedOidcIssuance>),
+}
+
+/// Executes one P-0014 enrollment operation after out-of-band preparation of
+/// its closure (contract §"Human and control operation registry").
+fn execute_enrollment_owned(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    match operation.name.as_str() {
+        "agent-binding.issue" => {
+            let prepared = prepare_agent_enrollment(normalized_input, actor_context, decision)?;
+            execute_owned(
+                state,
+                operation,
+                normalized_input,
+                actor_context,
+                decision,
+                FactPlan::AgentBindingIssue,
+                Some(&prepared),
+            )
+        }
+        "oidc-binding.issue" => {
+            let prepared = prepare_oidc_issuance(state, normalized_input)?;
+            execute_owned(
+                state,
+                operation,
+                normalized_input,
+                actor_context,
+                decision,
+                FactPlan::OidcBindingIssue,
+                Some(&prepared),
+            )
+        }
+        _ => Err(ServerError::Dispatch(format!(
+            "operation `{}` carries no enrollment executor",
+            operation.name
+        ))),
+    }
+}
+
+/// Parses and proof-of-possession verifies the agent-binding closure. Every
+/// structural failure is an input schema mismatch; time and consumption
+/// checks resolve inside the locked transaction.
+#[allow(clippy::too_many_lines)]
+fn prepare_agent_enrollment(
+    input: &Value,
+    _actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<PreparedEnrollment, ServerError> {
+    let principal_id = required_input_str(input, "principal_id")?;
+    let public_key_b64 = required_input_str(input, "public_key")?;
+    let envelope_json = required_input_str(input, "enrollment_envelope")?;
+    let challenge_value = input
+        .get("challenge")
+        .ok_or_else(|| missing_field("challenge"))?;
+    let challenge: proof_application::authority::BindingEnrollmentChallengeV1 =
+        serde_json::from_value(challenge_value.clone())
+            .map_err(|_| ServerError::Dispatch("malformed enrollment challenge".to_owned()))?;
+
+    if principal_id != challenge.principal_id.to_string() {
+        return Err(ServerError::Dispatch(
+            "`principal_id` does not match the enrollment challenge".to_owned(),
+        ));
+    }
+    if parse_workspace_id(&decision.workspace_id)? != challenge.workspace_id {
+        return Err(ServerError::Dispatch(
+            "enrollment challenge is bound to a different Workspace".to_owned(),
+        ));
+    }
+    let candidate_public_key = Ed25519PublicKey::new(public_key_b64.to_owned())
+        .map_err(|_| ServerError::Dispatch("malformed candidate public key".to_owned()))?;
+    let candidate_key_id = candidate_public_key
+        .key_id()
+        .map_err(|_| ServerError::Dispatch("candidate public key is unusable".to_owned()))?;
+    if challenge.candidate_key_id.as_str() != candidate_key_id.as_str() {
+        return Err(ServerError::Dispatch(
+            "candidate public key does not match the enrollment challenge".to_owned(),
+        ));
+    }
+    let verified =
+        verify_authority_envelope::<proof_application::authority::BindingEnrollmentChallengeV1>(
+            envelope_json.as_bytes(),
+            AuthorityPayloadProfile::BindingEnrollmentChallenge,
+            &[challenge.candidate_key_id.as_str()],
+        )
+        .map_err(|_| ServerError::Dispatch("enrollment envelope does not verify".to_owned()))?;
+    if verified.parsed.payload != challenge {
+        return Err(ServerError::Dispatch(
+            "enrollment envelope does not carry its challenge".to_owned(),
+        ));
+    }
+
+    let canonical_challenge =
+        canonicalize(challenge_value).map_err(|error| ServerError::Internal(error.to_string()))?;
+    let challenge_digest = digest(
+        ArtifactKind::BindingEnrollmentChallengeV1,
+        &canonical_challenge,
+    );
+    Ok(PreparedEnrollment::Agent(Box::new(
+        PreparedAgentEnrollment {
+            consumption_fact_id: format!("enrollment_challenge_consumption/{challenge_digest}"),
+            challenge_digest,
+            envelope_digest: verified.parsed.envelope_digest,
+            key_id: candidate_key_id,
+            public_key: candidate_public_key,
+            challenge,
+        },
+    )))
+}
+
+/// Prepares the server-derived OIDC binding material. The caller supplies the
+/// exact protected subject and pinned issuer-configuration digest but cannot
+/// select the blind, commitment, or opening (contract §"Remote identity
+/// vocabulary").
+fn prepare_oidc_issuance(
+    state: &AppState,
+    input: &Value,
+) -> Result<PreparedEnrollment, ServerError> {
+    let principal_id = required_input_str(input, "principal_id")?.to_owned();
+    let subject_value = input
+        .get("subject")
+        .ok_or_else(|| missing_field("subject"))?;
+    let subject: OidcAuthenticatedSubjectV1 = serde_json::from_value(subject_value.clone())
+        .map_err(|_| ServerError::Dispatch("malformed OIDC subject".to_owned()))?;
+    let supplied_issuer_digest = required_input_str(input, "issuer_configuration_digest")?;
+    let issuer_configuration_digest: ContentDigest = supplied_issuer_digest
+        .parse()
+        .map_err(|_| ServerError::Dispatch("malformed issuer configuration digest".to_owned()))?;
+    let configured_issuer_digest = state
+        .config
+        .issuer
+        .digest()
+        .map_err(|error| ServerError::Internal(error.to_string()))?;
+    if issuer_configuration_digest != configured_issuer_digest {
+        return Err(ServerError::Dispatch(
+            "`issuer_configuration_digest` does not match the deployment issuer".to_owned(),
+        ));
+    }
+    let binding_id = match input.get("binding_id").and_then(Value::as_str) {
+        Some(value) => value.to_owned(),
+        None => uuid::Uuid::now_v7().to_string(),
+    };
+    let mut blind = [0_u8; 32];
+    getrandom::fill(&mut blind).map_err(|error| ServerError::Internal(error.to_string()))?;
+    let blind_b64 = encode_blind(&blind);
+    let commitment = subject_commitment_digest(&OidcSubjectCommitmentInputV1 {
+        api_version: OidcSubjectCommitmentInputApiVersion::V1,
+        blind: blind_b64.clone(),
+        subject: subject.clone(),
+        workspace_id: state.config.workspace_id.to_string(),
+    })
+    .map_err(|error| ServerError::Internal(error.to_string()))?;
+    Ok(PreparedEnrollment::Oidc(Box::new(PreparedOidcIssuance {
+        principal_id,
+        subject,
+        issuer_configuration_digest,
+        binding_id,
+        commitment,
+        blind_b64,
+    })))
 }
