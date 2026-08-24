@@ -148,6 +148,13 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   validate traces against SQLite, exercising the invalid path (one
   prohibited-legal-claim finding). Four of the eleven mutation rows now have
   byte-identical executors.
+- Slice 7 (2026-08-24): `changeset.submit/v2` mirrored — submission facts
+  imported with verified effect digests, keyed replay by submitted-at with
+  reuse detection, Ready-status gating, seal-head verification against the
+  validation chain, lifecycle-effect reproduction under the shared oracle
+  serializer, and projection updates. A retained test proves byte-identical
+  traces for accepted submit, keyed replay, and time-shifted rejection. Five
+  of the eleven mutation rows now have byte-identical executors.
 
 ## Completion record
 

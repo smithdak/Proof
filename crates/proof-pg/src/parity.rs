@@ -12,11 +12,12 @@
 use proof_application::Timestamp;
 use proof_application::authority::{
     AuthorityOperation, LocalizedChangeSetAddInputV2, LocalizedChangeSetCreateInputV2,
-    LocalizedChangeSetGetInputV2, LocalizedChangeSetValidateInputV2, LocalizedContextBuildInputV2,
-    WorkspaceStatusInputV1,
+    LocalizedChangeSetGetInputV2, LocalizedChangeSetSubmitInputV2,
+    LocalizedChangeSetValidateInputV2, LocalizedContextBuildInputV2, WorkspaceStatusInputV1,
 };
 use proof_application::{
     AddLocalizedEditsCommand, AddedLocalizedEdits, LocalizedValidation, ObjectLocalePutInput,
+    SubmittedLocalizedChangeSet,
 };
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
@@ -51,6 +52,7 @@ const FACT_KIND_LOCALIZED_CHANGESET: &str = "localized_changeset";
 const FACT_KIND_LOCALIZED_EDIT: &str = "localized_edit";
 /// Fact kind marker for one imported localized validation attempt.
 const FACT_KIND_LOCALIZED_VALIDATION: &str = "localized_validation";
+const FACT_KIND_LOCALIZED_SUBMISSION: &str = "localized_submission";
 
 /// The PostgreSQL parity backend: it evaluates a shared operation against the
 /// imported, verified PostgreSQL state (contract §"Conformance and
@@ -408,6 +410,37 @@ fn run_postgres_operation(
                 ),
             }
         }
+        AuthorityOperation::ChangesetSubmitV2 => {
+            let Ok(input) = parse_input::<LocalizedChangeSetSubmitInputV2>(normalized_input) else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            match pg_submit_changeset(runtime, input.changeset_id, input.submitted_at) {
+                Ok(submitted) => {
+                    let result =
+                        proof_remote::oracle::serialize_submitted_localized_changeset(&submitted);
+                    let effect = operation_effect_digest(&result)
+                        .map_err(|error| PgError::Integrity(error.to_string()))?;
+                    success_trace(
+                        &operation,
+                        normalized_input,
+                        evaluated_authority_head,
+                        result,
+                        Some(effect),
+                    )
+                }
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
+        }
         AuthorityOperation::ChangesetGetV2 => {
             let Ok(input) = parse_input::<LocalizedChangeSetGetInputV2>(normalized_input) else {
                 return stable_problem_trace(
@@ -613,6 +646,7 @@ fn import_parity_facts(
     import_localized_validations(runtime, &connection, &workspace_id)?;
     import_resource_intent_meta(runtime, &connection, &workspace_id)?;
     import_source_objects(runtime, &connection, &workspace_id)?;
+    import_localized_submissions(runtime, &connection, &workspace_id)?;
     import_renditions(runtime, &connection, &workspace_id)?;
     import_localizable_schemas(runtime, &connection, &workspace_id)?;
     import_known_state_head(runtime, &connection, &workspace_id)?;
@@ -3946,4 +3980,191 @@ fn seal_digest(
     }))
     .map_err(|error| integrity_code(&error.to_string()))?;
     Ok(digest(proof_domain::ArtifactKind::ChangeSetV2, &seal))
+}
+
+/// Persists localized submissions as verified parity facts.
+fn import_localized_submissions(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, sealed_changeset_digest, validation_results_digest,
+                    principal_id, submitted_at, effect_digest
+             FROM localized_submissions ORDER BY changeset_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (
+            changeset_id,
+            sealed,
+            validation_results_digest,
+            principal_id,
+            submitted_at,
+            effect_digest,
+        ) = row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/localized-submission/v1",
+            "changeset_id": changeset_id,
+            "effect_digest": effect_digest,
+            "principal_id": principal_id,
+            "sealed_changeset_digest": sealed,
+            "submitted_at": submitted_at,
+            "validation_results_digest": validation_results_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("localized_submission/{changeset_id}"),
+            "proof:parity:localized-submission:v1",
+            FACT_KIND_LOCALIZED_SUBMISSION,
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Ports `submit_changeset` over imported parity facts.
+fn pg_submit_changeset(
+    runtime: &mut PgRuntime,
+    changeset_id: proof_application::ChangeSetId,
+    submitted_at: Timestamp,
+) -> Result<SubmittedLocalizedChangeSet, String> {
+    use proof_application::ChangeSetStatus;
+    let changeset = load_pg_localized_changeset(runtime, &changeset_id.to_string())?;
+    let principal = parity_principal(runtime)?;
+    if changeset.principal_id != principal {
+        return Err("proof.resource.not_found".to_owned());
+    }
+    let submission_fact_id = format!("localized_submission/{changeset_id}");
+    if let Some(existing) = fact_json(runtime, &submission_fact_id)? {
+        let stored_at: Timestamp = json_str(&existing, "submitted_at")?
+            .parse()
+            .map_err(|_| integrity_code("submission timestamp"))?;
+        if stored_at != submitted_at {
+            return Err("proof.idempotency.key_reused".to_owned());
+        }
+        return Ok(SubmittedLocalizedChangeSet {
+            changeset_id,
+            sealed_changeset_digest: json_str(&existing, "sealed_changeset_digest")?
+                .parse()
+                .map_err(|_| integrity_code("seal digest"))?,
+            validation_results_digest: json_str(&existing, "validation_results_digest")?
+                .parse()
+                .map_err(|_| integrity_code("results digest"))?,
+            submitted_at: stored_at,
+            status: ChangeSetStatus::Submitted,
+        });
+    }
+    if changeset.status != ChangeSetStatus::Ready {
+        return Err("proof.changeset.not_ready".to_owned());
+    }
+    if submitted_at < changeset.created_at {
+        return Err("proof.input.schema_mismatch".to_owned());
+    }
+    let chain = pg_validation_chain(runtime, &changeset_id.to_string())?;
+    let validation = chain
+        .last()
+        .ok_or_else(|| integrity_code("localized ChangeSet has no validation evidence"))?;
+    let sealed = validation
+        .sealed_changeset_digest
+        .ok_or_else(|| integrity_code("valid localized validation lacks a seal"))?;
+    let changeset_sealed =
+        load_pg_localized_changeset(runtime, &changeset_id.to_string())?.sealed_changeset_digest;
+    if !validation.valid
+        || validation.sealed_changeset_digest != Some(sealed)
+        || changeset_sealed.as_ref() != Some(&sealed)
+        || validation.proposal_digest
+            != changeset
+                .proposal_digest
+                .ok_or_else(|| integrity_code("sealed localized ChangeSet lacks proposal digest"))?
+    {
+        return Err(integrity_code(
+            "localized ChangeSet seal is not the valid validation head",
+        ));
+    }
+    let effect = localized_lifecycle_effect(
+        "changeset.submit/v2",
+        changeset_id,
+        sealed,
+        validation.validation_results_digest,
+        Some(submitted_at),
+        None,
+        principal,
+    )?;
+    let workspace_id = workspace_id_of(runtime)?;
+    let body = serde_json::json!({
+        "api_version": "proof.dev/parity/localized-submission/v1",
+        "changeset_id": changeset_id.to_string(),
+        "effect_digest": effect.to_string(),
+        "principal_id": principal.to_string(),
+        "sealed_changeset_digest": sealed.to_string(),
+        "submitted_at": submitted_at.to_string(),
+        "validation_results_digest": validation.validation_results_digest.to_string(),
+    });
+    insert_parity_op_fact(runtime, &submission_fact_id, &body)?;
+    let prior_body = require_fact_json(
+        runtime,
+        &format!("localized_changeset/{changeset_id}"),
+        "proof.resource.not_found",
+    )?;
+    let mut updated = prior_body.clone();
+    updated["lifecycle_status"] = Value::String("submitted".into());
+    upsert_parity_fact(
+        runtime,
+        &workspace_id,
+        &format!("localized_changeset/{changeset_id}"),
+        FACT_KIND_LOCALIZED_CHANGESET,
+        &updated,
+        "proof:parity:localized-changeset:v1",
+    )?;
+    Ok(SubmittedLocalizedChangeSet {
+        changeset_id,
+        sealed_changeset_digest: sealed,
+        validation_results_digest: validation.validation_results_digest,
+        submitted_at,
+        status: ChangeSetStatus::Submitted,
+    })
+}
+
+/// Ports `localized_lifecycle_effect`.
+fn localized_lifecycle_effect(
+    operation_kind: &str,
+    changeset_id: proof_application::ChangeSetId,
+    sealed_changeset_digest: ContentDigest,
+    validation_results_digest: ContentDigest,
+    occurred_at: Option<Timestamp>,
+    approval: Option<&str>,
+    principal_id: proof_domain::PrincipalId,
+) -> Result<ContentDigest, String> {
+    let effect = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": operation_kind,
+        "result": {
+            "approval": approval,
+            "changeset_id": changeset_id.to_string(),
+            "occurred_at": occurred_at.map(|value| value.to_string()),
+            "principal_id": principal_id.to_string(),
+            "sealed_changeset_digest": sealed_changeset_digest.to_string(),
+            "validation_results_digest": validation_results_digest.to_string(),
+        },
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(digest(
+        proof_domain::ArtifactKind::OperationEffectV1,
+        &effect,
+    ))
 }

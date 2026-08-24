@@ -920,7 +920,8 @@ fn serialize_localized_finding(finding: &LocalizedFinding) -> Value {
     })
 }
 
-fn serialize_submitted_localized_changeset(submitted: &SubmittedLocalizedChangeSet) -> Value {
+#[must_use]
+pub fn serialize_submitted_localized_changeset(submitted: &SubmittedLocalizedChangeSet) -> Value {
     serde_json::json!({
         "changeset_id": submitted.changeset_id.to_string(),
         "sealed_changeset_digest": submitted.sealed_changeset_digest.to_string(),
