@@ -9,6 +9,14 @@ const REPORT_SOURCES: &[(&str, &str)] = &[
     ("lib.rs", include_str!("../src/lib.rs")),
     ("model.rs", include_str!("../src/model.rs")),
     ("operation.rs", include_str!("../src/operation.rs")),
+    (
+        "remote_authority.rs",
+        include_str!("../src/remote_authority.rs"),
+    ),
+    (
+        "remote_evidence.rs",
+        include_str!("../src/remote_evidence.rs"),
+    ),
     ("schema.rs", include_str!("../src/schema.rs")),
     ("semantics.rs", include_str!("../src/semantics.rs")),
     ("strict_json.rs", include_str!("../src/strict_json.rs")),
@@ -90,6 +98,35 @@ fn public_finding_code_registry_matches_every_emitted_literal() {
         .collect::<BTreeSet<_>>();
     validate_coverage(&registry.coverage, &registered);
 
+    assert_eq!(
+        registry.report_findings.code_count + registry.cli_diagnostics.code_count,
+        registered.len(),
+        "surface code_count fields must sum to the closed code set"
+    );
+    let direct_behavioral = registry
+        .coverage
+        .overrides
+        .iter()
+        .filter(|entry| entry.classification == CoverageClassification::DirectBehavioral)
+        .count();
+    let family_matrix = registry
+        .coverage
+        .overrides
+        .iter()
+        .filter(|entry| entry.classification == CoverageClassification::FamilyMatrix)
+        .count();
+    assert_eq!(
+        direct_behavioral + family_matrix,
+        registry.coverage.overrides.len(),
+        "every override must be counted under exactly one behavioral classification"
+    );
+    let structural_guard = registered.len() - registry.coverage.overrides.len();
+    assert_eq!(
+        direct_behavioral + family_matrix + structural_guard,
+        registered.len(),
+        "behavioral plus structural coverage must classify every registered code"
+    );
+
     let emitted_report = emitted_codes(REPORT_SOURCES);
     let emitted_cli = emitted_codes(CLI_SOURCES);
     assert_eq!(
@@ -126,6 +163,7 @@ fn validate_coverage(coverage: &Coverage, registered: &BTreeSet<String>) {
     );
 
     let mut overridden = BTreeSet::new();
+    let mut claims = BTreeSet::new();
     for entry in &coverage.overrides {
         assert!(
             registered.contains(&entry.code),
@@ -135,6 +173,12 @@ fn validate_coverage(coverage: &Coverage, registered: &BTreeSet<String>) {
         assert!(
             overridden.insert(entry.code.clone()),
             "coverage override duplicates {:?}",
+            entry.code
+        );
+        assert!(
+            claims.insert((entry.evidence_target.clone(), entry.code.clone())),
+            "coverage override re-claims test {:?} for code {:?}",
+            entry.evidence_target,
             entry.code
         );
         validate_claim(entry.classification, &entry.evidence_target, &entry.reason);
@@ -152,14 +196,28 @@ fn validate_coverage(coverage: &Coverage, registered: &BTreeSet<String>) {
         }
     }
 
+    let mut default_covered = BTreeSet::new();
     for code in registered {
-        let classifications =
-            usize::from(overridden.contains(code)) + usize::from(!overridden.contains(code));
-        assert_eq!(
-            classifications, 1,
-            "registered code must receive exactly one coverage classification: {code:?}"
-        );
+        if !overridden.contains(code) {
+            assert!(
+                default_covered.insert(code.clone()),
+                "default-covered set must not duplicate {code:?}"
+            );
+        }
     }
+    let classified = overridden
+        .union(&default_covered)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        classified, *registered,
+        "coverage overrides plus the default must classify exactly the registered codes"
+    );
+    assert_eq!(
+        overridden.len() + default_covered.len(),
+        registered.len(),
+        "every registered code must carry exactly one coverage classification"
+    );
 }
 
 fn validate_claim(_classification: CoverageClassification, evidence_target: &str, reason: &str) {
@@ -183,10 +241,19 @@ fn assert_named_behavioral_assertion(evidence_target: &str, code: &str) {
     );
 }
 
-fn assert_named_test_exists(evidence_target: &str, expected_code: Option<&str>) -> &'static str {
+fn parse_evidence_target(evidence_target: &str) -> (&str, &str) {
     let (suite, test) = evidence_target
         .split_once("::")
         .unwrap_or_else(|| panic!("evidence target must be suite::test: {evidence_target:?}"));
+    assert!(
+        valid_segment(suite) && valid_segment(test),
+        "evidence target must parse as plausible suite::test identifiers: {evidence_target:?}"
+    );
+    (suite, test)
+}
+
+fn assert_named_test_exists(evidence_target: &str, expected_code: Option<&str>) -> &'static str {
+    let (suite, test) = parse_evidence_target(evidence_target);
     let source = BEHAVIORAL_TEST_SOURCES
         .iter()
         .find_map(|(name, source)| (*name == suite).then_some(*source))

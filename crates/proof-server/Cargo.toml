@@ -34,6 +34,9 @@ uuid.workspace = true
 
 [dev-dependencies]
 cookie.workspace = true
+proof-delivery = { path = "../proof-delivery" }
+proof-local = { path = "../proof-local" }
+proof-verifier = { path = "../proof-verifier" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

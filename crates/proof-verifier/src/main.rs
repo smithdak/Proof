@@ -209,9 +209,38 @@ fn run_remote_evidence(args: &[String]) {
     emit_json(&report);
 }
 
+/// Reads the uncompressed logical member map from a bundle directory, mapping
+/// each regular (non-symlink) file to its forward-slash relative member path.
 fn read_member_map(bundle_root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
-    let _ = bundle_root;
-    todo!("read the logical member map from the bundle directory")
+    let mut members = std::collections::BTreeMap::new();
+    let mut stack = vec![bundle_root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.is_dir() {
+                stack.push(path);
+            } else if metadata.is_file() && !metadata.file_type().is_symlink() {
+                let Ok(relative) = path.strip_prefix(bundle_root) else {
+                    continue;
+                };
+                let member_path = relative
+                    .components()
+                    .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                if let Ok(bytes) = fs::read(&path) {
+                    members.insert(member_path, bytes);
+                }
+            }
+        }
+    }
+    members
 }
 
 fn emit_json(value: &impl serde::Serialize) {

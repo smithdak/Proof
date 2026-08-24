@@ -144,20 +144,43 @@ fn inward_dependency_boundaries_are_enforced() {
             "blake3".to_owned(),
             "ed25519-dalek".to_owned(),
             "jsonschema".to_owned(),
+            "proof-remote".to_owned(),
             "serde".to_owned(),
             "serde_json".to_owned(),
             "serde_json_canonicalizer".to_owned(),
             "thiserror".to_owned(),
             "time".to_owned(),
         ]),
-        "the independent verifier owns its strict wire, canonicalization, digest, and signature path"
+        "the independent verifier owns its strict wire, canonicalization, digest, and signature \
+         path; since Milestone 3 it consumes exactly one shared contract crate (proof-remote) for \
+         frozen wire types and registries"
     );
     assert_no_reachable_dependencies(
         &workspace,
         "proof-agent-signer",
         &["proof-cli", "proof-local", "proof-mcp", "rusqlite"],
     );
-    assert_no_transitive_proof_dependencies(&workspace, "proof-verifier");
+    assert_no_reachable_dependencies(
+        &workspace,
+        "proof-verifier",
+        &[
+            // Producer, interface, and delivery crates: the verifier verifies
+            // exported evidence and never links the systems that produce it.
+            "proof-server",
+            "proof-cli",
+            "proof-mcp",
+            "proof-pg",
+            "proof-delivery",
+            // No HTTP server stack or database driver may enter the offline
+            // verifier process; `rusqlite` is admitted only through the shared
+            // proof-remote contract crate's local-evidence reader.
+            "axum",
+            "hyper",
+            "hyper-util",
+            "tokio",
+            "postgres",
+        ],
+    );
 }
 
 fn normal_dependencies(packages: &[Value], package_name: &str) -> BTreeSet<String> {
@@ -173,15 +196,6 @@ fn normal_dependencies(packages: &[Value], package_name: &str) -> BTreeSet<Strin
         .filter(|dependency| dependency["kind"].is_null())
         .map(|dependency| dependency["name"].as_str().unwrap().to_owned())
         .collect()
-}
-
-fn assert_no_transitive_proof_dependencies(workspace: &Path, package_name: &str) {
-    for dependency_name in resolved_dependency_names(workspace, package_name) {
-        assert!(
-            !dependency_name.starts_with("proof-"),
-            "{package_name} reaches forbidden dependency {dependency_name}"
-        );
-    }
 }
 
 fn assert_no_reachable_dependencies(workspace: &Path, package_name: &str, forbidden: &[&str]) {

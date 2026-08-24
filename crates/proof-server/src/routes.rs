@@ -607,13 +607,41 @@ pub async fn agent_operations(
 }
 
 /// `GET /api/v1/evidence-exports/{export_id}/artifacts/{artifact_kind}/{digest}`
-/// — re-authorized evidence artifact read; returns the stable
-/// `proof.dependency.unavailable` until S4/S5 (contract §"HTTP boundary").
+/// — ready-only exact kind-and-digest evidence artifact read; returns the exact
+/// revalidated bytes (contract §"HTTP boundary", §"Evidence export and
+/// independent verification").
 pub async fn evidence_artifact(
-    State(_state): State<AppState>,
-    Path((_export_id, _artifact_kind, _digest)): Path<(String, String, String)>,
+    State(state): State<AppState>,
+    Path((export_id, artifact_kind, digest)): Path<(String, String, String)>,
 ) -> Result<Response, ProblemResponse> {
-    Err(transport_problem("proof.dependency.unavailable"))
+    let digest = digest
+        .parse::<crate::proof_domain::ContentDigest>()
+        .map_err(|_| transport_problem("proof.resource.not_found"))?;
+    let selector = crate::export::EvidenceArtifactSelector {
+        export_id,
+        artifact_kind,
+        digest,
+    };
+    run_blocking(
+        move || match crate::export::evidence_artifact_get_v2(&state, &selector) {
+            Ok(body) => {
+                let mut response = (
+                    StatusCode::OK,
+                    private_no_store_headers(),
+                    axum::body::Body::from(body),
+                )
+                    .into_response();
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/octet-stream"),
+                );
+                Ok(response)
+            }
+            Err(ServerError::Dispatch(_)) => Err(transport_problem("proof.resource.not_found")),
+            Err(_) => Err(transport_problem("proof.internal")),
+        },
+    )
+    .await
 }
 
 /// `GET /preview/{environment}/releases/{release_id}/objects/{object_id}/locales/{locale}`

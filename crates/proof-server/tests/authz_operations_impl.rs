@@ -45,7 +45,7 @@ use proof_remote::{AuthorityHeadV1, RemoteOperationV1};
 use proof_server::authz::{
     authenticate_agent_presentation, authenticate_human_session, evaluate_authorization,
 };
-use proof_server::operations::{DEPENDENCY_UNAVAILABLE_CODE, HumanOperationExecutor};
+use proof_server::operations::HumanOperationExecutor;
 use proof_server::session::SessionRecord;
 use proof_server::{AppState, ServerConfig, ServerError};
 use serde_json::{Map, Value, json};
@@ -758,8 +758,8 @@ fn idempotent_replay_returns_prior_result_without_duplicating_fact() {
 }
 
 #[test]
-fn dependency_rows_return_the_stable_problem() {
-    let db = TestDb::new("dependency");
+fn evidence_export_requires_the_full_capture_input() {
+    let db = TestDb::new("export_requires_input");
     seed_human_binding(&db);
     seed_principal_status(&db, REQUESTER, true);
     seed_role_assignment(
@@ -773,21 +773,17 @@ fn dependency_rows_return_the_stable_problem() {
     );
 
     let operation = evidence_export_operation();
+    // The obsolete `{"workspace_id": ...}` stub input is no longer accepted:
+    // `evidence.export/v2` requires `idempotency_key`, `release_id`, and
+    // `release_digest`. A missing field fails closed as an input schema
+    // mismatch rather than returning a dependency-unavailable consequence.
     let input = json!({ "workspace_id": WS_ID });
     let context = human_context_for(&db, &operation, &input);
     let decision = evaluate_authorization(&db.state, &context, &input).expect("decision");
 
-    let consequence =
-        HumanOperationExecutor::execute(&db.state, &operation, &input, &context, &decision)
-            .expect("pending consequence");
-    assert_eq!(
-        consequence.problem_code.as_deref(),
-        Some(DEPENDENCY_UNAVAILABLE_CODE)
-    );
-    assert_eq!(
-        consequence.outcome,
-        ApplicationConsequenceOutcome::ApplicationFailure
-    );
+    let error = HumanOperationExecutor::execute(&db.state, &operation, &input, &context, &decision)
+        .expect_err("evidence.export is no longer a dependency-unavailable stub");
+    assert!(matches!(error, ServerError::Dispatch(_)));
 }
 
 #[test]

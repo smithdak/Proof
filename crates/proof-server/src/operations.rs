@@ -61,7 +61,15 @@ impl HumanOperationExecutor {
         decision: &RemoteAuthorizationDecisionV1,
     ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
         match operation.name.as_str() {
-            "evidence.export" | "evidence.export.get" => dependency_unavailable_consequence(
+            "evidence.export" => crate::export::evidence_export_v2_execute(
+                state,
+                operation,
+                normalized_input,
+                actor_context,
+                decision,
+            ),
+            "evidence.export.get" => crate::export::evidence_export_get_v1_execute(
+                state,
                 operation,
                 normalized_input,
                 actor_context,

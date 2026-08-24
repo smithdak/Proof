@@ -3,14 +3,15 @@
 //!
 //! This module is the complete public type surface for the Milestone 3 remote
 //! evidence boundary (contract §"Evidence export and independent verification").
-//! It is a skeleton: the type shapes, frozen constants, and function signatures
-//! are final, while every validation/assembly body is `todo!()`. The closed
-//! Schemas live under `conformance/v1/collaboration-server/schemas/
+//! The type shapes, frozen constants, validation/assembly functions, selector
+//! enumeration, checkpoint, and closed report helpers are implemented and
+//! exercised by `tests/bundle_impl.rs`. The closed Schemas live under
+//! `conformance/v1/collaboration-server/schemas/
 //! remote-evidence-v2.schema.json`.
 
 use std::collections::BTreeMap;
 
-use proof_domain::{ContentDigest, Timestamp};
+use proof_domain::{ArtifactKind, ContentDigest, Timestamp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -185,6 +186,36 @@ pub enum RemoteEvidenceRootKind {
     RemoteAuthenticatedCommandEnvelope,
 }
 
+impl RemoteEvidenceRootKind {
+    /// The frozen deterministic member path for each root kind (contract
+    /// §"Evidence export and independent verification", frozen
+    /// `artifactDescriptorIdentity`).
+    #[must_use]
+    pub const fn member_path(self) -> &'static str {
+        match self {
+            Self::ReleaseArtifactClosure => "content/release-closure.json",
+            Self::AuthorityFact => "authority/facts.json",
+            Self::RemoteActorEvidence => "actor/context-evidence.json",
+            Self::RemoteAuthenticationEvent => "authentication/event.json",
+            Self::RemoteCommandInput => "attempt/command-input.json",
+            Self::RemoteAuthenticatedCommandEnvelope => {
+                "attempt/authenticated-command-envelope.json"
+            }
+        }
+    }
+
+    /// The three roots that may be `external-required` (caller-supplied):
+    /// authority, actor, and authentication. The release-artifact closure,
+    /// command input, and authenticated-command envelope are always included.
+    #[must_use]
+    pub const fn can_be_external_required(self) -> bool {
+        matches!(
+            self,
+            Self::AuthorityFact | Self::RemoteActorEvidence | Self::RemoteAuthenticationEvent
+        )
+    }
+}
+
 /// Whether one captured root is producer-included or caller-supplied.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -341,6 +372,7 @@ pub enum CheckpointRequirement {
 
 /// Requesting-subject-opening disclosure policy.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestingSubjectOpeningPolicy {
     /// The opening is optional; verification may proceed without it.
     Optional,
@@ -420,8 +452,91 @@ pub enum BundleValidationError {
 ///
 /// Returns [`BundleValidationError`] for any unsafe path spelling.
 pub fn normalize_member_path(path: &str) -> Result<String, BundleValidationError> {
-    let _ = path;
-    todo!("normalize the member path and reject absolute/dot-segment/backslash spellings")
+    if path.starts_with('/') {
+        return Err(BundleValidationError::AbsolutePath(path.to_owned()));
+    }
+    if path.contains('\\') {
+        return Err(BundleValidationError::Backslash(path.to_owned()));
+    }
+    if path
+        .split('/')
+        .any(|segment| segment == "." || segment == "..")
+    {
+        return Err(BundleValidationError::DotSegment(path.to_owned()));
+    }
+    Ok(path.to_owned())
+}
+
+/// The deterministic nested artifact member path prefix (contract §"Evidence
+/// export and independent verification").
+pub const ARTIFACT_ROOT_PREFIX: &str = "content/artifacts/";
+
+/// Renders the lowercase 64-hex digest suffix used in nested member paths.
+fn digest_hex(digest: &ContentDigest) -> String {
+    use std::fmt::Write as _;
+    let mut hex = String::with_capacity(64);
+    for byte in digest.as_bytes() {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+/// Computes the deterministic nested artifact member path for one
+/// `(artifact_kind, digest)` pair (contract §"Evidence export and independent
+/// verification"): `content/artifacts/<artifact_kind>/blake3/<digest-hex>.json`.
+#[must_use]
+pub fn nested_artifact_path(artifact_kind: &str, digest: &ContentDigest) -> String {
+    format!(
+        "{ARTIFACT_ROOT_PREFIX}{artifact_kind}/blake3/{}.json",
+        digest_hex(digest)
+    )
+}
+
+/// The frozen BLAKE3-256 derive-key context for each root kind.
+fn root_digest_context(kind: RemoteEvidenceRootKind) -> &'static str {
+    match kind {
+        RemoteEvidenceRootKind::ReleaseArtifactClosure => {
+            REMOTE_RELEASE_ARTIFACT_CLOSURE_DIGEST_CONTEXT
+        }
+        RemoteEvidenceRootKind::AuthorityFact => REMOTE_AUTHORITY_RECORD_SET_DIGEST_CONTEXT,
+        RemoteEvidenceRootKind::RemoteActorEvidence => {
+            "proof:authenticated-actor-context-evidence:v2"
+        }
+        RemoteEvidenceRootKind::RemoteAuthenticationEvent => "proof:remote-authentication-event:v1",
+        RemoteEvidenceRootKind::RemoteCommandInput => "proof:command:v1",
+        RemoteEvidenceRootKind::RemoteAuthenticatedCommandEnvelope => {
+            "proof:authenticated-command-envelope:v1"
+        }
+    }
+}
+
+/// Resolves the frozen digest context for one nested accepted artifact kind,
+/// special-casing the `environment_config_v2_projection` projection.
+fn nested_digest_context(artifact_kind: &str) -> Option<&'static str> {
+    if artifact_kind == "environment_config_v2_projection" {
+        return Some("proof:environment-config:v2");
+    }
+    ArtifactKind::from_wire_name(artifact_kind).map(ArtifactKind::derive_key_context)
+}
+
+/// Recomputes one member body's domain-separated digest under its
+/// canonicalization class and compares it to the declared digest.
+fn digest_matches(
+    canonicalization: RemoteEvidenceCanonicalization,
+    digest_context: &str,
+    body: &[u8],
+    declared: ContentDigest,
+) -> bool {
+    match canonicalization {
+        RemoteEvidenceCanonicalization::Rfc8785 => proof_canonical::parse_strict(body)
+            .and_then(|value| proof_canonical::canonicalize(&value))
+            .is_ok_and(|canonical| {
+                crate::derive_key_digest(digest_context, canonical.as_bytes()) == declared
+            }),
+        RemoteEvidenceCanonicalization::RawBytes => {
+            crate::derive_key_digest(digest_context, body) == declared
+        }
+    }
 }
 
 /// Validates the exact uncompressed logical member map against the manifest and
@@ -436,13 +551,179 @@ pub fn normalize_member_path(path: &str) -> Result<String, BundleValidationError
 ///
 /// Returns [`BundleValidationError`] for any path, membership, kind, digest,
 /// length, count, or byte violation.
+#[allow(clippy::too_many_lines)]
 pub fn validate_bundle_members(
     members: &RemoteEvidenceMemberMap,
     manifest: &RemoteEvidenceManifestV2,
     closure: &RemoteReleaseArtifactClosureV1,
 ) -> Result<(), BundleValidationError> {
-    let _ = (members, manifest, closure);
-    todo!("validate the exact uncompressed logical member map")
+    /// One declared included entry's expected identity.
+    enum ExpectedEntry {
+        /// A reserved descriptor (`bundle.json` / `manifest.json`).
+        Reserved,
+        /// One of the six typed roots.
+        Root {
+            kind: RemoteEvidenceRootKind,
+            digest: ContentDigest,
+            byte_length: u64,
+        },
+        /// One unique nested accepted artifact.
+        Nested {
+            artifact_kind: String,
+            digest: ContentDigest,
+            byte_length: u64,
+        },
+    }
+
+    let mut expected: BTreeMap<String, ExpectedEntry> = BTreeMap::new();
+
+    let mut insert = |path: String, entry: ExpectedEntry| -> Result<(), BundleValidationError> {
+        if expected.insert(path.clone(), entry).is_none() {
+            Ok(())
+        } else {
+            Err(BundleValidationError::DuplicatePath(path))
+        }
+    };
+
+    // Reserved descriptor entries are accounted separately from artifact bodies.
+    insert(BUNDLE_DESCRIPTOR_PATH.to_owned(), ExpectedEntry::Reserved)?;
+    insert(MANIFEST_MEMBER_PATH.to_owned(), ExpectedEntry::Reserved)?;
+
+    // The six typed roots. An included root must live at its frozen path;
+    // an external-required root is caller-supplied and must be absent.
+    for member in &manifest.membership {
+        let path = normalize_member_path(&member.member_path)?;
+        if member.delivery == RemoteEvidenceDelivery::Included {
+            if path != member.artifact_kind.member_path() {
+                return Err(BundleValidationError::KindMismatch(
+                    member.member_path.clone(),
+                ));
+            }
+            insert(
+                path,
+                ExpectedEntry::Root {
+                    kind: member.artifact_kind,
+                    digest: member.content_digest,
+                    byte_length: member.byte_length,
+                },
+            )?;
+        }
+    }
+
+    // Each unique nested accepted artifact at its deterministic path.
+    for descriptor in &closure.artifacts {
+        let path = nested_artifact_path(
+            &descriptor.artifact.artifact_kind,
+            &descriptor.artifact.digest,
+        );
+        insert(
+            path,
+            ExpectedEntry::Nested {
+                artifact_kind: descriptor.artifact.artifact_kind.clone(),
+                digest: descriptor.artifact.digest,
+                byte_length: descriptor.availability.byte_length,
+            },
+        )?;
+    }
+
+    // Count limits: six roots plus at most 4,090 nested bodies.
+    let included_roots = manifest
+        .membership
+        .iter()
+        .filter(|member| member.delivery == RemoteEvidenceDelivery::Included)
+        .count();
+    let nested = closure.artifacts.len();
+    if nested > MAX_NESTED_ARTIFACT_BODIES || included_roots + nested > MAX_EXPORT_ARTIFACT_BODIES {
+        return Err(BundleValidationError::CountViolation);
+    }
+
+    // Byte limits: per-body, reserved-descriptor, and running total.
+    let mut total_bytes: usize = 0;
+    for (path, body) in members {
+        total_bytes = total_bytes.saturating_add(body.len());
+        if path == BUNDLE_DESCRIPTOR_PATH {
+            if body.len() > MAX_BUNDLE_DESCRIPTOR_BYTES {
+                return Err(BundleValidationError::ByteViolation);
+            }
+        } else if path == MANIFEST_MEMBER_PATH {
+            if body.len() > MAX_MANIFEST_BYTES {
+                return Err(BundleValidationError::ByteViolation);
+            }
+        } else if body.len() > MAX_ARTIFACT_BYTES {
+            return Err(BundleValidationError::ByteViolation);
+        }
+    }
+    if total_bytes > MAX_TOTAL_BYTES {
+        return Err(BundleValidationError::ByteViolation);
+    }
+
+    // Every map key must itself be a safe normalized path.
+    for path in members.keys() {
+        normalize_member_path(path)?;
+    }
+
+    // Every declared included entry must be present with matching
+    // kind/length/digest identity.
+    for (path, entry) in &expected {
+        match entry {
+            ExpectedEntry::Reserved => {
+                if !members.contains_key(path) {
+                    return Err(BundleValidationError::MissingEntry(path.clone()));
+                }
+            }
+            ExpectedEntry::Root {
+                kind,
+                digest,
+                byte_length,
+            } => {
+                let body = members
+                    .get(path)
+                    .ok_or_else(|| BundleValidationError::MissingEntry(path.clone()))?;
+                if body.len() as u64 != *byte_length {
+                    return Err(BundleValidationError::LengthMismatch(path.clone()));
+                }
+                if !digest_matches(
+                    RemoteEvidenceCanonicalization::Rfc8785,
+                    root_digest_context(*kind),
+                    body,
+                    *digest,
+                ) {
+                    return Err(BundleValidationError::DigestMismatch(path.clone()));
+                }
+            }
+            ExpectedEntry::Nested {
+                artifact_kind,
+                digest,
+                byte_length,
+            } => {
+                let body = members
+                    .get(path)
+                    .ok_or_else(|| BundleValidationError::MissingEntry(path.clone()))?;
+                if body.len() as u64 != *byte_length {
+                    return Err(BundleValidationError::LengthMismatch(path.clone()));
+                }
+                let context = nested_digest_context(artifact_kind)
+                    .ok_or_else(|| BundleValidationError::KindMismatch(path.clone()))?;
+                if !digest_matches(
+                    RemoteEvidenceCanonicalization::Rfc8785,
+                    context,
+                    body,
+                    *digest,
+                ) {
+                    return Err(BundleValidationError::DigestMismatch(path.clone()));
+                }
+            }
+        }
+    }
+
+    // Every map entry must be declared (undeclared entries are rejected).
+    for path in members.keys() {
+        if !expected.contains_key(path) {
+            return Err(BundleValidationError::UndeclaredEntry(path.clone()));
+        }
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +732,7 @@ pub fn validate_bundle_members(
 
 /// Inert first-profile producer hint namespace (contract §"Evidence export and
 /// independent verification").
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UntrustedHintsV1 {
     /// Always empty in the first profile.
@@ -480,19 +761,6 @@ impl UntrustedHintsV1 {
     #[must_use]
     pub fn inert() -> Self {
         Self::default()
-    }
-}
-
-impl Default for UntrustedHintsV1 {
-    fn default() -> Self {
-        Self {
-            authority_root_ids: Vec::new(),
-            release_root_ids: Vec::new(),
-            checkpoint_ids: Vec::new(),
-            resolver_urls: Vec::new(),
-            trusted: false,
-            auto_fetch: false,
-        }
     }
 }
 
@@ -944,6 +1212,57 @@ pub struct RemoteEvidenceManifestV2 {
     pub disclosures: Vec<RemoteEvidenceDisclosureRequirementV1>,
 }
 
+impl RemoteEvidenceManifestV2 {
+    /// Enumerates the included (producer-supplied) root member descriptors in
+    /// declared `membership_order`.
+    pub fn included_root_members(&self) -> impl Iterator<Item = &RemoteEvidenceMemberV1> {
+        self.membership
+            .iter()
+            .filter(|member| member.delivery == RemoteEvidenceDelivery::Included)
+    }
+
+    /// Enumerates the external-required (caller-supplied) root member
+    /// descriptors, which are absent from the logical member map.
+    pub fn external_required_root_members(&self) -> impl Iterator<Item = &RemoteEvidenceMemberV1> {
+        self.membership
+            .iter()
+            .filter(|member| member.delivery == RemoteEvidenceDelivery::ExternalRequired)
+    }
+}
+
+/// One deterministic nested artifact selector derived from the release closure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NestedArtifactSelectorV1 {
+    /// `content/artifacts/<artifact_kind>/blake3/<digest-hex>.json`.
+    pub member_path: String,
+    /// The accepted artifact kind.
+    pub artifact_kind: String,
+    /// Domain-separated digest of the exact member bytes.
+    pub digest: ContentDigest,
+    /// Declared exact byte length.
+    pub byte_length: u64,
+}
+
+impl RemoteReleaseArtifactClosureV1 {
+    /// Enumerates each unique nested artifact's deterministic selector
+    /// (`member_path`, `artifact_kind`, `digest`, `byte_length`).
+    #[must_use]
+    pub fn nested_selectors(&self) -> Vec<NestedArtifactSelectorV1> {
+        self.artifacts
+            .iter()
+            .map(|descriptor| NestedArtifactSelectorV1 {
+                member_path: nested_artifact_path(
+                    &descriptor.artifact.artifact_kind,
+                    &descriptor.artifact.digest,
+                ),
+                artifact_kind: descriptor.artifact.artifact_kind.clone(),
+                digest: descriptor.artifact.digest,
+                byte_length: descriptor.availability.byte_length,
+            })
+            .collect()
+    }
+}
+
 /// The complete immutable export-capture digest preimage (schema
 /// `evidenceExportCaptureV2`).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1227,6 +1546,30 @@ pub struct AuthorityCheckpointV1 {
     pub observed_at: Timestamp,
 }
 
+impl AuthorityCheckpointV1 {
+    /// A required authority checkpoint must equal the included head in
+    /// Workspace, sequence, digest, and active key (contract §"Evidence export
+    /// and independent verification").
+    #[must_use]
+    pub fn matches_included_head(
+        &self,
+        record_set: &RemoteAuthorityRecordSetV1,
+        initial_root_key_id: &str,
+    ) -> bool {
+        self.workspace_id == record_set.workspace_id
+            && self.authority_sequence == record_set.included_head.sequence
+            && self.authority_record_digest == record_set.included_head.record_digest
+            && self.active_authority_key_id == initial_root_key_id
+    }
+
+    /// A checkpoint whose sequence exceeds the included head is not ancestry:
+    /// the intervening records are not supplied in the caller-anchored suffix.
+    #[must_use]
+    pub fn exceeds_included_head(&self, record_set: &RemoteAuthorityRecordSetV1) -> bool {
+        self.authority_sequence > record_set.included_head.sequence
+    }
+}
+
 /// Independently obtained Environment/Release expectation (schema
 /// `environmentReleaseCheckpoint`).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1289,6 +1632,7 @@ pub struct ExternalArtifactV2 {
 /// `verifierInput`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RemoteVerifierInputV2 {
     /// `RemoteVerifierInputV2`.
     pub r#type: RemoteVerifierInputType,
@@ -1321,6 +1665,26 @@ pub struct RemoteVerifierInputV2 {
     pub credential_count: u64,
 }
 
+impl RemoteVerifierInputV2 {
+    /// True when the caller's required authority checkpoint is supplied and
+    /// equals the record set's included head in Workspace, sequence, digest,
+    /// and active key (contract §"Evidence export and independent
+    /// verification"). A missing checkpoint fails a `required` policy.
+    #[must_use]
+    pub fn required_authority_checkpoint_satisfied(
+        &self,
+        record_set: &RemoteAuthorityRecordSetV1,
+    ) -> bool {
+        match &self.authority_checkpoint {
+            Some(checkpoint) => checkpoint.matches_included_head(
+                record_set,
+                &self.verification_trust_policy.authority.initial_root.key_id,
+            ),
+            None => false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Closed verifier report types.
 // ---------------------------------------------------------------------------
@@ -1351,6 +1715,64 @@ pub struct VerificationComponentResultsV2 {
     pub delivery_evidence: VerificationComponentResult,
     /// Completeness component.
     pub completeness: VerificationComponentResult,
+}
+
+impl VerificationComponentResultsV2 {
+    /// Derives the first-applicable primary reason code consistent with the
+    /// component results, status, and scenario (contract §"Evidence export and
+    /// independent verification", `x-proof-primary-reason-rule`).
+    #[must_use]
+    pub fn primary_reason(
+        &self,
+        status: VerificationStatus,
+        scenario: VerificationScenario,
+    ) -> VerificationReasonCode {
+        match status {
+            VerificationStatus::Complete => VerificationReasonCode::Verified,
+            VerificationStatus::Incomplete => match scenario {
+                VerificationScenario::IncompleteRequiredOpeningWithheld => {
+                    VerificationReasonCode::MissingDisclosure
+                }
+                VerificationScenario::IncompleteRequiredArtifactWithheld => {
+                    VerificationReasonCode::MissingArtifact
+                }
+                VerificationScenario::IncompleteRequiredAuthorityCheckpointWithheld => {
+                    VerificationReasonCode::MissingCheckpoint
+                }
+                _ => VerificationReasonCode::MissingArtifact,
+            },
+            VerificationStatus::Invalid => {
+                // The content-only conformance scenario selects `tampered-artifact`.
+                if scenario == VerificationScenario::InvalidContentArtifactByteTamper {
+                    return VerificationReasonCode::TamperedArtifact;
+                }
+                // First-applicable Invalid class in the frozen precedence order.
+                if self.signature == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidSignature
+                } else if self.actor == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidActor
+                } else if self.authority == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidAuthority
+                } else if self.role_separation == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidRoleSeparation
+                } else if self.approval == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidApproval
+                } else if self.policy == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidPolicy
+                } else if self.content == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidContent
+                } else if self.environment == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidEnvironment
+                } else if self.release == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidRelease
+                } else if self.completeness == VerificationComponentResult::Invalid {
+                    VerificationReasonCode::InvalidCompleteness
+                } else {
+                    VerificationReasonCode::InvalidContent
+                }
+            }
+        }
+    }
 }
 
 /// The general closed observed report for every Complete, Incomplete, and
@@ -1411,6 +1833,40 @@ pub struct RemoteVerificationReportV2 {
     pub reason_codes: Vec<VerificationReasonCode>,
 }
 
+impl RemoteVerificationReportV2 {
+    /// Derives the first-applicable primary reason code from the report's own
+    /// status, scenario, and component results.
+    #[must_use]
+    pub fn primary_reason(&self) -> VerificationReasonCode {
+        self.components.primary_reason(self.status, self.scenario)
+    }
+}
+
+impl ConformanceScenario {
+    /// Narrows a general [`VerificationScenario`] to the exact three retained
+    /// P-0008 qualification scenarios, rejecting the non-retained scenarios
+    /// (`incomplete-required-artifact-withheld`,
+    /// `incomplete-required-authority-checkpoint-withheld`, and
+    /// `invalid-verification`).
+    #[must_use]
+    pub fn from_verification_scenario(scenario: VerificationScenario) -> Option<Self> {
+        match scenario {
+            VerificationScenario::CompleteExactMaterialization => {
+                Some(Self::CompleteExactMaterialization)
+            }
+            VerificationScenario::IncompleteRequiredOpeningWithheld => {
+                Some(Self::IncompleteRequiredOpeningWithheld)
+            }
+            VerificationScenario::InvalidContentArtifactByteTamper => {
+                Some(Self::InvalidContentArtifactByteTamper)
+            }
+            VerificationScenario::IncompleteRequiredArtifactWithheld
+            | VerificationScenario::IncompleteRequiredAuthorityCheckpointWithheld
+            | VerificationScenario::InvalidVerification => None,
+        }
+    }
+}
+
 /// The exact three-scenario qualification subtype (schema `conformanceReport`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1419,4 +1875,15 @@ pub struct RemoteVerificationConformanceReportV2 {
     pub report: RemoteVerificationReportV2,
     /// The exact retained P-0008 qualification scenario.
     pub scenario: ConformanceScenario,
+}
+
+impl RemoteVerificationConformanceReportV2 {
+    /// True when the conformance report's narrowed scenario is consistent with
+    /// its inner general report's scenario (i.e. the general scenario is one of
+    /// the exactly three retained qualification scenarios and narrows to
+    /// `self.scenario`).
+    #[must_use]
+    pub fn is_consistent(&self) -> bool {
+        ConformanceScenario::from_verification_scenario(self.report.scenario) == Some(self.scenario)
+    }
 }
