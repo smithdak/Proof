@@ -1,7 +1,7 @@
 ---
 id: P-0012
 title: Implement the artifact outbox and private preview delivery
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0011]
@@ -141,30 +141,30 @@ ADR-0013 remains the implementation authority.
 
 ## Acceptance criteria
 
-- [ ] The worker claims in deterministic stream order under
+- [x] The worker claims in deterministic stream order under
       `FOR UPDATE SKIP LOCKED` with a random 60-second lease and counts the
       attempt at claim commit; external I/O happens only after claim commit.
-- [ ] Acknowledgement is compare-and-set on lease token and generation;
+- [x] Acknowledgement is compare-and-set on lease token and generation;
       stale acks reject; expiry makes the same stable delivery eligible
       again.
-- [ ] Backoff, the twelve-attempt/seven-day dead-letter rule, immediate
+- [x] Backoff, the twelve-attempt/seven-day dead-letter rule, immediate
       permanent-failure dead-letter, and per-stream poison blocking all
       behave exactly; other streams progress independently.
-- [ ] Replay and abandonment append `DeliveryManagementFactV1` with the
+- [x] Replay and abandonment append `DeliveryManagementFactV1` with the
       signed decision and consequence binding; replay resets the generation
       to `pending`; abandonment is terminal `abandoned`.
-- [ ] The preview adapter materializes blobs under unreachable keys, writes
+- [x] The preview adapter materializes blobs under unreachable keys, writes
       the ready manifest last, and enforces the four alias outcomes
       (advance, no-op, integrity failure, superseded) by Release sequence.
-- [ ] The preview route serves exact immutable Release snapshots with the
+- [x] The preview route serves exact immutable Release snapshots with the
       strong ETag and private no-store cache control, returns the stable
       pending Problem until ready, and performs no fallback.
-- [ ] Release commitment and preview delivery remain observably separate
+- [x] Release commitment and preview delivery remain observably separate
       facts; delivery failure never rewrites Release history.
-- [ ] At-least-once semantics are explicit in code and tests; no
+- [x] At-least-once semantics are explicit in code and tests; no
       exactly-once or at-most-once claim exists anywhere.
-- [ ] `delivery.get/v1` projects the exact mutable delivery state.
-- [ ] The full Linux quality gate passes and durable Engineering evidence
+- [x] `delivery.get/v1` projects the exact mutable delivery state.
+- [x] The full Linux quality gate passes and durable Engineering evidence
       (receipt, manifest, traceability) binds the item-work commit.
 
 ## Evidence contract
@@ -183,5 +183,16 @@ commit `cddb5355abc3ec5d228bbc511da26e8ed45be6c3`.
 
 Claimed by `deepseek:proof:p-0012` at `2026-08-23T23:21:15.788Z` from
 P-0011 completion commit `5e1810e89571d87840fb9af6b56eb44f728f351c`
-on `proof-architecture/p-0008-collaboration-server-contract`. No SDK,
-console, provider, or deployment work is claimed by this item.
+on `proof-architecture/p-0008-collaboration-server-contract`.
+
+Engineering qualified immutable candidate
+`9c282ea66d588250fc6cc8a58a2aacf8320dee45`, whose parent is the skeleton
+commit `543a77c3fd3b9f13a1dba395edb0ad00b8f82e86`, qualified at
+`2026-08-24T01:19:33.555Z`. Engineering evidence commit
+`9ae3cfaadb8b18c94b3f353e827aecf07c4203dd` binds the
+[receipt](../evidence/P-0012/receipt.md),
+[manifest](../evidence/P-0012/manifest.json), and
+[AC1-AC10 traceability matrix](../evidence/P-0012/traceability.md). Moved
+from `claimed` to `review` at `2026-08-24T01:27:56.959Z` under
+`review_gate: none`. No evidence export, verifier extension, north-star
+run, or deployment work is claimed by this item.
