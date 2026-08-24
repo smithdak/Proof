@@ -123,6 +123,12 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   and keyed-replay traces against SQLite. Two of the eleven mutation rows now
   have byte-identical executors (`changeset.get/v2`, `changeset.create/v2`);
   the remaining nine follow the identical template.
+- Slice 4 (2026-08-24): the parity importer now also carries digest-verified
+  source Objects (`ObjectRevisionV1` reproduction), locale renditions
+  (`ObjectLocaleRevisionV1`), and localizable Schema documents
+  (`SchemaVersionV1`) — the exact inputs `verify_edit_input` consumes — so the
+  upcoming `changeset.add/v2` executor can validate Edit batches without any
+  SQLite access. Executor port follows.
 
 ## Completion record
 

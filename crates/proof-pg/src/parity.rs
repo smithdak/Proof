@@ -541,6 +541,9 @@ fn import_parity_facts(
     import_localized_edits(runtime, &connection, &workspace_id)?;
     import_localized_validations(runtime, &connection, &workspace_id)?;
     import_resource_intent_meta(runtime, &connection, &workspace_id)?;
+    import_source_objects(runtime, &connection, &workspace_id)?;
+    import_renditions(runtime, &connection, &workspace_id)?;
+    import_localizable_schemas(runtime, &connection, &workspace_id)?;
     import_known_state_head(runtime, &connection, &workspace_id)?;
     import_environment_current_releases(runtime, &connection, &workspace_id)?;
     import_release_metadata(runtime, &connection, &workspace_id)?;
@@ -2345,5 +2348,211 @@ fn import_resource_intent_meta(
             canonical.as_bytes(),
         )?;
     }
+    Ok(())
+}
+
+/// Persists source Objects with digest-verified canonical content so the
+/// executor can reproduce `verify_edit_input` source checks.
+fn import_source_objects(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT object_id, schema_id, schema_version, content_json, object_digest
+             FROM object_revisions WHERE revision = 1 AND lifecycle_state = 'active'
+             ORDER BY object_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (object_id, schema_id, schema_version, content_json, object_digest) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let value: Value = serde_json::from_str(&content_json)
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let parsed_schema_id = proof_domain::SchemaId::new(schema_id.clone())
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let parsed_version = proof_domain::SchemaVersion::new(
+            u32::try_from(schema_version)
+                .map_err(|_| PgError::Import("invalid schema version".to_owned()))?,
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+        let parsed_object_id = object_id
+            .parse::<proof_domain::ObjectId>()
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let reproduced = proof_canonical::object_revision_digest(
+            parsed_object_id,
+            &parsed_schema_id,
+            parsed_version,
+            &value,
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+        if reproduced.to_string() != object_digest {
+            return Err(PgError::Import(
+                "source Object digest does not reproduce".to_owned(),
+            ));
+        }
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/source-object/v1",
+            "object_id": object_id,
+            "schema_id": schema_id,
+            "schema_version": schema_version,
+            "canonical_content": content_json,
+            "object_digest": object_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("source_object/{object_id}"),
+            "proof:parity:source-object:v1",
+            "source_object",
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists locale renditions with verified `ObjectLocaleRevisionV1` digests.
+fn import_renditions(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT object_id, locale, revision, authoritative_sequence, manifest_json,
+                    rendition_digest, changeset_id
+             FROM object_locale_revisions ORDER BY object_id, locale, revision",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (object_id, locale, _revision, sequence, manifest_json, rendition_digest, changeset_id) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let canonical_value: Value = serde_json::from_str(&manifest_json)
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let canonical =
+            canonicalize(&canonical_value).map_err(|error| PgError::Import(error.to_string()))?;
+        let reproduced = digest(ArtifactKind::ObjectLocaleRevisionV1, &canonical);
+        if reproduced.to_string() != rendition_digest {
+            return Err(PgError::Import(
+                "locale rendition digest does not reproduce".to_owned(),
+            ));
+        }
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/locale-rendition/v1",
+            "authoritative_sequence": sequence,
+            "changeset_id": changeset_id,
+            "manifest": canonical_value,
+            "rendition_digest": rendition_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("locale_rendition/{object_id}/{locale}"),
+            "proof:parity:locale-rendition:v1",
+            "locale_rendition",
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists localizable Schema documents with verified `SchemaVersionV1` digests.
+fn import_localizable_schemas(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT schema_id, schema_version, document_json, document_digest
+             FROM schema_versions ORDER BY schema_id, schema_version",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (schema_id, schema_version, document_json, document_digest) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let value: Value = serde_json::from_str(&document_json)
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let canonical = canonicalize(&value).map_err(|error| PgError::Import(error.to_string()))?;
+        let reproduced = digest(ArtifactKind::SchemaVersionV1, &canonical);
+        if reproduced.to_string() != document_digest {
+            return Err(PgError::Import(
+                "Schema digest does not reproduce".to_owned(),
+            ));
+        }
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/localizable-schema/v1",
+            "document": value,
+            "document_digest": document_digest,
+            "schema_id": schema_id,
+            "schema_version": schema_version,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("localizable_schema/{schema_id}/{schema_version}"),
+            "proof:parity:localizable-schema:v1",
+            "localizable_schema",
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Canonicalizes a fact body, derives its domain-separated digest under
+/// `digest_context`, and inserts the verified row.
+fn store_verified_fact(
+    runtime: &mut PgRuntime,
+    workspace_id: &str,
+    fact_id: &str,
+    digest_context: &str,
+    kind: &str,
+    body: &Value,
+) -> Result<(), PgError> {
+    let canonical = canonicalize(body).map_err(|error| PgError::Import(error.to_string()))?;
+    let fact_digest = derive_key_digest(digest_context, canonical.as_bytes());
+    insert_fact(
+        runtime,
+        fact_id,
+        "",
+        kind,
+        &fact_digest,
+        canonical.as_bytes(),
+    )?;
     Ok(())
 }
