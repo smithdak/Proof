@@ -1,4 +1,4 @@
-# Rolling-wave work map — post-Milestone-3
+# Rolling-wave work map — Destination 4
 
 ## Destination
 
@@ -6,9 +6,16 @@ Milestone 3 delivered a single-Workspace collaboration server through which a
 team can review, approve, publish, and verify changes remotely while preserving
 the accepted local application and domain semantics, with the same
 conformance suite passing against local and server modes. Project owner
-`smithdak` accepted its exit evidence on 2026-08-24; the destination is
-closed. The next destination is unshaped and requires a project-owner
-decision.
+`smithdak` accepted its exit evidence on 2026-08-24; that destination is
+closed.
+
+On 2026-08-24 the project owner ratified the
+[strategy and destination ladder](../product/strategy.md) and named
+**Destination 4 — Operable by strangers (private)** as the active
+destination: a person outside the project can stand up the server, bind an
+agent through usable enrollment credentials, and drive the localization
+north-star end to end using only repository documentation, while the
+repository stays private and no push, tag, or public release occurs.
 
 The bounded local Linux Milestone 2 profile is complete. Project owner
 `smithdak` accepted P-0006 candidate `ea35e09`, Engineering evidence `7df66d9`
@@ -78,23 +85,23 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | Milestone 3 is complete and accepted. The next destination must be shaped by a project-owner decision before any item becomes `ready`. |
+| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `ready` | none | Implement `agent-binding.issue/v1` and `oidc-binding.issue/v1` end to end so an external Human or Agent caller obtains working credentials instead of a pending Problem. |
 
 ## Next
 
-Nothing is claimable. P-0013 was the accepted contract's fifth and final
-successor; with its acceptance the Milestone 3 destination is closed. The
-newly visible frontier — SDKs, console, provider selection/provisioning,
-deployment, public preview, and the deferred parity/enrollment residuals —
-is fog until a project-owner decision names the next destination and its
-first item.
+Successors are shaped only when their blockers close. The strategy ladder
+fixes the promotion order inside Destination 4: after P-0014 closes, the
+PostgreSQL-backed application semantic executor residual, then the TypeScript
+SDK, deployable server artifact, documentation quickstart, and license ADR are
+shaped in that order. The public flip is excluded from this destination by
+owner decision; it lands in Destination 5 by default.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None | n/a | n/a | No successor is named; shaping requires a project-owner decision. |
+| None yet | n/a | P-0014 | Successors are named only when P-0014 closes and reshapes its newly unblocked frontier. |
 
 ## Completed
 
@@ -187,14 +194,9 @@ claims remain outside the bounded result.
 
 ## Fog — not yet specifiable as implementation
 
-- The next destination after accepted Milestone 3. SDKs,
-  console, provider selection/provisioning, deployment, public preview,
+- Console, provider selection/provisioning, public preview,
   workload identity, KMS/HSM, backup/restore, HA, multi-region operation,
   multi-Workspace tenancy, and public release remain fog.
-- Residuals recorded by P-0013's acceptance: the PG-backed application
-  semantic executor for full mutation-row local/server trace parity
-  (P-0010's "not yet mirrored" residual), and route-complete enrollment
-  (`agent-binding.issue/v1`, OIDC binding issuance) with usable credentials.
 - Environment configuration update, disablement, and signing-key lifecycle.
 - P-0006 hardening beyond the accepted claim: global-latest Release
   transparency, chronology-bearing Environment and approval successors,
@@ -211,11 +213,12 @@ claims remain outside the bounded result.
 
 ## Out of scope for this destination
 
-- The next destination beyond accepted Milestone 3 until the project owner
-  names and shapes it.
-- Enterprise federation/provisioning and SCIM, workload identity, KMS/HSM,
-  high availability, backup, and disaster recovery.
-- Public release, package publication, push, tag, or license selection.
+- Push, tag, public release, package publication, or license-adjacent public
+  actions; the license ADR is drafted inside Destination 4 but the flip itself
+  is a Destination 5 decision.
+- Console, multi-Workspace tenancy, enterprise federation/provisioning and
+  SCIM, workload identity, KMS/HSM, high availability, backup, and disaster
+  recovery.
 - Personalization, experimentation, visual page building, DAM transformation,
   and other deliberate product deferrals.
 

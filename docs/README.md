@@ -31,6 +31,7 @@ deployment, and a public release remain unimplemented or unqualified.
 1. [Vision and thesis](product/vision.md)
 2. [Scope and non-goals](product/scope.md)
 3. [Roadmap and MVP](product/roadmap.md)
+4. [Strategy and destination ladder](product/strategy.md)
 
 ### Understand the system
 
@@ -92,6 +93,6 @@ Documentation changes follow a docs-as-code workflow:
 
 **Baseline date:** August 24, 2026
 
-**Product phase:** Milestones 1 through 3 complete and project-owner accepted; the single-Workspace collaboration server with remote evidence is implemented and qualified; the next destination is unshaped
+**Product phase:** Milestones 1 through 3 complete and project-owner accepted; Destination 4 (operable by strangers, private) is the active destination per the [strategy ladder](product/strategy.md)
 
 **Documentation version:** 0.5
