@@ -1,0 +1,115 @@
+{
+  "schema_version": "proof.dev/evidence-manifest/v1",
+  "item_id": "P-0013",
+  "base_sha": "ab3071349162a945e698036070f72a64441e17ba",
+  "claim_commit": "eeb9856e78b73ccfc3e5954028450c0d90428228",
+  "intermediate_commits": ["fde6c2814533bd73c0d67553049a8709ac2fbc7f"],
+  "candidate_parent_sha": "fde6c2814533bd73c0d67553049a8709ac2fbc7f",
+  "candidate_commit": "1fb53b893b35cf3910f47b4d35ade59ceecfb62a",
+  "candidate_tree": "cb6fb4a18cd68d4d232a167ca70363e90c3054e3",
+  "item_work_commit": "1fb53b893b35cf3910f47b4d35ade59ceecfb62a",
+  "branch": "proof-architecture/p-0008-collaboration-server-contract",
+  "qualified_at": "2026-08-24T12:58:37.054Z",
+  "qualification_state": "implementation_and_qualification_complete_awaiting_project_owner_acceptance",
+  "review_gate": "project-owner",
+  "successors_created": false,
+  "evidence_export_implemented": true,
+  "verifier_extended": true,
+  "north_star_run": true,
+  "deployed": false,
+  "milestone_complete": false,
+  "inventory": {
+    "byte_domain": "sha256 over exact Git blob bytes at item_work_commit",
+    "base_to_candidate_commit_count": 2,
+    "candidate_path_count": 29,
+    "insertions": 18311,
+    "deletions": 50,
+    "candidate_parent_path_count": 20,
+    "candidate_parent_insertions": 16318,
+    "candidate_parent_deletions": 127,
+    "artifact_digest_source": "git rev-parse + git cat-file blob at candidate commit; evidence files are intentionally outside the candidate inventory and are not self-referenced"
+  },
+  "decision_scope": {
+    "implemented_roots": [
+      "release-artifact-closure",
+      "authority-fact",
+      "remote-actor-evidence",
+      "remote-authentication-event",
+      "remote-command-input",
+      "remote-authenticated-command-envelope"
+    ],
+    "operations_wired": ["evidence.export/v2", "evidence.export.get/v1", "evidence.artifact.get/v2 route"],
+    "verifier_modes": ["proof-verifier/remote-authority/v1", "proof-verifier/remote-evidence-v2"],
+    "conformance_scenarios": [
+      "complete-exact-materialization -> Complete",
+      "incomplete-required-opening-withheld -> Incomplete [missing-disclosure]",
+      "invalid-content-artifact-byte-tamper -> Invalid [tampered-artifact]"
+    ]
+  },
+  "environment": {
+    "operating_system": "Ubuntu 24.04.4 LTS",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64-unknown-linux-gnu",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "1.97.1 (c980f4866 2026-06-30)",
+    "node": "v22.23.2",
+    "git": "2.43.0",
+    "postgresql": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) via scripts/dev-pg.sh on 127.0.0.1:55432"
+  },
+  "commands": [
+    { "command": "cargo fmt --all --check", "exit_code": 0, "result": "passed" },
+    { "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings", "exit_code": 0, "result": "passed, zero warnings" },
+    { "command": "cargo test --locked --workspace --all-targets --all-features", "exit_code": 0, "result": "passed: 77 test binaries, 868 tests passed, 0 failed" },
+    { "command": "cargo test --locked --doc --workspace --all-features", "exit_code": 0, "result": "passed" },
+    { "command": "node scripts/check-doc-links.mjs", "exit_code": 0, "result": "passed: 354 internal links checked" },
+    { "command": "node scripts/check-work-items.mjs", "exit_code": 0, "result": "passed: 13 work items validated" }
+  ],
+  "same_content_focused_observations": {
+    "new_test_binaries": {
+      "crates/proof-remote/tests/bundle_impl.rs": 26,
+      "crates/proof-verifier/tests/remote_impl.rs": 8,
+      "crates/proof-verifier/tests/remote_conformance.rs": 4,
+      "crates/proof-server/tests/export_impl.rs": 5,
+      "crates/proof-server/tests/evidence_e2e_impl.rs": 1,
+      "crates/proof-server/tests/north_star_remote_impl.rs": 1,
+      "crates/proof-server/tests/conformance_report_impl.rs": 1,
+      "crates/proof-pg/tests/crash_matrix_m3.rs": 10
+    },
+    "finding_code_registry": "158 codes verified exact: 156 report + 2 CLI diagnostics; 30 direct behavioral overrides with zero dangling evidence targets; 128 structural guards; coverage partition asserted exhaustive and disjoint in finding_code_registry.rs",
+    "conformance_report_digest": "blake3:e55b59da7b492dbc1b019579b9270ceb92fd934271484e9b88e5f7bffd8a0770",
+    "conformance_report_bytes": 9290
+  },
+  "limitations": [
+    "The conformance report classifies per step: byte-identical oracle traces are proven for the mirrored rows and every row where both modes define typed semantics; mutation rows executed by the server as opaque governed-effect records are classified explicitly (server_governed_effect_only / adapter_projected / not_mirrored_stable_error) rather than silently normalized.",
+    "Byte-identical local/server traces for full mutation semantics require the deferred PostgreSQL-backed application semantic executor (P-0010 'not yet mirrored' residual); it is not implemented or claimed by this item.",
+    "Agent enrollment and OIDC Human binding rows commit governed effects over HTTP but usable credential bindings are fixture-seeded in tests (P-0011 harness); route-completeness of enrollment remains successor work.",
+    "Producer export metadata (capture, manifest, assembly, readiness) remains unauthenticated by contract; the verifier excludes readiness/current-at-snapshot/immediate-predecessor/globally-latest claims from Complete.",
+    "No deployment, provider, live OIDC issuer, push, tag, release, or production mutation occurred."
+  ],
+  "artifact_digests": [
+    { "path": "crates/proof-remote/src/bundle.rs", "git_blob_oid": "1a11441d021c84f25a965638d63fd1c373d7ce09", "algorithm": "sha256", "digest": "9f949012c06f6082a9e58fb961fc1f341320891bb5bbea3d6439b9780b085216" },
+    { "path": "crates/proof-server/src/export.rs", "git_blob_oid": "accdde17560f4bab78da65d36f18ebef0b31dbc6", "algorithm": "sha256", "digest": "df32b14d3b5757379568d4900eb14438265c03bf8eae0820468f07a63d1748a6" },
+    { "path": "crates/proof-verifier/src/remote_authority.rs", "git_blob_oid": "34d073b0a07d347b4d8c5945ed66119e72f2928f", "algorithm": "sha256", "digest": "b05d6caea684653d4ca6eaecc301c8c266abe0ae6328f46455099279877a5994" },
+    { "path": "crates/proof-verifier/src/remote_evidence.rs", "git_blob_oid": "be51ecf2c95b1317cb7a87f796f3ad29809fa006", "algorithm": "sha256", "digest": "dd9036276ce7c7da59407ac7b8176842d2ab80fe9c8c966c9f38440f81d33016" },
+    { "path": "crates/proof-verifier/tests/finding_code_registry.rs", "git_blob_oid": "dab93ea2bfefcc0b7a486e24876a7dffa5b20973", "algorithm": "sha256", "digest": "1cfdc38eeac7d122253f48a483cb17cc85b567278635753b13453e76fc1606e6" },
+    { "path": "crates/proof-cli/tests/architecture.rs", "git_blob_oid": "30ef713d7292e6ca9614c1213ceaaf509a7d0474", "algorithm": "sha256", "digest": "4d4b70c58207cfb8a9e15a1064a871fb324ec80b240c1c2a77504d26875ef20c" },
+    { "path": "crates/proof-server/tests/north_star_remote_impl.rs", "git_blob_oid": "7499e48170bd3d5f43265baf539265d08e183028", "algorithm": "sha256", "digest": "a4e98c47681385b88c4473b4237f68792cd508f85e8f040b1905fa3eb2a270a8" },
+    { "path": "crates/proof-server/tests/conformance_report_impl.rs", "git_blob_oid": "cb857fd528ee9d7ba1f69c899c004165502f87ff", "algorithm": "sha256", "digest": "a0f72dad5b28209ad3711b109ee0de037cce3dac993715ea71aa15432bfe0d66" },
+    { "path": "crates/proof-pg/tests/crash_matrix_m3.rs", "git_blob_oid": "af87b8654736bf236ea968a27ec99f073f8186a5", "algorithm": "sha256", "digest": "f8fe047ea815c4e607be662092308b9e1671c94ff3a852649cdcc9d0b77177fe" }
+  ],
+  "artifact_digest_note": "SHA-256 computed from exact Git blob byte streams at item_work_commit via git rev-parse and git cat-file; representative core surfaces only; evidence files are intentionally outside the candidate inventory and are not self-referenced.",
+  "evidence_paths": [
+    "docs/work/evidence/P-0013/receipt.md",
+    "docs/work/evidence/P-0013/manifest.json",
+    "docs/work/evidence/P-0013/traceability.md"
+  ],
+  "gate_state": {
+    "implementation_qualification": "supported",
+    "candidate_commit_bound": true,
+    "artifact_digests_bound": true,
+    "complete_linux_gate": "supported",
+    "review_gate": "project-owner",
+    "successor_creation_executed": false,
+    "milestone_completion_executed": false
+  }
+}
