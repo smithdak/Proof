@@ -44,6 +44,7 @@
 pub mod authz;
 pub mod bff;
 pub mod dispatch;
+pub mod export;
 pub mod issuer;
 pub mod operations;
 pub mod routes;

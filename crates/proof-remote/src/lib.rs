@@ -22,6 +22,7 @@
 //! [ADR-0013]: https://proof.dev/docs/decisions/0013-single-workspace-collaboration-server
 
 pub mod authority;
+pub mod bundle;
 pub mod governance;
 pub mod identity;
 pub mod oracle;
@@ -104,6 +105,47 @@ pub use authority::{
     VerifiedRemoteAuthorityRecordEnvelope, WorkspaceRole, WorkspaceRoleAssignmentV1,
     WorkspaceRoleRevocationV1, parse_remote_authority_record_envelope, remote_authority_pae,
     sign_remote_authority_record, validate_chain, verify_remote_authority_record_envelope,
+};
+pub use bundle::{
+    AUTHORITY_CHECKPOINT_DIGEST_CONTEXT, AcceptedArtifactAvailabilityV1,
+    AcceptedArtifactDescriptorV1, AcceptedArtifactRefV1, AcceptedArtifactRoleBindingV1,
+    AcceptedPolicyBundleV1, AcceptedReleasePolicyProfileV1, AuthorityCheckpointApiVersion,
+    AuthorityCheckpointV1, AuthorityTrustV2, BUNDLE_DESCRIPTOR_PATH, BundleValidationError,
+    CAPTURE_BOUNDARY_PRE_EXPORT_ATTEMPT_LOCKED_HEADS, CheckpointRequirement, ConformanceScenario,
+    DisclosurePolicyV2, ENVIRONMENT_RELEASE_CHECKPOINT_DIGEST_CONTEXT,
+    EVIDENCE_EXPORT_CAPTURE_API_VERSION, EVIDENCE_EXPORT_CAPTURE_DIGEST_CONTEXT,
+    EVIDENCE_EXPORT_RESULT_API_VERSION, EVIDENCE_EXPORT_STATUS_API_VERSION,
+    EnvironmentReleaseCheckpointApiVersion, EnvironmentReleaseCheckpointV2,
+    EvidenceExportCaptureApiVersion, EvidenceExportCaptureType, EvidenceExportCaptureV2,
+    EvidenceExportResultApiVersion, EvidenceExportResultV2, EvidenceExportStatusApiVersion,
+    EvidenceExportStatusKind, EvidenceExportStatusV1, EvidenceHeadsV1, ExternalArtifactV2,
+    MANIFEST_MEMBER_PATH, MAX_ARTIFACT_BYTES, MAX_AUTHORITY_RECORDS, MAX_BUNDLE_DESCRIPTOR_BYTES,
+    MAX_EXPORT_ARTIFACT_BODIES, MAX_MANIFEST_BYTES, MAX_NESTED_ARTIFACT_BODIES, MAX_TOTAL_BYTES,
+    MAX_VERIFIER_INPUT_BYTES, REMOTE_AUTHORITY_RECORD_SET_DIGEST_CONTEXT,
+    REMOTE_EVIDENCE_BUNDLE_API_VERSION, REMOTE_EVIDENCE_BUNDLE_DIGEST_CONTEXT,
+    REMOTE_EVIDENCE_MANIFEST_API_VERSION, REMOTE_EVIDENCE_MANIFEST_DIGEST_CONTEXT,
+    REMOTE_RELEASE_ARTIFACT_CLOSURE_DIGEST_CONTEXT, REMOTE_VERIFICATION_REPORT_API_VERSION,
+    REMOTE_VERIFIER_INPUT_DIGEST_CONTEXT, RegistryResolutionFailure, RegistryResolutionV1,
+    ReleaseTrustV2, RemoteAttemptCompanionsV1, RemoteAuthorityRecordSetApiVersion,
+    RemoteAuthorityRecordSetV1, RemoteEvidenceArtifactClosureBindingV1,
+    RemoteEvidenceAttemptCompanionsBindingV1, RemoteEvidenceAuthorityBindingV1,
+    RemoteEvidenceBundleApiVersion, RemoteEvidenceBundleType, RemoteEvidenceBundleV2,
+    RemoteEvidenceCanonicalization, RemoteEvidenceClosureBindingsApiVersion,
+    RemoteEvidenceClosureBindingsV1, RemoteEvidenceComponentBindingV1, RemoteEvidenceCrossLinksV1,
+    RemoteEvidenceDelivery, RemoteEvidenceDisclosureKind, RemoteEvidenceDisclosureProfile,
+    RemoteEvidenceDisclosureRequirementV1, RemoteEvidenceManifestApiVersion,
+    RemoteEvidenceManifestType, RemoteEvidenceManifestV2, RemoteEvidenceMemberMap,
+    RemoteEvidenceMemberV1, RemoteEvidencePortablePayloadContractV1, RemoteEvidenceRootKind,
+    RemoteIdentityTrustV2, RemoteReleaseArtifactClosureApiVersion,
+    RemoteReleaseArtifactClosureEntrypointsV1, RemoteReleaseArtifactClosureV1,
+    RemoteVerificationConformanceReportV2, RemoteVerificationReportApiVersion,
+    RemoteVerificationReportType, RemoteVerificationReportV2, RemoteVerifierInputApiVersion,
+    RemoteVerifierInputType, RemoteVerifierInputV2, RequestingSubjectOpeningPolicy, TrustedKeyV2,
+    UntrustedHintsV1, VERIFICATION_TRUST_POLICY_API_VERSION,
+    VERIFICATION_TRUST_POLICY_DIGEST_CONTEXT, VerificationComponentResult,
+    VerificationComponentResultsV2, VerificationLimitsV2, VerificationReasonCode,
+    VerificationScenario, VerificationStatus, VerificationTrustPolicyApiVersion,
+    VerificationTrustPolicyV2, normalize_member_path, validate_bundle_members,
 };
 pub use governance::{
     ApprovalDecision, ApprovalPolicyV1, ChangeSetApprovalV1, DeliveryConfigurationV1,

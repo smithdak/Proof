@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(dead_code, unused_variables, unused_imports)]
 
 //! Independent, bounded verifier for portable Proof authority evidence.
 
@@ -6,9 +7,16 @@ mod container;
 mod crypto;
 pub mod model;
 mod operation;
+pub mod remote_authority;
+pub mod remote_evidence;
 mod schema;
 mod semantics;
 mod strict_json;
+
+pub use remote_authority::{
+    RemoteAuthoritySuffixInput, RemoteAuthoritySuffixOutput, verify_remote_authority_suffix,
+};
+pub use remote_evidence::{RemoteVerifierError, verify_remote_evidence_v2};
 
 use std::path::{Path, PathBuf};
 
