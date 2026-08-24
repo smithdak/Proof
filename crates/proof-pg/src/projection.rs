@@ -559,7 +559,9 @@ fn read_verified_facts(transaction: &mut Transaction) -> Result<Vec<VerifiedFact
         let fact_digest = fact_digest
             .parse::<ContentDigest>()
             .map_err(|error| PgError::Projection(format!("invalid fact digest: {error}")))?;
-        let artifact_kind = fact_artifact_kind(&fact_kind)?;
+        let Some(artifact_kind) = fact_artifact_kind(&fact_kind) else {
+            continue;
+        };
         let body_value = verify_canonical_digest(&body, artifact_kind, fact_digest, &fact_id)?;
 
         facts.push(VerifiedFact {
@@ -574,16 +576,16 @@ fn read_verified_facts(transaction: &mut Transaction) -> Result<Vec<VerifiedFact
 }
 
 /// Resolves the artifact kind used to digest one fact body.
-fn fact_artifact_kind(fact_kind: &str) -> Result<ArtifactKind, PgError> {
+fn fact_artifact_kind(fact_kind: &str) -> Option<ArtifactKind> {
     match fact_kind {
-        FACT_KIND_SCHEMA => Ok(ArtifactKind::SchemaVersionV1),
-        FACT_KIND_OBJECT => Ok(ArtifactKind::ObjectRevisionV1),
-        FACT_KIND_RENDITION => Ok(ArtifactKind::ObjectLocaleRevisionV1),
-        FACT_KIND_RELEASE | "release_v1" => Ok(ArtifactKind::ReleaseV1),
-        "release_v2" => Ok(ArtifactKind::ReleaseV2),
-        other => Err(PgError::Projection(format!(
-            "unsupported fact kind `{other}`"
-        ))),
+        FACT_KIND_SCHEMA => Some(ArtifactKind::SchemaVersionV1),
+        FACT_KIND_OBJECT => Some(ArtifactKind::ObjectRevisionV1),
+        FACT_KIND_RENDITION => Some(ArtifactKind::ObjectLocaleRevisionV1),
+        FACT_KIND_RELEASE | "release_v1" => Some(ArtifactKind::ReleaseV1),
+        "release_v2" => Some(ArtifactKind::ReleaseV2),
+        // Non-content facts are verified by their own importers and do not
+        // participate in the content projection.
+        _ => None,
     }
 }
 
@@ -771,6 +773,41 @@ fn compute_state_digest(
 ) -> Result<ContentDigest, PgError> {
     let schemas = read_schema_projections(transaction, generation)?;
     let objects = read_object_projections(transaction, generation)?;
+    let state_api_version: Option<String> = transaction
+        .query_opt(
+            "SELECT body FROM facts WHERE fact_kind = 'known_state_head' LIMIT 1",
+            &[],
+        )
+        .map_err(|error| PgError::Projection(error.to_string()))?
+        .map(|row| {
+            let body: Vec<u8> = row.get(0);
+            serde_json::from_slice::<Value>(&body)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("known_state_api_version")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .ok_or_else(|| {
+                    PgError::Projection("the Known State head fact is malformed".to_owned())
+                })
+        })
+        .transpose()?;
+    if state_api_version.as_deref() == Some(proof_application::KNOWN_STATE_V2_API_VERSION) {
+        let renditions = read_locale_state_refs(transaction, generation)?;
+        let previous = read_previous_artifact(transaction, head.snapshot.content_sequence)?;
+        let manifest = proof_canonical::known_state_v2_manifest(
+            head.workspace_id,
+            head.snapshot.content_sequence,
+            &schemas,
+            &objects,
+            &renditions,
+            &previous,
+        )
+        .map_err(|error| PgError::Projection(error.to_string()))?;
+        return Ok(digest(ArtifactKind::KnownStateV2, &manifest));
+    }
     known_state_digest_with_objects(
         head.workspace_id,
         head.snapshot.content_sequence,
@@ -778,6 +815,105 @@ fn compute_state_digest(
         &objects,
     )
     .map_err(|error| PgError::Projection(error.to_string()))
+}
+
+/// Reads deduplicated highest-revision locale references for one generation.
+fn read_locale_state_refs(
+    transaction: &mut Transaction,
+    generation: u64,
+) -> Result<Vec<proof_canonical::LocaleStateReference>, PgError> {
+    let generation_bigint = generation_bigint(generation)?;
+    let rows = transaction
+        .query(
+            "SELECT object_id, locale, revision, rendition_digest, source_object_digest,
+                    schema_id, schema_version
+             FROM projection_renditions WHERE generation = $1
+             ORDER BY object_id, locale, revision",
+            &[&generation_bigint],
+        )
+        .map_err(|error| PgError::Projection(error.to_string()))?;
+    let mut heads =
+        std::collections::BTreeMap::<(String, String), proof_canonical::LocaleStateReference>::new(
+        );
+    for row in rows {
+        let parse_digest = |text: String| -> Result<ContentDigest, PgError> {
+            text.parse()
+                .map_err(|error| PgError::Projection(format!("invalid rendition digest: {error}")))
+        };
+        let object_id: String = row.get(0);
+        let locale_text: String = row.get(1);
+        let parsed_object_id: proof_domain::ObjectId =
+            object_id.parse::<proof_domain::ObjectId>().map_err(
+                |error: proof_domain::IdentifierError| PgError::Projection(error.to_string()),
+            )?;
+        let reference = proof_canonical::LocaleStateReference {
+            object_id: parsed_object_id,
+            locale: locale_text
+                .parse()
+                .map_err(|_| PgError::Projection("invalid projected locale".to_owned()))?,
+            revision: proof_application::LocaleRevision::new(
+                u32::try_from(row.get::<_, i64>(2))
+                    .map_err(|_| PgError::Projection("rendition revision overflow".to_owned()))?,
+            )
+            .map_err(|error| PgError::Projection(error.to_string()))?,
+            rendition_digest: parse_digest(row.get(3))?,
+            source_object_digest: parse_digest(row.get(4))?,
+            schema_id: SchemaId::new(row.get::<_, String>(5))
+                .map_err(|error| PgError::Projection(error.to_string()))?,
+            schema_version: SchemaVersion::new(
+                u32::try_from(row.get::<_, i64>(6))
+                    .map_err(|_| PgError::Projection("schema version overflow".to_owned()))?,
+            )
+            .map_err(|error| PgError::Projection(error.to_string()))?,
+        };
+        heads.insert((object_id, locale_text), reference);
+    }
+    Ok(heads.into_values().collect())
+}
+
+/// Reads the highest Known State artifact recorded below the current head.
+fn read_previous_artifact(
+    transaction: &mut Transaction,
+    below_sequence: u64,
+) -> Result<proof_canonical::PreviousKnownStateReference, PgError> {
+    let rows = transaction
+        .query(
+            "SELECT body FROM facts WHERE fact_kind = 'known_state_artifact'
+             ORDER BY fact_id DESC",
+            &[],
+        )
+        .map_err(|error| PgError::Projection(error.to_string()))?;
+    for row in rows {
+        let body: Vec<u8> = row.get(0);
+        let value: Value = serde_json::from_slice(&body)
+            .map_err(|error| PgError::Projection(error.to_string()))?;
+        let sequence = value
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| PgError::Projection("artifact lacks sequence".to_owned()))?;
+        if sequence >= below_sequence {
+            continue;
+        }
+        return Ok(proof_canonical::PreviousKnownStateReference {
+            api_version: value
+                .get("artifact_api_version")
+                .and_then(Value::as_str)
+                .ok_or_else(|| PgError::Projection("artifact lacks api version".to_owned()))?
+                .to_owned(),
+            authoritative_sequence: sequence,
+            digest: value
+                .get("state_digest")
+                .and_then(Value::as_str)
+                .ok_or_else(|| PgError::Projection("artifact lacks digest".to_owned()))?
+                .parse()
+                .map_err(|error| {
+                    PgError::Projection(format!("invalid artifact digest: {error}"))
+                })?,
+        });
+    }
+    Err(PgError::Projection(
+        "a v2 Known State lacks its predecessor artifact".to_owned(),
+    ))
 }
 
 /// Confirms the freshly computed state digest matches the recorded content head.

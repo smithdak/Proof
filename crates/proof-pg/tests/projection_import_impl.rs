@@ -339,7 +339,7 @@ fn import_matches_source_heads_known_state_and_counts() {
     assert!(report.authority_heads_match);
     assert!(report.known_state_matches);
     assert!(report.cutover_atomic);
-    assert_eq!(report.facts_consumed, 3); // schema + object + release
+    assert_eq!(report.facts_consumed, 4); // schema + object + release + Known State head
     assert_eq!(report.projections_rebuilt, 1);
 
     // Authority head matches the source.
@@ -362,8 +362,9 @@ fn import_matches_source_heads_known_state_and_counts() {
     // Known State digest matches.
     assert_eq!(pg_state_digest(ctx.client()), source_state_digest);
 
-    // Counts match: one schema, one object, zero renditions, one release.
-    assert_eq!(count(ctx.client(), "facts"), 3);
+    // Counts match: one schema, one object, zero renditions, one release,
+    // plus the Known State head system fact.
+    assert_eq!(count(ctx.client(), "facts"), 4);
     let generation = active_generation(ctx.client());
     assert_eq!(
         (

@@ -965,7 +965,8 @@ fn serialize_object_locale_revision(rendition: &ObjectLocaleRevision) -> Value {
     })
 }
 
-fn serialize_localized_edition(edition: &LocalizedEdition) -> Value {
+#[must_use]
+pub fn serialize_localized_edition(edition: &LocalizedEdition) -> Value {
     serde_json::json!({
         "edition_id": edition.edition_id.to_string(),
         "edition_digest": edition.edition_digest.to_string(),

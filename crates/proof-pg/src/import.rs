@@ -8,8 +8,8 @@ use proof_canonical::{
     ObjectStateReference, canonicalize, digest, known_state_digest_with_objects,
 };
 use proof_domain::{ArtifactKind, ContentDigest, SchemaId, SchemaVersion, WorkspaceId};
-use proof_remote::AuthorityHeadV1;
-use rusqlite::Connection;
+use proof_remote::{AuthorityHeadV1, derive_key_digest};
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -201,13 +201,14 @@ impl VerifiedSource {
 
 /// Reads and re-verifies every canonical fact, authority record, and the Known
 /// State from the SQLite source via the [`proof_local`] read surface.
+#[allow(clippy::too_many_lines)]
 fn read_verified_source(source: &proof_local::LocalWorkspace) -> Result<VerifiedSource, PgError> {
     let connection = source
         .open_database()
         .map_err(|error| PgError::Import(format!("open source database: {error}")))?;
 
     let workspace_id = read_workspace_id(&connection)?;
-    let (authoritative_sequence, state_digest) = read_known_state(&connection)?;
+    let (state_api_version, authoritative_sequence, state_digest) = read_known_state(&connection)?;
     let authority_records = read_authority_records(&connection, workspace_id)?;
     let last_record = authority_records
         .last()
@@ -223,13 +224,85 @@ fn read_verified_source(source: &proof_local::LocalWorkspace) -> Result<Verified
     let renditions = read_rendition_facts(&connection)?;
     let releases = read_release_facts(&connection)?;
 
+    // System facts consumed by projection rebuilds (Known State head plus its
+    // artifact chain), verified against the source tables directly.
+    let mut system_facts = Vec::new();
+    {
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/known-state-head/v1",
+            "authoritative_sequence": authoritative_sequence,
+            "known_state_api_version": state_api_version,
+            "state_digest": state_digest.to_string(),
+        });
+        let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+        system_facts.push(ImportedFact {
+            fact_id: "known_state/head".to_owned(),
+            fact_kind: "known_state_head".to_owned(),
+            authority_sequence: i64::try_from(authoritative_sequence)
+                .map_err(|_| PgError::Import("sequence overflow".to_owned()))?,
+            fact_digest: derive_key_digest(
+                "proof:parity:known-state-head:v1",
+                canonical.as_bytes(),
+            ),
+            body: canonical.as_bytes().to_vec(),
+        });
+    }
+    if state_api_version == proof_application::KNOWN_STATE_V2_API_VERSION {
+        let mut statement = connection
+            .prepare(
+                "SELECT api_version, authoritative_sequence, state_digest
+                 FROM known_state_artifacts WHERE authoritative_sequence < ?1
+                 ORDER BY authoritative_sequence",
+            )
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let rows = statement
+            .query_map(
+                [i64::try_from(authoritative_sequence)
+                    .map_err(|_| PgError::Import("sequence overflow".to_owned()))?],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        for row in rows {
+            let (artifact_api_version, sequence, digest_text) =
+                row.map_err(|error| PgError::Import(error.to_string()))?;
+            let artifact_sequence = u64::try_from(sequence)
+                .map_err(|_| PgError::Import("negative artifact sequence".to_owned()))?;
+            let body = serde_json::json!({
+                "api_version": "proof.dev/parity/known-state-artifact/v1",
+                "artifact_api_version": artifact_api_version,
+                "authoritative_sequence": artifact_sequence,
+                "state_digest": digest_text,
+            });
+            let canonical =
+                canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
+            system_facts.push(ImportedFact {
+                fact_id: format!("known_state_artifact/{sequence:020}"),
+                fact_kind: "known_state_artifact".to_owned(),
+                authority_sequence: sequence,
+                fact_digest: derive_key_digest(
+                    "proof:parity:known-state-artifact:v1",
+                    canonical.as_bytes(),
+                ),
+                body: canonical.as_bytes().to_vec(),
+            });
+        }
+    }
+
     // Cross-check the recorded Known State against the re-verified facts.
-    let mut facts =
-        Vec::with_capacity(schemas.len() + objects.len() + renditions.len() + releases.len());
+    let mut facts = Vec::with_capacity(
+        schemas.len() + objects.len() + renditions.len() + releases.len() + system_facts.len(),
+    );
     facts.extend(schemas.iter().cloned());
     facts.extend(objects.iter().cloned());
     facts.extend(renditions.iter().cloned());
     facts.extend(releases.iter().cloned());
+    facts.extend(system_facts.iter().cloned());
 
     // Verify the content sequence covers exactly 1..=authoritative_sequence.
     let content_sequence = u64::try_from(schemas.len() + objects.len() + renditions.len())
@@ -248,13 +321,28 @@ fn read_verified_source(source: &proof_local::LocalWorkspace) -> Result<Verified
         .iter()
         .map(ImportedFact::object_ref)
         .collect::<Result<Vec<_>, _>>()?;
-    let reproduced = known_state_digest_with_objects(
-        workspace_id,
-        authoritative_sequence,
-        &schema_refs,
-        &object_refs,
-    )
-    .map_err(|error| PgError::Import(error.to_string()))?;
+    let reproduced = if state_api_version == proof_application::KNOWN_STATE_V1_API_VERSION {
+        known_state_digest_with_objects(
+            workspace_id,
+            authoritative_sequence,
+            &schema_refs,
+            &object_refs,
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?
+    } else {
+        let locale_refs = read_locale_state_refs(&connection)?;
+        let previous_reference = read_previous_known_state(&connection, authoritative_sequence)?;
+        let manifest = proof_canonical::known_state_v2_manifest(
+            workspace_id,
+            authoritative_sequence,
+            &schema_refs,
+            &object_refs,
+            &locale_refs,
+            &previous_reference,
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+        digest(ArtifactKind::KnownStateV2, &manifest)
+    };
     if reproduced != state_digest {
         return Err(PgError::Import(
             "the source Known State digest does not reproduce from verified facts".to_owned(),
@@ -291,12 +379,13 @@ fn read_workspace_id(connection: &Connection) -> Result<WorkspaceId, PgError> {
         .map_err(|error| PgError::Import(format!("invalid source Workspace identity: {error}")))
 }
 
-fn read_known_state(connection: &Connection) -> Result<(u64, ContentDigest), PgError> {
-    let (sequence, raw_digest): (i64, String) = connection
+fn read_known_state(connection: &Connection) -> Result<(String, u64, ContentDigest), PgError> {
+    let (api_version, sequence, raw_digest): (String, i64, String) = connection
         .query_row(
-            "SELECT authoritative_sequence, state_digest FROM known_state WHERE singleton = 1",
+            "SELECT api_version, authoritative_sequence, state_digest
+             FROM known_state WHERE singleton = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
     let sequence = u64::try_from(sequence)
@@ -304,7 +393,117 @@ fn read_known_state(connection: &Connection) -> Result<(u64, ContentDigest), PgE
     let state_digest = raw_digest
         .parse::<ContentDigest>()
         .map_err(|error| PgError::Import(format!("invalid source Known State digest: {error}")))?;
-    Ok((sequence, state_digest))
+    Ok((api_version, sequence, state_digest))
+}
+
+/// Reads the highest rendition head per (Object, locale) at or below `sequence`.
+#[allow(clippy::too_many_lines)]
+fn read_locale_state_refs(
+    connection: &Connection,
+) -> Result<Vec<proof_canonical::LocaleStateReference>, PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT object_id, locale, MAX(revision), manifest_json, rendition_digest
+             FROM object_locale_revisions GROUP BY object_id, locale",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let mut refs = Vec::new();
+    for row in rows {
+        let (object_id, locale, manifest_json, rendition_digest_text) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let manifest: Value = serde_json::from_str(&manifest_json)
+            .map_err(|error: serde_json::Error| PgError::Import(error.to_string()))?;
+        let parsed_object_id: proof_domain::ObjectId = object_id
+            .parse::<proof_domain::ObjectId>()
+            .map_err(|error: proof_domain::IdentifierError| PgError::Import(error.to_string()))?;
+        let parsed_locale: proof_application::LocaleId = locale
+            .parse()
+            .map_err(|_| PgError::Import("invalid source locale".to_owned()))?;
+        let raw_revision: u32 = u32::try_from(
+            manifest
+                .get("revision")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| PgError::Import("rendition lacks revision".to_owned()))?,
+        )
+        .map_err(|_| PgError::Import("rendition revision overflow".to_owned()))?;
+        let parsed_revision = proof_application::LocaleRevision::new(raw_revision)
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        refs.push(proof_canonical::LocaleStateReference {
+            object_id: parsed_object_id,
+            locale: parsed_locale,
+            revision: parsed_revision,
+            rendition_digest: rendition_digest_text.parse().map_err(
+                |error: proof_domain::DigestParseError| PgError::Import(error.to_string()),
+            )?,
+            source_object_digest: manifest
+                .get("source_object_digest")
+                .and_then(Value::as_str)
+                .ok_or_else(|| PgError::Import("manifest lacks source digest".to_owned()))?
+                .parse::<ContentDigest>()
+                .map_err(|error: proof_domain::DigestParseError| {
+                    PgError::Import(error.to_string())
+                })?,
+            schema_id: SchemaId::new(
+                manifest
+                    .get("schema_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| PgError::Import("manifest lacks schema id".to_owned()))?
+                    .to_owned(),
+            )
+            .map_err(|error| PgError::Import(error.to_string()))?,
+            schema_version: SchemaVersion::new(
+                u32::try_from(
+                    manifest
+                        .get("schema_version")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| {
+                            PgError::Import("manifest lacks schema version".to_owned())
+                        })?,
+                )
+                .map_err(|_| PgError::Import("invalid schema version".to_owned()))?,
+            )
+            .map_err(|error| PgError::Import(error.to_string()))?,
+        });
+    }
+    Ok(refs)
+}
+
+/// Reads the Known State predecessor reference for a v2 head.
+fn read_previous_known_state(
+    connection: &Connection,
+    current_sequence: u64,
+) -> Result<proof_canonical::PreviousKnownStateReference, PgError> {
+    let (api_version, sequence, raw_digest): (String, i64, String) = connection
+        .query_row(
+            "SELECT api_version, authoritative_sequence, state_digest
+             FROM known_state_artifacts WHERE authoritative_sequence < ?1
+             ORDER BY authoritative_sequence DESC LIMIT 1",
+            [i64::try_from(current_sequence)
+                .map_err(|_| PgError::Import("sequence overflow".to_owned()))?],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|error| PgError::Import(error.to_string()))?
+        .ok_or_else(|| PgError::Import("a v2 Known State lacks its predecessor".to_owned()))?;
+    let parsed_digest: ContentDigest = raw_digest
+        .parse()
+        .map_err(|error: proof_domain::DigestParseError| PgError::Import(error.to_string()))?;
+    Ok(proof_canonical::PreviousKnownStateReference {
+        api_version,
+        authoritative_sequence: u64::try_from(sequence)
+            .map_err(|_| PgError::Import("negative predecessor sequence".to_owned()))?,
+        digest: parsed_digest,
+    })
 }
 
 /// Reads, re-verifies, and chain-links the local authority records.
