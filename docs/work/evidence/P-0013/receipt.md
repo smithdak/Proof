@@ -150,6 +150,20 @@ Recorded verbatim in `manifest.json.limitations`:
   production mutation occurred. Same-UID hostile-process isolation and
   Windows containment residuals from P-0006 are not addressed by this item.
 
+## Post-candidate polish commit
+
+A follow-up correction commit `509c6e05bd84f81744679482689ce6ae7007eba5`
+(parent `0078450`) was applied after qualification during integration
+self-review: the verifier now narrows to the retained content-tamper
+conformance scenario only when a nested content artifact tampers, while a
+tampered non-content root stays general `InvalidVerification` (reason code
+`TamperedArtifact` unchanged), with a regression test; stale P-0012-era
+skeleton doc comments in `proof-delivery` were corrected and the verifier
+CLI reference gained the two Milestone 3 remote modes. The complete Linux
+quality gate re-passed at this commit: 869 tests in 77 binaries, clippy
+`-D warnings` with zero warnings, doc tests, 357 documentation links, and
+13-item work-control validation.
+
 ## Gate evidence
 
 Exact commands, exit codes, environment versions, inventory counts, and

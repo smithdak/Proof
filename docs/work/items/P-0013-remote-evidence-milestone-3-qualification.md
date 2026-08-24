@@ -216,8 +216,11 @@ deployment, provider, or production work is claimed by this item.
 Engineering qualified immutable candidate
 `1fb53b893b35cf3910f47b4d35ade59ceecfb62a`, whose parent is the skeleton
 commit `fde6c2814533bd73c0d67553049a8709ac2fbc7f`, qualified at
-`2026-08-24T12:58:37.054Z`. Engineering evidence commit
-`97f31fd` binds the [receipt](../evidence/P-0013/receipt.md),
+`2026-08-24T12:58:37.054Z`. Post-candidate polish commit
+`509c6e05bd84f81744679482689ce6ae7007eba5` content-scoped the tamper
+conformance scenario and refreshed verifier documentation; the complete
+Linux gate re-passed there (869 tests, zero clippy warnings). Engineering
+evidence commit `97f31fd` binds the [receipt](../evidence/P-0013/receipt.md),
 [manifest](../evidence/P-0013/manifest.json), and
 [AC1-AC11 traceability matrix](../evidence/P-0013/traceability.md).
 Moved from `claimed` to `review` under `review_gate: project-owner`;
