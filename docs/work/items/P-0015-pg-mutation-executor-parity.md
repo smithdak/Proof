@@ -98,11 +98,20 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   accepted-vector inventory grew by the two P-0014 enrollment vectors
   (39 -> 41) and gained the shared `enrollment-vector-v1` Schema. Full Linux
   gate green at this slice.
-- Known open thread for slice 2: seeding a complete localized flow inside
-  the parity harness currently returns `InvalidInput` from
-  `add_localized_edits` while the equivalent p0007 flow passes; the ignored
-  test `localized_change_set_artifacts_import_with_verified_digests` is the
-  pinned resume point.
+- Slice 2 (2026-08-24): root-caused the harness thread — localized renditions
+  must inherit non-localizable fields verbatim from the source Object
+  (`verify_edit_input` reconstructs source-plus-localized-pointers and
+  requires exact equality); the fixture now varies only `/legal` and
+  `/title`. The import-fidelity test passes unignored. The PostgreSQL
+  executor gained its first mirrored row: `changeset.get/v2` reconstructs
+  the typed `LocalizedChangeSet` from imported facts with full reference
+  semantics (evidence-reference reproduction, contiguous ordinals,
+  effective-leaf marking, proposal/effective digest recomputation,
+  seal-vs-validation-head, and complete repair-edge verification) and
+  serializes through the shared oracle serializers. A retained parity test
+  proves byte-identical accepted and not-found traces against SQLite; the
+  P-0013 conformance report classification for this row flipped from the
+  ratified not-mirrored residual to byte-identical accordingly.
 
 ## Completion record
 

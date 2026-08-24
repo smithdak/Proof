@@ -336,18 +336,29 @@ fn run_postgres_operation(
             )
         }
         AuthorityOperation::ChangesetGetV2 => {
-            if parse_input::<LocalizedChangeSetGetInputV2>(normalized_input).is_err() {
+            let Ok(input) = parse_input::<LocalizedChangeSetGetInputV2>(normalized_input) else {
                 return stable_problem_trace(
                     &operation,
                     normalized_input,
                     evaluated_authority_head,
                     INPUT_SCHEMA_MISMATCH_CODE,
                 );
+            };
+            match load_pg_localized_changeset(runtime, &input.changeset_id.to_string()) {
+                Ok(changeset) => success_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    proof_remote::oracle::serialize_localized_changeset(&changeset),
+                    None,
+                ),
+                Err(code) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &code,
+                ),
             }
-            Err(PgError::Integrity(format!(
-                "operation `{}` is not yet mirrored on the PostgreSQL parity backend",
-                operation.name
-            )))
         }
         other => Err(PgError::Integrity(format!(
             "operation `{}` is not yet mirrored on the PostgreSQL parity backend",
@@ -856,7 +867,7 @@ fn import_localized_validations(
     let mut statement = connection
         .prepare(
             "SELECT changeset_id, attempt, results_json, results_digest, valid,
-                    sealed_changeset_digest
+                    sealed_changeset_digest, proposal_digest, findings_json
              FROM localized_validations ORDER BY changeset_id, attempt",
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -869,18 +880,28 @@ fn import_localized_validations(
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .map_err(|error| PgError::Import(error.to_string()))?;
     for row in rows {
-        let (changeset_id, attempt, results_json, results_digest, valid, sealed) =
-            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let (
+            changeset_id,
+            attempt,
+            results_json,
+            results_digest,
+            valid,
+            sealed,
+            proposal_digest,
+            findings,
+        ) = row.map_err(|error| PgError::Import(error.to_string()))?;
         let results_digest = results_digest
             .parse::<ContentDigest>()
             .map_err(|error| PgError::Import(error.to_string()))?;
         let canonical = verified_manifest_bytes(
             &results_json,
-            ArtifactKind::ValidationResultsV1,
+            ArtifactKind::ValidationResultsV2,
             results_digest,
             &format!("validation `{changeset_id}`#{attempt}"),
         )
@@ -898,7 +919,10 @@ fn import_localized_validations(
             "changeset_id": changeset_id,
             "attempt": attempt,
             "valid": valid != 0,
+            "proposal_digest": proposal_digest,
+            "results_digest": results_digest.to_string(),
             "sealed_changeset_digest": sealed,
+            "findings": findings,
         });
         let canonical_body =
             canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
@@ -915,6 +939,573 @@ fn import_localized_validations(
             &fact_digest,
             canonical_body.as_bytes(),
         )?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// P-0015 slice 2: the PostgreSQL localized read executor. Reconstructs the
+// typed application result from imported, digest-verified parity facts and
+// serializes it through the shared oracle serializers, so traces are
+// byte-identical to the SQLite reference path by construction.
+// ---------------------------------------------------------------------------
+
+use proof_application::{
+    ChangeSetIntent, ChangeSetStatus, EditId, ExpectedLocalizedSource, ExpectedLocalizedTarget,
+    KnownStateArtifactReference, LocaleId, LocaleRevision, LocalizedChangeSet, LocalizedEdit,
+    ObjectId, ObjectLocalePutInput, ObjectRevision, SchemaId, SchemaVersion,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Maps an internal reconstruction failure onto the exact stable problem code
+/// the SQLite path selects for integrity failures.
+fn integrity_code(context: &str) -> String {
+    let _ = context;
+    "proof.digest.mismatch".to_owned()
+}
+
+/// Parses one imported localized Edit manifest back into its typed input.
+#[allow(clippy::too_many_lines)]
+fn edit_input_from_manifest(
+    ordinal: u32,
+    edit_id: EditId,
+    manifest: &Value,
+    canonical_json: &str,
+    edit_digest: ContentDigest,
+) -> Result<LocalizedEdit, String> {
+    let content = manifest
+        .get("content")
+        .ok_or_else(|| integrity_code("edit manifest lacks content"))?;
+    let canonical_content = proof_canonical::canonicalize(content)
+        .map_err(|error| integrity_code(&error.to_string()))?
+        .as_str()
+        .to_owned();
+    let source = manifest
+        .get("expected_source")
+        .ok_or_else(|| integrity_code("edit manifest lacks expected_source"))?;
+    let expected_target = match manifest.get("expected_target") {
+        None | Some(Value::Null) => None,
+        Some(target) => Some(ExpectedLocalizedTarget {
+            revision: LocaleRevision::new(
+                u32::try_from(
+                    target
+                        .get("revision")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| integrity_code("target revision"))?,
+                )
+                .map_err(|_| integrity_code("target revision range"))?,
+            )
+            .map_err(|_| integrity_code("target revision"))?,
+            digest: target
+                .get("digest")
+                .and_then(Value::as_str)
+                .ok_or_else(|| integrity_code("target digest"))?
+                .parse()
+                .map_err(|_| integrity_code("target digest"))?,
+        }),
+    };
+    Ok(LocalizedEdit {
+        ordinal,
+        edit_id,
+        input: ObjectLocalePutInput {
+            object_id: manifest
+                .get("object_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| integrity_code("edit object_id"))?
+                .parse()
+                .map_err(|_| integrity_code("edit object_id"))?,
+            locale: LocaleId::new(
+                manifest
+                    .get("locale")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| integrity_code("edit locale"))?
+                    .to_owned(),
+            )
+            .map_err(|_| integrity_code("edit locale"))?,
+            expected_source: ExpectedLocalizedSource {
+                revision: ObjectRevision::new(
+                    u32::try_from(
+                        source
+                            .get("revision")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("source revision"))?,
+                    )
+                    .map_err(|_| integrity_code("source revision range"))?,
+                )
+                .map_err(|_| integrity_code("source revision"))?,
+                digest: source
+                    .get("digest")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| integrity_code("source digest"))?
+                    .parse()
+                    .map_err(|_| integrity_code("source digest"))?,
+                schema_id: SchemaId::new(
+                    source
+                        .get("schema_id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| integrity_code("source schema_id"))?
+                        .to_owned(),
+                )
+                .map_err(|_| integrity_code("source schema_id"))?,
+                schema_version: SchemaVersion::new(
+                    u32::try_from(
+                        source
+                            .get("schema_version")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("source schema_version"))?,
+                    )
+                    .map_err(|_| integrity_code("schema version range"))?,
+                )
+                .map_err(|_| integrity_code("source schema_version"))?,
+            },
+            expected_target,
+            canonical_content,
+            supersedes_edit_id: match manifest.get("supersedes_edit_id") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| integrity_code("supersedes_edit_id"))?
+                        .parse()
+                        .map_err(|_| integrity_code("supersedes_edit_id"))?,
+                ),
+            },
+            repair_of_validation_result_digest: match manifest
+                .get("repair_of_validation_result_digest")
+            {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| integrity_code("repair digest"))?
+                        .parse()
+                        .map_err(|_| integrity_code("repair digest"))?,
+                ),
+            },
+        },
+        effective: false,
+        canonical_json: canonical_json.to_owned(),
+        edit_digest,
+    })
+}
+
+/// Ports the reference effective-leaf marking: linear supersession chains per
+/// `(object_id, locale)`; the last edit of each chain is effective.
+fn mark_effective_edits(edits: &mut [LocalizedEdit]) -> Result<(), String> {
+    let mut active = BTreeMap::<(ObjectId, LocaleId), EditId>::new();
+    let mut seen_ids = BTreeSet::new();
+    for edit in edits.iter() {
+        if !seen_ids.insert(edit.edit_id) {
+            return Err(integrity_code("duplicate localized Edit identity"));
+        }
+        let target = (edit.input.object_id, edit.input.locale.clone());
+        match active.get(&target).copied() {
+            None => {
+                if edit.input.supersedes_edit_id.is_some()
+                    || edit.input.repair_of_validation_result_digest.is_some()
+                {
+                    return Err(integrity_code(
+                        "first localized Edit has a supersession edge",
+                    ));
+                }
+            }
+            Some(active_edit_id) => {
+                if edit.input.supersedes_edit_id != Some(active_edit_id)
+                    || edit.input.repair_of_validation_result_digest.is_none()
+                {
+                    return Err(integrity_code("localized Edit lineage forks or skips"));
+                }
+            }
+        }
+        active.insert(target, edit.edit_id);
+    }
+    for edit in edits.iter_mut() {
+        edit.effective = active
+            .get(&(edit.input.object_id, edit.input.locale.clone()))
+            .is_some_and(|edit_id| *edit_id == edit.edit_id);
+    }
+    Ok(())
+}
+
+/// Ports the reference ChangeSet proposal digest computation.
+fn proposal_digests(
+    changeset: &LocalizedChangeSet,
+) -> Result<(ContentDigest, ContentDigest), String> {
+    let mut effective = changeset
+        .edits
+        .iter()
+        .filter(|edit| edit.effective)
+        .cloned()
+        .collect::<Vec<_>>();
+    effective.sort_by(|left, right| {
+        (left.input.object_id, &left.input.locale)
+            .cmp(&(right.input.object_id, &right.input.locale))
+    });
+    let effective_manifest = proof_canonical::canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/edit-batch/v2",
+        "edits": effective
+            .iter()
+            .map(|edit| parse_canonical_value(&edit.canonical_json))
+            .collect::<Result<Vec<_>, _>>()?,
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let effective_digest = digest(proof_domain::ArtifactKind::EditBatchV2, &effective_manifest);
+    let manifest = proof_canonical::canonicalize(&serde_json::json!({
+        "api_version": proof_application::LOCALIZED_CHANGESET_API_VERSION,
+        "base_state": {
+            "api_version": changeset.base_state.api_version,
+            "authoritative_sequence": changeset.base_state.authoritative_sequence,
+            "digest": changeset.base_state.digest.to_string(),
+        },
+        "changeset_id": changeset.changeset_id.to_string(),
+        "context_pack_digest": changeset.context_pack_digest.to_string(),
+        "context_pack_id": changeset.context_pack_id.to_string(),
+        "created_at": changeset.created_at.to_string(),
+        "edits": changeset
+            .edits
+            .iter()
+            .map(|edit| parse_canonical_value(&edit.canonical_json))
+            .collect::<Result<Vec<_>, _>>()?,
+        "effective_leaf_digest": effective_digest.to_string(),
+        "effective_leaves": effective.iter().map(|edit| serde_json::json!({
+            "edit_digest": edit.edit_digest.to_string(),
+            "edit_id": edit.edit_id.to_string(),
+            "locale": edit.input.locale.as_str(),
+            "object_id": edit.input.object_id.to_string(),
+        })).collect::<Vec<_>>(),
+        "intent": changeset.intent.as_str(),
+        "principal_id": changeset.principal_id.to_string(),
+        "resource_intent_digest": changeset.resource_intent_digest.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+        "workspace_id": changeset.workspace_id.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok((
+        digest(proof_domain::ArtifactKind::ChangeSetV2, &manifest),
+        effective_digest,
+    ))
+}
+
+/// Parses stored canonical bytes into a strict JSON value.
+fn parse_canonical_value(canonical_json: &str) -> Result<Value, String> {
+    proof_canonical::parse_strict(canonical_json.as_bytes())
+        .map_err(|error| integrity_code(&error.to_string()))
+}
+
+/// Reconstructs one localized `ChangeSet` from imported parity facts with the
+/// exact reference verification semantics, returning the stable problem code
+/// on every rejection the SQLite path would produce.
+#[allow(clippy::too_many_lines)]
+fn load_pg_localized_changeset(
+    runtime: &mut PgRuntime,
+    changeset_id: &str,
+) -> Result<LocalizedChangeSet, String> {
+    let row = {
+        let client = runtime.client_mut();
+        client
+            .query_opt(
+                "SELECT fact_id, body FROM facts WHERE fact_kind = 'localized_changeset' AND fact_id = $1",
+                &[&format!("localized_changeset/{changeset_id}")],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    let Some(row) = row else {
+        return Err("proof.resource.not_found".to_owned());
+    };
+    let body: Vec<u8> = row.get(1);
+    let record: Value =
+        serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+    let field = |name: &str| -> Result<String, String> {
+        record
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| integrity_code(name))
+    };
+    let optional_field = |name: &str| -> Result<Option<ContentDigest>, String> {
+        match record.get(name) {
+            None | Some(Value::Null) => Ok(None),
+            Some(value) => value
+                .as_str()
+                .and_then(|raw| raw.parse().ok())
+                .map(Some)
+                .ok_or_else(|| integrity_code(name)),
+        }
+    };
+    let workspace_id: proof_domain::WorkspaceId = field("workspace_id")?
+        .parse()
+        .map_err(|_| integrity_code("workspace identity"))?;
+    let resource_intent_id = field("resource_intent_id")?;
+    let context_pack_id = field("context_pack_id")?;
+    // Evidence references must reproduce against their imported facts.
+    for (fact_id, expected) in [
+        (
+            format!("resource_intent/{resource_intent_id}"),
+            field("resource_intent_digest")?,
+        ),
+        (
+            format!("context_pack/{context_pack_id}"),
+            field("context_pack_digest")?,
+        ),
+    ] {
+        let stored: Option<String> = {
+            let client = runtime.client_mut();
+            client
+                .query_opt(
+                    "SELECT fact_digest FROM facts WHERE fact_id = $1",
+                    &[&fact_id],
+                )
+                .map_err(|error| integrity_code(&error.to_string()))?
+                .map(|row| row.get(0))
+        };
+        if stored.as_deref() != Some(expected.as_str()) {
+            return Err(integrity_code("evidence reference does not reproduce"));
+        }
+    }
+
+    // Edits, in contiguous ordinal order.
+    let edit_rows = {
+        let client = runtime.client_mut();
+        client
+            .query(
+                "SELECT fact_id, fact_digest, body FROM facts
+                 WHERE fact_kind = 'localized_edit' AND fact_id LIKE $1
+                 ORDER BY fact_id",
+                &[&format!("localized_edit/{changeset_id}/%")],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    let mut edits = Vec::with_capacity(edit_rows.len());
+    for (index, row) in edit_rows.iter().enumerate() {
+        let fact_id: String = row.get(0);
+        let stored_digest: String = row.get(1);
+        let body: Vec<u8> = row.get(2);
+        let ordinal_suffix = fact_id
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| integrity_code("edit fact identity"))?;
+        let ordinal_value: usize = ordinal_suffix
+            .parse()
+            .map_err(|_| integrity_code("edit ordinal"))?;
+        if ordinal_value != index + 1 {
+            return Err(integrity_code("edit ordinals are not contiguous"));
+        }
+        let manifest: Value =
+            serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+        let edit_id = manifest
+            .get("edit_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("edit identity"))?
+            .parse()
+            .map_err(|_| integrity_code("edit identity"))?;
+        let edit = edit_input_from_manifest(
+            u32::try_from(ordinal_value).map_err(|_| integrity_code("ordinal range"))?,
+            edit_id,
+            &manifest,
+            std::str::from_utf8(&body).map_err(|_| integrity_code("edit bytes"))?,
+            stored_digest
+                .parse()
+                .map_err(|_| integrity_code("edit digest"))?,
+        )?;
+        edits.push(edit);
+    }
+    mark_effective_edits(&mut edits)?;
+
+    let mut changeset = LocalizedChangeSet {
+        changeset_id: changeset_id
+            .parse()
+            .map_err(|_| integrity_code("changeset identity"))?,
+        workspace_id,
+        principal_id: field("principal_id")?
+            .parse()
+            .map_err(|_| integrity_code("principal identity"))?,
+        intent: ChangeSetIntent::new(field("intent")?).map_err(|_| integrity_code("intent"))?,
+        resource_intent_id: resource_intent_id
+            .parse()
+            .map_err(|_| integrity_code("intent identity"))?,
+        resource_intent_digest: field("resource_intent_digest")?
+            .parse()
+            .map_err(|_| integrity_code("intent digest"))?,
+        context_pack_id: context_pack_id
+            .parse()
+            .map_err(|_| integrity_code("pack identity"))?,
+        context_pack_digest: field("context_pack_digest")?
+            .parse()
+            .map_err(|_| integrity_code("pack digest"))?,
+        base_state: KnownStateArtifactReference {
+            api_version: field("base_state_api_version")?,
+            authoritative_sequence: record
+                .get("base_authoritative_sequence")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| integrity_code("base sequence"))?,
+            digest: field("base_state_digest")?
+                .parse()
+                .map_err(|_| integrity_code("base digest"))?,
+        },
+        created_at: field("created_at")?
+            .parse()
+            .map_err(|_| integrity_code("created_at"))?,
+        status: match field("lifecycle_status")?.as_str() {
+            "draft" => ChangeSetStatus::Draft,
+            "ready" => ChangeSetStatus::Ready,
+            "submitted" => ChangeSetStatus::Submitted,
+            "approved" => ChangeSetStatus::Approved,
+            "committed" => ChangeSetStatus::Committed,
+            _ => return Err(integrity_code("lifecycle status")),
+        },
+        edits,
+        proposal_digest: optional_field("proposal_digest")?,
+        sealed_changeset_digest: optional_field("sealed_changeset_digest")?,
+    };
+
+    if changeset.edits.is_empty() {
+        if changeset.proposal_digest.is_some()
+            || record
+                .get("effective_leaf_digest")
+                .and_then(Value::as_str)
+                .is_some()
+            || changeset.sealed_changeset_digest.is_some()
+        {
+            return Err(integrity_code("empty ChangeSet carries evidence"));
+        }
+    } else {
+        let (proposal_digest, effective_digest) = proposal_digests(&changeset)?;
+        let persisted_effective = field("effective_leaf_digest")?;
+        if changeset.proposal_digest != Some(proposal_digest)
+            || persisted_effective != effective_digest.to_string()
+        {
+            return Err(integrity_code("proposal does not reproduce"));
+        }
+        if let Some(sealed) = changeset.sealed_changeset_digest {
+            let latest = latest_validation_fact(runtime, changeset_id)?
+                .ok_or_else(|| integrity_code("seal lacks validation"))?;
+            if !latest.valid || latest.sealed.as_deref() != Some(sealed.to_string().as_str()) {
+                return Err(integrity_code("seal does not match validation head"));
+            }
+        }
+    }
+    mark_effective_edits(&mut changeset.edits)?;
+    verify_all_repair_edges_pg(runtime, &changeset)?;
+    Ok(changeset)
+}
+
+/// One imported validation attempt reduced to the fields the reconstruction
+/// checks consume.
+struct PgValidationFact {
+    attempt: i64,
+    valid: bool,
+    proposal_digest: String,
+    results_digest: String,
+    sealed: Option<String>,
+    findings: Vec<Value>,
+}
+
+fn read_validation_facts(
+    runtime: &mut PgRuntime,
+    changeset_id: &str,
+) -> Result<Vec<PgValidationFact>, String> {
+    let rows = {
+        let client = runtime.client_mut();
+        client
+            .query(
+                "SELECT body FROM facts
+                 WHERE fact_kind = 'localized_validation' AND fact_id LIKE $1
+                 ORDER BY fact_id",
+                &[&format!("localized_validation/{changeset_id}/%")],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    rows.iter()
+        .map(|row| {
+            let body: Vec<u8> = row.get(0);
+            let record: Value = serde_json::from_slice(&body)
+                .map_err(|error| integrity_code(&error.to_string()))?;
+            Ok(PgValidationFact {
+                attempt: record
+                    .get("attempt")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| integrity_code("validation attempt"))?,
+                valid: record
+                    .get("valid")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| integrity_code("validation validity"))?,
+                proposal_digest: record
+                    .get("proposal_digest")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| integrity_code("validation proposal"))?
+                    .to_owned(),
+                results_digest: record
+                    .get("results_digest")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| integrity_code("validation results digest"))?
+                    .to_owned(),
+                sealed: record
+                    .get("sealed_changeset_digest")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                findings: record
+                    .get("findings")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+fn latest_validation_fact(
+    runtime: &mut PgRuntime,
+    changeset_id: &str,
+) -> Result<Option<PgValidationFact>, String> {
+    Ok(read_validation_facts(runtime, changeset_id)?.pop())
+}
+
+/// Ports the reference repair-edge verification over imported facts.
+fn verify_all_repair_edges_pg(
+    runtime: &mut PgRuntime,
+    changeset: &LocalizedChangeSet,
+) -> Result<(), String> {
+    let validations = read_validation_facts(runtime, &changeset.changeset_id.to_string())?;
+    for (index, edit) in changeset.edits.iter().enumerate() {
+        let (Some(superseded), Some(result_digest)) = (
+            edit.input.supersedes_edit_id,
+            edit.input.repair_of_validation_result_digest,
+        ) else {
+            continue;
+        };
+        let mut prefix = changeset.clone();
+        prefix.edits.truncate(index);
+        prefix.proposal_digest = None;
+        prefix.sealed_changeset_digest = None;
+        mark_effective_edits(&mut prefix.edits)?;
+        let (prefix_proposal, _) = proposal_digests(&prefix)?;
+        let matching = validations
+            .iter()
+            .find(|fact| fact.results_digest == result_digest.to_string())
+            .ok_or_else(|| "proof.validation.repair_evidence_invalid".to_owned())?;
+        if matching.valid || matching.proposal_digest != prefix_proposal.to_string() {
+            return Err("proof.validation.repair_evidence_invalid".to_owned());
+        }
+        let latest_for_proposal = validations
+            .iter()
+            .filter(|fact| fact.proposal_digest == prefix_proposal.to_string())
+            .map(|fact| fact.attempt)
+            .max()
+            .ok_or_else(|| "proof.validation.repair_evidence_invalid".to_owned())?;
+        if latest_for_proposal != matching.attempt {
+            return Err("proof.validation.repair_evidence_invalid".to_owned());
+        }
+        let superseded_str = superseded.to_string();
+        let object_str = edit.input.object_id.to_string();
+        let matches = matching.findings.iter().any(|finding| {
+            finding.get("edit_id").and_then(Value::as_str) == Some(superseded_str.as_str())
+                && finding.get("object_id").and_then(Value::as_str) == Some(object_str.as_str())
+                && finding.get("locale").and_then(Value::as_str) == Some(edit.input.locale.as_str())
+                && finding.get("severity").and_then(Value::as_str) == Some("error")
+        });
+        if !matches {
+            return Err("proof.validation.repair_evidence_invalid".to_owned());
+        }
     }
     Ok(())
 }

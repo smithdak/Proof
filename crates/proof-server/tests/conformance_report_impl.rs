@@ -1258,19 +1258,22 @@ fn milestone3_conformance_report_three_runner_classification() {
         "PostgreSQL replay must not drift"
     );
 
-    // The changeset read is typed locally and fails closed (stable error) on PG.
+    // The changeset read is typed on both backends and byte-identical since
+    // the P-0015 executor mirrored it onto the PostgreSQL parity path.
     let sqlite_get_trace = expect_trace(&sqlite_get, "local changeset.get/v2");
+    let postgres_get_trace = expect_trace(&postgres_get, "parity changeset.get/v2");
     assert!(matches!(
         sqlite_get_trace.outcome,
         proof_remote::OracleOutcome::TypedResult(_)
     ));
-    let not_mirrored_message =
-        expect_error(&postgres_get, "unmirrored parity changeset.get/v2").to_owned();
-    let ratified_not_mirrored =
-        "operation `changeset.get` is not yet mirrored on the PostgreSQL parity backend";
-    assert!(
-        not_mirrored_message.contains(ratified_not_mirrored),
-        "the stable not-mirrored integrity error is part of the ratified P-0010 residual; got: {not_mirrored_message}"
+    assert_eq!(
+        sqlite_get_trace, postgres_get_trace,
+        "the mirrored changeset read must be field-identical across backends"
+    );
+    assert_eq!(
+        trace_digest(sqlite_get_trace),
+        trace_digest(postgres_get_trace),
+        "the mirrored changeset read must have an identical canonical digest"
     );
     for run in sqlite_unregistered
         .iter()
@@ -1445,11 +1448,7 @@ fn milestone3_conformance_report_three_runner_classification() {
         entry(
             2,
             "postgres-parity",
-            &json!({
-                "outcome": "classified",
-                "classification": CLASS_NOT_MIRRORED,
-                "error": not_mirrored_message,
-            }),
+            &json!({ "outcome": "trace", "trace_digest_hex": trace_digest(postgres_get_trace).to_string() }),
         ),
         entry(
             2,
@@ -1575,10 +1574,8 @@ fn milestone3_conformance_report_three_runner_classification() {
             ["sqlite-oracle", "postgres-parity"],
             2,
             &json!({
-                "verdict": CLASS_NOT_MIRRORED,
-                "error": not_mirrored_message,
-                "ratified_stable_error": ratified_not_mirrored,
-                "basis": "ratified P-0010 residual; the stable error itself is the exact observable",
+                "verdict": CLASS_BYTE_IDENTICAL,
+                "basis": "P-0015 mirrored the changeset read; field equality plus equal canonical trace digests on both backends",
             }),
         ),
         comparison(

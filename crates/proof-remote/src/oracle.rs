@@ -631,7 +631,8 @@ fn context_error_code(error: &proof_application::ContextPackError) -> &'static s
 }
 
 /// Converts a `LocalizedContentError` into its stable problem code.
-fn localized_error_code(error: &proof_application::LocalizedContentError) -> &'static str {
+#[must_use]
+pub fn localized_error_code(error: &proof_application::LocalizedContentError) -> &'static str {
     use proof_application::LocalizedContentError;
     match error {
         LocalizedContentError::Unauthenticated => "proof.auth.denied",
@@ -826,7 +827,8 @@ fn serialize_edition_reference(edition: &EditionArtifactReference) -> Value {
     })
 }
 
-fn serialize_localized_changeset(changeset: &LocalizedChangeSet) -> Value {
+#[must_use]
+pub fn serialize_localized_changeset(changeset: &LocalizedChangeSet) -> Value {
     serde_json::json!({
         "changeset_id": changeset.changeset_id.to_string(),
         "workspace_id": changeset.workspace_id.to_string(),
