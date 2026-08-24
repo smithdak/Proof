@@ -1,13 +1,13 @@
 ---
 id: P-0014
 title: Implement route-complete enrollment with usable credentials
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: []
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0014
+claimed_at: 2026-08-24T14:21:29.492Z
+base_sha: 68ac737e4950fd6b6c8f177024e185b54ae88a1b
 review_gate: none
 accepted_by: null
 accepted_at: null
