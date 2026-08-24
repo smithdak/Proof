@@ -12,14 +12,16 @@
 use proof_application::Timestamp;
 use proof_application::authority::{
     AuthorityOperation, LocalizedChangeSetAddInputV2, LocalizedChangeSetCommitInputV2,
-    LocalizedChangeSetCreateInputV2, LocalizedChangeSetGetInputV2, LocalizedChangeSetSubmitInputV2,
-    LocalizedChangeSetValidateInputV2, LocalizedContextBuildInputV2, LocalizedEditionCreateInputV2,
-    WorkspaceStatusInputV1,
+    LocalizedChangeSetCreateInputV2, LocalizedChangeSetDiffInputV2, LocalizedChangeSetGetInputV2,
+    LocalizedChangeSetSubmitInputV2, LocalizedChangeSetValidateInputV2,
+    LocalizedContextBuildInputV2, LocalizedEditionCreateInputV2,
+    LocalizedObjectQueryReleasedInputV2, WorkspaceStatusInputV1,
 };
 use proof_application::{
     AddLocalizedEditsCommand, AddedLocalizedEdits, CommitLocalizedChangeSetCommand,
     CommittedLocalizedChangeSet, CreateLocalizedEditionCommand, KNOWN_STATE_V1_API_VERSION,
-    KNOWN_STATE_V2_API_VERSION, LocalizedEdition, LocalizedValidation, ObjectLocalePutInput,
+    KNOWN_STATE_V2_API_VERSION, LocalizedChangeSetDiff, LocalizedEdition, LocalizedValidation,
+    ObjectLocalePutInput, QueryReleasedRenditionsCommand, ReleasedRenditionQuery,
     SubmittedLocalizedChangeSet,
 };
 use proof_canonical::{canonicalize, digest};
@@ -504,6 +506,58 @@ fn run_postgres_operation(
                         Some(effect),
                     )
                 }
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
+        }
+        AuthorityOperation::ChangesetDiffV2 => {
+            let Ok(input) = parse_input::<LocalizedChangeSetDiffInputV2>(normalized_input) else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            match pg_diff_changeset(runtime, input.changeset_id) {
+                Ok(diff) => success_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    proof_remote::oracle::serialize_localized_change_set_diff(&diff),
+                    None,
+                ),
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
+        }
+        AuthorityOperation::ObjectQueryReleasedV2 => {
+            let Ok(input) = parse_input::<LocalizedObjectQueryReleasedInputV2>(normalized_input)
+            else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            let command = input.into_application_command();
+            match pg_query_released(runtime, &command) {
+                Ok(query) => success_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    proof_remote::oracle::serialize_released_rendition_query(&query),
+                    None,
+                ),
                 Err(error) => stable_problem_trace(
                     &operation,
                     normalized_input,
@@ -1823,7 +1877,7 @@ fn import_release_metadata(
     let mut statement = connection
         .prepare(
             "SELECT release_id, api_version, edition_id, edition_digest,
-                    release_digest
+                    release_digest, released_at
              FROM releases ORDER BY release_sequence",
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -1835,19 +1889,21 @@ fn import_release_metadata(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
             ))
         })
         .map_err(|error| PgError::Import(error.to_string()))?;
     for row in rows {
-        let (release_id, api_version, edition_id, edition_digest, release_digest) =
+        let (release_id, api_version, edition_id, edition_digest, release_digest, released_at) =
             row.map_err(|error| PgError::Import(error.to_string()))?;
         let body = serde_json::json!({
             "api_version": "proof.dev/parity/release-metadata/v1",
-            "release_id": release_id,
+            "edition_digest": edition_digest,
+            "edition_id": edition_id,
             "release_api_version": api_version,
             "release_digest": release_digest,
-            "edition_id": edition_id,
-            "edition_digest": edition_digest,
+            "release_id": release_id,
+            "released_at": released_at,
         });
         let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
         let fact_digest =
@@ -5737,4 +5793,147 @@ fn commit_rendition_values(
         }));
     }
     Ok(values)
+}
+
+/// Ports `changeset_diff` over parity facts.
+fn pg_diff_changeset(
+    runtime: &mut PgRuntime,
+    changeset_id: proof_application::ChangeSetId,
+) -> Result<LocalizedChangeSetDiff, String> {
+    let _ = runtime;
+    let changeset = load_pg_localized_changeset(runtime, &changeset_id.to_string())?;
+    let (proposal_digest, effective_leaf_digest, effective_edits) = pg_proposal(&changeset)?;
+    if effective_edits.is_empty() {
+        return Err("proof.evidence.incomplete".to_owned());
+    }
+    Ok(LocalizedChangeSetDiff {
+        changeset_id: changeset.changeset_id,
+        proposal_digest,
+        effective_leaf_digest,
+        effective_edits,
+    })
+}
+
+/// Ports `query_released_renditions` over parity facts.
+#[allow(clippy::too_many_lines)]
+fn pg_query_released(
+    runtime: &mut PgRuntime,
+    command: &QueryReleasedRenditionsCommand,
+) -> Result<ReleasedRenditionQuery, String> {
+    use proof_application::{
+        LOCALIZED_EDITION_API_VERSION, LOCALIZED_RELEASE_API_VERSION, LocaleRevision,
+        MAX_LOCALIZED_TARGETS,
+    };
+    const INVALID: &str = "proof.input.schema_mismatch";
+    if command.targets.is_empty()
+        || command.targets.len() > MAX_LOCALIZED_TARGETS
+        || !command.targets.is_sorted()
+        || command.targets.windows(2).any(|pair| pair[0] == pair[1])
+    {
+        return Err(INVALID.to_owned());
+    }
+    let pointer = require_fact_json(
+        runtime,
+        &format!("environment_current/{}", command.environment_id),
+        "proof.resource.not_found",
+    )?;
+    let release_id = json_str(&pointer, "release_id")?
+        .parse()
+        .map_err(|_| integrity_code("release identity"))?;
+    let release_meta = require_fact_json(
+        runtime,
+        &format!("release_meta/{release_id}"),
+        "proof.resource.not_found",
+    )?;
+    if json_str(&release_meta, "release_api_version")? != LOCALIZED_RELEASE_API_VERSION {
+        return Err("proof.resource.not_found".to_owned());
+    }
+    let released_at: Timestamp = json_str(&release_meta, "released_at")?
+        .parse()
+        .map_err(|_| integrity_code("release timestamp"))?;
+    if command.evaluated_at < released_at {
+        return Err(INVALID.to_owned());
+    }
+    let edition_ref = proof_application::EditionArtifactReference {
+        api_version: LOCALIZED_EDITION_API_VERSION.to_owned(),
+        digest: json_str(&release_meta, "edition_digest")?
+            .parse()
+            .map_err(|_| integrity_code("edition digest"))?,
+        edition_id: json_str(&release_meta, "edition_id")?
+            .parse()
+            .map_err(|_| integrity_code("edition identity"))?,
+    };
+    let edition = pg_load_edition(runtime, edition_ref.edition_id)?;
+    let mut renditions = Vec::with_capacity(command.targets.len());
+    for target in &command.targets {
+        let selected = pg_rendition_at(
+            runtime,
+            &target.object_id.to_string(),
+            &target.locale.to_string(),
+            edition.state.authoritative_sequence,
+        )?
+        .ok_or_else(|| "proof.resource.not_found".to_owned())?;
+        let revision = LocaleRevision::new(selected.revision)
+            .map_err(|error| integrity_code(&error.to_string()))?;
+        let fact = require_fact_json(
+            runtime,
+            &format!(
+                "locale_rendition/{}/{}/{}",
+                target.object_id,
+                target.locale,
+                format_args!("{:020}", edition.state.authoritative_sequence)
+            ),
+            "proof.resource.not_found",
+        )?;
+        let manifest = fact
+            .get("manifest")
+            .cloned()
+            .ok_or_else(|| integrity_code("rendition manifest"))?;
+        renditions.push(proof_application::ReleasedRendition {
+            object_id: target.object_id,
+            locale: target.locale.clone(),
+            source_revision: proof_application::ObjectRevision::new(
+                u32::try_from(
+                    manifest
+                        .get("source_object_revision")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| integrity_code("rendition source revision"))?,
+                )
+                .map_err(|_| integrity_code("revision range"))?,
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?,
+            source_digest: json_str(&manifest, "source_object_digest")?
+                .parse()
+                .map_err(|_| integrity_code("rendition source digest"))?,
+            rendition_revision: revision,
+            rendition_digest: json_str(&fact, "rendition_digest")?
+                .parse()
+                .map_err(|_| integrity_code("rendition digest"))?,
+            schema_id: proof_domain::SchemaId::new(json_str(&manifest, "schema_id")?)
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            schema_version: proof_domain::SchemaVersion::new(
+                u32::try_from(
+                    manifest
+                        .get("schema_version")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| integrity_code("rendition schema version"))?,
+                )
+                .map_err(|_| integrity_code("schema version range"))?,
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?,
+            canonical_content: serde_json::to_string(
+                manifest
+                    .get("content")
+                    .ok_or_else(|| integrity_code("rendition content"))?,
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?,
+        });
+    }
+    Ok(ReleasedRenditionQuery {
+        workspace_id: parse_workspace(&workspace_id_of(runtime)?)?,
+        environment_id: command.environment_id.clone(),
+        release_id,
+        edition: edition_ref,
+        renditions,
+    })
 }

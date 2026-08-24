@@ -810,7 +810,8 @@ fn serialize_context_pack(context_pack: &ContextPack) -> Value {
     })
 }
 
-fn serialize_localized_context_pack(
+#[must_use]
+pub fn serialize_localized_context_pack(
     context_pack: &proof_application::LocalizedContextPack,
 ) -> Value {
     serde_json::json!({
@@ -882,7 +883,8 @@ pub fn serialize_added_localized_edits(added: &AddedLocalizedEdits) -> Value {
     })
 }
 
-fn serialize_localized_change_set_diff(diff: &LocalizedChangeSetDiff) -> Value {
+#[must_use]
+pub fn serialize_localized_change_set_diff(diff: &LocalizedChangeSetDiff) -> Value {
     serde_json::json!({
         "changeset_id": diff.changeset_id.to_string(),
         "proposal_digest": diff.proposal_digest.to_string(),
@@ -985,7 +987,8 @@ fn serialize_localized_release(release: &LocalizedRelease) -> Value {
     })
 }
 
-fn serialize_released_rendition_query(query: &ReleasedRenditionQuery) -> Value {
+#[must_use]
+pub fn serialize_released_rendition_query(query: &ReleasedRenditionQuery) -> Value {
     serde_json::json!({
         "workspace_id": query.workspace_id.to_string(),
         "environment_id": query.environment_id.to_string(),
