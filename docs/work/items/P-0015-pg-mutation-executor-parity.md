@@ -128,7 +128,17 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   (`ObjectLocaleRevisionV1`), and localizable Schema documents
   (`SchemaVersionV1`) — the exact inputs `verify_edit_input` consumes — so the
   upcoming `changeset.add/v2` executor can validate Edit batches without any
-  SQLite access. Executor port follows.
+  SQLite access.
+- Slice 5 (2026-08-24): `changeset.add/v2` mirrored end to end — request and
+  effect digests under the shared oracle serializers, keyed replay with
+  field-drift detection, draft/issuer checks, baseline-currency verification,
+  pack limit enforcement, per-batch target uniqueness, the full
+  `verify_edit_input` port (intent-target membership, source-Object equality,
+  rendition-at-base-sequence expectations, JSON Schema validation, and
+  reconstructed-equality over localizable pointers), supersession and repair
+  evidence rules, and idempotent projection updates. A retained test proves
+  byte-identical accepted and keyed-replay traces against SQLite. Three of the
+  eleven mutation rows now have byte-identical executors.
 
 ## Completion record
 

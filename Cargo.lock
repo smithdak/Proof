@@ -1451,6 +1451,7 @@ dependencies = [
 name = "proof-pg"
 version = "0.1.0"
 dependencies = [
+ "jsonschema",
  "postgres",
  "postgres-types",
  "proof-application",

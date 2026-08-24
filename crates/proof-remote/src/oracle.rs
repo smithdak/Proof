@@ -677,7 +677,13 @@ fn resolve_context_pack_id(
 
 /// Builds the localized add command with deterministic, Proof-assigned Edit
 /// identities derived from the exact batch identity.
-fn build_add_edits_command(
+/// Builds the application Add command from a normalized authority input.
+///
+/// # Errors
+///
+/// Returns unit error when canonicalization or input mapping fails.
+#[allow(clippy::result_unit_err)]
+pub fn build_add_edits_command(
     input: LocalizedChangeSetAddInputV2,
 ) -> Result<AddLocalizedEditsCommand, ()> {
     let mut edits = Vec::with_capacity(input.edits.len());
@@ -702,7 +708,12 @@ fn build_add_edits_command(
 }
 
 /// Derives a deterministic UUIDv7 [`EditId`] from a stable seed and ordinal.
-fn deterministic_edit_id(seed: &str, ordinal: usize) -> Result<EditId, ()> {
+///
+/// # Errors
+///
+/// Returns unit error when the derived identity cannot be parsed.
+#[allow(clippy::result_unit_err)]
+pub fn deterministic_edit_id(seed: &str, ordinal: usize) -> Result<EditId, ()> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"proof:oracle:edit-id:v1");
     hasher.update(seed.as_bytes());
@@ -861,7 +872,8 @@ fn serialize_localized_edit(edit: &LocalizedEdit) -> Value {
     })
 }
 
-fn serialize_added_localized_edits(added: &AddedLocalizedEdits) -> Value {
+#[must_use]
+pub fn serialize_added_localized_edits(added: &AddedLocalizedEdits) -> Value {
     serde_json::json!({
         "changeset_id": added.changeset_id.to_string(),
         "edit_ids": added.edit_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
