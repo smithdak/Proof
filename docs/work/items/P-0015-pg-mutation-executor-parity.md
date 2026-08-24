@@ -155,6 +155,19 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   serializer, and projection updates. A retained test proves byte-identical
   traces for accepted submit, keyed replay, and time-shifted rejection. Five
   of the eleven mutation rows now have byte-identical executors.
+- Slice 8 (2026-08-24): `changeset.commit/v2` mirrored end to end —
+  keyed replay over commit operation facts with effect reproduction, Approved
+  gating with imported approval evidence, seal-head verification, write-head
+  currency against the Known State chain, per-edit re-verification, rendition
+  creation through the shared canonical constructors, whole-workspace state
+  references (Schemas, Objects, locale rendition heads) recomputed from
+  facts, `KnownStateV2` manifest and artifact persistence, write-head
+  rotation, and lifecycle projection. Importers now carry Object/Schema
+  authoritative sequences plus approval and commit records with verified
+  resulting-state digests; validation facts embed parsed findings. A retained
+  test proves byte-identical accepted and keyed-replay traces against SQLite,
+  including two rendition artifacts and a v1→v2 Known State transition. Six
+  of the eleven mutation rows now have byte-identical executors.
 
 ## Completion record
 

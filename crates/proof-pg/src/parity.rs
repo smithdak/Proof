@@ -11,13 +11,14 @@
 
 use proof_application::Timestamp;
 use proof_application::authority::{
-    AuthorityOperation, LocalizedChangeSetAddInputV2, LocalizedChangeSetCreateInputV2,
-    LocalizedChangeSetGetInputV2, LocalizedChangeSetSubmitInputV2,
+    AuthorityOperation, LocalizedChangeSetAddInputV2, LocalizedChangeSetCommitInputV2,
+    LocalizedChangeSetCreateInputV2, LocalizedChangeSetGetInputV2, LocalizedChangeSetSubmitInputV2,
     LocalizedChangeSetValidateInputV2, LocalizedContextBuildInputV2, WorkspaceStatusInputV1,
 };
 use proof_application::{
-    AddLocalizedEditsCommand, AddedLocalizedEdits, LocalizedValidation, ObjectLocalePutInput,
-    SubmittedLocalizedChangeSet,
+    AddLocalizedEditsCommand, AddedLocalizedEdits, CommitLocalizedChangeSetCommand,
+    CommittedLocalizedChangeSet, KNOWN_STATE_V1_API_VERSION, KNOWN_STATE_V2_API_VERSION,
+    LocalizedValidation, ObjectLocalePutInput, SubmittedLocalizedChangeSet,
 };
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
@@ -53,6 +54,8 @@ const FACT_KIND_LOCALIZED_EDIT: &str = "localized_edit";
 /// Fact kind marker for one imported localized validation attempt.
 const FACT_KIND_LOCALIZED_VALIDATION: &str = "localized_validation";
 const FACT_KIND_LOCALIZED_SUBMISSION: &str = "localized_submission";
+const FACT_KIND_LOCALIZED_APPROVAL: &str = "localized_approval";
+const FACT_KIND_LOCALIZED_COMMIT: &str = "localized_commit";
 
 /// The PostgreSQL parity backend: it evaluates a shared operation against the
 /// imported, verified PostgreSQL state (contract §"Conformance and
@@ -441,6 +444,38 @@ fn run_postgres_operation(
                 ),
             }
         }
+        AuthorityOperation::ChangesetCommitV2 => {
+            let Ok(input) = parse_input::<LocalizedChangeSetCommitInputV2>(normalized_input) else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            let command = input.into_application_command();
+            match pg_commit_changeset(runtime, &command) {
+                Ok(committed) => {
+                    let result =
+                        proof_remote::oracle::serialize_committed_localized_changeset(&committed);
+                    let effect = operation_effect_digest(&result)
+                        .map_err(|error| PgError::Integrity(error.to_string()))?;
+                    success_trace(
+                        &operation,
+                        normalized_input,
+                        evaluated_authority_head,
+                        result,
+                        Some(effect),
+                    )
+                }
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
+        }
         AuthorityOperation::ChangesetGetV2 => {
             let Ok(input) = parse_input::<LocalizedChangeSetGetInputV2>(normalized_input) else {
                 return stable_problem_trace(
@@ -647,6 +682,8 @@ fn import_parity_facts(
     import_resource_intent_meta(runtime, &connection, &workspace_id)?;
     import_source_objects(runtime, &connection, &workspace_id)?;
     import_localized_submissions(runtime, &connection, &workspace_id)?;
+    import_localized_approvals(runtime, &connection, &workspace_id)?;
+    import_localized_commits(runtime, &connection, &workspace_id)?;
     import_renditions(runtime, &connection, &workspace_id)?;
     import_localizable_schemas(runtime, &connection, &workspace_id)?;
     import_known_state_head(runtime, &connection, &workspace_id)?;
@@ -1081,7 +1118,6 @@ fn import_localized_validations(
             "attempt": attempt,
             "changeset_id": changeset_id,
             "effective_leaf_digest": effective_leaf,
-            "findings": findings,
             "policy_digest": policy,
             "previous_result_digest": previous,
             "proposal_digest": proposal_digest,
@@ -1089,6 +1125,8 @@ fn import_localized_validations(
                 .map_err(|error| PgError::Import(error.to_string()))?,
             "results_digest": results_digest.to_string(),
             "sealed_changeset_digest": sealed,
+            "findings": serde_json::from_str::<Value>(&findings)
+                .map_err(|error| PgError::Import(error.to_string()))?,
             "valid": valid != 0,
             "validator": validator_text,
         });
@@ -2481,7 +2519,8 @@ fn import_source_objects(
 ) -> Result<(), PgError> {
     let mut statement = connection
         .prepare(
-            "SELECT object_id, schema_id, schema_version, content_json, object_digest
+            "SELECT object_id, schema_id, schema_version, content_json, object_digest,
+                    authoritative_sequence
              FROM object_revisions WHERE revision = 1 AND lifecycle_state = 'active'
              ORDER BY object_id",
         )
@@ -2494,11 +2533,12 @@ fn import_source_objects(
                 row.get::<_, i64>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
             ))
         })
         .map_err(|error| PgError::Import(error.to_string()))?;
     for row in rows {
-        let (object_id, schema_id, schema_version, content_json, object_digest) =
+        let (object_id, schema_id, schema_version, content_json, object_digest, sequence) =
             row.map_err(|error| PgError::Import(error.to_string()))?;
         let value: Value = serde_json::from_str(&content_json)
             .map_err(|error| PgError::Import(error.to_string()))?;
@@ -2526,6 +2566,8 @@ fn import_source_objects(
         }
         let body = serde_json::json!({
             "api_version": "proof.dev/parity/source-object/v1",
+            "authoritative_sequence": u64::try_from(sequence)
+                .map_err(|_| PgError::Import("negative Object sequence".to_owned()))?,
             "object_id": object_id,
             "schema_id": schema_id,
             "schema_version": schema_version,
@@ -2616,7 +2658,8 @@ fn import_localizable_schemas(
 ) -> Result<(), PgError> {
     let mut statement = connection
         .prepare(
-            "SELECT schema_id, schema_version, document_json, document_digest
+            "SELECT schema_id, schema_version, document_json, document_digest,
+                    authoritative_sequence
              FROM schema_versions ORDER BY schema_id, schema_version",
         )
         .map_err(|error| PgError::Import(error.to_string()))?;
@@ -2627,11 +2670,12 @@ fn import_localizable_schemas(
                 row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
             ))
         })
         .map_err(|error| PgError::Import(error.to_string()))?;
     for row in rows {
-        let (schema_id, schema_version, document_json, document_digest) =
+        let (schema_id, schema_version, document_json, document_digest, sequence) =
             row.map_err(|error| PgError::Import(error.to_string()))?;
         let value: Value = serde_json::from_str(&document_json)
             .map_err(|error| PgError::Import(error.to_string()))?;
@@ -2644,6 +2688,8 @@ fn import_localizable_schemas(
         }
         let body = serde_json::json!({
             "api_version": "proof.dev/parity/localizable-schema/v1",
+            "authoritative_sequence": u64::try_from(sequence)
+                .map_err(|_| PgError::Import("negative Schema sequence".to_owned()))?,
             "document": value,
             "document_digest": document_digest,
             "schema_id": schema_id,
@@ -4160,6 +4206,907 @@ fn localized_lifecycle_effect(
             "principal_id": principal_id.to_string(),
             "sealed_changeset_digest": sealed_changeset_digest.to_string(),
             "validation_results_digest": validation_results_digest.to_string(),
+        },
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(digest(
+        proof_domain::ArtifactKind::OperationEffectV1,
+        &effect,
+    ))
+}
+
+/// Persists localized approvals as verified parity facts.
+fn import_localized_approvals(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, approval_name, sealed_changeset_digest,
+                    validation_results_digest, principal_id, approved_at, effect_digest
+             FROM localized_approvals ORDER BY changeset_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (
+            changeset_id,
+            approval_name,
+            sealed,
+            validation_results_digest,
+            principal_id,
+            approved_at,
+            effect_digest,
+        ) = row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/localized-approval/v1",
+            "approval_name": approval_name,
+            "approved_at": approved_at,
+            "changeset_id": changeset_id,
+            "effect_digest": effect_digest,
+            "principal_id": principal_id,
+            "sealed_changeset_digest": sealed,
+            "validation_results_digest": validation_results_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("localized_approval/{changeset_id}"),
+            "proof:parity:localized-approval:v1",
+            FACT_KIND_LOCALIZED_APPROVAL,
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists localized commits with their exact resulting-state references.
+fn import_localized_commits(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT changeset_id, idempotency_key, sealed_changeset_digest,
+                    validation_results_digest, previous_state_api_version,
+                    previous_authoritative_sequence, previous_state_digest,
+                    resulting_authoritative_sequence, resulting_state_digest,
+                    resulting_state_json, committed_at, effect_digest
+             FROM localized_commits ORDER BY changeset_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, String>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, String>(11)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (
+            changeset_id,
+            idempotency_key,
+            sealed,
+            validation_results_digest,
+            previous_api_version,
+            previous_sequence,
+            previous_digest,
+            resulting_sequence,
+            resulting_digest,
+            resulting_state_json,
+            committed_at,
+            effect_digest,
+        ) = row.map_err(|error| PgError::Import(error.to_string()))?;
+        let resulting_manifest: Value = serde_json::from_str(&resulting_state_json)
+            .map_err(|error| PgError::Import(error.to_string()))?;
+        let reproduced = digest(ArtifactKind::KnownStateV2, &{
+            canonicalize(&resulting_manifest).map_err(|error| PgError::Import(error.to_string()))?
+        });
+        if reproduced.to_string() != resulting_digest {
+            return Err(PgError::Import(
+                "resulting Known State digest does not reproduce".to_owned(),
+            ));
+        }
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/localized-commit/v1",
+            "changeset_id": changeset_id,
+            "committed_at": committed_at,
+            "effect_digest": effect_digest,
+            "idempotency_key": idempotency_key,
+            "previous_state_api_version": previous_api_version,
+            "previous_state_digest": previous_digest,
+            "previous_state_sequence": u64::try_from(previous_sequence)
+                .map_err(|_| PgError::Import("negative sequence".to_owned()))?,
+            "resulting_state_digest": resulting_digest,
+            "resulting_state_sequence": u64::try_from(resulting_sequence)
+                .map_err(|_| PgError::Import("negative sequence".to_owned()))?,
+            "resulting_state_manifest": resulting_manifest,
+            "sealed_changeset_digest": sealed,
+            "validation_results_digest": validation_results_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("localized_commit/{changeset_id}"),
+            "proof:parity:localized-commit:v1",
+            FACT_KIND_LOCALIZED_COMMIT,
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Ports `commit_changeset` over imported parity facts.
+#[allow(clippy::too_many_lines)]
+fn pg_commit_changeset(
+    runtime: &mut PgRuntime,
+    command: &CommitLocalizedChangeSetCommand,
+) -> Result<CommittedLocalizedChangeSet, String> {
+    use proof_application::{ChangeSetStatus, LocaleRevision};
+    const INVALID: &str = "proof.input.schema_mismatch";
+    let request = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation/changeset.commit/v2",
+        "changeset_id": command.changeset_id.to_string(),
+        "committed_at": command.committed_at.to_string(),
+        "idempotency_key": command.idempotency_key.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let request_digest = digest(proof_domain::ArtifactKind::OperationEffectV1, &request);
+
+    let principal = parity_principal(runtime)?;
+    let op_fact_id = format!(
+        "op_changeset_commit/{principal}/{key}",
+        key = command.idempotency_key
+    );
+    if let Some(prior) = fact_json(runtime, &op_fact_id)? {
+        let stored_effect: ContentDigest = prior
+            .get("effect_digest")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("op effect"))?
+            .parse()
+            .map_err(|_| integrity_code("op effect"))?;
+        let persisted_id = json_str(&prior, "changeset_id")?
+            .parse()
+            .map_err(|_| integrity_code("commit identity"))?;
+        let result = pg_load_commit(runtime, persisted_id)?;
+        let expected_effect = localized_commit_effect(request_digest, &result)?;
+        if persisted_id != command.changeset_id || stored_effect != expected_effect {
+            return Err("proof.idempotency.key_reused".to_owned());
+        }
+        return Ok(result);
+    }
+
+    let changeset = load_pg_localized_changeset(runtime, &command.changeset_id.to_string())?;
+    if changeset.principal_id != principal {
+        return Err("proof.resource.not_found".to_owned());
+    }
+    if changeset.status != ChangeSetStatus::Approved {
+        return Err("proof.changeset.not_approved".to_owned());
+    }
+    let chain = pg_validation_chain(runtime, &command.changeset_id.to_string())?;
+    let validation = chain
+        .last()
+        .ok_or_else(|| integrity_code("localized ChangeSet has no validation evidence"))?;
+    let sealed = validation
+        .sealed_changeset_digest
+        .ok_or_else(|| integrity_code("valid localized validation lacks a seal"))?;
+    let approval = require_fact_json(
+        runtime,
+        &format!("localized_approval/{}", command.changeset_id),
+        "proof.evidence.incomplete",
+    )?;
+    let approved_at: Timestamp = json_str(&approval, "approved_at")?
+        .parse()
+        .map_err(|_| integrity_code("approval timestamp"))?;
+    if command.committed_at < approved_at {
+        return Err(INVALID.to_owned());
+    }
+    if !validation.valid || changeset.sealed_changeset_digest.as_ref() != Some(&sealed) {
+        return Err(integrity_code(
+            "localized ChangeSet seal is not the valid validation head",
+        ));
+    }
+    let intent_manifest = require_fact_json(
+        runtime,
+        &format!("resource_intent/{}", changeset.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let environment_id = json_str(&intent_manifest, "environment_id")?;
+    let current_baseline = pg_current_baseline(runtime, environment_id)?;
+    if current_baseline.known_state.authoritative_sequence
+        != changeset.base_state.authoritative_sequence
+        || current_baseline.known_state.digest != changeset.base_state.digest
+    {
+        return Err("proof.state.conflict".to_owned());
+    }
+    let head = require_fact_json(runtime, "known_state/head", "proof.state.conflict")?;
+    let previous_state = KnownStateArtifactReference {
+        api_version: json_str(&head, "known_state_api_version")?.to_owned(),
+        authoritative_sequence: head
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("head sequence"))?,
+        digest: json_str(&head, "state_digest")?
+            .parse()
+            .map_err(|_| integrity_code("head digest"))?,
+    };
+    if previous_state.authoritative_sequence != changeset.base_state.authoritative_sequence
+        || previous_state.digest != changeset.base_state.digest
+    {
+        return Err("proof.state.conflict".to_owned());
+    }
+    ensure_known_state_artifact_pg(runtime, &previous_state)?;
+    let (_, _, effective_edits) = pg_proposal(&changeset)?;
+    if effective_edits.is_empty() {
+        return Err(INVALID.to_owned());
+    }
+    let workspace_typed = workspace_id_of(runtime)?
+        .parse()
+        .map_err(|_| integrity_code("workspace identity"))?;
+    let mut renditions = Vec::with_capacity(effective_edits.len());
+    let mut next_sequence = previous_state.authoritative_sequence;
+    for edit in &effective_edits {
+        verify_edit_input_pg(
+            runtime,
+            &intent_manifest,
+            &edit.input,
+            previous_state.authoritative_sequence,
+        )?;
+        next_sequence = next_sequence
+            .checked_add(1)
+            .ok_or_else(|| integrity_code("authoritative sequence overflow"))?;
+        let previous = pg_rendition_at(
+            runtime,
+            &edit.input.object_id.to_string(),
+            &edit.input.locale.to_string(),
+            previous_state.authoritative_sequence,
+        )?;
+        let revision = LocaleRevision::new(
+            previous
+                .as_ref()
+                .map_or(1, |value| value.revision.saturating_add(1)),
+        )
+        .map_err(|error| integrity_code(&error.to_string()))?;
+        let previous_revision_digest = previous.as_ref().map(|value: &PgRenditionAt| {
+            value
+                .digest
+                .parse::<ContentDigest>()
+                .map_err(|_| integrity_code("rendition digest"))
+        });
+        let previous_revision_digest = match previous_revision_digest {
+            Some(value) => Some(value?),
+            None => None,
+        };
+        let content: Value = serde_json::from_str(edit.input.canonical_content.as_str())
+            .map_err(|error| integrity_code(&error.to_string()))?;
+        let (manifest, rendition_digest) =
+            proof_canonical::object_locale_revision(&proof_canonical::ObjectLocaleRevisionInput {
+                workspace_id: workspace_typed,
+                object_id: edit.input.object_id,
+                locale: &edit.input.locale,
+                revision,
+                previous_revision_digest,
+                source_object_revision: edit.input.expected_source.revision,
+                source_object_digest: edit.input.expected_source.digest,
+                schema_id: &edit.input.expected_source.schema_id,
+                schema_version: edit.input.expected_source.schema_version,
+                content: &content,
+                changeset_id: changeset.changeset_id,
+                edit_id: edit.edit_id,
+                authoritative_sequence: next_sequence,
+            })
+            .map_err(|error| integrity_code(&error.to_string()))?;
+        let workspace_id = workspace_id_of(runtime)?;
+        persist_committed_rendition(runtime, &workspace_id, &manifest, rendition_digest)?;
+        renditions.push(proof_application::ObjectLocaleRevision {
+            workspace_id: workspace_typed,
+            object_id: edit.input.object_id,
+            locale: edit.input.locale.clone(),
+            revision,
+            previous_revision_digest,
+            source_object_revision: edit.input.expected_source.revision,
+            source_object_digest: edit.input.expected_source.digest,
+            schema_id: edit.input.expected_source.schema_id.clone(),
+            schema_version: edit.input.expected_source.schema_version,
+            canonical_content: edit.input.canonical_content.clone(),
+            changeset_id: changeset.changeset_id,
+            edit_id: edit.edit_id,
+            authoritative_sequence: next_sequence,
+            manifest_json: manifest.as_str().to_owned(),
+            rendition_digest,
+        });
+    }
+    let schemas = pg_schema_state_references(runtime, next_sequence)?;
+    let objects = pg_object_state_references(runtime, next_sequence)?;
+    let locale_references = pg_locale_state_references(runtime, next_sequence)?;
+    let previous_reference = proof_canonical::PreviousKnownStateReference {
+        api_version: previous_state.api_version.clone(),
+        authoritative_sequence: previous_state.authoritative_sequence,
+        digest: previous_state.digest,
+    };
+    let state_manifest = proof_canonical::known_state_v2_manifest(
+        workspace_typed,
+        next_sequence,
+        &schemas,
+        &objects,
+        &locale_references,
+        &previous_reference,
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let state_digest = digest(proof_domain::ArtifactKind::KnownStateV2, &state_manifest);
+    let resulting_state = KnownStateArtifactReference {
+        api_version: KNOWN_STATE_V2_API_VERSION.to_owned(),
+        authoritative_sequence: next_sequence,
+        digest: state_digest,
+    };
+    let result = CommittedLocalizedChangeSet {
+        changeset_id: changeset.changeset_id,
+        sealed_changeset_digest: validation
+            .sealed_changeset_digest
+            .ok_or_else(|| integrity_code("valid localized validation lacks seal"))?,
+        validation_results_digest: validation.validation_results_digest,
+        previous_state: previous_state.clone(),
+        resulting_state: resulting_state.clone(),
+        renditions,
+        committed_at: command.committed_at,
+        status: ChangeSetStatus::Committed,
+    };
+    let effect_digest = localized_commit_effect(request_digest, &result)?;
+    let workspace_id = workspace_id_of(runtime)?;
+    // Known State artifact fact.
+    let artifact_body = serde_json::json!({
+        "api_version": KNOWN_STATE_V2_API_VERSION,
+        "authoritative_sequence": next_sequence,
+        "state_digest": state_digest.to_string(),
+        "manifest": serde_json::from_str::<Value>(state_manifest.as_str())
+            .map_err(|error| integrity_code(&error.to_string()))?,
+    });
+    store_verified_fact(
+        runtime,
+        &workspace_id,
+        &format!(
+            "known_state_artifact/{}",
+            format_args!("{next_sequence:020}")
+        ),
+        "proof:parity:known-state-artifact:v1",
+        "known_state_artifact",
+        &artifact_body,
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    // Commit record fact.
+    let commit_body = serde_json::json!({
+        "api_version": "proof.dev/parity/localized-commit/v1",
+        "changeset_id": changeset.changeset_id.to_string(),
+        "committed_at": command.committed_at.to_string(),
+        "effect_digest": effect_digest.to_string(),
+        "idempotency_key": command.idempotency_key.to_string(),
+        "renditions": result.renditions.iter().map(serialize_commit_rendition).collect::<Vec<_>>(),
+        "resulting_state_digest": state_digest.to_string(),
+        "resulting_state_manifest": serde_json::from_str::<Value>(state_manifest.as_str())
+            .map_err(|error| integrity_code(&error.to_string()))?,
+        "resulting_state_sequence": next_sequence,
+        "sealed_changeset_digest": result.sealed_changeset_digest.to_string(),
+        "validation_results_digest": result.validation_results_digest.to_string(),
+        "previous_state_api_version": previous_state.api_version,
+        "previous_state_digest": previous_state.digest.to_string(),
+        "previous_state_sequence": previous_state.authoritative_sequence,
+    });
+    upsert_parity_fact(
+        runtime,
+        &workspace_id,
+        &format!("localized_commit/{}", changeset.changeset_id),
+        FACT_KIND_LOCALIZED_COMMIT,
+        &commit_body,
+        "proof:parity:localized-commit:v1",
+    )?;
+    // Advance the write head.
+    let head_body = serde_json::json!({
+        "api_version": "proof.dev/parity/known-state-head/v1",
+        "authoritative_sequence": next_sequence,
+        "known_state_api_version": KNOWN_STATE_V2_API_VERSION,
+        "state_digest": state_digest.to_string(),
+    });
+    upsert_parity_fact(
+        runtime,
+        &workspace_id,
+        "known_state/head",
+        "known_state_head",
+        &head_body,
+        "proof:parity:known-state-head:v1",
+    )?;
+    // Lifecycle projection.
+    let prior_body = require_fact_json(
+        runtime,
+        &format!("localized_changeset/{}", changeset.changeset_id),
+        "proof.resource.not_found",
+    )?;
+    let mut updated = prior_body.clone();
+    updated["lifecycle_status"] = Value::String("committed".into());
+    upsert_parity_fact(
+        runtime,
+        &workspace_id,
+        &format!("localized_changeset/{}", changeset.changeset_id),
+        FACT_KIND_LOCALIZED_CHANGESET,
+        &updated,
+        "proof:parity:localized-changeset:v1",
+    )?;
+    insert_parity_op_fact(
+        runtime,
+        &op_fact_id,
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/changeset-commit-operation/v1",
+            "principal_id": principal.to_string(),
+            "idempotency_key": command.idempotency_key.to_string(),
+            "changeset_id": command.changeset_id.to_string(),
+            "request_digest": request_digest.to_string(),
+            "effect_digest": effect_digest.to_string(),
+        }),
+    )?;
+    Ok(result)
+}
+
+/// Rebuilds a committed ChangeSet result from its fact.
+#[allow(clippy::too_many_lines)]
+fn pg_load_commit(
+    runtime: &mut PgRuntime,
+    changeset_id: proof_application::ChangeSetId,
+) -> Result<CommittedLocalizedChangeSet, String> {
+    use proof_application::{ChangeSetStatus, LocaleRevision};
+    let _ = runtime;
+    let body = require_fact_json(
+        runtime,
+        &format!("localized_commit/{changeset_id}"),
+        "proof.resource.not_found",
+    )?;
+    let previous_state = KnownStateArtifactReference {
+        api_version: json_str(&body, "previous_state_api_version")?.to_owned(),
+        authoritative_sequence: body
+            .get("previous_state_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("previous sequence"))?,
+        digest: json_str(&body, "previous_state_digest")?
+            .parse()
+            .map_err(|_| integrity_code("previous digest"))?,
+    };
+    let resulting_state = KnownStateArtifactReference {
+        api_version: KNOWN_STATE_V2_API_VERSION.to_owned(),
+        authoritative_sequence: body
+            .get("resulting_state_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("resulting sequence"))?,
+        digest: json_str(&body, "resulting_state_digest")?
+            .parse()
+            .map_err(|_| integrity_code("resulting digest"))?,
+    };
+    let renditions = body
+        .get("renditions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| integrity_code("commit renditions"))?
+        .iter()
+        .map(|stored| {
+            Ok(proof_application::ObjectLocaleRevision {
+                workspace_id: parse_workspace(json_str(stored, "workspace_id")?)?,
+                object_id: json_str(stored, "object_id")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition object"))?,
+                locale: json_str(stored, "locale")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition locale"))?,
+                revision: LocaleRevision::new(
+                    u32::try_from(
+                        stored
+                            .get("revision")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("rendition revision"))?,
+                    )
+                    .map_err(|_| integrity_code("revision range"))?,
+                )
+                .map_err(|error| integrity_code(&error.to_string()))?,
+                previous_revision_digest: stored
+                    .get("previous_revision_digest")
+                    .and_then(Value::as_str)
+                    .map(str::parse)
+                    .transpose()
+                    .map_err(|_| integrity_code("rendition previous digest"))?,
+                source_object_revision: proof_application::ObjectRevision::new(
+                    u32::try_from(
+                        stored
+                            .get("source_object_revision")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("source revision"))?,
+                    )
+                    .map_err(|_| integrity_code("source revision range"))?,
+                )
+                .map_err(|error| integrity_code(&error.to_string()))?,
+                source_object_digest: json_str(stored, "source_object_digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition source digest"))?,
+                schema_id: proof_domain::SchemaId::new(json_str(stored, "schema_id")?)
+                    .map_err(|error| integrity_code(&error.to_string()))?,
+                schema_version: proof_domain::SchemaVersion::new(
+                    u32::try_from(
+                        stored
+                            .get("schema_version")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("schema version"))?,
+                    )
+                    .map_err(|_| integrity_code("schema version range"))?,
+                )
+                .map_err(|error| integrity_code(&error.to_string()))?,
+                canonical_content: json_str(stored, "canonical_content")?.to_owned(),
+                changeset_id: json_str(stored, "changeset_id")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition changeset"))?,
+                edit_id: json_str(stored, "edit_id")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition edit"))?,
+                authoritative_sequence: stored
+                    .get("authoritative_sequence")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| integrity_code("rendition sequence"))?,
+                manifest_json: json_str(stored, "manifest_json")?.to_owned(),
+                rendition_digest: json_str(stored, "rendition_digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition digest"))?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(CommittedLocalizedChangeSet {
+        changeset_id,
+        sealed_changeset_digest: json_str(&body, "sealed_changeset_digest")?
+            .parse()
+            .map_err(|_| integrity_code("seal digest"))?,
+        validation_results_digest: json_str(&body, "validation_results_digest")?
+            .parse()
+            .map_err(|_| integrity_code("results digest"))?,
+        previous_state,
+        resulting_state,
+        renditions,
+        committed_at: json_str(&body, "committed_at")?
+            .parse()
+            .map_err(|_| integrity_code("commit timestamp"))?,
+        status: ChangeSetStatus::Committed,
+    })
+}
+
+/// Serializes one rendition for the commit record fact.
+fn serialize_commit_rendition(rendition: &proof_application::ObjectLocaleRevision) -> Value {
+    serde_json::json!({
+        "authoritative_sequence": rendition.authoritative_sequence,
+        "canonical_content": rendition.canonical_content,
+        "changeset_id": rendition.changeset_id.to_string(),
+        "edit_id": rendition.edit_id.to_string(),
+        "locale": rendition.locale.as_str(),
+        "manifest_json": rendition.manifest_json,
+        "object_id": rendition.object_id.to_string(),
+        "previous_revision_digest": rendition.previous_revision_digest.map(|value| value.to_string()),
+        "rendition_digest": rendition.rendition_digest.to_string(),
+        "revision": rendition.revision.get(),
+        "schema_id": rendition.schema_id.as_str(),
+        "schema_version": rendition.schema_version.get(),
+        "source_object_digest": rendition.source_object_digest.to_string(),
+        "source_object_revision": rendition.source_object_revision.get(),
+        "workspace_id": rendition.workspace_id.to_string(),
+    })
+}
+
+/// Persists one newly committed rendition fact.
+fn persist_committed_rendition(
+    runtime: &mut PgRuntime,
+    workspace_id: &str,
+    manifest: &proof_canonical::CanonicalJson,
+    rendition_digest: ContentDigest,
+) -> Result<(), String> {
+    let parsed: Value =
+        serde_json::from_str(manifest.as_str()).map_err(|e| integrity_code(&e.to_string()))?;
+    let object_id = parsed
+        .get("object_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("rendition identity"))?;
+    let locale = parsed
+        .get("locale")
+        .and_then(Value::as_str)
+        .ok_or_else(|| integrity_code("rendition identity"))?;
+    let sequence = parsed
+        .get("authoritative_sequence")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| integrity_code("rendition identity"))?;
+    let revision = parsed
+        .get("revision")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| integrity_code("rendition identity"))?;
+    let value: Value =
+        serde_json::from_str(manifest.as_str()).map_err(|e| integrity_code(&e.to_string()))?;
+    let body = serde_json::json!({
+        "api_version": "proof.dev/parity/locale-rendition/v1",
+        "authoritative_sequence": sequence,
+        "changeset_id": value
+            .get("changeset_id")
+            .cloned()
+            .ok_or_else(|| integrity_code("rendition identity"))?,
+        "manifest": value,
+        "rendition_digest": rendition_digest.to_string(),
+    });
+    let canonical = canonicalize(&body).map_err(|e| integrity_code(&e.to_string()))?;
+    let fact_digest = derive_key_digest("proof:parity:locale-rendition:v1", canonical.as_bytes());
+    insert_fact(
+        runtime,
+        &format!("locale_rendition/{object_id}/{locale}/{sequence:020}/{revision:020}"),
+        workspace_id,
+        "locale_rendition",
+        &fact_digest,
+        canonical.as_bytes(),
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(())
+}
+
+/// Ports `ensure_known_state_artifact`.
+fn ensure_known_state_artifact_pg(
+    runtime: &mut PgRuntime,
+    state: &KnownStateArtifactReference,
+) -> Result<(), String> {
+    if state.api_version == KNOWN_STATE_V1_API_VERSION {
+        return Ok(());
+    }
+    let fact_id = format!(
+        "known_state_artifact/{}",
+        format_args!("{:020}", state.authoritative_sequence)
+    );
+    if fact_json(runtime, &fact_id)?.is_some() {
+        return Ok(());
+    }
+    Err(integrity_code("Known State artifact is missing"))
+}
+
+/// Ports `schema_state_references`.
+fn pg_schema_state_references(
+    runtime: &mut PgRuntime,
+    sequence: u64,
+) -> Result<
+    Vec<(
+        proof_domain::SchemaId,
+        proof_domain::SchemaVersion,
+        ContentDigest,
+    )>,
+    String,
+> {
+    let rows = {
+        let client = runtime.client_mut();
+        client.query(
+            "SELECT fact_id, body FROM facts WHERE fact_kind = $1 ORDER BY fact_id",
+            &[&"localizable_schema"],
+        )
+    }
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let mut schemas = Vec::new();
+    for row in rows {
+        let body: Vec<u8> = row.get(1);
+        let value: Value =
+            serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+        let item_sequence = value
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("schema sequence"))?;
+        if item_sequence > sequence {
+            continue;
+        }
+        let document = value
+            .get("document")
+            .cloned()
+            .ok_or_else(|| integrity_code("schema document"))?;
+        let canonical = canonicalize(&document).map_err(|e| integrity_code(&e.to_string()))?;
+        let digest_value: ContentDigest = json_str(&value, "document_digest")?
+            .parse()
+            .map_err(|_| integrity_code("schema digest"))?;
+        if digest(proof_domain::ArtifactKind::SchemaVersionV1, &canonical) != digest_value {
+            return Err(integrity_code("Schema state reference does not reproduce"));
+        }
+        schemas.push((
+            proof_domain::SchemaId::new(json_str(&value, "schema_id")?)
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            proof_domain::SchemaVersion::new(
+                u32::try_from(
+                    value
+                        .get("schema_version")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| integrity_code("schema version"))?,
+                )
+                .map_err(|_| integrity_code("schema version range"))?,
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?,
+            digest_value,
+        ));
+    }
+    Ok(schemas)
+}
+
+/// Ports `object_state_references`.
+fn pg_object_state_references(
+    runtime: &mut PgRuntime,
+    sequence: u64,
+) -> Result<Vec<proof_canonical::ObjectStateReference>, String> {
+    use proof_application::ObjectLifecycleState;
+    let rows = {
+        let client = runtime.client_mut();
+        client.query(
+            "SELECT body FROM facts WHERE fact_kind = $1 ORDER BY fact_id",
+            &[&"source_object"],
+        )
+    }
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let mut objects = Vec::new();
+    for row in rows {
+        let body: Vec<u8> = row.get(0);
+        let value: Value =
+            serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+        let item_sequence = value
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("object sequence"))?;
+        if item_sequence > sequence {
+            continue;
+        }
+        objects.push(proof_canonical::ObjectStateReference {
+            object_id: json_str(&value, "object_id")?
+                .parse()
+                .map_err(|_| integrity_code("object identity"))?,
+            revision: proof_application::ObjectRevision::INITIAL,
+            schema_id: proof_domain::SchemaId::new(json_str(&value, "schema_id")?)
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            schema_version: proof_domain::SchemaVersion::new(
+                u32::try_from(
+                    value
+                        .get("schema_version")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| integrity_code("object schema version"))?,
+                )
+                .map_err(|_| integrity_code("schema version range"))?,
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?,
+            lifecycle_state: ObjectLifecycleState::Active,
+            object_digest: json_str(&value, "object_digest")?
+                .parse()
+                .map_err(|_| integrity_code("object digest"))?,
+        });
+    }
+    Ok(objects)
+}
+
+/// Ports `locale_state_references` over rendition facts.
+fn pg_locale_state_references(
+    runtime: &mut PgRuntime,
+    sequence: u64,
+) -> Result<Vec<proof_canonical::LocaleStateReference>, String> {
+    let rows = {
+        let client = runtime.client_mut();
+        client.query(
+            "SELECT fact_id, body FROM facts WHERE fact_kind = $1 ORDER BY fact_id",
+            &[&"locale_rendition"],
+        )
+    }
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let mut heads =
+        std::collections::BTreeMap::<(String, String), proof_canonical::LocaleStateReference>::new(
+        );
+    for row in rows {
+        let body: Vec<u8> = row.get(1);
+        let value: Value =
+            serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+        let item_sequence = value
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("rendition sequence"))?;
+        if item_sequence > sequence {
+            continue;
+        }
+        let manifest = value
+            .get("manifest")
+            .cloned()
+            .ok_or_else(|| integrity_code("rendition manifest"))?;
+        let key = (
+            json_str(&manifest, "object_id")?.to_owned(),
+            json_str(&manifest, "locale")?.to_owned(),
+        );
+        heads.insert(
+            key,
+            proof_canonical::LocaleStateReference {
+                object_id: json_str(&manifest, "object_id")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition object"))?,
+                locale: json_str(&manifest, "locale")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition locale"))?,
+                revision: proof_application::LocaleRevision::new(
+                    u32::try_from(
+                        manifest
+                            .get("revision")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("rendition revision"))?,
+                    )
+                    .map_err(|_| integrity_code("revision range"))?,
+                )
+                .map_err(|error| integrity_code(&error.to_string()))?,
+                rendition_digest: json_str(&value, "rendition_digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition digest"))?,
+                source_object_digest: json_str(&manifest, "source_object_digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("rendition source digest"))?,
+                schema_id: proof_domain::SchemaId::new(json_str(&manifest, "schema_id")?)
+                    .map_err(|error| integrity_code(&error.to_string()))?,
+                schema_version: proof_domain::SchemaVersion::new(
+                    u32::try_from(
+                        manifest
+                            .get("schema_version")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| integrity_code("rendition schema version"))?,
+                    )
+                    .map_err(|_| integrity_code("schema version range"))?,
+                )
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            },
+        );
+    }
+    Ok(heads.into_values().collect())
+}
+
+/// Ports `localized_commit_effect`.
+fn localized_commit_effect(
+    request_digest: ContentDigest,
+    result: &CommittedLocalizedChangeSet,
+) -> Result<ContentDigest, String> {
+    let effect = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": "changeset.commit/v2",
+        "request_digest": request_digest.to_string(),
+        "result": {
+            "changeset_id": result.changeset_id.to_string(),
+            "committed_at": result.committed_at.to_string(),
+            "previous_state": {
+                "api_version": result.previous_state.api_version,
+                "authoritative_sequence": result.previous_state.authoritative_sequence,
+                "digest": result.previous_state.digest.to_string(),
+            },
+            "renditions": result.renditions.iter().map(|rendition| serde_json::json!({
+                "digest": rendition.rendition_digest.to_string(),
+                "edit_id": rendition.edit_id.to_string(),
+                "locale": rendition.locale.as_str(),
+                "object_id": rendition.object_id.to_string(),
+                "revision": rendition.revision.get(),
+            })).collect::<Vec<_>>(),
+            "resulting_state": {
+                "api_version": result.resulting_state.api_version,
+                "authoritative_sequence": result.resulting_state.authoritative_sequence,
+                "digest": result.resulting_state.digest.to_string(),
+            },
+            "sealed_changeset_digest": result.sealed_changeset_digest.to_string(),
+            "validation_results_digest": result.validation_results_digest.to_string(),
         },
     }))
     .map_err(|error| integrity_code(&error.to_string()))?;

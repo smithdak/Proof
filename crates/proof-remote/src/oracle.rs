@@ -931,7 +931,8 @@ pub fn serialize_submitted_localized_changeset(submitted: &SubmittedLocalizedCha
     })
 }
 
-fn serialize_committed_localized_changeset(committed: &CommittedLocalizedChangeSet) -> Value {
+#[must_use]
+pub fn serialize_committed_localized_changeset(committed: &CommittedLocalizedChangeSet) -> Value {
     serde_json::json!({
         "changeset_id": committed.changeset_id.to_string(),
         "sealed_changeset_digest": committed.sealed_changeset_digest.to_string(),
