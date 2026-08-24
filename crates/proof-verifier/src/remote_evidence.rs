@@ -985,9 +985,20 @@ fn verify_membership(
                 if derive_key_digest(&member.digest_context, bytes).to_string()
                     != member.content_digest.to_string()
                 {
+                    // Only a tampered nested content artifact narrows the
+                    // report to the retained content-tamper conformance
+                    // scenario; any other member tamper stays general.
+                    let scenario = if member
+                        .member_path
+                        .starts_with(proof_remote::bundle::ARTIFACT_ROOT_PREFIX)
+                    {
+                        VerificationScenario::InvalidContentArtifactByteTamper
+                    } else {
+                        VerificationScenario::InvalidVerification
+                    };
                     return Some(Failure::invalid(
                         VerificationReasonCode::TamperedArtifact,
-                        VerificationScenario::InvalidContentArtifactByteTamper,
+                        scenario,
                     ));
                 }
             }

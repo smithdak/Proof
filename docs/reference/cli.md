@@ -87,6 +87,8 @@ proof capability list
 proof evidence export --release-id <UUID> --directory <DIR> [--include-subject-opening]
 proof verify --file <PATH> --trusted-key-id <ed25519:HEX> --expected-envelope-digest <blake3:HEX>
 proof-verifier verify --bundle <DIR> --trust <FILE> [--checkpoint <FILE>] [--external-root <PATH>]...
+proof-verifier remote-authority --trust <FILE> --records <FILE>...
+proof-verifier remote-evidence --bundle <DIR> --trust <FILE>
 ```
 
 The ambient Human CLI retains explicit Principal and Delegation selectors for
@@ -115,6 +117,21 @@ authority-head checkpoint and external roots, writes one canonical report, and
 returns `0` for Complete, `20` for Incomplete, `21` for Invalid, or `64` for
 usage/input failure. A checkpoint establishes the supplied authority-prefix
 boundary, not a globally latest Release.
+
+The Milestone 3 remote modes extend the same verifier binary.
+`proof-verifier remote-authority` validates a canonical contiguous DSSE
+authority suffix from the caller-pinned initial head carried by the
+`VerificationTrustPolicyV2` trust input, emitting the verified included head;
+any chain, signature, or contiguity failure exits `21`. Required OIDC subject
+openings, typed authority and Environment/Release checkpoints, and exact
+external-artifact bytes cross the caller trust input boundary; they are never
+fetched and never inferred. `proof-verifier remote-evidence` validates an
+exported six-root logical member map directory against that same trust input,
+recomputing every member digest and enforcing Workspace, identity, command,
+policy, application-key, Release, Proof, result, effect, decision,
+consequence, and authority-head links before returning `0`, `20`, or `21`.
+The verifier performs no producer database, network, or authenticated
+base-state lookup in any mode.
 
 The `proof-mcp` stdio binary implements current MCP `2026-07-28` and legacy MCP
 `2025-11-25` for capability discovery and all 14 enabled authenticated

@@ -19,9 +19,9 @@
 //! ready manifest is written last and whose alias advances monotonically by
 //! Release sequence.
 //!
-//! This is a compiling **skeleton**: every public type and function is declared
-//! here as the contract surface for the implementation successors, and function
-//! bodies are [`todo!()`] stubs. It depends only on [`proof_remote`] (P-0009
+//! The public surface is stable: every type and function declared here is the
+//! contract shape the delivery operations and worker tests exercise. It depends
+//! only on [`proof_remote`] (P-0009
 //! registries/identity/authority/oracle), [`proof_pg`] (P-0010 persistence),
 //! [`proof_domain`], [`proof_canonical`], and [`proof_attestation`]; never the
 //! reverse.

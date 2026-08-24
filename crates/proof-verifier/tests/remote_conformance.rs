@@ -1313,6 +1313,27 @@ fn scenario_invalid_content_artifact_byte_tamper_classifies_invalid_with_integri
     assert_report_matches_conformance_subtype(&registry, &report);
 }
 
+#[test]
+fn non_content_root_tamper_stays_general_invalid_verification() {
+    let (_keys, mut fixture, _records, _policy) = build_standard(false);
+    let path = "authority/facts.json";
+    let mut bytes = fixture.members.get(path).expect("authority member").clone();
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 1;
+    fixture.members.insert(path.to_owned(), bytes);
+
+    let report = verify_remote_evidence_v2(&fixture.members, &fixture.input);
+
+    // Same reason code, but the report must NOT narrow to the retained
+    // content-tamper conformance scenario for a non-content root.
+    assert_eq!(report.status, VerificationStatus::Invalid);
+    assert_eq!(report.scenario, VerificationScenario::InvalidVerification);
+    assert_eq!(
+        report.reason_codes,
+        vec![VerificationReasonCode::TamperedArtifact]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Retained machine vector execution and structural validation.
 // ---------------------------------------------------------------------------

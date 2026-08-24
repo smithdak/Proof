@@ -111,8 +111,7 @@ fn delivery_management_fact_is_not_a_remote_authority_record_payload() {
 
 #[test]
 fn ready_manifest_and_retry_delay_types_are_named() {
-    // The types exist as part of the public surface even though their
-    // construction methods are `todo!()` stubs.
+    // The types exist as part of the public surface.
     let _: Option<ReadyManifestV1> = None;
     let _ = RetryDelay;
 }
