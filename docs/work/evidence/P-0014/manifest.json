@@ -1,0 +1,134 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0014",
+ "base_sha": "15851fc945c11ff77e00d98d2973f0275e70731b",
+ "claim_commit": "15851fc945c11ff77e00d98d2973f0275e70731b",
+ "intermediate_commits": [
+  "f300b509dae7c979d14004b173c7221e64363cfa"
+ ],
+ "candidate_parent_sha": "f300b509dae7c979d14004b173c7221e64363cfa",
+ "candidate_commit": "857734fc443e6500534971e096d0c53fdaf65a2e",
+ "candidate_tree": "eb28f71619f9a77313d10ec754dac9117756be3b",
+ "item_work_commit": "857734fc443e6500534971e096d0c53fdaf65a2e",
+ "destination_shape_commit": "68ac737e4950fd6b6c8f177024e185b54ae88a1b",
+ "branch": "main",
+ "qualified_at": "2026-08-24T15:41:00.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "none",
+ "successors_created": [],
+ "deployed": false,
+ "milestone_complete": false,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "cargo check -p proof-server",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo fmt --all --check",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo clippy -p proof-server --all-targets --all-features -- -D warnings",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test -p proof-server --test enrollment_impl",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --workspace --all-targets --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --doc --workspace --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed"
+  }
+ ],
+ "inventory": {
+  "changed_files": 5,
+  "insertions": 1687,
+  "deletions": 3,
+  "new_retained_vectors": [
+   "conformance/v1/collaboration-server/vectors/enrollment-agent-binding.valid.json",
+   "conformance/v1/collaboration-server/vectors/enrollment-oidc-binding.valid.json"
+  ],
+  "new_test_binary": {
+   "path": "crates/proof-server/tests/enrollment_impl.rs",
+   "tests": 7
+  },
+  "frozen_vector_change_count": 0,
+  "new_third_party_packages": [],
+  "storage_schema_version": "unchanged (v14 surface, no migration added)",
+  "operation_registry_change_count": 0
+ },
+ "residuals": [
+  "server-only successors: no local CLI counterpart exists for remote OIDC session issuance; agent-binding closure reuses the local challenge/envelope artifacts byte-for-byte",
+  "credential rotation, revocation UX beyond frozen revoke artifacts, signing-key lifecycle, and Environment configuration update remain fog",
+  "same-UID hostile-process isolation and Windows containment remain outside this result"
+ ],
+ "environment": {
+  "operating_system": "Linux (Debian bookworm/glibc, WSL2 host)",
+  "kernel": "5.15.167.4-microsoft-standard-WSL2",
+  "architecture": "x86_64-unknown-linux-gnu",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "cargo": "1.97.1 (c980f4866 2026-06-30)",
+  "node": "v22.23.2",
+  "git": "2.43.0",
+  "postgresql": "service reachable at the proof-pg default DSN 127.0.0.1:55432/prooftest (version not queried; all PostgreSQL-backed integration tests connected and passed)"
+ },
+ "artifact_digests": [
+  {
+   "path": "crates/proof-server/src/operations.rs",
+   "git_blob_oid": "42d5c0a16f3c9aa5c91f52b3e17d559737a14632",
+   "algorithm": "sha256",
+   "digest": "31e65651479d7db898ffe3e756657260017924a0f38598d58187a3003e762506"
+  },
+  {
+   "path": "crates/proof-server/tests/enrollment_impl.rs",
+   "git_blob_oid": "42066ea6df131711942d5d72209a0fc1c73bb184",
+   "algorithm": "sha256",
+   "digest": "0137ac735dcebeec9e669326d316ce11dc02766c30570811025ea79080e99b15"
+  },
+  {
+   "path": "conformance/v1/collaboration-server/vectors/enrollment-agent-binding.valid.json",
+   "git_blob_oid": "76c5166b2ed1db098d70b52f921c73a2f59e5b34",
+   "algorithm": "sha256",
+   "digest": "630ecd1a2fa27b42a9b7a567e8059923491517d489686d2bcc60b0ec62c45ede"
+  },
+  {
+   "path": "conformance/v1/collaboration-server/vectors/enrollment-oidc-binding.valid.json",
+   "git_blob_oid": "7024eaa9e4b3b7d90b639ecf4f8a0343c3a63568",
+   "algorithm": "sha256",
+   "digest": "666342c8ae321d9cb09497e0dbb316383372aa0bea20552003a2f9b8c95b311a"
+  },
+  {
+   "path": "CHANGELOG.md",
+   "git_blob_oid": "3d0a0f32588a6e9c2377560db43362ded3185e40",
+   "algorithm": "sha256",
+   "digest": "1a86fe70b65caad2cdb448f47455b408ad2bb5f716d4e71a121f01db45b69208"
+  }
+ ],
+ "artifact_digest_note": "sha256 over exact Git blob bytes at item_work_commit",
+ "evidence_paths": [
+  "docs/work/evidence/P-0014/receipt.md",
+  "docs/work/evidence/P-0014/manifest.json"
+ ],
+ "gate_state": "full Linux quality gate green at item_work_commit"
+}

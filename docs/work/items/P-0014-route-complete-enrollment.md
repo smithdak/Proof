@@ -1,7 +1,7 @@
 ---
 id: P-0014
 title: Implement route-complete enrollment with usable credentials
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: []
@@ -111,4 +111,31 @@ per the [work-control protocol](../README.md).
 
 ## Completion record
 
-Populated after acceptance.
+Implemented and qualified by `ox-alpha:proof:p-0014` in a single wave on
+2026-08-24.
+
+1. Both routes return issued credential material on the allow path and exact
+   ratified Problem codes elsewhere; no call path returns
+   `proof.dependency.unavailable` for either operation. Satisfied.
+2. Issued Agent credentials authenticate through the dual boundary and
+   complete `workspace.status/v1` end to end in the retained test
+   `agent_binding_issue_commits_and_issued_credentials_authenticate`; issued
+   OIDC pairs resolve their subjects through the login binding-resolution
+   path. Satisfied.
+3. Semantic-oracle boundary: both rows are server-only remote decision
+   successors. `agent-binding.issue/v1` reuses the local challenge/envelope
+   artifacts byte-for-byte, so its application semantics are shared with the
+   local enrollment path by construction; `oidc-binding.issue/v1` has no
+   local counterpart because blind generation is server-owned by contract.
+   The retained boundary justification is recorded here per acceptance
+   criterion 3 rather than forcing a synthetic local twin.
+4. Two retained conformance vectors pin the issued artifact field sets and
+   outcome rules; the vector-pinning test consumes them exactly. Zero frozen
+   vectors changed. Satisfied.
+5. Full Linux quality gate passed: fmt, clippy `-D warnings`, workspace
+   tests (34 suites, 533 passed, 0 failed), doc tests, doc links (368), and
+   work-item validation (14 items). Satisfied.
+
+Item-work commit: `857734fc443e6500534971e096d0c53fdaf65a2e`. Evidence:
+[receipt](../evidence/P-0014/receipt.md) and
+[manifest](../evidence/P-0014/manifest.json).

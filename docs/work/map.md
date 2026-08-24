@@ -85,23 +85,23 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `claimed` | none | Implement `agent-binding.issue/v1` and `oidc-binding.issue/v1` end to end so an external Human or Agent caller obtains working credentials instead of a pending Problem. |
+| [Implement route-complete enrollment with usable credentials](items/P-0014-route-complete-enrollment.md) | `review` | none | Implement `agent-binding.issue/v1` and `oidc-binding.issue/v1` end to end so an external Human or Agent caller obtains working credentials instead of a pending Problem. |
+| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `blocked` | P-0014 | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
 
 ## Next
 
 Successors are shaped only when their blockers close. The strategy ladder
-fixes the promotion order inside Destination 4: after P-0014 closes, the
-PostgreSQL-backed application semantic executor residual, then the TypeScript
-SDK, deployable server artifact, documentation quickstart, and license ADR are
-shaped in that order. The public flip is excluded from this destination by
-owner decision; it lands in Destination 5 by default.
+fixes the promotion order inside Destination 4: after P-0015 closes, the
+TypeScript SDK, deployable server artifact, documentation quickstart, and
+license ADR are shaped in that order. The public flip is excluded from this
+destination by owner decision; it lands in Destination 5 by default.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None yet | n/a | P-0014 | Successors are named only when P-0014 closes and reshapes its newly unblocked frontier. |
+| None yet | n/a | P-0015 | Successors are named only when P-0015 closes and reshapes its newly unblocked frontier. |
 
 ## Completed
 
