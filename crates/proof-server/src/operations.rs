@@ -2,6 +2,7 @@
 //! (contract §"PostgreSQL authoritative unit of work", §"HTTP boundary").
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,7 +14,7 @@ use proof_pg::{
     transaction::{UnitOfWorkHooks, UnitOfWorkOutcome, run_unit_of_work},
 };
 use proof_remote::{
-    AuthorityHeadV1, RemoteOperationV1,
+    AuthorityHeadV1, DeliveryManagementAction, DeliveryManagementFactV1, RemoteOperationV1,
     authority::{
         RemoteAuthorityRecordV1, WorkspaceRole, WorkspaceRoleAssignmentApiVersion,
         WorkspaceRoleAssignmentV1, WorkspaceRoleRevocationApiVersion, WorkspaceRoleRevocationV1,
@@ -32,8 +33,8 @@ use serde_json::{Value, json};
 use crate::{AppState, ServerError};
 
 /// Stable pending Problem code returned for dependency successor scope
-/// (evidence export capture/assembly, delivery, and preview materialization)
-/// until S4/S5 (contract §"HTTP boundary").
+/// (evidence export capture/assembly and not-yet-ready preview materialization)
+/// (contract §"HTTP boundary").
 pub const DEPENDENCY_UNAVAILABLE_CODE: &str = "proof.dependency.unavailable";
 
 /// Human operation executor: maps one normalized input to an application
@@ -60,16 +61,21 @@ impl HumanOperationExecutor {
         decision: &RemoteAuthorizationDecisionV1,
     ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
         match operation.name.as_str() {
-            "evidence.export"
-            | "evidence.export.get"
-            | "delivery.replay"
-            | "delivery.abandon"
-            | "delivery.get" => dependency_unavailable_consequence(
+            "evidence.export" | "evidence.export.get" => dependency_unavailable_consequence(
                 operation,
                 normalized_input,
                 actor_context,
                 decision,
             ),
+            "delivery.get" => {
+                delivery_get_v1(state, operation, normalized_input, actor_context, decision)
+            }
+            "delivery.replay" => {
+                delivery_replay_v1(state, operation, normalized_input, actor_context, decision)
+            }
+            "delivery.abandon" => {
+                delivery_abandon_v1(state, operation, normalized_input, actor_context, decision)
+            }
             "workspace-role.assign" => execute_owned(
                 state,
                 operation,
@@ -201,13 +207,8 @@ pub const OWNED_HUMAN_OPERATION_NAMES: [&str; 15] = [
 ];
 
 /// The owned pending-dependency Human rows (contract §"HTTP boundary").
-pub const PENDING_DEPENDENCY_OPERATION_NAMES: [&str; 5] = [
-    "evidence.export",
-    "evidence.export.get",
-    "delivery.get",
-    "delivery.replay",
-    "delivery.abandon",
-];
+pub const PENDING_DEPENDENCY_OPERATION_NAMES: [&str; 2] =
+    ["evidence.export", "evidence.export.get"];
 
 // ---------------------------------------------------------------------------
 // Internal execution machinery
@@ -1001,8 +1002,541 @@ fn read_idempotency_prior(
 }
 
 // ---------------------------------------------------------------------------
-// P-0012 additive delivery and preview executor signatures (stubs).
+// P-0012 delivery and preview executors.
 // ---------------------------------------------------------------------------
+
+/// The exact `Cache-Control` value for private preview responses (contract
+/// §"Preview delivery").
+const PREVIEW_CACHE_CONTROL: &str = "private, no-store";
+
+/// The stable replay reason committed by `delivery.replay/v1` (contract
+/// §"Immutable artifacts and delivery").
+const REPLAY_REASON: &str = "dead-letter-replay";
+
+/// Missing-delivery problem code (contract §"Human and control operation
+/// registry").
+const PROBLEM_RESOURCE_NOT_FOUND: &str = "proof.resource.not_found";
+
+/// Stale-generation or wrong-state problem code (contract §"Human and control
+/// operation registry").
+const PROBLEM_STATE_CONFLICT: &str = "proof.state.conflict";
+
+/// The wire spelling of the `dead-letter` delivery status.
+const DELIVERY_STATUS_DEAD_LETTER: &str = "dead-letter";
+
+/// One mutable delivery-state row read at the locked transaction snapshot.
+struct DeliveryStateRow {
+    status: String,
+    attempts_in_generation: i64,
+    next_attempt_at: Option<SystemTime>,
+    receipt_digest: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Delivery persistence macros. Like the base transaction macros above,
+// `postgres::Transaction` cannot be named in this crate, so the SQL bodies
+// expand inline at each closure where the transaction type is inferred.
+// ---------------------------------------------------------------------------
+
+macro_rules! read_transaction_sequence_in_tx {
+    ($tx:expr) => {{
+        let value: i64 = $tx
+            .query_one(
+                "SELECT transaction_sequence FROM workspace_write_head WHERE singleton = 1",
+                &[],
+            )
+            .map_err(|e| proof_pg::transaction::transaction_error(&e))?
+            .get(0);
+        u64::try_from(value)
+            .map_err(|_| PgError::Integrity("transaction sequence is negative".to_owned()))
+    }};
+}
+
+macro_rules! read_delivery_state_in_tx {
+    ($tx:expr, $event_id:expr, $delivery_id:expr, $generation:expr) => {{
+        let generation = i64::try_from($generation).map_err(|_| {
+            PgError::Integrity("delivery generation exceeds BIGINT range".to_owned())
+        })?;
+        let row = $tx
+            .query_opt(
+                "SELECT status, attempts_in_generation, next_attempt_at, receipt_digest
+                 FROM delivery_state
+                 WHERE event_id = $1 AND delivery_id = $2 AND generation = $3",
+                &[&$event_id, &$delivery_id, &generation],
+            )
+            .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+        row.map(|row| DeliveryStateRow {
+            status: row.get(0),
+            attempts_in_generation: row.get(1),
+            next_attempt_at: row.get(2),
+            receipt_digest: row.get(3),
+        })
+    }};
+}
+
+macro_rules! read_latest_generation_in_tx {
+    ($tx:expr, $event_id:expr, $delivery_id:expr) => {{
+        let row = $tx
+            .query_opt(
+                "SELECT MAX(generation) FROM delivery_state WHERE event_id = $1 AND delivery_id = $2",
+                &[&$event_id, &$delivery_id],
+            )
+            .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+        row.and_then(|row| row.get::<_, Option<i64>>(0))
+    }};
+}
+
+macro_rules! persist_delivery_fact_in_tx {
+    ($tx:expr, $fact:expr, $fact_id:expr) => {{
+        let value = serde_json::to_value(&$fact).map_err(|e| PgError::Integrity(e.to_string()))?;
+        let body = canonical_bytes_pg(&value)?;
+        let digest = $fact
+            .digest()
+            .map_err(|error| PgError::Integrity(error.to_string()))?;
+        let generation = i64::try_from($fact.from_generation).map_err(|_| {
+            PgError::Integrity("delivery generation exceeds BIGINT range".to_owned())
+        })?;
+        let recorded_at = timestamp_to_system_time($fact.recorded_at);
+        $tx.execute(
+            "INSERT INTO delivery_management_facts (
+                 fact_id, workspace_id, event_id, delivery_id, generation, action,
+                 fact_digest, payload, recorded_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            &[
+                &$fact_id,
+                &$fact.workspace_id,
+                &$fact.event_id,
+                &$fact.delivery_id,
+                &generation,
+                &delivery_action_label($fact.action),
+                &digest.to_string(),
+                &body,
+                &recorded_at,
+            ],
+        )
+        .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+    }};
+}
+
+macro_rules! insert_replayed_generation_in_tx {
+    ($tx:expr, $event_id:expr, $delivery_id:expr, $generation:expr) => {{
+        let generation = i64::try_from($generation).map_err(|_| {
+            PgError::Integrity("delivery generation exceeds BIGINT range".to_owned())
+        })?;
+        $tx.execute(
+            "INSERT INTO delivery_state (
+                 event_id, delivery_id, generation, status, next_attempt_at,
+                 attempts_in_generation, lease_token_hash, lease_expires_at, receipt_digest,
+                 generation_started_at, committed_at
+             ) VALUES ($1, $2, $3, 'pending', now(), 0, NULL, NULL, NULL, now(), now())",
+            &[&$event_id, &$delivery_id, &generation],
+        )
+        .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+    }};
+}
+
+macro_rules! abandon_delivery_in_tx {
+    ($tx:expr, $event_id:expr, $delivery_id:expr, $generation:expr) => {{
+        let generation = i64::try_from($generation).map_err(|_| {
+            PgError::Integrity("delivery generation exceeds BIGINT range".to_owned())
+        })?;
+        $tx.execute(
+            "UPDATE delivery_state
+             SET status = 'abandoned',
+                 next_attempt_at = NULL,
+                 lease_token_hash = NULL,
+                 lease_expires_at = NULL,
+                 receipt_digest = NULL
+             WHERE event_id = $1 AND delivery_id = $2 AND generation = $3",
+            &[&$event_id, &$delivery_id, &generation],
+        )
+        .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
+    }};
+}
+
+macro_rules! commit_delivery_failure_in_tx {
+    ($tx:expr, $decision:expr, $operation:expr, $problem_code:expr, $auth_seq:expr, $built:expr) => {{
+        let failure = delivery_failure_consequence($decision, $operation, $problem_code, $auth_seq)
+            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+        persist_decision_in_tx!($tx, $decision);
+        persist_consequence_in_tx!($tx, &failure, $auth_seq);
+        advance_authority_head_in_tx!($tx, &consequence_digest(&failure), $auth_seq);
+        *$built.borrow_mut() = Some(failure);
+        return Err(PgError::Idempotency($problem_code.to_owned()));
+    }};
+}
+
+// ---------------------------------------------------------------------------
+// Delivery executor helpers.
+// ---------------------------------------------------------------------------
+
+fn delivery_action_label(action: DeliveryManagementAction) -> &'static str {
+    match action {
+        DeliveryManagementAction::Replay => "replay",
+        DeliveryManagementAction::Abandon => "abandon",
+    }
+}
+
+fn required_input_u64(input: &Value, field: &str) -> Result<u64, ServerError> {
+    input
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ServerError::Dispatch(format!("normalized input is missing `{field}`")))
+}
+
+fn timestamp_to_system_time(timestamp: Timestamp) -> SystemTime {
+    let nanos = timestamp.unix_timestamp_nanos();
+    if nanos >= 0 {
+        let nanos = u64::try_from(nanos).unwrap_or(u64::MAX);
+        SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(nanos)
+    } else {
+        let nanos = u64::try_from(nanos.unsigned_abs()).unwrap_or(u64::MAX);
+        SystemTime::UNIX_EPOCH - std::time::Duration::from_nanos(nanos)
+    }
+}
+
+fn system_time_to_timestamp(value: SystemTime) -> Result<Timestamp, ServerError> {
+    let duration = value
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|error| ServerError::Internal(error.to_string()))?;
+    let nanos = i128::try_from(duration.as_nanos()).map_err(|_| {
+        ServerError::Internal("system clock exceeds the timestamp range".to_owned())
+    })?;
+    Timestamp::from_unix_timestamp_nanos(nanos)
+        .map_err(|error| ServerError::Internal(error.to_string()))
+}
+
+fn build_delivery_fact(
+    decision: &RemoteAuthorizationDecisionV1,
+    action: DeliveryManagementAction,
+    event_id: &str,
+    delivery_id: &str,
+    generation: u64,
+    idempotency_key: &str,
+    reason: &str,
+    transaction_sequence: u64,
+) -> DeliveryManagementFactV1 {
+    let recorded_at = now_timestamp().expect("the system clock always produces a timestamp");
+    match action {
+        DeliveryManagementAction::Replay => DeliveryManagementFactV1::replay(
+            decision.workspace_id.clone(),
+            event_id,
+            delivery_id,
+            generation,
+            idempotency_key,
+            decision.actor_context_digest,
+            transaction_sequence,
+            recorded_at,
+        ),
+        DeliveryManagementAction::Abandon => DeliveryManagementFactV1::abandon(
+            decision.workspace_id.clone(),
+            event_id,
+            delivery_id,
+            generation,
+            idempotency_key,
+            reason,
+            decision.actor_context_digest,
+            transaction_sequence,
+            recorded_at,
+        ),
+    }
+}
+
+fn delivery_result(
+    action: DeliveryManagementAction,
+    event_id: &str,
+    delivery_id: &str,
+    generation: u64,
+    fact_digest: ContentDigest,
+) -> Value {
+    match action {
+        DeliveryManagementAction::Replay => json!({
+            "api_version": "proof.dev/delivery-replay-result/v1",
+            "event_id": event_id,
+            "delivery_id": delivery_id,
+            "from_generation": generation,
+            "to_generation": generation + 1,
+            "status": "pending",
+            "management_fact_digest": fact_digest.to_string(),
+        }),
+        DeliveryManagementAction::Abandon => json!({
+            "api_version": "proof.dev/delivery-abandon-result/v1",
+            "event_id": event_id,
+            "delivery_id": delivery_id,
+            "generation": generation,
+            "status": "abandoned",
+            "management_fact_digest": fact_digest.to_string(),
+        }),
+    }
+}
+
+fn delivery_success_consequence(
+    decision: &RemoteAuthorizationDecisionV1,
+    operation: &RemoteOperationV1,
+    result: &Value,
+    application_key: Option<String>,
+    key_kind: ApplicationKeyKind,
+    fact_digest: ContentDigest,
+    auth_seq: u64,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    let result_digest = operation_effect_digest(result)
+        .map_err(|error| ServerError::Internal(error.to_string()))?;
+    Ok(build_consequence(
+        decision,
+        operation,
+        ApplicationConsequenceOutcome::Success,
+        key_kind,
+        application_key,
+        Some(result_digest),
+        None,
+        Some(fact_digest),
+        None,
+        None,
+        auth_seq,
+        decision_digest(decision),
+    ))
+}
+
+fn delivery_failure_consequence(
+    decision: &RemoteAuthorizationDecisionV1,
+    operation: &RemoteOperationV1,
+    problem_code: &str,
+    auth_seq: u64,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    let problem_digest = application_problem_digest_preimage(problem_code, operation)
+        .map_err(|error| ServerError::Dispatch(error.to_string()))?;
+    Ok(build_consequence(
+        decision,
+        operation,
+        ApplicationConsequenceOutcome::ApplicationFailure,
+        ApplicationKeyKind::None,
+        None,
+        Some(problem_digest),
+        None,
+        None,
+        None,
+        Some(problem_code.to_owned()),
+        auth_seq,
+        decision_digest(decision),
+    ))
+}
+
+/// Runs one delivery-management mutation (`replay` or `abandon`) through the
+/// P-0010 unit of work.
+///
+/// The consequence hook resolves the exact locked generation, rejects a
+/// missing, stale, or non-`dead-letter` row as an application failure, and on
+/// success appends one [`DeliveryManagementFactV1`], binds its digest as
+/// `application_effect_digest`, and mutates `delivery_state` (replay inserts
+/// the successor generation as `pending`; abandonment updates the row to
+/// terminal `abandoned`).
+#[allow(clippy::too_many_lines)]
+fn execute_delivery_management(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+    action: DeliveryManagementAction,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    if decision.decision == AuthorizationDecisionKind::Deny {
+        commit_denial(state, decision)?;
+        return Err(ServerError::Authorization(
+            "authorization denied".to_owned(),
+        ));
+    }
+
+    let event_id = required_input_str(normalized_input, "event_id")?.to_owned();
+    let delivery_id = required_input_str(normalized_input, "delivery_id")?.to_owned();
+    let generation = required_input_u64(normalized_input, "expected_generation")?;
+    let idempotency_key = required_input_str(normalized_input, "idempotency_key")?.to_owned();
+    let reason = normalized_input
+        .get("reason")
+        .and_then(Value::as_str)
+        .map_or_else(
+            || "operator-confirmed-poison-delivery".to_owned(),
+            str::to_owned,
+        );
+
+    let mut guard = lock_pg(state)?;
+    let runtime = runtime_mut(&mut guard)?;
+
+    let (requesting_principal, operating_principal, delegation) = actor_principals(actor_context);
+    let normalized_input_digest =
+        proof_remote::identity::normalized_operation_input_digest(normalized_input, operation)
+            .map_err(|error| ServerError::Internal(error.to_string()))?;
+
+    let candidate = IdempotencyTupleV1 {
+        workspace_id: parse_workspace_id(&decision.workspace_id)?,
+        operation: operation.clone(),
+        normalized_input_digest,
+        requesting_principal: parse_principal_id(&requesting_principal)?,
+        operating_principal: parse_principal_id(&operating_principal)?,
+        delegation: delegation
+            .as_deref()
+            .map(str::parse)
+            .transpose()
+            .map_err(|_| ServerError::Authorization("invalid Delegation identity".to_owned()))?,
+    };
+    let prior = read_idempotency_prior(runtime, &candidate)?;
+
+    let key_kind = idempotency_kind(operation);
+    let application_key = normalized_input
+        .get("idempotency_key")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+
+    let decision = decision.clone();
+    let operation_owned = operation.clone();
+    let event_id_owned = event_id;
+    let delivery_id_owned = delivery_id;
+    let idempotency_key_owned = idempotency_key;
+    let reason_owned = reason;
+    let application_key_owned = application_key.clone();
+
+    let built_consequence: Rc<RefCell<Option<RemoteApplicationConsequenceV1>>> =
+        Rc::new(RefCell::new(None));
+    let built_for_hook = Rc::clone(&built_consequence);
+    let decision_for_hook = decision.clone();
+
+    let mut hooks = UnitOfWorkHooks {
+        verify_authentication: Box::new(|| Ok(())),
+        evaluate_authorization: {
+            let expected_head = decision.evaluated_authority_head;
+            Box::new(move |head: &proof_pg::transaction::WorkspaceHeadSnapshot| {
+                if head.authority_head == Some(expected_head) {
+                    Ok(())
+                } else {
+                    Err(PgError::Transaction(
+                        "authority head advanced between evaluation and lock".to_owned(),
+                    ))
+                }
+            })
+        },
+        replay_or_conflict: {
+            let candidate_for_hook = candidate.clone();
+            let prior_for_hook = prior.prior.clone();
+            Box::new(move |_head| {
+                Ok(replay_or_conflict(
+                    &candidate_for_hook,
+                    prior_for_hook.as_ref(),
+                ))
+            })
+        },
+        apply_consequence: Box::new(move |tx| {
+            let auth_seq = read_auth_sequence_in_tx!(tx)?;
+            let transaction_seq = read_transaction_sequence_in_tx!(tx)?;
+
+            let state_row =
+                read_delivery_state_in_tx!(tx, event_id_owned, delivery_id_owned, generation);
+            let Some(state_row) = state_row else {
+                commit_delivery_failure_in_tx!(
+                    tx,
+                    &decision_for_hook,
+                    &operation_owned,
+                    PROBLEM_RESOURCE_NOT_FOUND,
+                    auth_seq,
+                    &built_for_hook
+                );
+            };
+            let latest = read_latest_generation_in_tx!(tx, event_id_owned, delivery_id_owned);
+            if latest != Some(i64::try_from(generation).unwrap_or(i64::MAX))
+                || state_row.status != DELIVERY_STATUS_DEAD_LETTER
+            {
+                commit_delivery_failure_in_tx!(
+                    tx,
+                    &decision_for_hook,
+                    &operation_owned,
+                    PROBLEM_STATE_CONFLICT,
+                    auth_seq,
+                    &built_for_hook
+                );
+            }
+
+            let fact = build_delivery_fact(
+                &decision_for_hook,
+                action,
+                &event_id_owned,
+                &delivery_id_owned,
+                generation,
+                &idempotency_key_owned,
+                &reason_owned,
+                transaction_seq,
+            );
+            let fact_digest = fact
+                .digest()
+                .map_err(|error| PgError::Idempotency(error.to_string()))?;
+            let result = delivery_result(
+                action,
+                &event_id_owned,
+                &delivery_id_owned,
+                generation,
+                fact_digest,
+            );
+            let consequence = delivery_success_consequence(
+                &decision_for_hook,
+                &operation_owned,
+                &result,
+                application_key_owned.clone(),
+                key_kind,
+                fact_digest,
+                auth_seq,
+            )
+            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+
+            // The decision persists outside the savepoint so an authorized
+            // application failure still retains the signed decision.
+            persist_decision_in_tx!(tx, &decision_for_hook);
+            let mut savepoint = SavepointGuard::establish(tx)?;
+            {
+                let sp = savepoint.transaction();
+                let fact_id = format!("delivery_management_fact/{}", uuid::Uuid::now_v7());
+                persist_delivery_fact_in_tx!(sp, fact, fact_id);
+                persist_consequence_in_tx!(sp, &consequence, auth_seq);
+                persist_idempotency_in_tx!(sp, &candidate, key_kind, &consequence);
+                match action {
+                    DeliveryManagementAction::Replay => {
+                        insert_replayed_generation_in_tx!(
+                            sp,
+                            event_id_owned,
+                            delivery_id_owned,
+                            generation + 1
+                        );
+                    }
+                    DeliveryManagementAction::Abandon => {
+                        abandon_delivery_in_tx!(sp, event_id_owned, delivery_id_owned, generation);
+                    }
+                }
+                advance_authority_head_in_tx!(sp, &consequence_digest(&consequence), auth_seq);
+            }
+            savepoint.release()?;
+            *built_for_hook.borrow_mut() = Some(consequence);
+            Ok(())
+        }),
+    };
+
+    let outcome =
+        run_unit_of_work(runtime.client_mut(), &mut hooks).map_err(ServerError::Storage)?;
+
+    match outcome {
+        UnitOfWorkOutcome::Committed | UnitOfWorkOutcome::ApplicationFailureCommitted => {
+            built_consequence
+                .borrow_mut()
+                .take()
+                .ok_or_else(|| ServerError::Internal("consequence was not produced".to_owned()))
+        }
+        UnitOfWorkOutcome::Replayed => Ok(replay_consequence(
+            decision,
+            operation,
+            prior.prior_result_digest,
+        )),
+        UnitOfWorkOutcome::ConflictCommitted => Ok(conflict_consequence(
+            decision,
+            operation,
+            prior.prior_result_digest,
+        )),
+    }
+}
 
 /// `delivery.get/v1` — the typed transport projection of the exact mutable
 /// delivery state (contract §"Human and control operation registry",
@@ -1019,8 +1553,125 @@ pub fn delivery_get_v1(
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
 ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
-    let _ = (state, operation, normalized_input, actor_context, decision);
-    todo!("project the exact mutable delivery state through one unit of work")
+    if decision.decision == AuthorizationDecisionKind::Deny {
+        commit_denial(state, decision)?;
+        return Err(ServerError::Authorization(
+            "authorization denied".to_owned(),
+        ));
+    }
+
+    let event_id = required_input_str(normalized_input, "event_id")?.to_owned();
+    let delivery_id = required_input_str(normalized_input, "delivery_id")?.to_owned();
+    let generation = required_input_u64(normalized_input, "expected_generation")?;
+
+    // `delivery.get/v1` is a no-key read (idempotency `none`): it skips the
+    // stored-result lookup entirely and always executes a fresh projection.
+    let _ = actor_context;
+    let mut guard = lock_pg(state)?;
+    let runtime = runtime_mut(&mut guard)?;
+
+    let decision = decision.clone();
+    let operation_owned = operation.clone();
+    let event_id_owned = event_id;
+    let delivery_id_owned = delivery_id;
+
+    let built_consequence: Rc<RefCell<Option<RemoteApplicationConsequenceV1>>> =
+        Rc::new(RefCell::new(None));
+    let built_for_hook = Rc::clone(&built_consequence);
+    let decision_for_hook = decision.clone();
+
+    let mut hooks = UnitOfWorkHooks {
+        verify_authentication: Box::new(|| Ok(())),
+        evaluate_authorization: {
+            let expected_head = decision.evaluated_authority_head;
+            Box::new(move |head: &proof_pg::transaction::WorkspaceHeadSnapshot| {
+                if head.authority_head == Some(expected_head) {
+                    Ok(())
+                } else {
+                    Err(PgError::Transaction(
+                        "authority head advanced between evaluation and lock".to_owned(),
+                    ))
+                }
+            })
+        },
+        replay_or_conflict: Box::new(|_head| Ok(IdempotencyOutcome::Fresh)),
+        apply_consequence: Box::new(move |tx| {
+            let auth_seq = read_auth_sequence_in_tx!(tx)?;
+
+            let state_row =
+                read_delivery_state_in_tx!(tx, event_id_owned, delivery_id_owned, generation);
+            let Some(state_row) = state_row else {
+                commit_delivery_failure_in_tx!(
+                    tx,
+                    &decision_for_hook,
+                    &operation_owned,
+                    PROBLEM_RESOURCE_NOT_FOUND,
+                    auth_seq,
+                    &built_for_hook
+                );
+            };
+            let latest = read_latest_generation_in_tx!(tx, event_id_owned, delivery_id_owned);
+            if latest != Some(i64::try_from(generation).unwrap_or(i64::MAX)) {
+                commit_delivery_failure_in_tx!(
+                    tx,
+                    &decision_for_hook,
+                    &operation_owned,
+                    PROBLEM_STATE_CONFLICT,
+                    auth_seq,
+                    &built_for_hook
+                );
+            }
+
+            let projection = delivery_projection(
+                &event_id_owned,
+                &delivery_id_owned,
+                generation,
+                &state_row.status,
+                state_row.attempts_in_generation,
+                state_row.next_attempt_at,
+                state_row.receipt_digest.as_deref(),
+            )
+            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+            // A no-key read produces no governed fact: the consequence binds the
+            // exact projection digest as its result digest and no application
+            // effect (contract §"Human and control operation registry").
+            let consequence = delivery_get_success_consequence(
+                &decision_for_hook,
+                &operation_owned,
+                &projection,
+                auth_seq,
+            )
+            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+
+            persist_decision_in_tx!(tx, &decision_for_hook);
+            let mut savepoint = SavepointGuard::establish(tx)?;
+            {
+                let sp = savepoint.transaction();
+                persist_consequence_in_tx!(sp, &consequence, auth_seq);
+                advance_authority_head_in_tx!(sp, &consequence_digest(&consequence), auth_seq);
+            }
+            savepoint.release()?;
+            *built_for_hook.borrow_mut() = Some(consequence);
+            Ok(())
+        }),
+    };
+
+    let outcome =
+        run_unit_of_work(runtime.client_mut(), &mut hooks).map_err(ServerError::Storage)?;
+
+    match outcome {
+        UnitOfWorkOutcome::Committed | UnitOfWorkOutcome::ApplicationFailureCommitted => {
+            built_consequence
+                .borrow_mut()
+                .take()
+                .ok_or_else(|| ServerError::Internal("consequence was not produced".to_owned()))
+        }
+        UnitOfWorkOutcome::Replayed | UnitOfWorkOutcome::ConflictCommitted => {
+            Err(ServerError::Internal(
+                "a no-key read produced an unexpected idempotency outcome".to_owned(),
+            ))
+        }
+    }
 }
 
 /// `delivery.replay/v1` (`environment.admin`) — increments the generation,
@@ -1040,9 +1691,13 @@ pub fn delivery_replay_v1(
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
 ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
-    let _ = (state, operation, normalized_input, actor_context, decision);
-    todo!(
-        "append a DeliveryManagementFactV1, increment the generation, reset attempts_in_generation, and return pending through one unit of work"
+    execute_delivery_management(
+        state,
+        operation,
+        normalized_input,
+        actor_context,
+        decision,
+        DeliveryManagementAction::Replay,
     )
 }
 
@@ -1062,8 +1717,64 @@ pub fn delivery_abandon_v1(
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
 ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
-    let _ = (state, operation, normalized_input, actor_context, decision);
-    todo!("append a DeliveryManagementFactV1 and set terminal abandoned through one unit of work")
+    execute_delivery_management(
+        state,
+        operation,
+        normalized_input,
+        actor_context,
+        decision,
+        DeliveryManagementAction::Abandon,
+    )
+}
+
+/// Builds the exact `deliveryGetResultV1` projection from a locked state row.
+fn delivery_projection(
+    event_id: &str,
+    delivery_id: &str,
+    generation: u64,
+    status: &str,
+    attempts_in_generation: i64,
+    next_attempt_at: Option<SystemTime>,
+    receipt_digest: Option<&str>,
+) -> Result<Value, ServerError> {
+    let next_attempt_at = next_attempt_at
+        .map(system_time_to_timestamp)
+        .transpose()?
+        .map(|timestamp| timestamp.to_string());
+    Ok(json!({
+        "api_version": "proof.dev/delivery-get-result/v1",
+        "event_id": event_id,
+        "delivery_id": delivery_id,
+        "generation": generation,
+        "status": status,
+        "attempts_in_generation": attempts_in_generation,
+        "next_attempt_at": next_attempt_at,
+        "receipt_digest": receipt_digest,
+    }))
+}
+
+fn delivery_get_success_consequence(
+    decision: &RemoteAuthorizationDecisionV1,
+    operation: &RemoteOperationV1,
+    result: &Value,
+    auth_seq: u64,
+) -> Result<RemoteApplicationConsequenceV1, ServerError> {
+    let result_digest = operation_effect_digest(result)
+        .map_err(|error| ServerError::Internal(error.to_string()))?;
+    Ok(build_consequence(
+        decision,
+        operation,
+        ApplicationConsequenceOutcome::Success,
+        ApplicationKeyKind::None,
+        None,
+        Some(result_digest),
+        None,
+        None,
+        None,
+        None,
+        auth_seq,
+        decision_digest(decision),
+    ))
 }
 
 /// Exact private preview object projection (contract §"Preview delivery").
@@ -1077,7 +1788,7 @@ pub struct PreviewObjectResultV1 {
     pub edition_digest: ContentDigest,
     /// Exact rendition digest.
     pub rendition_digest: ContentDigest,
-    /// Strong HTTP ETag over the immutable manifest digest.
+    /// Strong HTTP ETag over the exact rendition digest.
     pub etag: String,
     /// Exact `private, no-store` cache control.
     pub cache_control: &'static str,
@@ -1091,10 +1802,19 @@ pub struct PreviewObjectResultV1 {
 /// no-store`, no locale fallback, no renderer, no template engine, no
 /// arbitrary fetch (contract §"Preview delivery").
 ///
+/// The reference filesystem layout mirrors the `proof-delivery` preview
+/// adapter: a `<environment>`-scoped root holds one directory per Release with
+/// a `ready` marker (written last), a `manifest.json` complete-snapshot
+/// manifest, and the content-addressed rendition bodies. A Release with no
+/// `ready` marker returns the stable `proof.dependency.unavailable` condition
+/// and never falls back to another Release.
+///
 /// # Errors
 ///
 /// Returns [`ServerError`] when the ready manifest is absent, the snapshot
-/// fails verification, or the projection cannot be built.
+/// fails verification, or the projection cannot be built. The absent case
+/// carries [`DEPENDENCY_UNAVAILABLE_CODE`] so the route layer maps it to the
+/// stable pending Problem.
 pub fn serve_preview_object(
     state: &AppState,
     environment: &str,
@@ -1102,8 +1822,95 @@ pub fn serve_preview_object(
     object_id: &str,
     locale: &str,
 ) -> Result<PreviewObjectResultV1, ServerError> {
-    let _ = (state, environment, release_id, object_id, locale);
-    todo!(
-        "serve the exact immutable Release snapshot once its ready marker exists; no locale fallback, no renderer"
-    )
+    let _ = state;
+    let root = preview_root(environment).join(release_id);
+
+    let ready_path = root.join("ready");
+    if !ready_path.is_file() {
+        return Err(ServerError::Internal(format!(
+            "{DEPENDENCY_UNAVAILABLE_CODE}: the private preview snapshot for Release `{release_id}` is not ready"
+        )));
+    }
+
+    let manifest_bytes = std::fs::read(root.join("manifest.json"))
+        .map_err(|error| ServerError::Internal(format!("cannot read preview manifest: {error}")))?;
+    let manifest: Value = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| ServerError::Internal(format!("invalid preview manifest: {error}")))?;
+
+    let manifest_release_id = manifest
+        .get("release_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ServerError::Internal("preview manifest is missing `release_id`".to_owned())
+        })?;
+    if manifest_release_id != release_id {
+        return Err(ServerError::Internal(format!(
+            "preview manifest names Release `{manifest_release_id}`, not `{release_id}`"
+        )));
+    }
+
+    let release_digest = parse_preview_digest(&manifest, "release_digest")?;
+    let edition_digest = parse_preview_digest(&manifest, "edition_digest")?;
+
+    let objects = manifest
+        .get("objects")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ServerError::Internal("preview manifest is missing `objects`".to_owned()))?;
+    let entry = objects
+        .iter()
+        .find(|entry| {
+            entry.get("object_id").and_then(Value::as_str) == Some(object_id)
+                && entry.get("locale").and_then(Value::as_str) == Some(locale)
+        })
+        .ok_or_else(|| {
+            ServerError::Dispatch(format!(
+                "no preview object `{object_id}` for locale `{locale}` in Release `{release_id}`"
+            ))
+        })?;
+
+    let rendition_digest = parse_preview_digest(entry, "rendition_digest")?;
+    let path = entry
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ServerError::Internal("preview object is missing `path`".to_owned()))?;
+    let body_bytes = std::fs::read(root.join(path)).map_err(|error| {
+        ServerError::Internal(format!("cannot read preview object body: {error}"))
+    })?;
+    let computed_digest = ContentDigest::blake3(*blake3::hash(&body_bytes).as_bytes());
+    if computed_digest != rendition_digest {
+        return Err(ServerError::Internal(
+            "preview object rendition digest mismatch".to_owned(),
+        ));
+    }
+    let body: Value = serde_json::from_slice(&body_bytes)
+        .map_err(|error| ServerError::Internal(format!("invalid preview object body: {error}")))?;
+
+    Ok(PreviewObjectResultV1 {
+        release_id: release_id.to_owned(),
+        release_digest,
+        edition_digest,
+        rendition_digest,
+        etag: strong_etag(&rendition_digest),
+        cache_control: PREVIEW_CACHE_CONTROL,
+        body,
+    })
+}
+
+/// Derives the filesystem-backed private preview root for one environment.
+fn preview_root(environment: &str) -> PathBuf {
+    std::env::temp_dir().join("proof-preview").join(environment)
+}
+
+/// Renders a strong HTTP ETag from the exact rendition digest.
+fn strong_etag(digest: &ContentDigest) -> String {
+    format!("\"{digest}\"")
+}
+
+fn parse_preview_digest(value: &Value, field: &str) -> Result<ContentDigest, ServerError> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| ServerError::Internal(format!("preview manifest is missing `{field}`")))?
+        .parse::<ContentDigest>()
+        .map_err(|error| ServerError::Internal(format!("invalid `{field}` digest: {error}")))
 }

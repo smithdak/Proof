@@ -608,34 +608,28 @@ pub struct DeliveryManagementFactV1 {
     pub api_version: DeliveryManagementFactApiVersion,
     /// Workspace identity (UUIDv7).
     pub workspace_id: String,
-    /// Fact identity (UUIDv7).
-    pub fact_id: String,
-    pub action: DeliveryManagementAction,
     /// Outbox event identity (UUIDv7).
     pub event_id: String,
     /// Stable delivery identity (UUIDv7).
     pub delivery_id: String,
-    /// The generation this fact governs.
-    pub generation: u64,
+    pub action: DeliveryManagementAction,
+    /// The dead-letter generation this fact governs.
+    pub from_generation: u64,
     /// Replay target generation; `null` for abandonment.
     pub to_generation: Option<u64>,
-    /// Acting Principal identity (UUIDv7).
-    pub actor_principal_id: String,
+    /// Application idempotency key (UUIDv7).
+    pub idempotency_key: String,
+    /// Authoritative operator reason (`dead-letter-replay` for replay, or the
+    /// exact abandonment request reason byte-for-byte).
+    pub reason: String,
+    /// Exact public actor-context evidence digest.
     #[serde(with = "crate::serde_support::display_string")]
-    pub actor_context_digest: ContentDigest,
-    /// Governing decision identity (UUIDv7).
-    pub decision_id: String,
-    #[serde(with = "crate::serde_support::display_string")]
-    pub decision_digest: ContentDigest,
-    #[serde(with = "crate::serde_support::display_string")]
-    pub consequence_digest: ContentDigest,
-    pub evaluated_authority_head: AuthorityHeadV1,
+    pub actor_context_evidence_digest: ContentDigest,
+    /// Workspace transaction sequence of the governing application
+    /// transaction.
+    pub workspace_transaction_sequence: u64,
     #[serde(with = "crate::serde_support::display_string")]
     pub recorded_at: Timestamp,
-    pub authority_sequence: u64,
-    #[serde(with = "crate::serde_support::display_string")]
-    pub previous_authority_record_digest: ContentDigest,
-    pub authority_key_id: String,
 }
 
 impl DeliveryManagementFactV1 {
@@ -646,6 +640,81 @@ impl DeliveryManagementFactV1 {
     /// Returns [`RemoteError::Canonical`] when the fact cannot be canonicalized.
     pub fn digest(&self) -> Result<ContentDigest, RemoteError> {
         canonical_derive_key_digest(DELIVERY_MANAGEMENT_FACT_DIGEST_CONTEXT, self)
+    }
+
+    /// Constructs the immutable replay fact for one dead-letter generation.
+    ///
+    /// `to_generation` is always `from_generation + 1` and the reason is always
+    /// the stable `dead-letter-replay` spelling (contract §"Immutable artifacts
+    /// and delivery").
+    ///
+    /// # Panics
+    ///
+    /// Panics only on `u64::MAX` overflow, which the delivery-replay input
+    /// bound (`expected_generation <= 2147483646`) precludes.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn replay(
+        workspace_id: impl Into<String>,
+        event_id: impl Into<String>,
+        delivery_id: impl Into<String>,
+        from_generation: u64,
+        idempotency_key: impl Into<String>,
+        actor_context_evidence_digest: ContentDigest,
+        workspace_transaction_sequence: u64,
+        recorded_at: Timestamp,
+    ) -> Self {
+        Self {
+            api_version: DeliveryManagementFactApiVersion::V1,
+            workspace_id: workspace_id.into(),
+            event_id: event_id.into(),
+            delivery_id: delivery_id.into(),
+            action: DeliveryManagementAction::Replay,
+            from_generation,
+            to_generation: Some(
+                from_generation
+                    .checked_add(1)
+                    .expect("the replay generation is schema-bounded"),
+            ),
+            idempotency_key: idempotency_key.into(),
+            reason: "dead-letter-replay".to_owned(),
+            actor_context_evidence_digest,
+            workspace_transaction_sequence,
+            recorded_at,
+        }
+    }
+
+    /// Constructs the immutable abandonment fact for one dead-letter generation.
+    ///
+    /// `to_generation` is `null` and the reason is copied byte-for-byte from the
+    /// abandonment request (contract §"Immutable artifacts and delivery").
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn abandon(
+        workspace_id: impl Into<String>,
+        event_id: impl Into<String>,
+        delivery_id: impl Into<String>,
+        from_generation: u64,
+        idempotency_key: impl Into<String>,
+        reason: impl Into<String>,
+        actor_context_evidence_digest: ContentDigest,
+        workspace_transaction_sequence: u64,
+        recorded_at: Timestamp,
+    ) -> Self {
+        Self {
+            api_version: DeliveryManagementFactApiVersion::V1,
+            workspace_id: workspace_id.into(),
+            event_id: event_id.into(),
+            delivery_id: delivery_id.into(),
+            action: DeliveryManagementAction::Abandon,
+            from_generation,
+            to_generation: None,
+            idempotency_key: idempotency_key.into(),
+            reason: reason.into(),
+            actor_context_evidence_digest,
+            workspace_transaction_sequence,
+            recorded_at,
+        }
     }
 }
 

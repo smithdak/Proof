@@ -315,15 +315,25 @@ impl AppState {
             &proof_pg::migration::session_boundary_migration_v2(),
         )
         .map_err(ServerError::Storage)?;
+        proof_pg::migration::run_expand_backfill_verify_cutover(
+            authority_runtime.client_mut(),
+            &proof_pg::migration::delivery_state_migration_v3(),
+        )
+        .map_err(ServerError::Storage)?;
 
         // A distinct runtime for the session store, attached after the same
-        // migration is applied so both point at the identical schema head.
+        // migrations are applied so both point at the identical schema head.
         let mut session_runtime =
             proof_pg::wiring::PgRuntime::connect(config).map_err(ServerError::Storage)?;
         session_runtime.migrate().map_err(ServerError::Storage)?;
         proof_pg::migration::run_expand_backfill_verify_cutover(
             session_runtime.client_mut(),
             &proof_pg::migration::session_boundary_migration_v2(),
+        )
+        .map_err(ServerError::Storage)?;
+        proof_pg::migration::run_expand_backfill_verify_cutover(
+            session_runtime.client_mut(),
+            &proof_pg::migration::delivery_state_migration_v3(),
         )
         .map_err(ServerError::Storage)?;
         self.sessions.attach(session_runtime)?;

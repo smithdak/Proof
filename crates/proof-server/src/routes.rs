@@ -617,13 +617,48 @@ pub async fn evidence_artifact(
 }
 
 /// `GET /preview/{environment}/releases/{release_id}/objects/{object_id}/locales/{locale}`
-/// — private preview object read; returns the stable
-/// `proof.dependency.unavailable` until S4/S5 (contract §"HTTP boundary").
+/// — private preview object read (contract §"HTTP boundary", §"Preview
+/// delivery").
+///
+/// The exact requested Release's ready snapshot is served with a strong ETag
+/// and `Cache-Control: private, no-store`; a Release without a ready marker
+/// returns the stable `proof.dependency.unavailable` pending Problem and never
+/// falls back to another Release, and a ready Release lacking the exact
+/// object/locale is a `proof.resource.not_found`.
 pub async fn preview_object(
-    State(_state): State<AppState>,
-    Path((_environment, _release_id, _object_id, _locale)): Path<(String, String, String, String)>,
+    State(state): State<AppState>,
+    Path((environment, release_id, object_id, locale)): Path<(String, String, String, String)>,
 ) -> Result<Response, ProblemResponse> {
-    Err(transport_problem("proof.dependency.unavailable"))
+    run_blocking(move || {
+        match crate::operations::serve_preview_object(
+            &state,
+            &environment,
+            &release_id,
+            &object_id,
+            &locale,
+        ) {
+            Ok(result) => {
+                let mut response = (
+                    StatusCode::OK,
+                    private_no_store_headers(),
+                    Json(result.body),
+                )
+                    .into_response();
+                if let Ok(etag) = HeaderValue::from_str(&result.etag) {
+                    response.headers_mut().insert(header::ETAG, etag);
+                }
+                Ok(response)
+            }
+            Err(ServerError::Internal(message))
+                if message.starts_with(crate::operations::DEPENDENCY_UNAVAILABLE_CODE) =>
+            {
+                Err(transport_problem("proof.dependency.unavailable"))
+            }
+            Err(ServerError::Dispatch(_)) => Err(transport_problem("proof.resource.not_found")),
+            Err(_) => Err(transport_problem("proof.internal")),
+        }
+    })
+    .await
 }
 
 /// Strict-parsed RFC 8785 canonical request guard (contract §"HTTP boundary").

@@ -110,4 +110,28 @@ impl PgRuntime {
     pub fn begin_workspace_transaction(&mut self) -> Result<WorkspaceTransaction<'_>, PgError> {
         WorkspaceTransaction::begin(&mut self.client)
     }
+
+    /// Applies the additive v3 delivery-state migration on top of the
+    /// bootstrapped base schema (contract §"Migration and projection rebuild",
+    /// §"Transactional outbox and delivery").
+    ///
+    /// This first runs [`Self::migrate`] (idempotent), then advances the
+    /// immutable ledger with [`crate::migration::delivery_state_migration_v3`].
+    /// A deployment that also owns the P-0011 session boundary must have
+    /// already applied
+    /// [`crate::migration::session_boundary_migration_v2`]; the monotonic ledger
+    /// accepts the v3 advance from either a fresh head or a head already at
+    /// version 2.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PgError::Migration`] on any ledger refusal or failure, or
+    /// [`PgError::Integrity`] when a durability precondition is not met.
+    pub fn migrate_delivery_state(&mut self) -> Result<(), PgError> {
+        self.migrate()?;
+        crate::migration::run_expand_backfill_verify_cutover(
+            self.client_mut(),
+            &crate::migration::delivery_state_migration_v3(),
+        )
+    }
 }
