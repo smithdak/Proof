@@ -17,8 +17,9 @@ qualified. P-0008's single-Workspace collaboration-server decision candidate is
 project-owner accepted and ADR-0013 is Accepted; P-0009 has implemented the
 remote actor and shared-contract conformance foundation, P-0010 has
 implemented the PostgreSQL parity foundation, P-0011 has implemented the
-HTTP and OIDC server boundary, P-0012 artifact outbox and private preview
-delivery is the promoted successor, and the server itself
+HTTP and OIDC server boundary, P-0012 has implemented the artifact outbox
+and private preview delivery, P-0013 remote evidence and Milestone 3
+qualification is the promoted successor, and the server itself
 remains undeployed. Same-UID
 hostile-process isolation, Windows runtime containment, server execution,
 deployment, and a public release remain unimplemented or unqualified.
@@ -91,6 +92,6 @@ Documentation changes follow a docs-as-code workflow:
 
 **Baseline date:** August 23, 2026
 
-**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; P-0008 collaboration-server contract accepted by the project owner; P-0009, P-0010, and P-0011 complete; P-0012 artifact outbox and private preview delivery promoted
+**Product phase:** Milestones 1 and 2 complete for the bounded local Linux profile; P-0008 collaboration-server contract accepted by the project owner; P-0009 through P-0012 complete; P-0013 remote evidence and Milestone 3 qualification promoted
 
 **Documentation version:** 0.4

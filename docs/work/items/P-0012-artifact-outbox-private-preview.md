@@ -1,7 +1,7 @@
 ---
 id: P-0012
 title: Implement the artifact outbox and private preview delivery
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0011]
@@ -194,5 +194,8 @@ commit `543a77c3fd3b9f13a1dba395edb0ad00b8f82e86`, qualified at
 [manifest](../evidence/P-0012/manifest.json), and
 [AC1-AC10 traceability matrix](../evidence/P-0012/traceability.md). Moved
 from `claimed` to `review` at `2026-08-24T01:27:56.959Z` under
-`review_gate: none`. No evidence export, verifier extension, north-star
-run, or deployment work is claimed by this item.
+`review_gate: none`, then to `done` at `2026-08-24T01:28:34.111Z` after the
+complete Linux gate recorded in the receipt. Successor P-0013 remote
+evidence and Milestone 3 qualification is promoted to `ready`; no evidence
+export, verifier extension, north-star run, or deployment work is claimed
+by this completion.

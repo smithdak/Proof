@@ -6,6 +6,14 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented the artifact outbox and private preview delivery (P-0012):
+  the generation-scoped leased outbox worker with deterministic stream
+  claims, counted attempts, bounded exponential backoff, dead-letter and
+  per-stream poison management, authorized replay and abandonment with
+  `DeliveryManagementFactV1`, the filesystem-backed private preview adapter
+  with ready-last manifests and the four exact alias outcomes, and the
+  delivery projection and snapshot serving through the PostgreSQL unit of
+  work.
 - Implemented the HTTP and OIDC server boundary (P-0011): the exact
   nine-route HTTP surface with strict raw and canonical body limits,
   route-qualified registry dispatch, the same-origin confidential OIDC BFF

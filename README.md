@@ -9,9 +9,9 @@ It treats content mutation as a governed transaction. Every proposed change has 
 ## Project status
 
 **Milestones 1 and 2 complete — local proof loop plus bounded local Linux
-Agent authority. P-0008 is project-owner accepted; P-0009, P-0010, and
-P-0011 are complete, and P-0012 artifact outbox and private preview
-delivery is the promoted Milestone 3 implementation frontier.**
+Agent authority. P-0008 is project-owner accepted; P-0009 through P-0012
+are complete, and P-0013 remote evidence and Milestone 3 qualification is
+the promoted frontier.**
 
 The implemented local path covers authenticated Workspace initialization,
 idempotent ChangeSets, exact-locale Human-path repair and release, deterministic
@@ -51,8 +51,9 @@ idempotency, artifact catalog, outbox enqueue, projection rebuild, import,
 and byte-identical SQLite/PostgreSQL traces. P-0011 has implemented the
 HTTP and OIDC server boundary — the exact nine-route surface, the
 same-origin BFF, bounded sessions and CSRF, dual authentication, and the
-signed decision/consequence path. P-0012 implements the outbox worker and
-private preview delivery.
+signed decision/consequence path. P-0012 has implemented the outbox worker
+and private preview delivery. P-0013 implements remote evidence export,
+independent verification, and the Milestone 3 qualification.
 
 Linux CI is the current quality gate. It does not establish release eligibility,
 signed artifacts, an SBOM, provenance, reproducibility, or public distribution.
@@ -66,7 +67,7 @@ qualification or a published Windows support claim.
 | Core invariants | Ratified |
 | Technology baseline | Ratified for implementation start |
 | CLI contract | Local proof loop implemented |
-| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009, P-0010) and server boundary (P-0011) implemented; delivery and evidence remain |
+| Rust implementation | Milestones 1 and 2 complete for the bounded local Linux profile; Milestone 3 foundation (P-0009, P-0010), server boundary (P-0011), and delivery (P-0012) implemented; remote evidence and qualification remain |
 | Milestone 3 contract | Ratified (P-0008 accepted by project owner `smithdak` on 2026-08-23); first successor P-0009 promoted |
 | Continuous integration | Linux quality gate |
 | Public release | Not available |

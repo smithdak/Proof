@@ -1302,8 +1302,11 @@ the verified import, and byte-identical SQLite/PostgreSQL oracle traces.
 P-0011 has implemented the third successor: the nine-route HTTP surface,
 the same-origin OIDC BFF against a deterministic issuer, bounded sessions
 and CSRF, dual authentication, and the signed decision/consequence path
-through the PostgreSQL unit of work.
-The remaining successors above are unchanged.
+through the PostgreSQL unit of work. P-0012 has implemented the fourth
+successor: the leased generation-scoped outbox worker, poison management,
+the private preview adapter with ready-last manifests and the four alias
+outcomes, and the delivery projection and serving.
+The remaining successor above is unchanged.
 
 Only the first dependency-ready item is promoted after acceptance. SDKs,
 console, provider selection/provisioning, deployment, public preview,
