@@ -1,13 +1,13 @@
 ---
 id: P-0017
 title: Ship the TypeScript SDK over the shared HTTP contracts
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: []
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0017
+claimed_at: 2026-08-25T16:15:09.701Z
+base_sha: dcdaf485cf1a12332ae61f09b25a8c55ee73ce18
 review_gate: none
 accepted_by: null
 accepted_at: null
