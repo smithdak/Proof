@@ -13,3 +13,5 @@
 /web/playwright-report/
 /web/test-results/
 *.local
+
+*.tsbuildinfo

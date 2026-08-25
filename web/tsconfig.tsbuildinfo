@@ -1,1 +1,0 @@
-{"root":["./src/main.tsx","./src/test-setup.ts","./src/vite-env.d.ts","./src/api/client.ts","./src/api/types.ts","./src/app/App.tsx","./src/mocks/browser.ts","./src/mocks/handlers.ts","./src/mocks/seed-content.ts","./src/mocks/seed-core.ts","./src/mocks/seed-edits.ts"],"errors":true,"version":"5.7.3"}
