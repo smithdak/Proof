@@ -18,11 +18,11 @@ use proof_application::authority::{
     LocalizedObjectQueryReleasedInputV2, WorkspaceStatusInputV1,
 };
 use proof_application::{
-    AddLocalizedEditsCommand, AddedLocalizedEdits, CommitLocalizedChangeSetCommand,
-    CommittedLocalizedChangeSet, CreateLocalizedEditionCommand, KNOWN_STATE_V1_API_VERSION,
-    KNOWN_STATE_V2_API_VERSION, LocalizedChangeSetDiff, LocalizedEdition, LocalizedValidation,
-    ObjectLocalePutInput, QueryReleasedRenditionsCommand, ReleasedRenditionQuery,
-    SubmittedLocalizedChangeSet,
+    AddLocalizedEditsCommand, AddedLocalizedEdits, BuildLocalizedContextCommand,
+    CommitLocalizedChangeSetCommand, CommittedLocalizedChangeSet, CreateLocalizedEditionCommand,
+    KNOWN_STATE_V1_API_VERSION, KNOWN_STATE_V2_API_VERSION, LocalizedChangeSetDiff,
+    LocalizedContextPack, LocalizedEdition, LocalizedValidation, ObjectLocalePutInput,
+    QueryReleasedRenditionsCommand, ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
 };
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
@@ -32,6 +32,7 @@ use proof_remote::{
     application_problem_digest_preimage, derive_key_digest, normalized_operation_input_digest,
     operation_effect_digest,
 };
+use rusqlite::OptionalExtension as _;
 use serde_json::Value;
 use std::str::FromStr as _;
 
@@ -52,6 +53,7 @@ const FACT_KIND_WORKSPACE_METADATA: &str = "workspace_metadata";
 const FACT_KIND_RESOURCE_INTENT: &str = "resource_intent";
 /// Fact kind marker for an imported localized `ContextPack`.
 const FACT_KIND_CONTEXT_PACK: &str = "context_pack";
+const FACT_KIND_CONTEXT_BUILD_OPERATION: &str = "context_build_operation";
 /// Fact kind marker for an imported localized `ChangeSet` row projection.
 const FACT_KIND_LOCALIZED_CHANGESET: &str = "localized_changeset";
 /// Fact kind marker for one imported localized Edit artifact.
@@ -337,21 +339,26 @@ fn run_postgres_operation(
                 );
             };
             let command = input.into_application_command();
-            let result = read_localized_context_pack(
-                runtime,
-                &command.context_pack_id.to_string(),
-                &command.resource_intent_id.to_string(),
-                &command.resource_intent_digest.to_string(),
-            )?;
-            let effect = operation_effect_digest(&result)
-                .map_err(|error| PgError::Integrity(error.to_string()))?;
-            success_trace(
-                &operation,
-                normalized_input,
-                evaluated_authority_head,
-                result,
-                Some(effect),
-            )
+            match pg_build_context(runtime, &command) {
+                Ok(context) => {
+                    let result = proof_remote::oracle::serialize_localized_context_pack(&context);
+                    let effect = operation_effect_digest(&result)
+                        .map_err(|error| PgError::Integrity(error.to_string()))?;
+                    success_trace(
+                        &operation,
+                        normalized_input,
+                        evaluated_authority_head,
+                        result,
+                        Some(effect),
+                    )
+                }
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
         }
         AuthorityOperation::ChangesetAddV2 => {
             let Ok(input) = parse_input::<LocalizedChangeSetAddInputV2>(normalized_input) else {
@@ -778,6 +785,7 @@ fn import_parity_facts(
     import_renditions(runtime, &connection, &workspace_id)?;
     import_localizable_schemas(runtime, &connection, &workspace_id)?;
     import_environment_current_releases(runtime, &connection, &workspace_id)?;
+    import_context_build_operations(runtime, &connection, &workspace_id)?;
     import_release_metadata(runtime, &connection, &workspace_id)?;
     import_edition_metadata(runtime, &connection, &workspace_id)?;
     Ok(())
@@ -5936,4 +5944,583 @@ fn pg_query_released(
         edition: edition_ref,
         renditions,
     })
+}
+
+/// Ports `build_context` over parity facts.
+#[allow(clippy::too_many_lines)]
+fn pg_build_context(
+    runtime: &mut PgRuntime,
+    command: &BuildLocalizedContextCommand,
+) -> Result<LocalizedContextPack, String> {
+    use proof_application::{LOCALIZED_CONTENT_VALIDATOR, LOCALIZED_CONTEXT_API_VERSION};
+    const INVALID: &str = "proof.input.schema_mismatch";
+    const LIMIT_EXCEEDED: &str = "proof.input.limit_exceeded";
+    let principal = parity_principal(runtime)?;
+    // Keyed replay: recompute the request digest under normalized inputs.
+    let mut normalized_rules = command.policy_rules.clone();
+    for rule in &mut normalized_rules {
+        parse_pointer(&rule.pointer)?;
+        rule.disallowed_values.sort();
+    }
+    for rule in &normalized_rules {
+        if rule.disallowed_values.is_empty()
+            || rule
+                .disallowed_values
+                .windows(2)
+                .any(|pair| pair[0] == pair[1])
+        {
+            return Err(INVALID.to_owned());
+        }
+    }
+    let request_digest = |policy_digest: ContentDigest| -> Result<ContentDigest, String> {
+        let request = canonicalize(&serde_json::json!({
+            "api_version": "proof.dev/operation/context.build/v2",
+            "context_pack_id": command.context_pack_id.to_string(),
+            "created_at": command.created_at.to_string(),
+            "expires_at": command.expires_at.to_string(),
+            "idempotency_key": command.idempotency_key.to_string(),
+            "limits": {
+                "max_bytes": command.limits.max_bytes,
+                "max_edits": command.limits.max_edits,
+                "max_objects": command.limits.max_objects,
+                "max_validation_attempts": command.limits.max_validation_attempts,
+            },
+            "policy_digest": policy_digest.to_string(),
+            "resource_intent_digest": command.resource_intent_digest.to_string(),
+            "resource_intent_id": command.resource_intent_id.to_string(),
+        }))
+        .map_err(|error| integrity_code(&error.to_string()))?;
+        Ok(digest(
+            proof_domain::ArtifactKind::OperationEffectV1,
+            &request,
+        ))
+    };
+    let op_fact_id = format!(
+        "op_context_build/{principal}/{key}",
+        key = command.idempotency_key
+    );
+    if let Some(prior) = fact_json(runtime, &op_fact_id)? {
+        let stored_request: ContentDigest = prior
+            .get("request_digest")
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("op request"))?
+            .parse()
+            .map_err(|_| integrity_code("op request"))?;
+        let pack_id = json_str(&prior, "context_pack_id")?
+            .parse()
+            .map_err(|_| integrity_code("pack identity"))?;
+        let pack = pg_load_context(runtime, pack_id)?;
+        let policy = canonicalize(&serde_json::json!({
+            "api_version": "proof.dev/localized-content-policy/v1",
+            "rules": normalized_rules.iter().map(|rule| serde_json::json!({
+                "disallowed_values": rule.disallowed_values,
+                "locale": rule.locale.as_str(),
+                "pointer": rule.pointer,
+            })).collect::<Vec<_>>(),
+        }))
+        .map_err(|error| integrity_code(&error.to_string()))?;
+        let replay_policy_digest = digest(proof_domain::ArtifactKind::PolicyBundleV1, &policy);
+        if stored_request != request_digest(replay_policy_digest)?
+            || pack_id != command.context_pack_id
+        {
+            return Err("proof.idempotency.key_reused".to_owned());
+        }
+        return Ok(pack);
+    }
+    if command.expires_at <= command.created_at {
+        return Err(INVALID.to_owned());
+    }
+    let policy = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/localized-content-policy/v1",
+        "rules": normalized_rules.iter().map(|rule| serde_json::json!({
+            "disallowed_values": rule.disallowed_values,
+            "locale": rule.locale.as_str(),
+            "pointer": rule.pointer,
+        })).collect::<Vec<_>>(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let policy_digest = digest(proof_domain::ArtifactKind::PolicyBundleV1, &policy);
+    let request_digest = request_digest(policy_digest)?;
+    let intent_manifest = require_fact_json(
+        runtime,
+        &format!("resource_intent/{}", command.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let intent_meta = require_fact_json(
+        runtime,
+        &format!("resource_intent_meta/{}", command.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let stored_intent_digest: ContentDigest = json_str(&intent_meta, "intent_digest")?
+        .parse()
+        .map_err(|_| integrity_code("intent digest"))?;
+    if stored_intent_digest != command.resource_intent_digest {
+        return Err(INVALID.to_owned());
+    }
+    let targets = intent_manifest
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| integrity_code("intent targets"))?
+        .iter()
+        .map(|target| {
+            Ok((
+                json_str(target, "object_id")?.to_owned(),
+                json_str(target, "schema_id")?.to_owned(),
+                json_str(target, "locale")?.to_owned(),
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    {
+        use std::collections::BTreeSet;
+        let object_count = u32::try_from(
+            targets
+                .iter()
+                .map(|(id, _, _)| id)
+                .collect::<BTreeSet<_>>()
+                .len(),
+        )
+        .map_err(|_| LIMIT_EXCEEDED.to_owned())?;
+        let target_count = u32::try_from(targets.len()).map_err(|_| LIMIT_EXCEEDED.to_owned())?;
+        if command.limits.max_objects < object_count
+            || command.limits.max_objects == 0
+            || command.limits.max_objects
+                > u32::try_from(proof_application::MAX_LOCALIZED_TARGETS).unwrap_or(u32::MAX)
+            || command.limits.max_edits < target_count
+            || command.limits.max_edits > proof_application::MAX_LOCALIZED_EDITS
+            || command.limits.max_validation_attempts == 0
+            || command.limits.max_validation_attempts
+                > proof_application::MAX_LOCALIZED_VALIDATION_ATTEMPTS
+            || command.limits.max_bytes == 0
+            || command.limits.max_bytes > proof_application::MAX_LOCALIZED_CONTEXT_BYTES
+        {
+            return Err(LIMIT_EXCEEDED.to_owned());
+        }
+    }
+    let environment_id = json_str(&intent_manifest, "environment_id")?;
+    let current_baseline = pg_current_baseline(runtime, environment_id)?;
+    let base_state_value = intent_manifest
+        .get("base")
+        .and_then(|base| base.get("known_state"))
+        .cloned()
+        .ok_or_else(|| integrity_code("intent base state"))?;
+    if current_baseline.known_state.authoritative_sequence
+        != base_state_value
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .unwrap_or_default()
+        || current_baseline.known_state.digest.to_string() != json_str(&base_state_value, "digest")?
+    {
+        return Err("proof.state.conflict".to_owned());
+    }
+    if fact_json(
+        runtime,
+        &format!("context_pack/{}", command.context_pack_id),
+    )?
+    .is_some()
+    {
+        return Err(integrity_code(
+            "candidate localized ContextPack identity already exists",
+        ));
+    }
+    let base_sequence = current_baseline.known_state.authoritative_sequence;
+    let mut resources = Vec::with_capacity(targets.len());
+    for (object_id, schema_id_text, locale_text) in &targets {
+        let source = require_fact_json(
+            runtime,
+            &format!("source_object/{object_id}"),
+            "proof.resource.not_found",
+        )?;
+        if json_str(&source, "schema_id")? != schema_id_text {
+            return Err(INVALID.to_owned());
+        }
+        let schema_version = source
+            .get("schema_version")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("source schema version"))?;
+        let schema = require_fact_json(
+            runtime,
+            &format!("localizable_schema/{schema_id_text}/{schema_version}"),
+            INVALID,
+        )?;
+        let document = schema
+            .get("document")
+            .cloned()
+            .ok_or_else(|| integrity_code("schema document"))?;
+        let pointers: Vec<String> = document
+            .get("x-proof-localizable")
+            .and_then(Value::as_array)
+            .ok_or_else(|| INVALID.to_owned())?
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        for rule in normalized_rules
+            .iter()
+            .filter(|rule| rule.locale.as_str() == locale_text.as_str())
+        {
+            if !pointers.contains(&rule.pointer) {
+                return Err(INVALID.to_owned());
+            }
+        }
+        let target_value = match pg_rendition_at(runtime, object_id, locale_text, base_sequence)? {
+            None => serde_json::json!({
+                "absent": true,
+                "api_version": "proof.dev/object-locale-absence/v1",
+                "authoritative_sequence": base_sequence,
+            }),
+            Some(state) => serde_json::json!({
+                "absent": false,
+                "api_version": "proof.dev/object-locale-revision/v1",
+                "digest": state.digest,
+                "manifest": pg_rendition_manifest(
+                    runtime,
+                    object_id,
+                    locale_text,
+                    state.revision,
+                )?,
+                "revision": state.revision,
+            }),
+        };
+        let content: Value = serde_json::from_str(
+            source
+                .get("canonical_content")
+                .and_then(Value::as_str)
+                .ok_or_else(|| integrity_code("source content"))?,
+        )
+        .map_err(|error| integrity_code(&error.to_string()))?;
+        resources.push(serde_json::json!({
+            "locale": locale_text,
+            "object_id": object_id,
+            "schema": {
+                "document": document,
+                "document_digest": json_str(&schema, "document_digest")?,
+                "localizable_pointers": pointers,
+                "schema_id": schema_id_text,
+                "schema_version": schema_version,
+            },
+            "source": {
+                "api_version": "proof.dev/object-revision/v1",
+                "content": content,
+                "digest": json_str(&source, "object_digest")?,
+                "revision": 1,
+            },
+            "target": target_value,
+        }));
+    }
+    for rule in &normalized_rules {
+        if !targets
+            .iter()
+            .any(|(_, _, locale)| locale == rule.locale.as_str())
+        {
+            return Err(INVALID.to_owned());
+        }
+    }
+    let manifest_value = serde_json::json!({
+        "allowed_operations": [
+            "proof.dev/operation/changeset.create/v2",
+            "proof.dev/operation/changeset.add/v2",
+            "proof.dev/operation/changeset.get/v2",
+            "proof.dev/operation/changeset.diff/v2",
+            "proof.dev/operation/changeset.validate/v2",
+            "proof.dev/operation/changeset.submit/v2",
+            "proof.dev/operation/changeset.commit/v2",
+            "proof.dev/operation/edition.create/v2",
+            "proof.dev/operation/release.create/v2",
+            "proof.dev/operation/object.query_released/v2"
+        ],
+        "api_version": LOCALIZED_CONTEXT_API_VERSION,
+        "context_pack_id": command.context_pack_id.to_string(),
+        "created_at": command.created_at.to_string(),
+        "explicit_exclusions": [
+            "agent-authority",
+            "campaign-expansion",
+            "deletion",
+            "fallback",
+            "generic-object-replacement",
+            "relationship-mutation",
+            "schema-mutation"
+        ],
+        "expires_at": command.expires_at.to_string(),
+        "limits": {
+            "max_bytes": command.limits.max_bytes,
+            "max_edits": command.limits.max_edits,
+            "max_objects": command.limits.max_objects,
+            "max_validation_attempts": command.limits.max_validation_attempts,
+        },
+        "policy": serde_json::from_str::<Value>(policy.as_str())
+            .map_err(|e| integrity_code(&e.to_string()))?,
+        "policy_digest": policy_digest.to_string(),
+        "principal_id": principal.to_string(),
+        "resource_intent": intent_manifest,
+        "resource_intent_digest": command.resource_intent_digest.to_string(),
+        "resources": resources,
+        "target_ordering": "object_id,schema_id,locale:utf8-ascending",
+        "validator": LOCALIZED_CONTENT_VALIDATOR,
+        "workspace_id": workspace_id_of(runtime)?,
+    });
+    let manifest =
+        canonicalize(&manifest_value).map_err(|error| integrity_code(&error.to_string()))?;
+    if u64::try_from(manifest.as_bytes().len()).unwrap_or(u64::MAX) > command.limits.max_bytes {
+        return Err(LIMIT_EXCEEDED.to_owned());
+    }
+    let context_pack_digest = digest(proof_domain::ArtifactKind::ContextPackV2, &manifest);
+    let workspace_id = workspace_id_of(runtime)?;
+    store_verified_fact(
+        runtime,
+        &workspace_id,
+        &format!("context_pack/{}", command.context_pack_id),
+        "proof:parity:context-pack:v1",
+        FACT_KIND_CONTEXT_PACK,
+        &manifest_value,
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let effect = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation-effect/v1",
+        "operation_kind": "context.build/v2",
+        "request_digest": request_digest.to_string(),
+        "result": {
+            "context_pack_digest": context_pack_digest.to_string(),
+            "context_pack_id": command.context_pack_id.to_string(),
+        },
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let effect_digest = digest(proof_domain::ArtifactKind::OperationEffectV1, &effect);
+    insert_parity_op_fact(
+        runtime,
+        &op_fact_id,
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/context-build-operation/v1",
+            "principal_id": principal.to_string(),
+            "idempotency_key": command.idempotency_key.to_string(),
+            "context_pack_id": command.context_pack_id.to_string(),
+            "request_digest": request_digest.to_string(),
+            "effect_digest": effect_digest.to_string(),
+        }),
+    )?;
+    pg_load_context(runtime, command.context_pack_id)
+}
+
+/// Reads one rendition manifest by exact revision.
+fn pg_rendition_manifest(
+    runtime: &mut PgRuntime,
+    object_id: &str,
+    locale: &str,
+    revision: u32,
+) -> Result<Value, String> {
+    let rows = {
+        let client = runtime.client_mut();
+        client.query(
+            "SELECT body FROM facts WHERE fact_kind = $1 AND fact_id LIKE $2",
+            &[
+                &"locale_rendition",
+                &format!("locale_rendition/{object_id}/{locale}/%"),
+            ],
+        )
+    }
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    for row in rows {
+        let body: Vec<u8> = row.get(0);
+        let value: Value =
+            serde_json::from_slice(&body).map_err(|error| integrity_code(&error.to_string()))?;
+        let manifest = value
+            .get("manifest")
+            .cloned()
+            .ok_or_else(|| integrity_code("rendition manifest"))?;
+        if manifest.get("revision").and_then(Value::as_u64) == Some(u64::from(revision)) {
+            return Ok(manifest);
+        }
+    }
+    Err(integrity_code("rendition fact is absent"))
+}
+
+/// Rebuilds a ContextPack from its wrapper fact.
+#[allow(clippy::too_many_lines)]
+fn pg_load_context(
+    runtime: &mut PgRuntime,
+    context_pack_id: proof_application::ContextPackId,
+) -> Result<LocalizedContextPack, String> {
+    use proof_application::{LocalizedContentBaseline, LocalizedContextLimits};
+    let _ = runtime;
+    let body = require_fact_json(
+        runtime,
+        &format!("context_pack/{context_pack_id}"),
+        "proof.resource.not_found",
+    )?;
+    let manifest_json = canonicalize(&body)
+        .map_err(|error| integrity_code(&error.to_string()))?
+        .as_str()
+        .to_owned();
+    let base_value = body
+        .get("resource_intent")
+        .and_then(|intent| intent.get("base"))
+        .cloned()
+        .ok_or_else(|| integrity_code("pack base"))?;
+    let limits_value = body
+        .get("limits")
+        .cloned()
+        .ok_or_else(|| integrity_code("pack limits"))?;
+    let release_value = base_value
+        .get("release")
+        .cloned()
+        .ok_or_else(|| integrity_code("pack base release"))?;
+    let edition_value = base_value
+        .get("edition")
+        .cloned()
+        .ok_or_else(|| integrity_code("pack base edition"))?;
+    let known_state_value = base_value
+        .get("known_state")
+        .cloned()
+        .ok_or_else(|| integrity_code("pack base state"))?;
+    Ok(LocalizedContextPack {
+        context_pack_id: json_str(&body, "context_pack_id")?
+            .parse()
+            .map_err(|_| integrity_code("pack identity"))?,
+        workspace_id: parse_workspace(json_str(&body, "workspace_id")?)?,
+        principal_id: json_str(&body, "principal_id")?
+            .parse()
+            .map_err(|_| integrity_code("pack principal"))?,
+        resource_intent_id: body
+            .get("resource_intent")
+            .and_then(|intent| intent.get("intent_id"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| integrity_code("pack intent reference"))?
+            .parse()
+            .map_err(|_| integrity_code("pack intent identity"))?,
+        resource_intent_digest: json_str(&body, "resource_intent_digest")?
+            .parse()
+            .map_err(|_| integrity_code("pack intent digest"))?,
+        base: LocalizedContentBaseline {
+            release: proof_application::ReleaseArtifactReference {
+                api_version: json_str(&release_value, "api_version")?.to_owned(),
+                digest: json_str(&release_value, "digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("pack release digest"))?,
+                release_id: json_str(&release_value, "release_id")?
+                    .parse()
+                    .map_err(|_| integrity_code("pack release identity"))?,
+            },
+            edition: proof_application::EditionArtifactReference {
+                api_version: json_str(&edition_value, "api_version")?.to_owned(),
+                digest: json_str(&edition_value, "digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("pack edition digest"))?,
+                edition_id: json_str(&edition_value, "edition_id")?
+                    .parse()
+                    .map_err(|_| integrity_code("pack edition identity"))?,
+            },
+            known_state: KnownStateArtifactReference {
+                api_version: json_str(&known_state_value, "api_version")?.to_owned(),
+                authoritative_sequence: known_state_value
+                    .get("authoritative_sequence")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| integrity_code("pack sequence"))?,
+                digest: json_str(&known_state_value, "digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("pack state digest"))?,
+            },
+        },
+        policy_digest: json_str(&body, "policy_digest")?
+            .parse()
+            .map_err(|_| integrity_code("policy digest"))?,
+        limits: LocalizedContextLimits {
+            max_objects: u32::try_from(
+                limits_value
+                    .get("max_objects")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0),
+            max_edits: u32::try_from(
+                limits_value
+                    .get("max_edits")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0),
+            max_validation_attempts: u32::try_from(
+                limits_value
+                    .get("max_validation_attempts")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0),
+            max_bytes: u64::try_from(
+                limits_value
+                    .get("max_bytes")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0),
+        },
+        created_at: json_str(&body, "created_at")?
+            .parse()
+            .map_err(|_| integrity_code("pack timestamp"))?,
+        expires_at: json_str(&body, "expires_at")?
+            .parse()
+            .map_err(|_| integrity_code("pack expiry"))?,
+        // The pack manifest excludes its own digest; recompute it from the
+        // imported canonical bytes.
+        context_pack_digest: digest(
+            proof_domain::ArtifactKind::ContextPackV2,
+            &canonicalize(&body).map_err(|error| integrity_code(&error.to_string()))?,
+        ),
+        manifest_json,
+    })
+}
+
+/// Persists ContextPack build operations as idempotent operation facts.
+fn import_context_build_operations(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let principal = {
+        let metadata: String = connection
+            .query_row(
+                "SELECT bootstrap_principal_id FROM workspace_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| PgError::Import(error.to_string()))?
+            .ok_or_else(|| PgError::Import("workspace principal is absent".to_owned()))?;
+        metadata
+    };
+    let mut statement = connection
+        .prepare(
+            "SELECT idempotency_key, request_digest, effect_digest, context_pack_id
+             FROM localized_context_build_operations ORDER BY context_pack_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (idempotency_key, request_digest, effect_digest, context_pack_id) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/context-build-operation/v1",
+            "context_pack_id": context_pack_id,
+            "effect_digest": effect_digest,
+            "idempotency_key": idempotency_key,
+            "principal_id": principal,
+            "request_digest": request_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("op_context_build/{principal}/{idempotency_key}"),
+            "proof:parity:context-build-operation:v1",
+            FACT_KIND_CONTEXT_BUILD_OPERATION,
+            &body,
+        )?;
+    }
+    Ok(())
 }

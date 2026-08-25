@@ -540,16 +540,14 @@ fn tampered_postgres_consequence_diverges() {
         .assert_identical(&sqlite_traces, &postgres_traces)
         .unwrap();
 
-    // Tamper the PG consequence: overwrite the imported ContextPack digest so
-    // the reconstructed `context_pack_digest` (and therefore the signed
-    // consequence digest) no longer reproduces the reference.
-    let tampered = "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    // Tamper the PG consequence: drop the imported build-operation fact so the
+    // replay can no longer reproduce the reference consequence.
     fixture
         .runtime
         .client_mut()
         .execute(
-            "UPDATE facts SET fact_digest = $1 WHERE fact_id = $2",
-            &[&tampered, &format!("context_pack/{CONTEXT_PACK_ID}")],
+            "DELETE FROM facts WHERE fact_kind = 'context_build_operation'",
+            &[],
         )
         .unwrap();
 
@@ -2115,6 +2113,125 @@ fn query_released_rejection_traces_are_byte_identical() {
         &postgres_traces[0].outcome,
         OracleOutcome::StableProblem(problem) if problem.code == "proof.resource.not_found"
     ));
+
+    let _ = runtime
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn context_build_traces_are_byte_identical() {
+    use proof_pg::parity::PostgresBackend as PgBackendAlias;
+    use proof_remote::OracleOutcome;
+
+    const L_BUILD_KEY: &str = "019d1000-0000-7000-8000-000000000047";
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (intent_id, intent_digest, _pack_id, _pack_digest) =
+        seed_localized_intent_and_context(&workspace);
+
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_build_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let build_input = serde_json::json!({
+        "api_version": "proof.dev/operation/context.build/v2",
+        "context_pack_id": "019d1000-0000-7000-8000-000000000053",
+        "created_at": "2026-08-21T10:30:00Z",
+        "expires_at": "2026-08-22T10:30:00Z",
+        "idempotency_key": L_BUILD_KEY,
+        "limits": {
+            "max_bytes": 262144,
+            "max_edits": 16,
+            "max_objects": 8,
+            "max_validation_attempts": 3,
+        },
+        "policy_rules": [
+            {
+                "disallowed_values": [
+                    "absolute guarantee",
+                    "best in class",
+                    "guaranteed returns"
+                ],
+                "locale": "es-ES",
+                "pointer": "/legal",
+            },
+            {
+                "disallowed_values": ["absolute guarantee", "garantie absolue"],
+                "locale": "fr-FR",
+                "pointer": "/legal",
+            },
+        ],
+        "resource_intent_digest": intent_digest.to_string(),
+        "resource_intent_id": intent_id.to_string(),
+    });
+    let scenario = ParityScenario {
+        name: "context.build/v2 accepted plus keyed replay".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: build_input.clone(),
+                actor_context: actor_context(
+                    "context.build",
+                    "proof.dev/operation/context.build/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: build_input,
+                actor_context: actor_context(
+                    "context.build",
+                    "proof.dev/operation/context.build/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+
+    let mut sqlite_backend = SqliteReferenceBackend::new(&workspace);
+    let mut postgres_backend = PgBackendAlias::new(&mut runtime);
+    let runner = ParityRunner::new();
+    let sqlite_traces = runner
+        .run_sqlite(&scenario, &mut sqlite_backend)
+        .expect("SQLite reference traces");
+    let postgres_traces = runner
+        .run_postgres(&scenario, &mut postgres_backend)
+        .expect("PostgreSQL traces");
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("byte-identical traces");
+
+    match &postgres_traces[0].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["manifest"]["limits"]["max_edits"], 16);
+            assert_eq!(
+                result["manifest"]["resources"].as_array().map(Vec::len),
+                Some(2)
+            );
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("expected an accepted ContextPack build, got {other:?}")
+        }
+    }
 
     let _ = runtime
         .client_mut()
