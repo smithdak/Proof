@@ -191,6 +191,24 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   the backend constructor (keys live outside the store by design) before
   reproducing request digests, artifact preflight, Environment rotation,
   in-toto statement construction, signatures, and Release/Proof persistence.
+- Slice 12 (2026-08-24): `release.create/v2` foundations landed —
+  `LocalWorkspace::release_signing_secret()` exposes the file-backed Ed25519
+  key to out-of-process oracles (32-byte check, zeroizing reads; keys never
+  enter the store), and `PostgresBackend::with_release_signer` threads it
+  through while `new` keeps existing call sites unchanged
+  (`proof-attestation` added to proof-pg). The full promotion-flow contract
+  is now mapped for the executor port: request digest envelope,
+  Environment-gated preflight (current-release expectation, policy timing),
+  versioned Edition views for base and target, exact-delta computation and
+  promotion verification against the committed ChangeSet, content evidence
+  from pack/validations/diff, authorization decision manifest, Release
+  manifest under `ReleaseV2`, in-toto `release_v2` statement with two
+  subjects (edition, release), DSSE signing via the shared provider,
+  metadata manifest, and persistence across releases / localized release
+  metadata / release proofs / operations / export outbox plus Environment
+  pointer rotation. Importer prerequisites identified during mapping:
+  Environment configuration facts (config version/digest, policy profile,
+  required approval) and v1 Edition views for the base Release.
 - Slice 8 (2026-08-24): `changeset.commit/v2` mirrored end to end —
   keyed replay over commit operation facts with effect reproduction, Approved
   gating with imported approval evidence, seal-head verification, write-head

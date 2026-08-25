@@ -1455,6 +1455,7 @@ dependencies = [
  "postgres",
  "postgres-types",
  "proof-application",
+ "proof-attestation",
  "proof-canonical",
  "proof-domain",
  "proof-local",

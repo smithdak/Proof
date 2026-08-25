@@ -811,6 +811,30 @@ impl LocalWorkspace {
         &self.root
     }
 
+    /// Reads the workspace's persisted Ed25519 Release signing secret so an
+    /// out-of-process oracle can reproduce signatures without the key ever
+    /// entering the store.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalPortError::Signing`] when the key file is absent or not
+    /// exactly 32 bytes.
+    pub fn release_signing_secret(&self) -> Result<[u8; 32], LocalPortError> {
+        let path = self.root.join(RELEASE_SIGNING_KEY_RELATIVE_PATH);
+        let mut bytes =
+            fs::read(&path).map_err(|error| LocalPortError::Signing(error.to_string()))?;
+        if bytes.len() != 32 {
+            bytes.zeroize();
+            return Err(LocalPortError::Signing(
+                "local Release signing key must contain exactly 32 bytes".to_owned(),
+            ));
+        }
+        let mut secret = [0_u8; 32];
+        secret.copy_from_slice(&bytes);
+        bytes.zeroize();
+        Ok(secret)
+    }
+
     /// Returns the version-controlled Workspace configuration path.
     #[must_use]
     pub fn config_path(&self) -> PathBuf {

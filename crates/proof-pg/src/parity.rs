@@ -24,6 +24,7 @@ use proof_application::{
     LocalizedContextPack, LocalizedEdition, LocalizedValidation, ObjectLocalePutInput,
     QueryReleasedRenditionsCommand, ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
 };
+use proof_attestation::Ed25519SigningProvider;
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
 use proof_remote::{
@@ -71,6 +72,7 @@ const FACT_KIND_LOCALIZED_EDITION_META: &str = "localized_edition_meta";
 /// falsification plan").
 pub struct PostgresBackend<'a> {
     runtime: &'a mut PgRuntime,
+    release_signer: Option<Ed25519SigningProvider>,
 }
 
 impl<'a> PostgresBackend<'a> {
@@ -78,7 +80,24 @@ impl<'a> PostgresBackend<'a> {
     /// migrated and populated by [`prepare_parity_backend`].
     #[must_use]
     pub fn new(runtime: &'a mut PgRuntime) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            release_signer: None,
+        }
+    }
+
+    /// Binds the backend with the Workspace's file-backed Release signer so
+    /// `release.create/v2` can reproduce signatures byte-identically. Keys
+    /// live outside the store by design and are never imported as facts.
+    #[must_use]
+    pub fn with_release_signer(
+        runtime: &'a mut PgRuntime,
+        release_signer: Ed25519SigningProvider,
+    ) -> Self {
+        Self {
+            runtime,
+            release_signer: Some(release_signer),
+        }
     }
 }
 

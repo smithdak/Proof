@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+proof-attestation = { path = "../proof-attestation" }
 jsonschema.workspace = true
 postgres.workspace = true
 postgres-types.workspace = true
