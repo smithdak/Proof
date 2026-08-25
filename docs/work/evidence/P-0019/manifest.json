@@ -1,0 +1,74 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0019",
+ "base_sha": "d93c3acab3430000000000000000000000000000",
+ "claim_commit": "7af4067",
+ "intermediate_commits": [
+  "f8b2db3"
+ ],
+ "candidate_commit": "WORKTREE",
+ "item_work_commit": "WORKTREE",
+ "branch": "main",
+ "qualified_at": "2026-08-25T19:30:00.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "none",
+ "successors_created": [],
+ "deployed": false,
+ "milestone_complete": true,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed (19 items)"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed (399 links incl. quickstart)"
+  },
+  {
+   "command": "cargo fmt --all --check",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+   "exit_code": 0,
+   "result": "passed"
+  }
+ ],
+ "inventory": {
+  "changed_files": 3,
+  "insertions": 120,
+  "deletions": 2,
+  "new_retained_vectors": [],
+  "new_test_binary": null,
+  "frozen_vector_change_count": 0,
+  "new_third_party_packages": [],
+  "storage_schema_version": "unchanged (documentation item)",
+  "operation_registry_change_count": 0
+ },
+ "residuals": [
+  "the MCP surface named by the strategy is not shipped; the quickstart ships the equivalent frozen HTTP path and records the boundary decision in the item log",
+  "quickstart drift protection is per-leg via linked retained suites rather than one wrapper run"
+ ],
+ "environment": {
+  "operating_system": "Linux (Debian bookworm/glibc, WSL2 host)",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "node": "v22.23.2",
+  "git": "2.43.0"
+ },
+ "artifact_digests": [
+  {
+   "path": "docs/quickstart.md",
+   "git_blob_oid": "FILLED_AT_COMMIT",
+   "algorithm": "sha256",
+   "digest": "FILLED_AT_COMMIT"
+  }
+ ],
+ "evidence_paths": [
+  "docs/work/evidence/P-0019/receipt.md",
+  "docs/work/evidence/P-0019/manifest.json"
+ ]
+}

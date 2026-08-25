@@ -85,7 +85,6 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `claimed` | none | Ship the quickstart that takes an operator from compose-up to a verified agent-completed release, with every command asserted by a retained test. |
 
 ## Next
 
@@ -106,6 +105,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `done` | P-0018 | Shipped `docs/quickstart.md`: compose-up to an independently verified release, every leg guarded by a named retained suite; MCP boundary recorded. |
 | [Initial human web console with notarial-register design system](items/P-0016-web-console-design-system.md) | `done` | none | Shipped the six-surface console on the ledger design system after a swarmed polish pass; finish-review accepted by the project owner. |
 | [Produce the deployable server artifact with one-command bring-up](items/P-0018-deployable-server-artifact.md) | `done` | none | Shipped the `proof-server` binary plus a one-command compose stack (PostgreSQL, server, worker); proven live end to end with the SDK's live leg. |
 | [Ship the TypeScript SDK over the shared HTTP contracts](items/P-0017-typescript-sdk.md) | `done` | none | Shipped `web/packages/proof-sdk`: a typed client over all 14 frozen operation pairs with cross-language drift enforcement against the Rust contracts. |
