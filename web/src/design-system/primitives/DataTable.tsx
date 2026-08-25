@@ -58,7 +58,10 @@ export function DataTable<T>({
   return (
     <div className="w-full overflow-x-auto">
       <table
-        className={cx("w-full border-separate border-spacing-0 text-sm tabular-nums", className)}
+        className={cx(
+          "w-full min-w-[640px] border-separate border-spacing-0 text-sm tabular-nums",
+          className,
+        )}
         {...props}
       >
         <thead>
@@ -70,7 +73,7 @@ export function DataTable<T>({
                 scope="col"
                 style={column.width ? { width: column.width } : undefined}
                 className={cx(
-                  "border-b border-ruling-200 px-3 py-2 text-2xs font-medium uppercase tracking-[0.14em] text-ink-500",
+                  "border-b border-ruling-200 px-3 py-2 text-2xs font-medium uppercase tracking-[0.14em] text-ink-600",
                   ALIGN[column.align ?? "left"],
                 )}
               >

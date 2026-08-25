@@ -209,19 +209,16 @@ function AuthoritySurface() {
                 key={delegation.delegation_id}
                 className="relative py-4 first:pt-0 last:pb-0"
               >
-                {revoked ? (
-                  <Stamp
-                    tone="vermilion"
-                    className="pointer-events-none absolute -top-2 right-12 z-10 select-none"
-                  >
-                    REVOKED
-                  </Stamp>
-                ) : null}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <DelegationParties
                     issuedBy={delegation.issued_by}
                     grantedTo={delegation.granted_to}
                   />
+                  {revoked ? (
+                    <Stamp tone="vermilion" className="select-none">
+                      REVOKED
+                    </Stamp>
+                  ) : null}
                   <div className="ml-auto flex items-center gap-4">
                     <ExpiryLine expiresAt={delegation.expires_at} />
                     {!revoked ? (

@@ -11,7 +11,7 @@ export const SectionHeading = forwardRef<HTMLHeadingElement, SectionHeadingProps
     <h2
       ref={ref}
       className={cx(
-        "flex items-center gap-4 text-2xs font-medium uppercase tracking-[0.14em] text-ink-500",
+        "flex items-center gap-4 text-2xs font-medium uppercase tracking-[0.14em] text-ink-600",
         className,
       )}
       {...props}

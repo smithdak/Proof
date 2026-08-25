@@ -92,7 +92,7 @@ const columns: Array<DataTableColumn<ChangeSet>> = [
     align: "right",
     width: "12rem",
     render: (row) => (
-      <span className="font-mono text-xs text-ink-500">
+      <span className="whitespace-nowrap font-mono text-xs text-ink-500">
         {formatTimestamp(row.updated_at)}
       </span>
     ),

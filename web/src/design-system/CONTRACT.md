@@ -14,7 +14,7 @@ derive it from `src/design-system/tokens.css` and the direction contract in
    full-round only for stamp/badge pills.
 2. Hierarchy comes from spacing, hairlines, and type - never nested boxes.
 3. All identifiers, digests, timestamps render in `font-mono`. Labels use
-   small-caps style: `text-2xs uppercase tracking-[0.14em] text-ink-500`.
+   small-caps style: `text-2xs uppercase tracking-[0.14em] text-ink-600`.
 4. Status colors appear ONLY inside Stamp/Finding components:
    passed/approved/committed = `seal-*`; rejected/failed/error =
    `vermilion-*`; running/pending/submitted = `amber-screen-*`;

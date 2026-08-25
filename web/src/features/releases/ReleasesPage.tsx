@@ -72,7 +72,7 @@ const editionColumns: Array<DataTableColumn<Edition>> = [
     align: "right",
     width: "12rem",
     render: (row) => (
-      <span className="font-mono text-xs text-ink-500">
+      <span className="whitespace-nowrap font-mono text-xs text-ink-500">
         {formatTimestamp(row.created_at)}
       </span>
     ),

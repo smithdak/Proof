@@ -15,7 +15,7 @@ export const RegisterPanel = forwardRef<HTMLElement, RegisterPanelProps>(
     >
       {title ? (
         <header className="border-b border-ruling-200 px-4 py-2.5">
-          <h2 className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-500">
+          <h2 className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-600">
             {title}
           </h2>
         </header>

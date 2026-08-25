@@ -33,7 +33,7 @@ function RootChecklist() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <Stamp
             tone={stampToneForStatus(report.verdict)}
-            className="scale-[1.35]"
+            className="scale-[1.45]"
           >
             {report.verdict}
           </Stamp>
@@ -121,7 +121,7 @@ const deliveryColumns: Array<DataTableColumn<DeliveryRecord>> = [
     header: "Activity",
     width: "13rem",
     render: (row) => (
-      <span className="font-mono text-xs text-ink-500">
+      <span className="whitespace-nowrap font-mono text-xs text-ink-500">
         {row.last_attempt_at
           ? formatTimestamp(row.last_attempt_at)
           : row.next_attempt_at

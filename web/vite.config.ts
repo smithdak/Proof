@@ -19,15 +19,15 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": {
+      "^/api/": {
         target: process.env.PROOF_SERVER_URL ?? "http://127.0.0.1:8080",
         changeOrigin: false,
       },
-      "/auth": {
+      "^/auth/oidc/": {
         target: process.env.PROOF_SERVER_URL ?? "http://127.0.0.1:8080",
         changeOrigin: false,
       },
-      "/preview": {
+      "^/preview/": {
         target: process.env.PROOF_SERVER_URL ?? "http://127.0.0.1:8080",
         changeOrigin: false,
       },
