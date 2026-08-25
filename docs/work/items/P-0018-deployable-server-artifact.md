@@ -1,13 +1,13 @@
 ---
 id: P-0018
 title: Produce the deployable server artifact with one-command bring-up
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: []
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0018
+claimed_at: 2026-08-25T17:22:15.578Z
+base_sha: 13bc956d0f7a2fd97a59bed2f4580a0f235f9ab8
 review_gate: none
 accepted_by: null
 accepted_at: null

@@ -100,7 +100,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Produce the deployable server artifact with one-command bring-up](items/P-0018-deployable-server-artifact.md) | `ready` | none | Ship the `proof-server` binary and a one-command stack (server, delivery worker, PostgreSQL) so operators and the quickstart get a working deployment. |
+| [Produce the deployable server artifact with one-command bring-up](items/P-0018-deployable-server-artifact.md) | `claimed` | none | Ship the `proof-server` binary and a one-command stack (server, delivery worker, PostgreSQL) so operators and the quickstart get a working deployment. |
 
 ## Completed
 
