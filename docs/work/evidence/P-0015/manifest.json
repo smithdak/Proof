@@ -1,0 +1,147 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0015",
+ "base_sha": "5d819e6c93ccb29070ad8f9a01a747d1eb1e462a",
+ "claim_commit": "5d819e6c93ccb29070ad8f9a01a747d1eb1e462a",
+ "intermediate_commits": [
+  "d8652575ebf18f729c6eeb68d5b4305a3fea8236",
+  "20ae773465ba824cfdaef670edac175915399b54",
+  "c4d58fe0e11203c1f4e9b8b42284df353e83dc9f",
+  "ff267f8daf5f8df63ff1bad827546467bd2e16a3",
+  "923d77bdfb1a8f94c7bf0dbe6cbc6fc107559372",
+  "374ae202f3283230ff7a311e989c42801fce37d3",
+  "1ae06140f47eb214eccd31f3da762fee787b7aac",
+  "82a4b21752abe964cb2f0061bea8f237ee5aa5ff",
+  "43f366ce06dbaf87da26fa38bfa61ff67c4b577d",
+  "d1412b56d2a022ce7e20e4f4908565c4072ddc83",
+  "1d6877fc8be1d355f6105040cf2a7e51d1056b5b",
+  "f0c895c5ef6f919832a17950bb2024d8b6583619",
+  "7e8162e36f5a6a2f11c64cf7059947ca43d161e0",
+  "ed7bb1a899bf8dfa7fb5ebe5c4cff7ace83f6f21",
+  "486553dbbcc803d9d766458aef807e0f94d352d9",
+  "1af5eb3ffebc1e44237e99c99b376c50cb65c223",
+  "8d1523fdf43554bdd488e4a8a55f06e63739d59f",
+  "4b905b66aa7ce6dd2da0ffaf5a4a8a2f3adc5bf4"
+ ],
+ "candidate_parent_sha": "4b905b66aa7ce6dd2da0ffaf5a4a8a2f3adc5bf4",
+ "candidate_commit": "e2cf8c3b647663aa0571c2b0ba65f71adcd1075b",
+ "candidate_tree": "b8ffd491aa897c3aedbb8ae6551dcba067a6e3a3",
+ "item_work_commit": "e2cf8c3b647663aa0571c2b0ba65f71adcd1075b",
+ "destination_shape_commit": null,
+ "branch": "main",
+ "qualified_at": "2026-08-25T15:52:37.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "none",
+ "successors_created": [],
+ "deployed": false,
+ "milestone_complete": false,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "cargo fmt --all --check",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --workspace --all-targets --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --doc --workspace --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test -p proof-pg --test parity_impl",
+   "exit_code": 0,
+   "result": "passed (16 tests)"
+  },
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed (16 items)"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed (379 links)"
+  }
+ ],
+ "inventory": {
+  "changed_files": 8,
+  "insertions": 9383,
+  "deletions": 74,
+  "new_retained_vectors": [],
+  "new_test_binary": {
+   "path": "crates/proof-pg/tests/parity_impl.rs",
+   "tests": 16
+  },
+  "frozen_vector_change_count": 0,
+  "new_third_party_packages": [],
+  "storage_schema_version": "unchanged (facts-table parity projections only; no SQLite migration added)",
+  "operation_registry_change_count": 0
+ },
+ "residuals": [
+  "object.query_released/v2 retains rejection-parity only; the success path stays deferred until a fixture imports a released v2 rendition set",
+  "the release signer's cross-role authority-key conflict check is out of parity scope (authority tables are excluded from the import by contract)",
+  "the rollback arm of localized Release creation has no v2 authority input and is therefore unreachable from the shared oracle surface; it remains unported"
+ ],
+ "environment": {
+  "operating_system": "Linux (Debian bookworm/glibc, WSL2 host)",
+  "kernel": "5.15.167.4-microsoft-standard-WSL2",
+  "architecture": "x86_64-unknown-linux-gnu",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "cargo": "1.97.1 (c980f4866 2026-06-30)",
+  "node": "v22.23.2",
+  "git": "2.43.0",
+  "postgresql": "service reachable at the proof-pg default DSN 127.0.0.1:55432/prooftest (version not queried; all PostgreSQL-backed integration tests connected and passed)"
+ },
+ "artifact_digests": [
+  {
+   "path": "crates/proof-pg/src/parity.rs",
+   "git_blob_oid": "69542fc8f31cff037677bcb8fbde60e30bd9665a",
+   "algorithm": "sha256",
+   "digest": "d52693b708a1e6954f4722a39b13b696ea5dc7d5bfab5bdea0623b2578c91a5b"
+  },
+  {
+   "path": "crates/proof-pg/src/import.rs",
+   "git_blob_oid": "32013ecc6524111ca23de58b9ce4ca9b7d7aa96f",
+   "algorithm": "sha256",
+   "digest": "0351ebffd60a9cbfb13ad7056bffa309047816627b468dbe2c5a2558e0a8d8ca"
+  },
+  {
+   "path": "crates/proof-pg/tests/parity_impl.rs",
+   "git_blob_oid": "2f673f9979bf419c2d398ae7c33392fd6004010b",
+   "algorithm": "sha256",
+   "digest": "f7fb60a2250532a415881762a3d3b41b8d6ad437eadaf8490e7ead7a8e19b1d6"
+  },
+  {
+   "path": "crates/proof-remote/src/oracle.rs",
+   "git_blob_oid": "56f531439963ee5d39f4cafd7ac43e15bdfcc8cf",
+   "algorithm": "sha256",
+   "digest": "93073fc6fa4b19ac5be9904e6e9983d2696ae612239d5c4090a9a7817ce506e1"
+  },
+  {
+   "path": "crates/proof-local/src/lib.rs",
+   "git_blob_oid": "c85e2823253198d1d32599da8f409add3bdedfdc",
+   "algorithm": "sha256",
+   "digest": "7c95562366da374d7dbccd0457fd38e26549e8255d2fcf50a4f5210f9b8e5dd0"
+  },
+  {
+   "path": "crates/proof-pg/Cargo.toml",
+   "git_blob_oid": "c00573e8804ec749143e7be73e0c69cf74bd216f",
+   "algorithm": "sha256",
+   "digest": "69cb3d61a093ac8760d5687c09de03a9b26962e77d52de85f43862736bcc281a"
+  }
+ ],
+ "evidence_paths": [
+  "docs/work/evidence/P-0015/receipt.md",
+  "docs/work/evidence/P-0015/manifest.json"
+ ]
+}

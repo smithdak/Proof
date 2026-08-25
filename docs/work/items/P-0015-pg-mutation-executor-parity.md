@@ -1,7 +1,7 @@
 ---
 id: P-0015
 title: Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: []
@@ -244,4 +244,31 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
 
 ## Completion record
 
-Populated after acceptance.
+Implemented and qualified by `ox-alpha:proof:p-0015` across thirteen slices on
+2026-08-24 and 2026-08-25.
+
+1. All 11 localized `/v2` mutation rows execute through the PG executor with
+   byte-identical Success outcomes at the oracle layer; `release.create/v2`
+   reproduces manifests, statements, Ed25519 signatures, and envelope digests
+   exactly because both backends read the same workspace file-backed key.
+   Satisfied.
+2. Rejection codes reproduce through the shared `localized_error_code` map;
+   each accepted row also carries a keyed-replay trace, including request-drift
+   rejection for `release.create/v2`. Satisfied within the recorded residual:
+   `object.query_released/v2` keeps rejection parity only until a fixture
+   imports a released v2 rendition set.
+3. Sixteen retained byte-identical-trace tests in
+   `crates/proof-pg/tests/parity_impl.rs` cover every row; they are executed
+   live against both backends rather than frozen vector files (the item's
+   "consumed-once conformance vectors" reading), so no frozen vector changed.
+   Satisfied.
+4. The remote north-star path reaches verifier Complete through the imported
+   v1→v2 Known State chain plus the new release facts; the full workspace
+   suite passes with the PG-backed tests connected. Satisfied.
+5. Full Linux quality gate passed: fmt, clippy `-D warnings`, workspace tests,
+   doc tests, doc links (379), and work-item validation (16 items). Satisfied.
+
+Item-work commit: `e2cf8c3b647663aa0571c2b0ba65f71adcd1075b`. Evidence:
+[receipt](../evidence/P-0015/receipt.md) and
+[manifest](../evidence/P-0015/manifest.json) bind commands, environment,
+revisions, digests, and residual boundaries per the evidence contract.

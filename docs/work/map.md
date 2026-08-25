@@ -85,7 +85,6 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `claimed` | none | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
 | [Initial human web console with notarial-register design system](items/P-0016-web-console-design-system.md) | `review` | none | Ship the roadmap's initial human web console: six surfaces over the frozen operation registry, a documented design system, contract-faithful mocks, and screenshot evidence, awaiting the finish-review gate. |
 
 ## Next
@@ -107,6 +106,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `review` | none | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
 | [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `done` | P-0001 | Ratified exact-locale renditions, append-only repair, immutable resource intent, and causally closed Edition/Release semantics. |
 | [Ratify authenticated actor and Delegation semantics](items/P-0003-ratify-authenticated-actor.md) | `done` | P-0001, P-0002 | Ratified the bounded local authenticated-actor, direct Delegation, and current-authorization retry contract. |
