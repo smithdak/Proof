@@ -11,6 +11,7 @@ import {
   Stamp,
   stampToneForStatus,
 } from "@/design-system";
+import type { DataTableColumn } from "@/design-system";
 import type { ChangeSet } from "@/api/types";
 import { changesets, workspaceStatus } from "@/mocks/seed-core";
 import { releases, verificationReports } from "@/mocks/seed-content";
@@ -23,19 +24,19 @@ function formatTimestamp(iso: string): string {
   )} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}Z`;
 }
 
-const columns = [
+const columns: Array<DataTableColumn<ChangeSet>> = [
   {
     key: "changeset_id",
     header: "Entry",
     width: "13rem",
-    render: (row: ChangeSet) => (
+    render: (row) => (
       <span className="font-mono text-xs text-ink-700">{row.changeset_id}</span>
     ),
   },
   {
     key: "intent",
     header: "Intent",
-    render: (row: ChangeSet) => (
+    render: (row) => (
       <span className="block max-w-md truncate text-sm text-ink-900">
         {row.intent}
       </span>
@@ -45,7 +46,7 @@ const columns = [
     key: "status",
     header: "Status",
     width: "9rem",
-    render: (row: ChangeSet) => (
+    render: (row) => (
       <Stamp tone={stampToneForStatus(row.status)}>{row.status}</Stamp>
     ),
   },
@@ -53,7 +54,7 @@ const columns = [
     key: "created_by",
     header: "Initiated by",
     width: "11rem",
-    render: (row: ChangeSet) => (
+    render: (row) => (
       <span className="whitespace-nowrap text-sm text-ink-700">
         {row.created_by.display_name}
       </span>
@@ -62,18 +63,18 @@ const columns = [
   {
     key: "edit_count",
     header: "Edits",
-    align: "right" as const,
+    align: "right",
     width: "5rem",
-    render: (row: ChangeSet) => (
+    render: (row) => (
       <span className="font-mono text-sm text-ink-900">{row.edit_count}</span>
     ),
   },
   {
     key: "updated_at",
     header: "Entered",
-    align: "right" as const,
+    align: "right",
     width: "12rem",
-    render: (row: ChangeSet) => (
+    render: (row) => (
       <span className="whitespace-nowrap font-mono text-xs text-ink-500">
         {formatTimestamp(row.updated_at)}
       </span>
@@ -154,7 +155,7 @@ export default function OverviewPage() {
           </span>
         }
         actions={
-          <Button size="sm" variant="consequential" onClick={() => navigate("/changesets")}>
+          <Button size="sm" onClick={() => navigate("/changesets")}>
             New ChangeSet
           </Button>
         }
@@ -168,10 +169,15 @@ export default function OverviewPage() {
             void navigate(`/changesets/${row.changeset_id}`)
           }
           renderMobileCard={renderChangesetMobileCard}
-          emptyState={<EmptyState title="No open entries" />}
+          emptyState={
+            <EmptyState
+              title="No open entries"
+              explanation="Entries remain here until they are committed or rejected."
+            />
+          }
         />
       </RegisterPanel>
-      <p className="mt-3 flex items-center gap-1.5 text-2xs uppercase tracking-[0.14em] text-ink-400">
+      <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-2xs uppercase tracking-[0.14em] text-ink-400">
         Known State
         <DigestText value={workspaceStatus.known_state_digest} copyLabel="Copy Known State digest" />
       </p>
@@ -181,7 +187,7 @@ export default function OverviewPage() {
           <button
             type="button"
             onClick={() => void navigate(`/changesets/${leadingEntry.changeset_id}`)}
-            className="mt-1 block w-full border-b border-ruling-200 py-4 text-left transition-colors duration-150 hover:bg-paper-100"
+            className="mt-1 block w-full border-b border-ruling-200 py-4 text-left transition-colors duration-150 ease-out hover:bg-paper-100 motion-reduce:transition-none"
           >
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <span className="font-mono text-xs text-ink-700">
@@ -234,7 +240,7 @@ export default function OverviewPage() {
           })}
         </ul>
       </section>
-      <section className="mt-8">
+      <section className="mt-10">
         <SectionHeading>Environments</SectionHeading>
         <ul className="mt-1 divide-y divide-ruling-200">
           {workspaceStatus.environments.map((environment) => {

@@ -34,11 +34,15 @@ describe("ReleaseDetailPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the verification report with a big verdict stamp and the six-root checklist", () => {
+  it("renders the verification verdict at natural scale with a Verdict label and the six-root checklist", () => {
     renderDetail(COMPLETE_RELEASE);
 
     expect(screen.getByText("Verification report")).toBeInTheDocument();
-    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.getByText("Verdict")).toBeInTheDocument();
+
+    const stamp = screen.getByText("Complete");
+    expect(stamp).toBeInTheDocument();
+    expect(stamp.className).not.toContain("scale-");
 
     for (const label of [
       "Edition content closure",

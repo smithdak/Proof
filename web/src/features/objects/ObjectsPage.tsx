@@ -32,7 +32,7 @@ const ENVIRONMENT_BY_RELEASE = new Map(
 
 function LocaleChip({ locale }: { locale: string }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-ruling-200 bg-paper-50 px-2 py-px font-mono text-2xs tracking-[0.06em] text-ink-600">
+    <span className="inline-flex items-center rounded-full border border-ruling-200 bg-paper-50 px-1.5 font-mono text-2xs leading-4 text-ink-600">
       {locale}
     </span>
   );
@@ -85,7 +85,12 @@ const columns: Array<DataTableColumn<ReleasedObject>> = [
     header: "Object",
     width: "13rem",
     render: (row) => (
-      <span className="font-mono text-xs text-ink-700">{row.object_id}</span>
+      <span
+        className="block truncate font-mono text-xs text-ink-700"
+        title={row.object_id}
+      >
+        {row.object_id}
+      </span>
     ),
   },
   {
@@ -93,7 +98,12 @@ const columns: Array<DataTableColumn<ReleasedObject>> = [
     header: "Schema",
     width: "10rem",
     render: (row) => (
-      <span className="font-mono text-xs text-ink-700">{row.schema_id}</span>
+      <span
+        className="block truncate font-mono text-xs text-ink-700"
+        title={row.schema_id}
+      >
+        {row.schema_id}
+      </span>
     ),
   },
   {
@@ -140,7 +150,12 @@ function renderObjectMobileCard(row: ReleasedObject) {
         </span>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-mono text-xs text-ink-700">{row.schema_id}</span>
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.schema_id}
+        >
+          {row.schema_id}
+        </span>
         <LocaleChip locale={row.locale} />
       </div>
     </div>

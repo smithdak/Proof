@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogRoot,
   DigestText,
+  EmptyState,
   FieldLabel,
   PageHeader,
   RegisterPanel,
@@ -73,7 +74,7 @@ function DelegationParties({
           />
         </svg>
       </span>
-      <span className="font-mono text-sm text-ink-800">
+      <span className="text-sm font-medium text-ink-900">
         {principalName(grantedTo)}
       </span>
     </span>
@@ -111,7 +112,12 @@ const principalColumns: Array<DataTableColumn<Principal>> = [
     header: "Principal",
     width: "15rem",
     render: (row) => (
-      <span className="font-mono text-xs text-ink-700">{row.principal_id}</span>
+      <span
+        className="block truncate font-mono text-xs text-ink-700"
+        title={row.principal_id}
+      >
+        {row.principal_id}
+      </span>
     ),
   },
   {
@@ -203,7 +209,7 @@ function AuthoritySurface() {
         }
         actions={
           <Button size="sm" onClick={() => setIssueOpen(true)}>
-            Issue Delegation
+            Issue delegation
           </Button>
         }
       />
@@ -217,56 +223,69 @@ function AuthoritySurface() {
           rows={PRINCIPAL_LIST}
           rowKey={(row) => row.principal_id}
           renderMobileCard={renderPrincipalMobileCard}
+          emptyState={
+            <EmptyState
+              title="No principals on file"
+              explanation="Principals appear here once they are provisioned in the workspace."
+            />
+          }
         />
       </RegisterPanel>
 
       <RegisterPanel title={`Delegations — ${seededDelegations.length}`} className="mt-4">
-        <ul className="divide-y divide-ruling-200">
-          {seededDelegations.map((delegation) => {
-            const revoked = isRevoked(delegation);
-            return (
-              <li
-                key={delegation.delegation_id}
-                className="relative py-4 first:pt-0 last:pb-0"
-              >
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <DelegationParties
-                    issuedBy={delegation.issued_by}
-                    grantedTo={delegation.granted_to}
-                  />
-                  {revoked ? (
-                    <Stamp tone="vermilion" className="select-none">
-                      REVOKED
-                    </Stamp>
-                  ) : null}
-                  <div className="ml-auto flex items-center gap-4">
-                    <ExpiryLine expiresAt={delegation.expires_at} />
-                    {!revoked ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-vermilion-700 hover:bg-vermilion-50 hover:text-vermilion-700"
-                        onClick={() => setRevokeTarget(delegation)}
-                      >
-                        Revoke
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                <p
-                  className={`mt-1.5 max-w-prose text-sm leading-6 ${
-                    revoked ? "text-ink-500" : "text-ink-600"
-                  }`}
+        {seededDelegations.length === 0 ? (
+          <EmptyState
+            title="No delegations on file"
+            explanation="Issue a delegation to give a principal standing to act within a stated scope."
+          />
+        ) : (
+          <ul className="divide-y divide-ruling-200">
+            {seededDelegations.map((delegation) => {
+              const revoked = isRevoked(delegation);
+              return (
+                <li
+                  key={delegation.delegation_id}
+                  className="relative py-4 first:pt-0 last:pb-0"
                 >
-                  {delegation.scope_summary}
-                </p>
-                <p className="mt-1 font-mono text-2xs text-ink-400">
-                  {delegation.delegation_id}
-                </p>
-              </li>
-            );
-          })}
-        </ul>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <DelegationParties
+                      issuedBy={delegation.issued_by}
+                      grantedTo={delegation.granted_to}
+                    />
+                    {revoked ? (
+                      <Stamp tone="vermilion" className="select-none">
+                        REVOKED
+                      </Stamp>
+                    ) : null}
+                    <div className="ml-auto flex items-center gap-4">
+                      <ExpiryLine expiresAt={delegation.expires_at} />
+                      {!revoked ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-vermilion-700 hover:bg-vermilion-50 hover:text-vermilion-700"
+                          onClick={() => setRevokeTarget(delegation)}
+                        >
+                          Revoke
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p
+                    className={`mt-1.5 max-w-prose text-sm leading-6 ${
+                      revoked ? "text-ink-500" : "text-ink-600"
+                    }`}
+                  >
+                    {delegation.scope_summary}
+                  </p>
+                  <p className="mt-1 font-mono text-2xs text-ink-500">
+                    {delegation.delegation_id}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </RegisterPanel>
 
       <DialogRoot open={revokeTarget != null} onOpenChange={(open) => { if (!open) setRevokeTarget(null); }}>

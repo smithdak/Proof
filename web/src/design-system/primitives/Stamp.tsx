@@ -20,7 +20,7 @@ export const Stamp = forwardRef<HTMLSpanElement, StampProps>(
     <span
       ref={ref}
       className={cx(
-        "relative inline-flex -rotate-1 items-center rounded-full border-[1.5px] px-2.5 py-px font-mono text-[11px] font-medium uppercase leading-[1.375rem] tracking-[0.12em]",
+        "relative inline-flex -rotate-1 items-center rounded-full border-[1.5px] px-2.5 py-px font-mono text-2xs font-medium uppercase leading-[1.375rem] tracking-[0.12em]",
         TONES[tone],
         className,
       )}

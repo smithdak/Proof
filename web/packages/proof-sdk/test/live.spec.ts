@@ -10,10 +10,12 @@ import { ProblemError } from "../src/errors";
 const BASE_URL = process.env.PROOF_SDK_BASE_URL;
 
 describe.skipIf(!BASE_URL)("ProofClient against a live proof-server", () => {
-  const client = new ProofClient({ baseUrl: BASE_URL as string });
+  // Constructed lazily: describe bodies execute during collection even when
+  // every contained test is skipped.
+  const client = () => new ProofClient({ baseUrl: BASE_URL as string });
 
   it("discovers capabilities from the deployed router", async () => {
-    const capabilities = await client.getCapabilities();
+    const capabilities = await client().getCapabilities();
     expect(capabilities.api_version).toBe(
       "proof.dev/capabilities-discover-result/v1",
     );
@@ -22,7 +24,7 @@ describe.skipIf(!BASE_URL)("ProofClient against a live proof-server", () => {
   });
 
   it("maps an unauthenticated session read to its stable Problem", async () => {
-    const failure = await client.getSession().then(
+    const failure = await client().getSession().then(
       () => null,
       (error: unknown) => error,
     );

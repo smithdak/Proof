@@ -242,7 +242,7 @@ function ProofsSurface() {
         }
         actions={
           <Button size="sm" onClick={() => setDialogOpen(true)}>
-            Export Evidence
+            Export evidence
           </Button>
         }
       />
@@ -267,7 +267,7 @@ function ProofsSurface() {
               explanation="Exporting a release files a verifier-addressed evidence bundle here."
               action={
                 <Button size="sm" onClick={() => setDialogOpen(true)}>
-                  Export Evidence
+                  Export evidence
                 </Button>
               }
             />

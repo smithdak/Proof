@@ -51,7 +51,7 @@ function DiffTab({ changesetId }: { changesetId: string }) {
     return (
       <EmptyState
         title="No diff on file"
-        explanation="A rendered diff arrives once edits are appended and the entry is read against its base state."
+        explanation="A rendered diff arrives once Edits are appended and the entry is read against its base state."
       />
     );
   }
@@ -189,6 +189,49 @@ const editColumns: Array<DataTableColumn<ChangeSetEdit>> = [
   },
 ];
 
+function renderEditMobileCard(row: ChangeSetEdit) {
+  const supersession = supersessions[row.edit_id];
+  return (
+    <div className="font-mono text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <span
+          className="block max-w-[60%] truncate text-ink-700"
+          title={row.edit_id}
+        >
+          {row.edit_id}
+        </span>
+        <span className="text-ink-600">{row.op}</span>
+      </div>
+      <p className="mt-1.5 break-all text-ink-900">{row.field_path}</p>
+      <div className="mt-1.5 divide-y divide-ruling-100">
+        <p className="flex gap-3 py-1">
+          <span aria-hidden className="select-none text-ink-400">-</span>
+          <span className="min-w-0 flex-1 break-all text-ink-500">
+            {renderValue(row.before)}
+          </span>
+        </p>
+        <p className="flex gap-3 py-1">
+          <span aria-hidden className="select-none text-ruling-600">+</span>
+          <span className="min-w-0 flex-1 break-all text-ink-900">
+            {renderValue(row.after)}
+          </span>
+        </p>
+      </div>
+      {supersession ? (
+        <p className="mt-1 leading-5 text-amber-screen-700">
+          <span className="mr-1.5 text-2xs font-medium uppercase tracking-[0.14em]">
+            Superseded
+          </span>
+          {supersession}
+        </p>
+      ) : row.rationale ? (
+        <p className="mt-1 leading-5 text-ink-600">{row.rationale}</p>
+      ) : null}
+      <p className="mt-1 text-2xs text-ink-400">{row.object_id}</p>
+    </div>
+  );
+}
+
 function EditsTab({ changesetId }: { changesetId: string }) {
   const rows = editsByChangeset[changesetId] ?? [];
   return (
@@ -197,7 +240,7 @@ function EditsTab({ changesetId }: { changesetId: string }) {
         columns={editColumns}
         rows={rows}
         rowKey={(row) => row.edit_id}
-        className="-mx-1"
+        renderMobileCard={renderEditMobileCard}
         emptyState={
           <EmptyState
             title="No edits appended"

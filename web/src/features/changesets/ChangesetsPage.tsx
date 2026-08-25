@@ -206,7 +206,7 @@ function ChangesetsRegister() {
         title="ChangeSets"
         meta={<span>{entries.length} entries on file</span>}
         actions={
-          <Button size="sm" variant="consequential" onClick={() => setDialogOpen(true)}>
+          <Button size="sm" onClick={() => setDialogOpen(true)}>
             New ChangeSet
           </Button>
         }

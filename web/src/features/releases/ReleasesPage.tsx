@@ -58,7 +58,7 @@ const editionColumns: Array<DataTableColumn<Edition>> = [
         {row.locales.map((locale) => (
           <span
             key={locale}
-            className="rounded-full border border-ruling-200 bg-paper-50 px-1.5 font-mono text-2xs leading-4 text-ink-600"
+            className="inline-block rounded-full border border-ruling-200 bg-paper-50 px-2 py-0.5 font-mono text-2xs leading-4 text-ink-600"
           >
             {locale}
           </span>
@@ -188,7 +188,7 @@ function renderReleaseMobileCard(row: Release) {
           copyLabel={`Copy envelope digest for ${row.release_id}`}
         />
       </div>
-      <p className="mt-1 font-mono text-2xs text-ink-400">
+      <p className="mt-1 font-mono text-2xs text-ink-500">
         {formatTimestamp(row.created_at)}
       </p>
     </div>

@@ -24,10 +24,10 @@ export function DiffRowView({ row, supersededBy, className, ...props }: DiffRowV
       </header>
       <div className="divide-y divide-ruling-100">
         <div className="flex gap-3 py-1.5">
-          <span aria-hidden className="select-none text-ink-400">
+          <span aria-hidden className="select-none text-ink-500">
             -
           </span>
-          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-ink-500">
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-ink-700">
             {formatValue(row.before)}
           </span>
         </div>

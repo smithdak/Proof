@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { http, HttpResponse } from "msw";
@@ -88,7 +88,11 @@ describe("ChangesetDetailPage", () => {
     ).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Edits" }));
-    expect(await screen.findByText("ed-01j9x85s1a2b3c40")).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole("table")).findByText(
+        "ed-01j9x85s1a2b3c40",
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Diff" }));
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -129,7 +133,9 @@ describe("ChangesetDetailPage", () => {
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Edits" }));
     expect(
-      await screen.findByText(/second attempt also rejected/i),
+      await within(screen.getByRole("table")).findByText(
+        /second attempt also rejected/i,
+      ),
     ).toBeInTheDocument();
   });
 

@@ -30,21 +30,20 @@ function RootChecklist() {
   return (
     <>
       <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <Stamp
-            tone={stampToneForStatus(report.verdict)}
-            className="scale-[1.45]"
-          >
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-500">
+          <span>Verdict</span>
+          <Stamp tone={stampToneForStatus(report.verdict)}>
             {report.verdict}
           </Stamp>
-          <p className="text-xs text-ink-500">
+          <span aria-hidden>·</span>
+          <span>
             Checked{" "}
             <span className="font-mono text-ink-600">
               {formatTimestamp(report.checked_at)}
             </span>
-          </p>
-        </div>
-        <div className="min-w-0 max-w-md text-right">
+          </span>
+        </p>
+        <div className="min-w-0 max-w-md text-left sm:text-right">
           <p className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-500">
             Trust basis
           </p>
@@ -55,7 +54,7 @@ function RootChecklist() {
       </div>
       <ul className="mt-6 divide-y divide-ruling-200 border-t border-ruling-200">
         {report.roots.map((check) => (
-          <li key={check.root} className="py-3.5 first:pt-3.5 last:pb-0">
+          <li key={check.root} className="py-3.5 last:pb-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <span className="w-20 font-mono text-2xs uppercase tracking-[0.14em] text-ink-500">
                 {check.root}
@@ -68,7 +67,7 @@ function RootChecklist() {
               </Stamp>
             </div>
             {check.detail ? (
-              <p className="mt-1.5 pl-[6.25rem] text-sm leading-6 text-ink-600">
+              <p className="mt-1.5 pl-[5.75rem] text-sm leading-6 text-ink-600">
                 {check.detail}
               </p>
             ) : null}
@@ -256,7 +255,7 @@ function ReleaseDetailView() {
           </span>
         }
       />
-      <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-2xs uppercase tracking-[0.14em] text-ink-400">
+      <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-2xs uppercase tracking-[0.14em] text-ink-500">
         Signature Key
         <DigestText
           value={release.signature_key_id}
@@ -277,7 +276,7 @@ function ReleaseDetailView() {
             ? "Verification report"
             : "Verification report — none on file"
         }
-        className="mt-7"
+        className="mt-6"
       >
         {verificationReports[release.release_id] ? (
           <RootChecklist />

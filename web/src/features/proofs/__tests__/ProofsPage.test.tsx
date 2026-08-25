@@ -44,7 +44,7 @@ describe("ProofsPage", () => {
   it("exports evidence through the dialog stub and confirms by toast", async () => {
     render(<ProofsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Export Evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export evidence" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Export bundle" }),

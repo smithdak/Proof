@@ -32,7 +32,7 @@ describe("AuthorityPage", () => {
     expect(screen.getByText("no expiry")).toBeInTheDocument();
     expect(screen.getByText("REVOKED")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Issue Delegation" }),
+      screen.getByRole("button", { name: "Issue delegation" }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(2);
   });
@@ -40,7 +40,7 @@ describe("AuthorityPage", () => {
   it("issues a stub delegation through the dialog and confirms by toast", async () => {
     render(<AuthorityPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Issue Delegation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Issue delegation" }));
     fireEvent.change(screen.getByLabelText("Grantee"), {
       target: { value: "prin-agent-migration" },
     });
