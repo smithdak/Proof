@@ -100,12 +100,13 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Produce the deployable server artifact with one-command bring-up](items/P-0018-deployable-server-artifact.md) | `review` | none | Ship the `proof-server` binary and a one-command stack (server, delivery worker, PostgreSQL) so operators and the quickstart get a working deployment. |
+
 
 ## Completed
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Produce the deployable server artifact with one-command bring-up](items/P-0018-deployable-server-artifact.md) | `done` | none | Shipped the `proof-server` binary plus a one-command compose stack (PostgreSQL, server, worker); proven live end to end with the SDK's live leg. |
 | [Ship the TypeScript SDK over the shared HTTP contracts](items/P-0017-typescript-sdk.md) | `done` | none | Shipped `web/packages/proof-sdk`: a typed client over all 14 frozen operation pairs with cross-language drift enforcement against the Rust contracts. |
 | [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `done` | none | Closed the P-0010 "not yet mirrored" residual: all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces, including signed `release.create/v2`. |
 | [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |

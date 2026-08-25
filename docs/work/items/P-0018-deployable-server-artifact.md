@@ -1,7 +1,7 @@
 ---
 id: P-0018
 title: Produce the deployable server artifact with one-command bring-up
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: []
