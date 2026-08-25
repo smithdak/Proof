@@ -2162,7 +2162,7 @@ fn context_build_traces_are_byte_identical() {
         "expires_at": "2026-08-22T10:30:00Z",
         "idempotency_key": L_BUILD_KEY,
         "limits": {
-            "max_bytes": 262144,
+            "max_bytes": 262_144,
             "max_edits": 16,
             "max_objects": 8,
             "max_validation_attempts": 3,
