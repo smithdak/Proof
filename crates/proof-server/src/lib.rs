@@ -73,6 +73,24 @@ pub async fn serve(
         .map_err(|error| ServerError::Internal(format!("server failed: {error}")))
 }
 
+/// Serves the assembled router until the supplied shutdown future resolves,
+/// then completes in-flight requests before returning (contract §"Topology
+/// and trust boundaries").
+///
+/// # Errors
+///
+/// Returns [`ServerError::Internal`] when the server cannot run.
+pub async fn serve_until(
+    app: axum::Router,
+    listener: tokio::net::TcpListener,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> Result<(), ServerError> {
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await
+        .map_err(|error| ServerError::Internal(format!("server failed: {error}")))
+}
+
 /// Re-exported shared domain vocabulary (Workspace/Principal identities,
 /// digests, timestamps) so server consumers need only one dependency edge.
 pub use proof_domain;
@@ -310,33 +328,13 @@ impl AppState {
         // Authority runtime for authz/operations reads and writes.
         let mut authority_runtime =
             proof_pg::wiring::PgRuntime::connect(config.clone()).map_err(ServerError::Storage)?;
-        authority_runtime.migrate().map_err(ServerError::Storage)?;
-        proof_pg::migration::run_expand_backfill_verify_cutover(
-            authority_runtime.client_mut(),
-            &proof_pg::migration::session_boundary_migration_v2(),
-        )
-        .map_err(ServerError::Storage)?;
-        proof_pg::migration::run_expand_backfill_verify_cutover(
-            authority_runtime.client_mut(),
-            &proof_pg::migration::delivery_state_migration_v3(),
-        )
-        .map_err(ServerError::Storage)?;
+        bring_migration_head_to_current(&mut authority_runtime)?;
 
         // A distinct runtime for the session store, attached after the same
         // migrations are applied so both point at the identical schema head.
         let mut session_runtime =
             proof_pg::wiring::PgRuntime::connect(config).map_err(ServerError::Storage)?;
-        session_runtime.migrate().map_err(ServerError::Storage)?;
-        proof_pg::migration::run_expand_backfill_verify_cutover(
-            session_runtime.client_mut(),
-            &proof_pg::migration::session_boundary_migration_v2(),
-        )
-        .map_err(ServerError::Storage)?;
-        proof_pg::migration::run_expand_backfill_verify_cutover(
-            session_runtime.client_mut(),
-            &proof_pg::migration::delivery_state_migration_v3(),
-        )
-        .map_err(ServerError::Storage)?;
+        bring_migration_head_to_current(&mut session_runtime)?;
         self.sessions.attach(session_runtime)?;
 
         *self.pg.lock().map_err(|_| {
@@ -344,6 +342,25 @@ impl AppState {
         })? = Some(authority_runtime);
         Ok(())
     }
+}
+
+/// Brings one runtime's schema to the current migration head, applying only
+/// the scripts its head still lacks (a fresh database applies every script; an
+/// already-current database applies none).
+fn bring_migration_head_to_current(runtime: &mut proof_pg::wiring::PgRuntime) -> Result<(), ServerError> {
+    runtime.migrate().map_err(ServerError::Storage)?;
+    let head = proof_pg::migration::read_head(runtime.client_mut()).map_err(ServerError::Storage)?;
+    let current = head.map_or(0, |ledger| ledger.head_version);
+    for script in [
+        proof_pg::migration::session_boundary_migration_v2(),
+        proof_pg::migration::delivery_state_migration_v3(),
+    ] {
+        if script.version > current {
+            proof_pg::migration::run_expand_backfill_verify_cutover(runtime.client_mut(), &script)
+                .map_err(ServerError::Storage)?;
+        }
+    }
+    Ok(())
 }
 
 /// Closed server-boundary error taxonomy (contract §"Envelopes, Problems, and

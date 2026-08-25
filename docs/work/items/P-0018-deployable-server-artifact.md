@@ -55,4 +55,27 @@ and residual boundaries in `docs/work/evidence/P-0018/` per the
 
 ## Progress log
 
-Populated by the claiming executor.
+- Slice 1 (2026-08-25): claimed and studied the assembly surface —
+  `AppState::new` + `connect_pg` + `routes::router` + `serve` already compose
+  the full stack in-process (the e2e suite drives them), so the binary is an
+  environment-to-config adapter rather than new machinery. Found and fixed a
+  latent first-start bug while wiring it: `connect_pg` applied migration
+  scripts unconditionally, so a fresh database refused its own second runtime
+  with "migration head version 3 is newer"; the head is now read once per
+  runtime and only missing scripts are applied (`bring_migration_head_to_current`).
+- Slice 2 (2026-08-25): the `proof-server` binary landed — env-driven config
+  (`PROOF_LISTEN_ADDR`, `PROOF_PG_DSN`, `PROOF_WORKSPACE_ID`,
+  hex-encoded `PROOF_SESSION_SECRET`; deterministic in-process issuer by
+  default), synchronous migrations before the async runtime starts (the
+  retained sync driver must not run inside Tokio), flushed liveness line,
+  graceful SIGTERM/SIGINT shutdown through the new `serve_until`.
+- Slice 3 (2026-08-25): the retained artifact test boots both real binaries
+  against an isolated schema: capabilities answers 200 with route count 9, the
+  cookie-less session read fails closed with the stable `proof.auth.denied`
+  Problem body, one seeded `preview.release/v1` row reaches `delivered` through
+  `proof-worker`. The SDK's live leg (P-0017 residual) ran green against a
+  locally booted server: 2 live tests, 15/15 total.
+- Slice 4 (2026-08-25): deployment artifact — root `Dockerfile` (release build,
+  slim runtime, capabilities-route healthcheck) plus `deploy/compose.yml`
+  (PostgreSQL + server + looping worker; server migrates on first start;
+  validated with `docker compose config`).

@@ -1498,6 +1498,7 @@ dependencies = [
  "http-body-util",
  "hyper-util",
  "mime",
+ "postgres",
  "proof-application",
  "proof-attestation",
  "proof-canonical",
