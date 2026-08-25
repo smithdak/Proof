@@ -94,6 +94,15 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@26.2.0)(jiti@2.7.0)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@26.2.0)(typescript@5.7.3))(supports-color@7.2.0)
 
+  packages/proof-sdk:
+    devDependencies:
+      typescript:
+        specifier: ~5.7.3
+        version: 5.7.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@26.2.0)(jiti@2.7.0)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@26.2.0)(typescript@5.7.3))(supports-color@7.2.0)
+
 packages:
 
   '@adobe/css-tools@4.5.0':
