@@ -2238,3 +2238,222 @@ fn context_build_traces_are_byte_identical() {
         .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn release_create_traces_are_byte_identical() {
+    use proof_application::{
+        AddLocalizedEditsCommand, ApprovalName, ChangeSetIntent, CommitLocalizedChangeSetCommand,
+        CreateLocalizedChangeSetCommand, CreateLocalizedEditionCommand, EditId,
+        ExpectedLocalizedSource, LocaleId, ObjectLocalePutInput, ObjectRevision,
+    };
+    use proof_attestation::Ed25519SigningProvider;
+    use proof_pg::parity::PostgresBackend as PgBackendAlias;
+    use proof_remote::OracleOutcome;
+
+    const L_CHANGESET_ID: &str = "019d1000-0000-7000-8000-000000000035";
+    const L_DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000048";
+    const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000049";
+    const L_COMMIT_KEY: &str = "019d1000-0000-7000-8000-00000000004a";
+    const L_EDITION_ID: &str = "019d1000-0000-7000-8000-000000000038";
+    const L_EDITION_KEY: &str = "019d1000-0000-7000-8000-00000000004b";
+    const L_EDITION_CREATED_AT: &str = "2026-08-21T13:30:00Z";
+    const L_RELEASE_ID: &str = "019d1000-0000-7000-8000-000000000039";
+    const L_PROOF_ID: &str = "019d1000-0000-7000-8000-00000000003a";
+    const L_RELEASE_KEY: &str = "019d1000-0000-7000-8000-00000000004c";
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
+        seed_localized_intent_and_context(&workspace);
+    let object_id = OBJECT_ID.parse().unwrap();
+    let schema_id = SchemaId::new(SCHEMA_ID.to_owned()).unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let source = serde_json::json!({
+        "legal": "Standard terms apply",
+        "slug": "summer-campaign",
+        "title": "Summer campaign",
+    });
+    let source_digest =
+        object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap();
+    let _changeset = workspace
+        .create_localized_changeset(CreateLocalizedChangeSetCommand {
+            changeset_id: L_CHANGESET_ID.parse().unwrap(),
+            intent: ChangeSetIntent::new("Translate the campaign").unwrap(),
+            resource_intent_id: intent_id,
+            resource_intent_digest: intent_digest,
+            context_pack_id,
+            context_pack_digest,
+            idempotency_key: L_DRAFT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T11:02:00Z".parse().unwrap(),
+        })
+        .expect("localized ChangeSet creates");
+    let edit_input = |locale: LocaleId, legal: &str, title: &str| ObjectLocalePutInput {
+        object_id,
+        locale,
+        expected_source: ExpectedLocalizedSource {
+            revision: ObjectRevision::INITIAL,
+            digest: source_digest,
+            schema_id: schema_id.clone(),
+            schema_version,
+        },
+        expected_target: None,
+        canonical_content: canonicalize(&serde_json::json!({
+            "legal": legal,
+            "slug": "summer-campaign",
+            "title": title,
+        }))
+        .unwrap()
+        .as_str()
+        .to_owned(),
+        supersedes_edit_id: None,
+        repair_of_validation_result_digest: None,
+    };
+    workspace
+        .add_localized_edits(AddLocalizedEditsCommand {
+            changeset_id: L_CHANGESET_ID.parse().unwrap(),
+            edits: vec![
+                edit_input(
+                    LocaleId::new("es-ES").unwrap(),
+                    "Condiciones estándar",
+                    "Campaña de verano",
+                ),
+                edit_input(
+                    LocaleId::new("fr-FR").unwrap(),
+                    "Conditions standards",
+                    "Campagne d’été",
+                ),
+            ],
+            assigned_edit_ids: vec![
+                "019d1000-0000-7000-8000-000000000061"
+                    .parse::<EditId>()
+                    .unwrap(),
+                "019d1000-0000-7000-8000-000000000062".parse().unwrap(),
+            ],
+            idempotency_key: L_ADD_KEY.parse().unwrap(),
+        })
+        .expect("localized Edits append");
+    workspace
+        .validate_localized_changeset(L_CHANGESET_ID.parse().unwrap())
+        .expect("validation runs");
+    workspace
+        .submit_localized_changeset(
+            L_CHANGESET_ID.parse().unwrap(),
+            "2026-08-21T12:00:00Z".parse().unwrap(),
+        )
+        .expect("submission recorded");
+    workspace
+        .approve_localized_changeset(
+            L_CHANGESET_ID.parse().unwrap(),
+            ApprovalName::new("editorial").unwrap(),
+            "2026-08-21T12:30:00Z".parse().unwrap(),
+        )
+        .expect("approval recorded");
+    let committed = workspace
+        .commit_localized_changeset(CommitLocalizedChangeSetCommand {
+            changeset_id: L_CHANGESET_ID.parse().unwrap(),
+            committed_at: "2026-08-21T13:00:00Z".parse().unwrap(),
+            idempotency_key: L_COMMIT_KEY.parse().unwrap(),
+        })
+        .expect("commit recorded");
+    workspace
+        .create_localized_edition(CreateLocalizedEditionCommand {
+            edition_id: L_EDITION_ID.parse().unwrap(),
+            changeset_id: L_CHANGESET_ID.parse().unwrap(),
+            resulting_state_digest: committed.resulting_state.digest,
+            idempotency_key: L_EDITION_KEY.parse().unwrap(),
+            created_at: L_EDITION_CREATED_AT.parse().unwrap(),
+        })
+        .expect("localized Edition creates");
+
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_release_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let release_input = serde_json::json!({
+        "api_version": "proof.dev/operation/release.create/v2",
+        "edition_id": L_EDITION_ID,
+        "environment_id": ENVIRONMENT_ID,
+        "expected_base_release_id": RELEASE_ID,
+        "idempotency_key": L_RELEASE_KEY,
+        "proof_id": L_PROOF_ID,
+        "release_id": L_RELEASE_ID,
+        "released_at": "2026-08-21T14:00:00Z",
+    });
+    let scenario = ParityScenario {
+        name: "release.create/v2 accepted plus keyed replay".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: release_input.clone(),
+                actor_context: actor_context(
+                    "release.create",
+                    "proof.dev/operation/release.create/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: release_input,
+                actor_context: actor_context(
+                    "release.create",
+                    "proof.dev/operation/release.create/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+
+    let secret = workspace
+        .release_signing_secret()
+        .expect("the fixture Workspace holds its file-backed Release signing key");
+    let mut sqlite_backend = SqliteReferenceBackend::new(&workspace);
+    let mut postgres_backend = PgBackendAlias::with_release_signer(
+        &mut runtime,
+        Ed25519SigningProvider::from_secret_bytes(&secret),
+    );
+    let runner = ParityRunner::new();
+    let sqlite_traces = runner
+        .run_sqlite(&scenario, &mut sqlite_backend)
+        .expect("SQLite reference traces");
+    let postgres_traces = runner
+        .run_postgres(&scenario, &mut postgres_backend)
+        .expect("PostgreSQL traces");
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("byte-identical traces");
+
+    match &postgres_traces[0].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["release_manifest"]["kind"], "promotion");
+            assert_eq!(
+                result["release_manifest"]["base_release"]["release_id"],
+                RELEASE_ID
+            );
+            assert!(result["proof_envelope_digest"].as_str().is_some());
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("expected an accepted Release creation, got {other:?}")
+        }
+    }
+
+    let _ = runtime
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
+}

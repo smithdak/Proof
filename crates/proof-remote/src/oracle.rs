@@ -977,7 +977,8 @@ pub fn serialize_localized_edition(edition: &LocalizedEdition) -> Value {
     })
 }
 
-fn serialize_localized_release(release: &LocalizedRelease) -> Value {
+#[must_use]
+pub fn serialize_localized_release(release: &LocalizedRelease) -> Value {
     serde_json::json!({
         "release_id": release.release_id.to_string(),
         "release_digest": release.release_digest.to_string(),

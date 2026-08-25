@@ -15,16 +15,18 @@ use proof_application::authority::{
     LocalizedChangeSetCreateInputV2, LocalizedChangeSetDiffInputV2, LocalizedChangeSetGetInputV2,
     LocalizedChangeSetSubmitInputV2, LocalizedChangeSetValidateInputV2,
     LocalizedContextBuildInputV2, LocalizedEditionCreateInputV2,
-    LocalizedObjectQueryReleasedInputV2, WorkspaceStatusInputV1,
+    LocalizedObjectQueryReleasedInputV2, LocalizedReleaseCreateInputV2, WorkspaceStatusInputV1,
 };
 use proof_application::{
     AddLocalizedEditsCommand, AddedLocalizedEdits, BuildLocalizedContextCommand,
     CommitLocalizedChangeSetCommand, CommittedLocalizedChangeSet, CreateLocalizedEditionCommand,
     KNOWN_STATE_V1_API_VERSION, KNOWN_STATE_V2_API_VERSION, LocalizedChangeSetDiff,
-    LocalizedContextPack, LocalizedEdition, LocalizedValidation, ObjectLocalePutInput,
-    QueryReleasedRenditionsCommand, ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
+    LocalizedContextPack, LocalizedEdition, LocalizedRelease, LocalizedValidation,
+    ObjectLocalePutInput, PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand,
+    ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
 };
-use proof_attestation::Ed25519SigningProvider;
+use proof_attestation::sign_release_statement;
+use proof_attestation::{Ed25519SigningProvider, InTotoStatement, InTotoSubject};
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest};
 use proof_remote::{
@@ -107,8 +109,13 @@ impl StorageBackend for PostgresBackend<'_> {
         normalized_input: &Value,
         actor_context: &AuthenticatedActorContextV2,
     ) -> Result<OracleTraceV1, RemoteError> {
-        run_postgres_operation(self.runtime, normalized_input, actor_context)
-            .map_err(|error| RemoteError::Oracle(error.to_string()))
+        run_postgres_operation(
+            self.runtime,
+            self.release_signer.as_ref(),
+            normalized_input,
+            actor_context,
+        )
+        .map_err(|error| RemoteError::Oracle(error.to_string()))
     }
 }
 
@@ -317,6 +324,7 @@ fn success_trace(
 #[allow(clippy::too_many_lines)]
 fn run_postgres_operation(
     runtime: &mut PgRuntime,
+    release_signer: Option<&Ed25519SigningProvider>,
     normalized_input: &Value,
     actor_context: &AuthenticatedActorContextV2,
 ) -> Result<OracleTraceV1, PgError> {
@@ -592,6 +600,32 @@ fn run_postgres_operation(
                 ),
             }
         }
+        AuthorityOperation::ReleaseCreateV2 => {
+            let Ok(input) = parse_input::<LocalizedReleaseCreateInputV2>(normalized_input) else {
+                return stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    INPUT_SCHEMA_MISMATCH_CODE,
+                );
+            };
+            let command = input.into_application_command();
+            match pg_promote_release(runtime, release_signer, &command) {
+                Ok((result, release_digest)) => success_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    result,
+                    Some(release_digest),
+                ),
+                Err(error) => stable_problem_trace(
+                    &operation,
+                    normalized_input,
+                    evaluated_authority_head,
+                    &error,
+                ),
+            }
+        }
         AuthorityOperation::ChangesetGetV2 => {
             let Ok(input) = parse_input::<LocalizedChangeSetGetInputV2>(normalized_input) else {
                 return stable_problem_trace(
@@ -803,6 +837,8 @@ fn import_parity_facts(
     import_localized_editions(runtime, &connection, &workspace_id)?;
     import_renditions(runtime, &connection, &workspace_id)?;
     import_localizable_schemas(runtime, &connection, &workspace_id)?;
+    import_environment_configs(runtime, &connection, &workspace_id)?;
+    import_editions_v1(runtime, &connection, &workspace_id)?;
     import_environment_current_releases(runtime, &connection, &workspace_id)?;
     import_context_build_operations(runtime, &connection, &workspace_id)?;
     import_release_metadata(runtime, &connection, &workspace_id)?;
@@ -1874,10 +1910,19 @@ fn import_environment_current_releases(
     for row in rows {
         let (environment_id, release_id) =
             row.map_err(|error| PgError::Import(error.to_string()))?;
+        let release_sequence: i64 = connection
+            .query_row(
+                "SELECT release_sequence FROM releases WHERE release_id = ?1",
+                [&release_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| PgError::Import(error.to_string()))?;
         let body = serde_json::json!({
             "api_version": "proof.dev/parity/environment-current/v1",
             "environment_id": environment_id,
             "release_id": release_id,
+            "release_sequence": u64::try_from(release_sequence)
+                .map_err(|_| PgError::Import("negative Release sequence".to_owned()))?,
         });
         let canonical = canonicalize(&body).map_err(|error| PgError::Import(error.to_string()))?;
         let fact_digest =
@@ -4392,6 +4437,127 @@ fn import_localized_approvals(
     Ok(())
 }
 
+/// Persists one Environment configuration fact per Workspace Environment so
+/// the release executor can evaluate policy without re-deriving configuration
+/// from manifests.
+fn import_environment_configs(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT env.environment_id, env.created_by_principal_id, env.created_at,
+                    v.config_version, v.target_kind, v.policy_profile, v.required_approval,
+                    v.config_digest
+             FROM environments AS env
+             JOIN environment_versions AS v ON v.environment_id = env.environment_id
+             WHERE env.workspace_id = ?1
+                   AND v.config_version = (
+                       SELECT MAX(inner_v.config_version)
+                       FROM environment_versions AS inner_v
+                       WHERE inner_v.environment_id = env.environment_id
+                   )
+             ORDER BY env.environment_id",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (
+            environment_id,
+            principal_id,
+            created_at,
+            config_version,
+            target_kind,
+            policy_profile,
+            required_approval,
+            config_digest,
+        ) = row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/environment/v1",
+            "config_digest": config_digest,
+            "config_version": u32::try_from(config_version)
+                .map_err(|_| PgError::Import("negative Environment version".to_owned()))?,
+            "created_at": created_at,
+            "policy_profile": policy_profile,
+            "principal_id": principal_id,
+            "required_approval": required_approval,
+            "target_kind": target_kind,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("environment/{environment_id}"),
+            "proof:parity:environment:v1",
+            "environment",
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
+/// Persists v1 Edition rows so the base-Release Edition view can be rebuilt
+/// (v2 localized Editions arrive through [`import_localized_editions`]).
+fn import_editions_v1(
+    runtime: &mut PgRuntime,
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<(), PgError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT edition_id, authoritative_sequence, state_digest, edition_digest, created_at
+             FROM editions
+             WHERE workspace_id = ?1 AND api_version = 'proof.dev/edition/v1'
+             ORDER BY authoritative_sequence",
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    for row in rows {
+        let (edition_id, authoritative_sequence, state_digest, edition_digest, created_at) =
+            row.map_err(|error| PgError::Import(error.to_string()))?;
+        let body = serde_json::json!({
+            "api_version": "proof.dev/parity/edition-v1/v1",
+            "authoritative_sequence": u64::try_from(authoritative_sequence)
+                .map_err(|_| PgError::Import("negative Edition sequence".to_owned()))?,
+            "created_at": created_at,
+            "edition_digest": edition_digest,
+            "state_digest": state_digest,
+        });
+        store_verified_fact(
+            runtime,
+            workspace_id,
+            &format!("edition_v1/{edition_id}"),
+            "proof:parity:edition-v1:v1",
+            "edition_v1",
+            &body,
+        )?;
+    }
+    Ok(())
+}
+
 /// Persists localized commits with their exact resulting-state references.
 fn import_localized_commits(
     runtime: &mut PgRuntime,
@@ -6538,5 +6704,1004 @@ fn import_context_build_operations(
             &body,
         )?;
     }
+    Ok(())
+}
+// ---------------------------------------------------------------------------
+// P-0015 slice 12: the release.create/v2 executor over imported facts.
+// ---------------------------------------------------------------------------
+
+/// One versioned Edition projection rebuilt from parity facts, mirroring the
+/// reference `VersionedEditionView` shape.
+struct PgVersionedEditionView {
+    reference: proof_application::EditionArtifactReference,
+    state: KnownStateArtifactReference,
+    schemas: Vec<(
+        proof_domain::SchemaId,
+        proof_domain::SchemaVersion,
+        ContentDigest,
+    )>,
+    objects: Vec<proof_canonical::ObjectStateReference>,
+    renditions: Vec<proof_canonical::LocaleStateReference>,
+    created_at: Timestamp,
+}
+
+/// The exact base-Release selection used by the promotion preflight.
+struct PgReleaseSelection {
+    reference: proof_application::ReleaseArtifactReference,
+    environment_id: proof_application::EnvironmentId,
+    edition: proof_application::EditionArtifactReference,
+    release_sequence: u64,
+    released_at: Timestamp,
+}
+
+/// The Environment configuration fields the release flow reads.
+struct PgEnvironment {
+    config_version: u32,
+    config_digest: ContentDigest,
+    policy_profile: String,
+    required_approval: String,
+    created_at: Timestamp,
+}
+
+/// The exact Edition delta compared and signed at Release time.
+struct PgExactEditionDelta {
+    canonical: String,
+    digest: ContentDigest,
+    schema_changed: bool,
+    object_changed: bool,
+    rendition_changes: Vec<PgRenditionChange>,
+}
+
+/// One before/after rendition comparison in the exact Edition delta.
+type PgRenditionChange = (
+    (proof_application::ObjectId, LocaleId),
+    Option<proof_canonical::LocaleStateReference>,
+    Option<proof_canonical::LocaleStateReference>,
+);
+
+fn pg_release_reference_value(reference: &proof_application::ReleaseArtifactReference) -> Value {
+    serde_json::json!({
+        "api_version": reference.api_version,
+        "digest": reference.digest.to_string(),
+        "release_id": reference.release_id.to_string(),
+    })
+}
+
+/// Rebuilds one versioned Edition view (v1 or v2) from parity facts.
+fn pg_versioned_edition_view(
+    runtime: &mut PgRuntime,
+    edition_id: proof_application::EditionId,
+) -> Result<PgVersionedEditionView, String> {
+    use proof_application::{EditionArtifactReference, KnownStateArtifactReference};
+    if let Some(body) = fact_json(runtime, &format!("localized_edition/{edition_id}"))? {
+        let state = KnownStateArtifactReference {
+            api_version: json_str(&body, "state_api_version")?.to_owned(),
+            authoritative_sequence: body
+                .get("authoritative_sequence")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| integrity_code("edition sequence"))?,
+            digest: json_str(&body, "state_digest")?
+                .parse()
+                .map_err(|_| integrity_code("state digest"))?,
+        };
+        let created_at: Timestamp = json_str(&body, "created_at")?
+            .parse()
+            .map_err(|_| integrity_code("edition timestamp"))?;
+        let schemas = pg_schema_state_references(runtime, state.authoritative_sequence)?;
+        let objects = pg_object_state_references(runtime, state.authoritative_sequence)?;
+        let renditions = pg_locale_state_references(runtime, state.authoritative_sequence)?;
+        return Ok(PgVersionedEditionView {
+            reference: EditionArtifactReference {
+                api_version: "proof.dev/edition/v2".to_owned(),
+                edition_id,
+                digest: json_str(&body, "edition_digest")?
+                    .parse()
+                    .map_err(|_| integrity_code("edition digest"))?,
+            },
+            state,
+            schemas,
+            objects,
+            renditions,
+            created_at,
+        });
+    }
+    let body = require_fact_json(
+        runtime,
+        &format!("edition_v1/{edition_id}"),
+        "proof.resource.not_found",
+    )?;
+    let sequence = body
+        .get("authoritative_sequence")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| integrity_code("v1 edition sequence"))?;
+    let schemas = pg_schema_state_references(runtime, sequence)?;
+    let objects = pg_object_state_references(runtime, sequence)?;
+    Ok(PgVersionedEditionView {
+        reference: EditionArtifactReference {
+            api_version: "proof.dev/edition/v1".to_owned(),
+            edition_id,
+            digest: json_str(&body, "edition_digest")?
+                .parse()
+                .map_err(|_| integrity_code("v1 edition digest"))?,
+        },
+        state: KnownStateArtifactReference {
+            api_version: KNOWN_STATE_V1_API_VERSION.to_owned(),
+            authoritative_sequence: sequence,
+            digest: json_str(&body, "state_digest")?
+                .parse()
+                .map_err(|_| integrity_code("v1 state digest"))?,
+        },
+        schemas,
+        objects,
+        renditions: Vec::new(),
+        created_at: json_str(&body, "created_at")?
+            .parse()
+            .map_err(|_| integrity_code("v1 edition timestamp"))?,
+    })
+}
+
+/// Ports `load_release_selection` over release metadata plus manifest facts.
+fn pg_load_release_selection(
+    runtime: &mut PgRuntime,
+    release_id: proof_application::ReleaseId,
+) -> Result<PgReleaseSelection, String> {
+    use proof_application::{EditionArtifactReference, ReleaseArtifactReference};
+    let meta = require_fact_json(
+        runtime,
+        &format!("release_meta/{release_id}"),
+        "proof.resource.not_found",
+    )?;
+    let manifest = require_fact_json(
+        runtime,
+        &format!("release/{release_id}"),
+        "proof.resource.not_found",
+    )?;
+    let view = pg_versioned_edition_view(
+        runtime,
+        json_str(&meta, "edition_id")?
+            .parse()
+            .map_err(|_| integrity_code("release edition identity"))?,
+    )?;
+    if json_str(&meta, "edition_digest")? != view.reference.digest.to_string() {
+        return Err(integrity_code("Release Edition digest does not reproduce"));
+    }
+    Ok(PgReleaseSelection {
+        reference: ReleaseArtifactReference {
+            api_version: json_str(&meta, "release_api_version")?.to_owned(),
+            release_id,
+            digest: json_str(&meta, "release_digest")?
+                .parse()
+                .map_err(|_| integrity_code("release digest"))?,
+        },
+        environment_id: json_str(&manifest, "environment_id")?
+            .parse()
+            .map_err(|_| integrity_code("release environment"))?,
+        edition: view.reference,
+        release_sequence: manifest
+            .get("release_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("release sequence"))?,
+        released_at: json_str(&meta, "released_at")?
+            .parse()
+            .map_err(|_| integrity_code("release timestamp"))?,
+    })
+}
+
+fn pg_load_environment(
+    runtime: &mut PgRuntime,
+    environment_id: &proof_application::EnvironmentId,
+) -> Result<PgEnvironment, String> {
+    let body = require_fact_json(
+        runtime,
+        &format!("environment/{environment_id}"),
+        "proof.resource.not_found",
+    )?;
+    Ok(PgEnvironment {
+        config_version: u32::try_from(
+            body.get("config_version")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| integrity_code("environment version"))?,
+        )
+        .map_err(|_| integrity_code("environment version range"))?,
+        config_digest: json_str(&body, "config_digest")?
+            .parse()
+            .map_err(|_| integrity_code("environment digest"))?,
+        policy_profile: json_str(&body, "policy_profile")?.to_owned(),
+        required_approval: json_str(&body, "required_approval")?.to_owned(),
+        created_at: json_str(&body, "created_at")?
+            .parse()
+            .map_err(|_| integrity_code("environment timestamp"))?,
+    })
+}
+
+/// Ports `exact_edition_delta` across all three versioned dimensions.
+#[allow(clippy::too_many_lines)]
+fn pg_exact_edition_delta(
+    base: &PgVersionedEditionView,
+    target: &PgVersionedEditionView,
+) -> Result<PgExactEditionDelta, String> {
+    let base_schemas = base
+        .schemas
+        .iter()
+        .map(|(id, version, digest)| ((id.clone(), *version), *digest))
+        .collect::<BTreeMap<_, _>>();
+    let target_schemas = target
+        .schemas
+        .iter()
+        .map(|(id, version, digest)| ((id.clone(), *version), *digest))
+        .collect::<BTreeMap<_, _>>();
+    let base_objects = base
+        .objects
+        .iter()
+        .map(|object| (object.object_id, object.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let target_objects = target
+        .objects
+        .iter()
+        .map(|object| (object.object_id, object.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let base_renditions = base
+        .renditions
+        .iter()
+        .map(|rendition| {
+            (
+                (rendition.object_id, rendition.locale.clone()),
+                rendition.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let target_renditions = target
+        .renditions
+        .iter()
+        .map(|rendition| {
+            (
+                (rendition.object_id, rendition.locale.clone()),
+                rendition.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let schema_keys = base_schemas
+        .keys()
+        .chain(target_schemas.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let object_keys = base_objects
+        .keys()
+        .chain(target_objects.keys())
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let rendition_keys = base_renditions
+        .keys()
+        .chain(target_renditions.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let schema_changes = schema_keys
+        .iter()
+        .filter_map(|key| {
+            let before = base_schemas.get(key).copied();
+            let after = target_schemas.get(key).copied();
+            (before != after).then(|| {
+                serde_json::json!({
+                    "after": after.map(|value| value.to_string()),
+                    "before": before.map(|value| value.to_string()),
+                    "schema_id": key.0.as_str(),
+                    "schema_version": key.1.get(),
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let object_changes = object_keys
+        .iter()
+        .filter_map(|key| {
+            let before = base_objects.get(key);
+            let after = target_objects.get(key);
+            (before != after).then(|| {
+                serde_json::json!({
+                    "after": after.map(object_reference_value),
+                    "before": before.map(object_reference_value),
+                    "object_id": key.to_string(),
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let rendition_changes = rendition_keys
+        .iter()
+        .filter_map(|key| {
+            let before = base_renditions.get(key).cloned();
+            let after = target_renditions.get(key).cloned();
+            (before != after).then(|| (key.clone(), before, after))
+        })
+        .collect::<Vec<_>>();
+    let canonical = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/edition-delta/v2",
+        "base": {
+            "edition": edition_reference_value(&base.reference),
+            "state": state_reference_value(&base.state),
+        },
+        "objects": object_changes,
+        "renditions": rendition_changes.iter().map(|(key, before, after)| serde_json::json!({
+            "after": after.as_ref().map(locale_reference_value),
+            "before": before.as_ref().map(locale_reference_value),
+            "locale": key.1.as_str(),
+            "object_id": key.0.to_string(),
+        })).collect::<Vec<_>>(),
+        "schemas": schema_changes,
+        "target": {
+            "edition": edition_reference_value(&target.reference),
+            "state": state_reference_value(&target.state),
+        },
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    Ok(PgExactEditionDelta {
+        digest: digest(ArtifactKind::ReleaseV2, &canonical),
+        canonical: canonical.as_str().to_owned(),
+        schema_changed: base_schemas != target_schemas,
+        object_changed: base_objects != target_objects,
+        rendition_changes,
+    })
+}
+
+/// Ports `verify_promotion_delta` against the committed ChangeSet evidence.
+fn pg_verify_promotion_delta(
+    delta: &PgExactEditionDelta,
+    commit: &CommittedLocalizedChangeSet,
+    effective_edits: &[proof_application::LocalizedEdit],
+) -> Result<(), String> {
+    if delta.schema_changed || delta.object_changed {
+        return Err("proof.policy.denied".to_owned());
+    }
+    if delta.rendition_changes.len() != commit.renditions.len()
+        || commit.renditions.len() != effective_edits.len()
+    {
+        return Err("proof.policy.denied".to_owned());
+    }
+    for ((key, before, after), (rendition, edit)) in delta
+        .rendition_changes
+        .iter()
+        .zip(commit.renditions.iter().zip(effective_edits.iter()))
+    {
+        let Some(after) = after else {
+            return Err("proof.policy.denied".to_owned());
+        };
+        let expected_before = edit.input.expected_target.as_ref();
+        if key != &(rendition.object_id, rendition.locale.clone())
+            || key != &(edit.input.object_id, edit.input.locale.clone())
+            || after.rendition_digest != rendition.rendition_digest
+            || after.revision != rendition.revision
+            || after.source_object_digest != rendition.source_object_digest
+            || before
+                .as_ref()
+                .map(|value| (value.revision, value.rendition_digest))
+                != expected_before.map(|value| (value.revision, value.digest))
+        {
+            return Err("proof.policy.denied".to_owned());
+        }
+    }
+    Ok(())
+}
+
+/// Ports `localized_release_content_evidence` over parity facts.
+fn pg_content_evidence(
+    runtime: &mut PgRuntime,
+    intent_body: &Value,
+    changeset: &proof_application::LocalizedChangeSet,
+    commit: &CommittedLocalizedChangeSet,
+) -> Result<Value, String> {
+    let context_pack_digest = fact_digest_of(
+        runtime,
+        &format!("context_pack/{}", changeset.context_pack_id),
+    )?
+    .to_string();
+    let meta = require_fact_json(
+        runtime,
+        &format!("resource_intent_meta/{}", changeset.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let validations = pg_validation_chain(runtime, &changeset.changeset_id.to_string())?;
+    let (proposal_digest, effective_leaf_digest, _) = pg_proposal(changeset)?;
+    Ok(serde_json::json!({
+        "base": intent_body.get("base").cloned().unwrap_or(Value::Null),
+        "changeset": {
+            "changeset_id": changeset.changeset_id.to_string(),
+            "effective_leaf_digest": effective_leaf_digest.to_string(),
+            "proposal_digest": proposal_digest.to_string(),
+            "sealed_changeset_digest": commit.sealed_changeset_digest.to_string(),
+        },
+        "context_pack_digest": context_pack_digest,
+        "renditions": commit.renditions.iter().map(|rendition| serde_json::json!({
+            "edit_id": rendition.edit_id.to_string(),
+            "locale": rendition.locale.as_str(),
+            "object_id": rendition.object_id.to_string(),
+            "rendition_digest": rendition.rendition_digest.to_string(),
+            "schema_id": rendition.schema_id.as_str(),
+            "schema_version": rendition.schema_version.get(),
+            "source_object_digest": rendition.source_object_digest.to_string(),
+        })).collect::<Vec<_>>(),
+        "resource_intent": {
+            "digest": json_str(&meta, "intent_digest")?,
+            "intent_id": changeset.resource_intent_id.to_string(),
+            "targets": intent_body.get("targets").cloned().unwrap_or(Value::Array(Vec::new())),
+        },
+        "resulting_state": state_reference_value(&commit.resulting_state),
+        "validations": validations.iter().map(|validation| serde_json::json!({
+            "attempt": validation.attempt,
+            "previous_validation_result_digest": validation.previous_validation_result_digest.map(|value| value.to_string()),
+            "proposal_digest": validation.proposal_digest.to_string(),
+            "results_digest": validation.validation_results_digest.to_string(),
+            "valid": validation.valid,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+/// Inserts one immutable release-operation fact for exact keyed replay.
+fn insert_release_op_fact(
+    runtime: &mut PgRuntime,
+    fact_id: &str,
+    body: &Value,
+) -> Result<(), String> {
+    let canonical = canonicalize(body).map_err(|error| integrity_code(&error.to_string()))?;
+    let fact_digest = derive_key_digest("proof:parity:release-operation:v1", canonical.as_bytes());
+    let workspace_id = workspace_id_of(runtime)?;
+    let inserted = {
+        let client = runtime.client_mut();
+        client
+            .execute(
+                "INSERT INTO facts (
+                     fact_id, workspace_id, fact_kind, authority_sequence, fact_digest, body, committed_at
+                 ) VALUES ($1, $2, 'release_operation', 0, $3, $4, now())
+                 ON CONFLICT (fact_id) DO NOTHING",
+                &[
+                    &fact_id,
+                    &workspace_id,
+                    &fact_digest.to_string(),
+                    &canonical.as_bytes().to_vec(),
+                ],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+    };
+    if inserted == 0 {
+        return Err(integrity_code("operation fact identity already exists"));
+    }
+    Ok(())
+}
+
+fn pg_localized_digest_hex(digest: ContentDigest) -> String {
+    digest
+        .to_string()
+        .strip_prefix("blake3:")
+        .map_or_else(|| digest.to_string(), str::to_owned)
+}
+
+/// Ports `create_localized_release` (promotion arm) over parity facts with an
+/// externally supplied Release signer.
+#[allow(clippy::too_many_lines)]
+fn pg_promote_release(
+    runtime: &mut PgRuntime,
+    signer: Option<&Ed25519SigningProvider>,
+    command: &PromoteLocalizedReleaseCommand,
+) -> Result<(Value, ContentDigest), String> {
+    use proof_application::{ArtifactKind as AppKind, KnownStateArtifactReference};
+    let principal = parity_principal(runtime)?;
+    let workspace_id = parse_workspace(&workspace_id_of(runtime)?)?;
+
+    // Request digest envelope (mirrors `localized_release_request_digest`).
+    let request_canonical = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/operation/release.create/v2",
+        "edition_id": Some(command.edition_id.to_string()),
+        "environment_id": command.environment_id.as_str(),
+        "expected_current_release_id": command.expected_base_release_id.to_string(),
+        "idempotency_key": command.idempotency_key.to_string(),
+        "kind": "promotion",
+        "principal_id": principal.to_string(),
+        "proof_id": command.proof_id.to_string(),
+        "release_id": command.release_id.to_string(),
+        "released_at": command.released_at.to_string(),
+        "rollback_target_release_id": Option::<String>::None,
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let request_digest = digest(AppKind::OperationEffectV1, &request_canonical);
+
+    // Keyed replay against the immutable operation fact.
+    let op_fact_id = format!("release_operation/{principal}/{}", command.idempotency_key);
+    if let Some(stored) = fact_json(runtime, &op_fact_id)? {
+        let stored_request = json_str(&stored, "request_digest")?.to_owned();
+        let stored_release = json_str(&stored, "release_id")?
+            .parse::<proof_application::ReleaseId>()
+            .map_err(|_| integrity_code("stored release identity"))?;
+        let stored_proof = json_str(&stored, "proof_id")?
+            .parse::<proof_application::ProofId>()
+            .map_err(|_| integrity_code("stored proof identity"))?;
+        if stored_request != request_digest.to_string()
+            || stored_release != command.release_id
+            || stored_proof != command.proof_id
+        {
+            return Err("proof.idempotency.key_reused".to_owned());
+        }
+        let release_manifest = require_fact_json(
+            runtime,
+            &format!("release/{}", command.release_id),
+            "proof.resource.not_found",
+        )?;
+        if json_str(&release_manifest, "proof_id")? != command.proof_id.to_string() {
+            return Err("proof.idempotency.key_reused".to_owned());
+        }
+        let result = stored
+            .get("result")
+            .cloned()
+            .ok_or_else(|| integrity_code("stored release result"))?;
+        let release_digest = json_str(&stored, "release_digest")?
+            .parse::<ContentDigest>()
+            .map_err(|_| integrity_code("stored release digest"))?;
+        return Ok((result, release_digest));
+    }
+
+    // Candidate identity preflight.
+    let candidate_exists = fact_json(runtime, &format!("release/{}", command.release_id))?
+        .is_some()
+        || fact_json(runtime, &format!("release_proof/{}", command.proof_id))?.is_some();
+    if candidate_exists {
+        return Err(integrity_code(
+            "candidate Release or Proof identity already exists",
+        ));
+    }
+
+    // Environment pointer and base-Release preflight.
+    let environment = pg_load_environment(runtime, &command.environment_id)?;
+    let pointer = require_fact_json(
+        runtime,
+        &format!("environment_current/{}", command.environment_id),
+        "proof.resource.not_found",
+    )?;
+    if json_str(&pointer, "release_id")? != command.expected_base_release_id.to_string() {
+        return Err("proof.state.conflict".to_owned());
+    }
+    let base_release = pg_load_release_selection(runtime, command.expected_base_release_id)?;
+    if base_release.environment_id != command.environment_id
+        || command.released_at < base_release.released_at
+        || command.released_at < environment.created_at
+    {
+        return Err("proof.policy.denied".to_owned());
+    }
+    let base_view = pg_versioned_edition_view(runtime, base_release.edition.edition_id)?;
+
+    // Promotion-specific verification.
+    let target_view = pg_versioned_edition_view(runtime, command.edition_id)?;
+    if target_view.reference.api_version != "proof.dev/edition/v2" {
+        return Err("proof.input.schema_mismatch".to_owned());
+    }
+    let edition = pg_load_edition(runtime, command.edition_id)?;
+    let changeset = load_pg_localized_changeset(runtime, &edition.changeset_id.to_string())?;
+    let commit = pg_load_commit(runtime, edition.changeset_id)?;
+    let intent_body = require_fact_json(
+        runtime,
+        &format!("resource_intent/{}", changeset.resource_intent_id),
+        "proof.resource.not_found",
+    )?;
+    let intent_base = intent_base_values(&intent_base_json(&intent_body)?)?;
+    if intent_base.release != base_release.reference
+        || intent_base.edition != base_release.edition
+        || intent_base.state != base_view.state
+        || edition.base_edition != base_release.edition
+        || edition.state != commit.resulting_state
+        || pg_current_state_reference(runtime)? != edition.state
+    {
+        return Err("proof.state.conflict".to_owned());
+    }
+    let approval = require_fact_json(
+        runtime,
+        &format!("localized_approval/{}", changeset.changeset_id),
+        "proof.digest.mismatch",
+    )
+    .map_err(|_| integrity_code("Release lacks localized approval"))?;
+    let approval_name = json_str(&approval, "approval_name")?.to_owned();
+    let approved_at: Timestamp = json_str(&approval, "approved_at")?
+        .parse()
+        .map_err(|_| integrity_code("approval timestamp"))?;
+    if approval_name != environment.required_approval
+        || command.released_at < approved_at
+        || command.released_at < commit.committed_at
+        || command.released_at < edition.created_at
+    {
+        return Err("proof.policy.denied".to_owned());
+    }
+    let delta = pg_exact_edition_delta(&base_view, &target_view)?;
+    let (_, _, effective_edits) = pg_proposal(&changeset)?;
+    pg_verify_promotion_delta(&delta, &commit, &effective_edits)?;
+    let content_evidence = pg_content_evidence(runtime, &intent_body, &changeset, &commit)?;
+
+    // Signing.
+    let signer = signer.ok_or_else(|| "proof.dependency.unavailable".to_owned())?;
+    let metadata =
+        <Ed25519SigningProvider as proof_attestation::ProofSigningProvider>::metadata(signer)
+            .map_err(|error| "proof.dependency.unavailable".to_owned())?;
+    if metadata.public_key.len() != 32
+        || !metadata.key_id.starts_with("ed25519:")
+        || metadata.key_id.len() != 72
+    {
+        return Err("proof.dependency.unavailable".to_owned());
+    }
+    {
+        let public_key = metadata.public_key.iter().fold(
+            String::with_capacity(metadata.public_key.len() * 2),
+            |mut out, byte| {
+                use std::fmt::Write as _;
+                let _ = write!(&mut out, "{byte:02x}");
+                out
+            },
+        );
+        if metadata.key_id != format!("ed25519:{public_key}") {
+            return Err("proof.dependency.unavailable".to_owned());
+        }
+        upsert_parity_fact(
+            runtime,
+            &workspace_id.to_string(),
+            &format!("release_signing_key/{}", metadata.key_id),
+            "release_signing_key",
+            &serde_json::json!({
+                "api_version": "proof.dev/parity/release-signing-key/v1",
+                "algorithm": "Ed25519",
+                "key_id": metadata.key_id,
+                "not_before": command.released_at.to_string(),
+                "public_key": public_key,
+            }),
+            "proof:parity:release-signing-key:v1",
+        )?;
+    }
+    let release_sequence = {
+        let client = runtime.client_mut();
+        client
+            .query_one(
+                "SELECT COALESCE(MAX(authority_sequence), 0) + 1 AS next_seq FROM facts
+                 WHERE fact_kind IN ('release', 'release_v2')",
+                &[],
+            )
+            .map_err(|error| integrity_code(&error.to_string()))?
+            .get::<_, i64>("next_seq")
+    };
+    let release_sequence = u64::try_from(release_sequence)
+        .map_err(|_| integrity_code("invalid next Release sequence"))?;
+
+    // Authorization decision, manifest, statement, signature.
+    let policy_decision = canonicalize(&serde_json::json!({
+        "action": "release.create",
+        "allowed": true,
+        "api_version": "proof.dev/release-authorization-decision/v2",
+        "base_release": pg_release_reference_value(&base_release.reference),
+        "changeset_id": Some(changeset.changeset_id.to_string()),
+        "edition": edition_reference_value(&target_view.reference),
+        "environment_config_digest": environment.config_digest.to_string(),
+        "environment_config_version": environment.config_version,
+        "environment_id": command.environment_id.as_str(),
+        "evaluated_at": command.released_at.to_string(),
+        "exact_delta_digest": delta.digest.to_string(),
+        "kind": "promotion",
+        "operating_principal_id": principal.to_string(),
+        "policy_profile": environment.policy_profile,
+        "required_approval": environment.required_approval,
+        "resource_intent_id": Some(changeset.resource_intent_id.to_string()),
+        "rollback_target_release_id": Option::<String>::None,
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let policy_decision_digest = digest(AppKind::AuthorizationDecisionV1, &policy_decision);
+    let manifest = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/release/v2",
+        "authorization_decision_digest": policy_decision_digest.to_string(),
+        "base_release": pg_release_reference_value(&base_release.reference),
+        "changeset_id": changeset.changeset_id.to_string(),
+        "edition": edition_reference_value(&target_view.reference),
+        "environment_config_digest": environment.config_digest.to_string(),
+        "environment_config_version": environment.config_version,
+        "environment_id": command.environment_id.as_str(),
+        "exact_delta_digest": delta.digest.to_string(),
+        "key_id": metadata.key_id,
+        "kind": "promotion",
+        "principal_id": principal.to_string(),
+        "proof_id": command.proof_id.to_string(),
+        "release_id": command.release_id.to_string(),
+        "release_sequence": release_sequence,
+        "released_at": command.released_at.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+        "rollback_target_release_id": Option::<String>::None,
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let release_digest = digest(AppKind::ReleaseV2, &manifest);
+    let statement = InTotoStatement::release_v2(
+        vec![
+            InTotoSubject {
+                name: format!("proof:edition:{}", target_view.reference.edition_id),
+                digest: std::collections::BTreeMap::from([(
+                    "blake3".to_owned(),
+                    pg_localized_digest_hex(target_view.reference.digest),
+                )]),
+            },
+            InTotoSubject {
+                name: format!("proof:release:{}", command.release_id),
+                digest: std::collections::BTreeMap::from([(
+                    "blake3".to_owned(),
+                    pg_localized_digest_hex(release_digest),
+                )]),
+            },
+        ],
+        serde_json::json!({
+            "api_version": "proof.dev/release-proof-predicate/v2",
+            "authority": {
+                "authorization_decision_digest": policy_decision_digest.to_string(),
+                "human_principal_id": principal.to_string(),
+                "policy_profile": environment.policy_profile,
+            },
+            "content_evidence": content_evidence,
+            "exact_delta": proof_canonical::parse_strict(delta.canonical.as_bytes())
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            "exact_delta_digest": delta.digest.to_string(),
+            "implementation": {
+                "canonical_json": "RFC 8785",
+                "digest": "BLAKE3-256 domain-separated",
+                "dsse": "DSSE v1 PAE",
+                "known_state": target_view.state.api_version,
+                "signature": "Ed25519",
+                "statement": "in-toto Statement v1",
+            },
+            "release": {
+                "base_release": pg_release_reference_value(&base_release.reference),
+                "changeset_id": changeset.changeset_id.to_string(),
+                "edition": edition_reference_value(&target_view.reference),
+                "environment_id": command.environment_id.as_str(),
+                "key_id": metadata.key_id,
+                "kind": "promotion",
+                "release_digest": release_digest.to_string(),
+                "release_id": command.release_id.to_string(),
+                "release_sequence": release_sequence,
+                "released_at": command.released_at.to_string(),
+                "resource_intent_id": changeset.resource_intent_id.to_string(),
+                "rollback_target_release_id": Option::<String>::None,
+            },
+            "state": state_reference_value(&target_view.state),
+            "workspace_id": workspace_id.to_string(),
+        }),
+    );
+    let signed_proof = sign_release_statement(&statement, signer)
+        .map_err(|error| "proof.dependency.unavailable".to_owned())?;
+    if signed_proof.key_id != metadata.key_id {
+        return Err("proof.dependency.unavailable".to_owned());
+    }
+    let metadata_manifest = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/localized-release-metadata/v1",
+        "base_release": pg_release_reference_value(&base_release.reference),
+        "changeset_id": changeset.changeset_id.to_string(),
+        "edition": edition_reference_value(&target_view.reference),
+        "exact_delta_digest": delta.digest.to_string(),
+        "kind": "promotion",
+        "release_id": command.release_id.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+        "rollback_target_release_id": Option::<String>::None,
+    }))
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let metadata_digest = digest(AppKind::ReleaseV2, &metadata_manifest);
+
+    // Persistence.
+    insert_release_fact(runtime, &manifest, &release_digest, release_sequence)?;
+    store_verified_fact(
+        runtime,
+        &workspace_id.to_string(),
+        &format!("release_metadata/{}", command.release_id),
+        "proof:parity:release-metadata:v1",
+        "release_metadata",
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/release-metadata-record/v1",
+            "base_release_id": base_release.reference.release_id.to_string(),
+            "changeset_id": changeset.changeset_id.to_string(),
+            "exact_delta": proof_canonical::parse_strict(delta.canonical.as_bytes())
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            "exact_delta_digest": delta.digest.to_string(),
+            "metadata": proof_canonical::parse_strict(metadata_manifest.as_bytes())
+                .map_err(|error| integrity_code(&error.to_string()))?,
+            "metadata_digest": metadata_digest.to_string(),
+            "resource_intent_id": changeset.resource_intent_id.to_string(),
+        }),
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    store_verified_fact(
+        runtime,
+        &workspace_id.to_string(),
+        &format!("release_proof/{}", command.proof_id),
+        "proof:parity:release-proof:v1",
+        "release_proof",
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/release-proof/v1",
+            "created_at": command.released_at.to_string(),
+            "envelope_digest": signed_proof.envelope_digest.to_string(),
+            "envelope_json": signed_proof.envelope_json,
+            "key_id": metadata.key_id,
+            "payload_type": signed_proof.envelope.payload_type.clone(),
+            "predicate_type": statement.predicate_type,
+            "release_id": command.release_id.to_string(),
+            "statement_payload": signed_proof.payload_json,
+        }),
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    store_verified_fact(
+        runtime,
+        &workspace_id.to_string(),
+        &format!("release_export/{}", command.proof_id),
+        "proof:parity:release-export:v1",
+        "release_export",
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/release-export-outbox/v1",
+            "created_at": command.released_at.to_string(),
+            "proof_id": command.proof_id.to_string(),
+            "release_id": command.release_id.to_string(),
+        }),
+    )
+    .map_err(|error| integrity_code(&error.to_string()))?;
+    let release = LocalizedRelease {
+        release_id: command.release_id,
+        workspace_id,
+        environment_id: command.environment_id.clone(),
+        edition: target_view.reference.clone(),
+        kind: proof_application::ReleaseKind::Promotion,
+        release_sequence,
+        previous_release_id: Some(base_release.reference.release_id),
+        rollback_target_release_id: None,
+        changeset_id: Some(changeset.changeset_id),
+        resource_intent_id: Some(changeset.resource_intent_id),
+        manifest_json: manifest.as_str().to_owned(),
+        release_digest,
+        proof_id: command.proof_id,
+        proof_envelope_digest: signed_proof.envelope_digest,
+        key_id: signed_proof.key_id.clone(),
+        proof_envelope_json: signed_proof.envelope_json.clone(),
+        released_at: command.released_at,
+    };
+    let result = proof_remote::oracle::serialize_localized_release(&release);
+    // Rotate the Environment pointer exactly like the reference UPDATE.
+    upsert_parity_fact(
+        runtime,
+        &workspace_id.to_string(),
+        &format!("environment_current/{}", command.environment_id),
+        "environment_current",
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/environment-current/v1",
+            "environment_id": command.environment_id.as_str(),
+            "release_id": command.release_id.to_string(),
+            "release_sequence": release_sequence,
+        }),
+        "proof:parity:environment-current:v1",
+    )?;
+    insert_release_op_fact(
+        runtime,
+        &op_fact_id,
+        &serde_json::json!({
+            "api_version": "proof.dev/parity/release-operation/v1",
+            "idempotency_key": command.idempotency_key.to_string(),
+            "operation_kind": "release.promote.v2",
+            "principal_id": principal.to_string(),
+            "proof_id": command.proof_id.to_string(),
+            "release_digest": release_digest.to_string(),
+            "release_id": command.release_id.to_string(),
+            "request_digest": request_digest.to_string(),
+            "result": result,
+        }),
+    )?;
+    Ok((result, release_digest))
+}
+
+/// Extracts the three baseline references from an imported intent manifest.
+fn intent_base_values(base: &Value) -> Result<IntentBaseRefs, String> {
+    let parse_ref = |value: &Value,
+                     digest_key: &str,
+                     id_key: &str|
+     -> Result<(String, ContentDigest, String), String> {
+        Ok((
+            json_str(value, "api_version")?.to_owned(),
+            json_str(value, digest_key)?
+                .parse()
+                .map_err(|_| integrity_code("baseline digest"))?,
+            json_str(value, id_key)?.to_owned(),
+        ))
+    };
+    let (release_api, release_digest, release_id) = parse_ref(
+        base.get("release")
+            .ok_or_else(|| integrity_code("baseline release"))?,
+        "digest",
+        "release_id",
+    )?;
+    let (edition_api, edition_digest, edition_id) = parse_ref(
+        base.get("edition")
+            .ok_or_else(|| integrity_code("baseline edition"))?,
+        "digest",
+        "edition_id",
+    )?;
+    let state = base
+        .get("known_state")
+        .ok_or_else(|| integrity_code("baseline state"))?;
+    Ok(IntentBaseRefs {
+        release: proof_application::ReleaseArtifactReference {
+            api_version: release_api,
+            digest: release_digest,
+            release_id: release_id
+                .parse()
+                .map_err(|_| integrity_code("baseline release identity"))?,
+        },
+        edition: proof_application::EditionArtifactReference {
+            api_version: edition_api,
+            digest: edition_digest,
+            edition_id: edition_id
+                .parse()
+                .map_err(|_| integrity_code("baseline edition identity"))?,
+        },
+        state: KnownStateArtifactReference {
+            api_version: json_str(state, "api_version")?.to_owned(),
+            authoritative_sequence: state
+                .get("authoritative_sequence")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| integrity_code("baseline sequence"))?,
+            digest: json_str(state, "digest")?
+                .parse()
+                .map_err(|_| integrity_code("baseline state digest"))?,
+        },
+    })
+}
+
+struct IntentBaseRefs {
+    release: proof_application::ReleaseArtifactReference,
+    edition: proof_application::EditionArtifactReference,
+    state: KnownStateArtifactReference,
+}
+
+fn intent_base_json(intent_body: &Value) -> Result<Value, String> {
+    intent_body
+        .get("base")
+        .cloned()
+        .ok_or_else(|| integrity_code("intent baseline"))
+}
+
+fn pg_current_state_reference(
+    runtime: &mut PgRuntime,
+) -> Result<KnownStateArtifactReference, String> {
+    let head = require_fact_json(runtime, "known_state/head", "proof.resource.not_found")?;
+    Ok(KnownStateArtifactReference {
+        api_version: json_str(&head, "known_state_api_version")?.to_owned(),
+        authoritative_sequence: head
+            .get("authoritative_sequence")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| integrity_code("head sequence"))?,
+        digest: json_str(&head, "state_digest")?
+            .parse()
+            .map_err(|_| integrity_code("head digest"))?,
+    })
+}
+
+/// Inserts the immutable v2 Release manifest fact with its real artifact digest
+/// and workspace-global sequence.
+fn insert_release_fact(
+    runtime: &mut PgRuntime,
+    manifest: &proof_canonical::CanonicalJson,
+    release_digest: &ContentDigest,
+    release_sequence: u64,
+) -> Result<(), String> {
+    let release_id = {
+        let value: Value = proof_canonical::parse_strict(manifest.as_bytes())
+            .map_err(|error| integrity_code(&error.to_string()))?;
+        json_str(&value, "release_id")?.to_owned()
+    };
+    let workspace_id = workspace_id_of(runtime)?;
+    let client = runtime.client_mut();
+    client
+        .execute(
+            "INSERT INTO facts (
+                 fact_id, workspace_id, fact_kind, authority_sequence, fact_digest, body, committed_at
+             ) VALUES ($1, $2, 'release_v2', $3, $4, $5, now())",
+            &[
+                &format!("release/{release_id}"),
+                &workspace_id,
+                &(i64::try_from(release_sequence).map_err(|_| integrity_code("sequence range"))?),
+                &release_digest.to_string(),
+                &manifest.as_bytes().to_vec(),
+            ],
+        )
+        .map_err(|error| integrity_code(&error.to_string()))?;
     Ok(())
 }

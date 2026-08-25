@@ -209,6 +209,25 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   pointer rotation. Importer prerequisites identified during mapping:
   Environment configuration facts (config version/digest, policy profile,
   required approval) and v1 Edition views for the base Release.
+- Slice 13 (2026-08-24): `release.create/v2` ported end to end —
+  `pg_promote_release` reproduces the promotion arm byte-identically
+  (request envelope under `OperationEffectV1`, keyed replay from an
+  immutable `release_operation/{principal}/{key}` fact, candidate-identity
+  preflight, Environment pointer + policy timing gates via new imported
+  `environment/*` facts, base v1 / target v2 Edition views rebuilt through
+  `edition_v1/*` plus shared state-reference helpers, intent-baseline
+  equality checks against the imported manifest, approval requirement,
+  exact-delta computation and promotion verification, content evidence from
+  pack digest (read as the verified fact digest), authorization decision +
+  Release manifests, in-toto `release_v2` statement signed by the threaded
+  file-backed signer, six persistence facts, and pointer rotation). The
+  retained test drives accepted + keyed-replay traces byte-identical,
+  signatures included, because both backends read the same workspace key
+  file. Importer gained `environment` and `edition_v1` facts; the
+  environment-current pointer now carries `release_sequence`. Known scope
+  note: `object.query_released/v2` keeps its rejection-parity-only fixture;
+  its success path stays deferred until a fixture imports a released v2
+  rendition set. All 11 rows now pass byte-identical parity.
 - Slice 8 (2026-08-24): `changeset.commit/v2` mirrored end to end —
   keyed replay over commit operation facts with effect reproduction, Approved
   gating with imported approval evidence, seal-head verification, write-head
