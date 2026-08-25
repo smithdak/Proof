@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-25T00:00:00Z",
+  "title": "Design System: Proof Console",
+  "extensions": {
+    "colorMeta": {
+      "paper-50": { "role": "primary", "displayName": "Laid Paper", "canonical": "#f7f9f4", "tonalRamp": ["#b3bfa6", "#c8d2bd", "#dde4d4", "#e7ecdf", "#eff3ea", "#f7f9f4", "#fcfdfb", "#fefefe"] },
+      "ink-900": { "role": "neutral", "displayName": "Iron-Gall Ink", "canonical": "#18231f", "tonalRamp": ["#0d1615", "#26332e", "#3a4842", "#55635c", "#707d75", "#97a29a", "#b8c0b8", "#e8ece5"] },
+      "ruling-200": { "role": "neutral", "displayName": "Prussian Ruling", "canonical": "#d3e1ed", "tonalRamp": ["#47719a", "#5588aa", "#6e93b8", "#93b3cf", "#b7cde2", "#d3e1ed", "#e5eef5", "#f2f7fb"] },
+      "ruling-600": { "role": "tertiary", "displayName": "Prussian Focus", "canonical": "#5588aa", "tonalRamp": ["#47719a", "#5588aa", "#6e93b8", "#93b3cf", "#b7cde2", "#d3e1ed", "#e5eef5", "#f2f7fb"] },
+      "seal-700": { "role": "tertiary", "displayName": "Seal Green", "canonical": "#236b46", "tonalRamp": ["#1c5638", "#236b46", "#2f7d4f", "#43936a", "#58a67d", "#dcebe1", "#edf5ef", "#f6faf7"] },
+      "vermilion-700": { "role": "tertiary", "displayName": "Rejection Vermilion", "canonical": "#a32d1e", "tonalRamp": ["#7c2115", "#a32d1e", "#c43d2b", "#d45944", "#e07a63", "#f7ddd7", "#faeeeb", "#fcf4f2"] },
+      "amber-screen-600": { "role": "tertiary", "displayName": "Amber Screen", "canonical": "#a16207", "tonalRamp": ["#6e4704", "#8a5a06", "#a16207", "#c98a1e", "#e0b04d", "#f5ecd4", "#faf5e6", "#fdfaf0"] },
+      "consequential-600": { "role": "secondary", "displayName": "Consequential Rust", "canonical": "#b03a12", "tonalRamp": ["#6f2409", "#8f3014", "#b03a12", "#cf5a2e", "#dd7a52", "#f9e2d7", "#fcf1ea", "#fdf8f4"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Page Title", "purpose": "One per route in PageHeader; the largest voice in the system at 24px." },
+      "body": { "displayName": "Prose", "purpose": "Descriptions and finding messages; capped at max-w-prose." },
+      "label": { "displayName": "Small-Caps Label", "purpose": "Kickers, column headers, panel titles, station names — everything structural." },
+      "mono": { "displayName": "Identifier Mono", "purpose": "Ids, digests, timestamps, routes, stamps — everything verifiable." }
+    },
+    "shadows": [
+      { "name": "overlay-lift", "value": "0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1)", "purpose": "Floating overlays only (dialog, command palette, principal menu); the maximum permitted shadow." },
+      { "name": "active-marker", "value": "inset 2px 0 0 0 var(--color-ruling-600)", "purpose": "Selected table row / active nav item / active palette option — a structural bar, not elevation." },
+      { "name": "kbd-baseline", "value": "inset 0 -1px 0 0 var(--color-ink-200)", "purpose": "Key-cap lip on Kbd only." }
+    ],
+    "motion": [
+      { "name": "fade-state", "value": "150ms ease-out, color/background/border only", "purpose": "Every interactive transition; paired with motion-reduce:transition-none." },
+      { "name": "skeleton-pulse", "value": "Tailwind animate-pulse on paper-150", "purpose": "Loading placeholder blocks — the system's only animation." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Consequential Button",
+      "kind": "button",
+      "refersTo": "button-consequential",
+      "description": "Solid rust fill reserved for irreversible acts and New ChangeSet.",
+      "html": "<button class=\"ds-btn-cx\">Approve &amp; Commit</button>",
+      "css": ".ds-btn-cx { display:inline-flex; align-items:center; justify-content:center; height:40px; padding:0 16px; border:none; border-radius:4px; background:var(--color-consequential-600); color:var(--color-paper-25); font-family:'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif; font-size:14px; font-weight:500; cursor:pointer; transition:background-color 150ms ease-out; } .ds-btn-cx:hover { background:var(--color-consequential-700); } .ds-btn-cx:focus-visible { outline:2px solid var(--color-ruling-600); outline-offset:2px; } .ds-btn-cx:active { background:var(--color-consequential-700); } @media (prefers-reduced-motion: reduce) { .ds-btn-cx { transition:none; } }"
+    },
+    {
+      "name": "Ruled Outline Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Default action: paper ground inside a prussian ruled stroke that darkens on hover.",
+      "html": "<button class=\"ds-btn-default\">Add Edit</button>",
+      "css": ".ds-btn-default { display:inline-flex; align-items:center; justify-content:center; height:40px; padding:0 16px; border:1px solid var(--color-ruling-300); border-radius:4px; background:var(--color-paper-25); color:var(--color-ink-800); font-family:'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif; font-size:14px; font-weight:500; cursor:pointer; transition:border-color 150ms ease-out, background-color 150ms ease-out; } .ds-btn-default:hover { border-color:var(--color-ruling-500); background:var(--color-paper-50); } .ds-btn-default:focus-visible { outline:2px solid var(--color-ruling-600); outline-offset:2px; } .ds-btn-default:active { background:var(--color-paper-100); } @media (prefers-reduced-motion: reduce) { .ds-btn-default { transition:none; } }"
+    },
+    {
+      "name": "Rubber Stamp",
+      "kind": "custom",
+      "refersTo": "stamp-seal",
+      "description": "Status verdict as a double-ring stamp pill; tones seal/vermilion/amber/ruling carry all status ink. Shown here in seal tone.",
+      "html": "<span class=\"ds-stamp ds-stamp-seal\">Committed</span>",
+      "css": ".ds-stamp { position:relative; display:inline-flex; align-items:center; transform:rotate(-1deg); border-radius:9999px; border:1.5px solid currentColor; padding:1px 10px; font-family:'Spline Sans Mono', ui-monospace, monospace; font-size:11px; font-weight:500; line-height:22px; letter-spacing:.12em; text-transform:uppercase; } .ds-stamp::after { content:''; position:absolute; inset:2.5px; border-radius:9999px; border:1px solid currentColor; pointer-events:none; } .ds-stamp-seal { border-color:var(--color-seal-700); background:var(--color-seal-50); color:var(--color-seal-700); }"
+    },
+    {
+      "name": "Ruled Underline Input",
+      "kind": "input",
+      "refersTo": "input-underline",
+      "description": "Boxless field drawn as a ledger rule; focus darkens the underline to prussian focus ink.",
+      "html": "<input class=\"ds-input\" placeholder=\"ChangeSet intent…\" />",
+      "css": ".ds-input { width:100%; background:transparent; border:none; border-bottom:1px solid var(--color-ruling-300); border-radius:0; padding:8px 2px; font-family:'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif; font-size:14px; color:var(--color-ink-900); transition:border-color 150ms ease-out; } .ds-input::placeholder { color:var(--color-ink-500); } .ds-input:focus { outline:none; border-bottom-color:var(--color-ruling-600); } .ds-input:focus-visible { outline:none; border-bottom-color:var(--color-ruling-600); box-shadow:0 1px 0 0 var(--color-ruling-600); } @media (prefers-reduced-motion: reduce) { .ds-input { transition:none; } }"
+    },
+    {
+      "name": "Register Panel",
+      "kind": "card",
+      "refersTo": "register-panel",
+      "description": "The card of this world: brighter paper, one hairline, small-caps title over a rule, flat.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-h\"><h2 class=\"ds-panel-t\">Known State</h2></header><div class=\"ds-panel-b\">Every entry is entered once and never rewritten.</div></section>",
+      "css": ".ds-panel { border:1px solid var(--color-ruling-200); border-radius:4px; background:var(--color-paper-25); color:var(--color-ink-900); font-family:'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif; } .ds-panel-h { border-bottom:1px solid var(--color-ruling-200); padding:10px 16px; } .ds-panel-t { margin:0; font-size:11px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--color-ink-600); } .ds-panel-b { padding:16px; font-size:14px; line-height:1.5; max-width:65ch; }"
+    },
+    {
+      "name": "Entry-Line Table Header + Row",
+      "kind": "custom",
+      "refersTo": "table-header-label",
+      "description": "Ledger table grammar: small-caps header on a double hairline, 44px hairline-ruled rows with tabular figures.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Intent</th><th>Initiated By</th><th>Status</th></tr></thead><tbody><tr><td>Merge locale packs</td><td class=\"ds-mono\">agent-builder-04</td><td>Pending approval</td></tr></tbody></table>",
+      "css": ".ds-table { width:100%; border-collapse:separate; border-spacing:0; font-family:'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif; font-size:14px; font-variant-numeric:tabular-nums; color:var(--color-ink-900); } .ds-table th { border-bottom:1px solid var(--color-ruling-200); box-shadow:0 2px 0 0 var(--color-ruling-200); padding:8px 12px; text-align:left; font-size:11px; font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--color-ink-600); } .ds-table td { height:44px; border-bottom:1px solid var(--color-ruling-200); padding:0 12px; vertical-align:middle; } .ds-table tbody tr:hover { background:var(--color-paper-100); } .ds-mono { font-family:'Spline Sans Mono', ui-monospace, monospace; font-size:13px; color:var(--color-ink-800); white-space:nowrap; }"
+    },
+    {
+      "name": "Key Cap",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Mono key cap with ruled border and baseline shadow; used in palette and menu legends.",
+      "html": "<span class=\"ds-kbd-group\"><kbd class=\"ds-kbd\">⌘</kbd><kbd class=\"ds-kbd\">K</kbd></span>",
+      "css": ".ds-kbd-group { display:inline-flex; gap:4px; } .ds-kbd { display:inline-flex; align-items:center; justify-content:center; height:20px; min-width:20px; padding:0 4px; border:1px solid var(--color-ruling-200); border-radius:3px; background:var(--color-paper-25); box-shadow:inset 0 -1px 0 0 var(--color-ink-200); font-family:'Spline Sans Mono', ui-monospace, monospace; font-size:10px; line-height:1; color:var(--color-ink-700); }"
+    },
+    {
+      "name": "Digest Identifier",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Mono digest truncated first-10…last-8 with copy affordance; identifiers never wrap mid-string.",
+      "html": "<span class=\"ds-digest\"><span class=\"ds-digest-v\" title=\"01j9x85rfq7h3n20w4kqm8zp2t\">01j9x85rfq…m8zp2t</span><button class=\"ds-digest-copy\" aria-label=\"Copy digest\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></svg></button></span>",
+      "css": ".ds-digest { display:inline-flex; align-items:center; gap:2px; max-width:100%; font-family:'Spline Sans Mono', ui-monospace, monospace; font-size:12px; color:var(--color-ink-800); } .ds-digest-v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .ds-digest-copy { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border:none; background:transparent; border-radius:3px; color:var(--color-ink-400); cursor:pointer; transition:background-color 150ms ease-out, color 150ms ease-out; } .ds-digest-copy:hover { background:var(--color-paper-100); color:var(--color-ink-900); } .ds-digest-copy:focus-visible { outline:2px solid var(--color-ruling-600); outline-offset:2px; }"
+    },
+    {
+      "name": "Lifecycle Station Rail",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Signature component: five lifecycle stations strung on the shared hairline; passed dots seal green, active dot amber, future dots hollow prussian outlines.",
+      "html": "<ol class=\"ds-rail\" aria-label=\"ChangeSet lifecycle stations\"><li class=\"ds-station\"><span class=\"ds-dot ds-dot-passed\"></span><span class=\"ds-station-l ds-station-done\">Draft</span></li><li class=\"ds-station\"><span class=\"ds-link\"></span><span class=\"ds-dot ds-dot-passed\"></span><span class=\"ds-station-l ds-station-done\">Validated</span></li><li class=\"ds-station\"><span class=\"ds-link\"></span><span class=\"ds-dot ds-dot-active\"></span><span class=\"ds-station-l ds-station-now\">Submitted</span></li><li class=\"ds-station\"><span class=\"ds-link\"></span><span class=\"ds-dot ds-dot-future\"></span><span class=\"ds-station-l\">Approved</span></li><li class=\"ds-station\"><span class=\"ds-link\"></span><span class=\"ds-dot ds-dot-future\"></span><span class=\"ds-station-l\">Committed</span></li></ol>",
+      "css": ".ds-rail { display:flex; align-items:flex-start; margin:0; padding:0; list-style:none; font-family:'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif; } .ds-station { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; padding:0 8px; } .ds-link { position:absolute; top:5px; left:-16px; width:32px; height:1px; background:var(--color-ruling-200); } .ds-dot { width:10px; height:10px; border-radius:9999px; } .ds-dot-passed { background:var(--color-seal-600); } .ds-dot-active { background:var(--color-amber-screen-600); } .ds-dot-future { border:1px solid var(--color-ruling-400); background:var(--color-paper-25); } .ds-station-l { font-size:11px; letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; color:var(--color-ink-500); } .ds-station-done { color:var(--color-ink-700); } .ds-station-now { color:var(--color-ink-900); font-weight:500; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Notarial Register",
+    "overview": "The console is a notarial register, not an admin dashboard. Every row is an entry that will never change, and the interface's only chrome is the ledger's own ruling: faded prussian hairlines on a cool laid-paper ground. Iron-gall ink carries the writing; verdicts are struck as rubber stamps in their own ink; a single rust-colored consequential ink is reserved for the acts that can never be undone. It refuses the treeview-and-modal enterprise CMS: no nested boxes, no drop-shadow furniture, no decorative color.\n\nDensity is ledger-dense but breathing — 44px entry rows, tabular numerals, authority columns always visible — because the reader is verifying, not browsing. Identifiers are the world's verifiable core: UUIDv7 ids, BLAKE3 digests, and timestamps render in mono, truncated digest-style and copyable, never broken mid-identifier. Hierarchy comes from three voices only: grotesk prose, mono identifiers, small-caps labels. The laid-paper texture ships as a flat ground — the build omits physicality rather than faking it, and stamps are typographic double rings with no bevel or embossing.",
+    "keyCharacteristics": [
+      "Flat laid-paper ground (paper-50) with a cool green cast; panels one step brighter (paper-25)",
+      "1px prussian hairlines (ruling-200) as the only chrome; zero shadows at rest",
+      "Status ink appears exclusively inside stamp-shaped verdicts (and the lifecycle rail's station marks)",
+      "One reserved consequential rust for irreversible actions and the register's single primary action",
+      "Mono for everything verifiable; small-caps tracked labels for everything structural",
+      "Micro-motion only: 150ms color fades, disabled entirely under prefers-reduced-motion"
+    ],
+    "rules": [
+      { "name": "The Hairline Chrome Rule", "body": "Every border in the system is 1px ruling-200. Drop shadows exist only under floating overlays (dialogs, command palette, menus) at shadow-lg maximum, always over an ink-950/40 scrim.", "section": "colors" },
+      { "name": "The Stamp Ink Rule", "body": "Seal, vermilion, and amber appear only inside stamp-shaped verdicts (Stamp, FindingCard) — and, as the one documented exception, as the lifecycle rail's station dots and rejection cross, where they carry progress semantics. Status ink never colors links, headings, backgrounds, or prose.", "section": "colors" },
+      { "name": "The Consequential Ink Rule", "body": "consequential-600 marks exactly the acts that cannot be undone plus the register's primary action. If an action can be repeated safely, it does not get this ink.", "section": "colors" },
+      { "name": "The Three Voices Rule", "body": "Text is either grotesk prose, mono identifier, or a small-caps tracked label. Nothing else — no serif, no display face, no italic emphasis.", "section": "typography" },
+      { "name": "The Flat Ledger Rule", "body": "Surfaces are flat at rest; nothing casts a shadow onto the ledger. If an element floats above the page it takes the scrim and the one permitted shadow; otherwise it earns depth from paper tone alone.", "section": "elevation" },
+      { "name": "The Quiet Ledger Rule", "body": "Nothing moves while the user reads. Transitions are 150ms ease-out color fades (within the 120–200ms budget) on interactive elements only, each paired with motion-reduce:transition-none; the sole animation is the loading skeleton's pulse.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do draw all structure with 1px ruling-200 hairlines and earn hierarchy from spacing and type, not boxes.",
+      "Do render every status through Stamp with stampToneForStatus; new statuses join the map, never bypass it.",
+      "Do reserve consequential-600 for Approve, Commit, Release, Revoke, and New ChangeSet.",
+      "Do set every id, digest, and timestamp in Spline Sans Mono; truncate digests 10…8 and offer copy.",
+      "Do keep identifiers unbroken — nowrap with ellipsis, digest-style.",
+      "Do use tabular numerals for all aligned figures.",
+      "Do gate every transition at 150ms color-only with motion-reduce:transition-none.",
+      "Do mark synthetic records visibly (SYNTHETIC DEMO DATA chip beside the workspace name)."
+    ],
+    "donts": [
+      "Don't add drop shadows outside dialogs, the palette, and menus — depth is paper tone and hairlines.",
+      "Don't nest bordered boxes; panels don't go inside panels.",
+      "Don't invent color families, and never let seal/vermilion/amber decorate non-status UI.",
+      "Don't box inputs — fields are ruled underlines.",
+      "Don't fake physicality (no bevels, embossing, or paper texture images); the stamp is typographic.",
+      "Don't exceed the 24px title size or introduce new type voices."
+    ]
+  }
+}

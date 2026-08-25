@@ -75,13 +75,15 @@ stack; contract-faithful mocks over live wiring for the first build.
   `.impeccable/review/`; two batched fix rounds applied (mobile stacked
   entry cards, consequential-ink discipline, revoked-stamp placement,
   overview density, label contrast, palette capture timing).
-- Finish review verdict recorded in
-  `.swarm-reports/p0016-finish-review.md`.
-- `DESIGN.md` recorded from the built world by the documenter pass.
+- Finish review verdict: **ship** — all seven findings resolved across two
+  fix rounds; recorded in `.swarm-reports/p0016-finish-review.md`.
+- `DESIGN.md` and its sidecar (`.impeccable/design.json`) recorded from the
+  built world by the documenter pass.
 
 ## Completion record
 
 Item-work commits `adad15c`, `d227bf6`, `be16f49`, `15374d6`, `04de45b`,
-and `588d74b`; see `evidence/P-0016/receipt.md` and `manifest.json` for the
-exact command log. Status `review` awaits the `impeccable-finish-review`
-gate; project-owner acceptance moves it to `done`.
+`588d74b`, and `86e187e`; see `evidence/P-0016/receipt.md` and
+`manifest.json` for the exact command log. The `impeccable-finish-review`
+gate returned `ship` on 2026-08-25; the item remains `review` pending
+project-owner acceptance, which moves it to `done`.
