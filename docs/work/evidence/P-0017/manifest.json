@@ -1,0 +1,158 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0017",
+ "base_sha": "dcdaf485cf1a12332ae61f09b25a8c55ee73ce18",
+ "claim_commit": "75fe002e4b7a5fbbf2a4ceaddd951933367066c7",
+ "intermediate_commits": [],
+ "candidate_parent_sha": "75fe002e4b7a5fbbf2a4ceaddd951933367066c7",
+ "candidate_commit": "ebc394fdfab0c7444297ed380870d0b46dbc78f9",
+ "candidate_tree": "fb71f73a3f225ea1225d1c5b3219d6cc0f46f907",
+ "item_work_commit": "ebc394fdfab0c7444297ed380870d0b46dbc78f9",
+ "destination_shape_commit": null,
+ "branch": "main",
+ "qualified_at": "2026-08-25T17:12:39.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "none",
+ "successors_created": [],
+ "deployed": false,
+ "milestone_complete": false,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "cargo fmt --all --check",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --workspace --all-targets --all-features",
+   "exit_code": 0,
+   "result": "passed (0 failures; includes the four retained ts_sdk_contract drift tests)"
+  },
+  {
+   "command": "cargo test -p proof-server --test ts_sdk_contract",
+   "exit_code": 0,
+   "result": "passed (4 tests)"
+  },
+  {
+   "command": "pnpm --filter proof-sdk test",
+   "exit_code": 0,
+   "result": "passed (13 wire tests)"
+  },
+  {
+   "command": "pnpm --filter proof-sdk typecheck",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "pnpm --filter proof-console exec tsc -b",
+   "exit_code": 0,
+   "result": "passed (console untouched)"
+  },
+  {
+   "command": "pnpm --filter proof-console test",
+   "exit_code": 0,
+   "result": "passed (58 tests)"
+  },
+  {
+   "command": "cargo test --locked --doc --workspace --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed (17 items)"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed (385 links)"
+  }
+ ],
+ "inventory": {
+  "changed_files": 23,
+  "insertions": 1704,
+  "deletions": 5,
+  "new_retained_vectors": [],
+  "new_test_binary": {
+   "path": "crates/proof-server/tests/ts_sdk_contract.rs",
+   "tests": 4
+  },
+  "new_frontend_suite": {
+   "path": "web/packages/proof-sdk/test/wire.spec.ts",
+   "tests": 13
+  },
+  "frozen_vector_change_count": 0,
+  "new_third_party_packages": [],
+  "storage_schema_version": "unchanged (no storage touched)",
+  "operation_registry_change_count": 0
+ },
+ "residuals": [
+  "agent invocation signing stays with the caller's provisioning path; the SDK carries the dual-auth transport exactly but does not re-implement DSSE command envelopes in TypeScript",
+  "the live-server leg of the client suite lands with P-0018's deployable artifact; today's retained suite pins exact wire bytes against a stub transport whose shapes are themselves pinned by the Rust e2e handlers and the cross-language drift guard",
+  "the P-0016 console keeps its projection-layer client; migrating it onto this wire-exact package is recorded as console follow-up work under its own review gate"
+ ],
+ "environment": {
+  "operating_system": "Linux (Debian bookworm/glibc, WSL2 host)",
+  "kernel": "5.15.167.4-microsoft-standard-WSL2",
+  "architecture": "x86_64-unknown-linux-gnu",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "cargo": "1.97.1 (c980f4866 2026-06-30)",
+  "node": "v22.23.2",
+  "pnpm": "11.22.0",
+  "git": "2.43.0"
+ },
+ "artifact_digests": [
+  {
+   "path": "web/packages/proof-sdk/src/client.ts",
+   "git_blob_oid": "bfcf13b431c3120182a61eb618a78723330a34b1",
+   "algorithm": "sha256",
+   "digest": "ee5455f970d147ad4f90b66f4baee294722f195e18ae4c35435e988acaeef1bf"
+  },
+  {
+   "path": "web/packages/proof-sdk/src/types.ts",
+   "git_blob_oid": "99827516c1a22dac90e0fa54e096e30b6cd4aed7",
+   "algorithm": "sha256",
+   "digest": "1d69d9d8d41d6b4e8fa12bbc76241f866cb7a3dbf65664429fe3cda6c8c721e8"
+  },
+  {
+   "path": "web/packages/proof-sdk/src/registry.ts",
+   "git_blob_oid": "dc98d1acc943468a4ddcce6dfa3189361c4db5b4",
+   "algorithm": "sha256",
+   "digest": "22eac4d12f7a9604e9b6ba3c3e33f35bf683a8abb7bf1ce5adcb0e2e9c6f3036"
+  },
+  {
+   "path": "web/packages/proof-sdk/src/errors.ts",
+   "git_blob_oid": "bd7372506e4e89b98928fbc3bdf27f8798a48e42",
+   "algorithm": "sha256",
+   "digest": "670544da46c2351e6422cff92ebc8525fa03d34714850a2b2bc1351047d1700b"
+  },
+  {
+   "path": "web/packages/proof-sdk/test/wire.spec.ts",
+   "git_blob_oid": "502a88289cc243542e614605ceaa1c320758bcfd",
+   "algorithm": "sha256",
+   "digest": "d88986955f08edcc363b33cd4cf33830b480123952239345bb524636cfb348e4"
+  },
+  {
+   "path": "crates/proof-server/tests/ts_sdk_contract.rs",
+   "git_blob_oid": "cc37644347de91056a65c9daf6f607a47fd72bc8",
+   "algorithm": "sha256",
+   "digest": "9c361f187f0f7dc4ba4571513e5b6e3900f64787d38faa23a709b24928fc0db8"
+  },
+  {
+   "path": "web/pnpm-workspace.yaml",
+   "git_blob_oid": "c8fd9869e0cdfacf70409bd29ea986825724129d",
+   "algorithm": "sha256",
+   "digest": "bdf27eeafae722e6cde8c24d381bb6a06980109db811e63d5a0103dc96eb060e"
+  }
+ ],
+ "evidence_paths": [
+  "docs/work/evidence/P-0017/receipt.md",
+  "docs/work/evidence/P-0017/manifest.json"
+ ]
+}

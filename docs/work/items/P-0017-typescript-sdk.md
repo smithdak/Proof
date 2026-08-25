@@ -1,7 +1,7 @@
 ---
 id: P-0017
 title: Ship the TypeScript SDK over the shared HTTP contracts
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: []
@@ -54,4 +54,22 @@ and residual boundaries in `docs/work/evidence/P-0017/` per the
 
 ## Progress log
 
-Populated by the claiming executor.
+- Slice 1 (2026-08-25): claimed and scoped against the real wire — the frozen
+  registry resolves to 14 name/version pairs; the human route requires Origin,
+  `proof-csrf`, session cookie, and the strict I-JSON envelope; the agent route
+  additionally carries a caller-signed invocation; success responses are
+  `proof.dev/http-operation-result/v1` envelopes wrapping
+  `RemoteApplicationConsequenceV1`.
+- Slice 2 (2026-08-25): `web/packages/proof-sdk` landed — frozen registry
+  table, field-set-exact input types for every registered row, consequence and
+  Problem types, typed client (`ProofClient`) covering session read/logout with
+  CSRF rotation, capabilities, both operation routes (agent transport accepts a
+  caller-built signed invocation), preview reads, content-addressed evidence
+  artifact fetches, and verbatim `ProblemError`/`TransportError` mapping.
+  Thirteen retained wire tests pass against a stub transport; the P-0016
+  console remains untouched on its projection layer by design.
+- Slice 3 (2026-08-25): cross-language drift guard
+  (`crates/proof-server/tests/ts_sdk_contract.rs`, four retained tests) fails
+  the Rust gate when the SDK registry loses a frozen pair, any typed input
+  interface loses a Rust field, or transport envelope members drift. Full
+  Linux gate green.
