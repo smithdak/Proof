@@ -100,7 +100,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| None yet | n/a | P-0015 | Successors are named only when P-0015 closes and reshapes its newly unblocked frontier. |
+| [Ship the TypeScript SDK over the shared HTTP contracts](items/P-0017-typescript-sdk.md) | `ready` | none | Extract the P-0016 console client into a standalone typed SDK package covering the frozen nine-route surface, consumable from Node and browsers. |
 
 ## Completed
 
