@@ -2,7 +2,7 @@
 //! boundaries").
 //!
 //! The binary resolves the deployment configuration from the environment,
-//! opens and migrates the PostgreSQL authority store, binds the configured
+//! opens and migrates the `PostgreSQL` authority store, binds the configured
 //! listener, and serves the frozen nine-route router until SIGTERM or SIGINT
 //! triggers a graceful shutdown. TLS termination is a deployment prerequisite
 //! outside this adapter.
@@ -11,8 +11,8 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use proof_server::{AppState, ServerConfig, ServerError};
 use proof_remote::oracle::IdentityFixtureV1;
+use proof_server::{AppState, ServerConfig, ServerError};
 
 /// Environment variable selecting the listen address. Defaults to the
 /// loopback development address.
@@ -24,7 +24,7 @@ const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:8080";
 const WORKSPACE_ID_ENV: &str = "PROOF_WORKSPACE_ID";
 const DEFAULT_WORKSPACE_ID: &str = "019c0000-0000-7000-8000-000000000010";
 
-/// Environment variable selecting the PostgreSQL authority store DSN.
+/// Environment variable selecting the `PostgreSQL` authority store DSN.
 const DSN_ENV: &str = "PROOF_PG_DSN";
 
 /// Environment variable carrying the hex-encoded 32-byte session/CSRF hashing
@@ -73,9 +73,11 @@ async fn serve(app: axum::Router, addr: SocketAddr) -> ExitCode {
         eprintln!("proof-server: cannot resolve the bound address");
         return ExitCode::FAILURE;
     };
+    {
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+    }
     println!("proof-server listening on {bound}");
-    use std::io::Write as _;
-    let _ = std::io::stdout().flush();
 
     match proof_server::serve_until(app, listener, shutdown_signal()).await {
         Ok(()) => {
@@ -139,9 +141,7 @@ fn build_config() -> Option<ServerConfig> {
 
 fn decode_secret(encoded: &str) -> Option<[u8; 32]> {
     if encoded.len() != 64 {
-        eprintln!(
-            "proof-server: {SESSION_SECRET_ENV} must be 64 hex characters encoding 32 bytes"
-        );
+        eprintln!("proof-server: {SESSION_SECRET_ENV} must be 64 hex characters encoding 32 bytes");
         return None;
     }
     let mut secret = [0_u8; 32];

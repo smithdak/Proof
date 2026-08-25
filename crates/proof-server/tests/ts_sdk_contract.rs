@@ -48,10 +48,10 @@ fn rust_struct_fields(source: &str, struct_name: &str) -> Vec<String> {
     let mut fields = Vec::new();
     for line in body.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("pub ") {
-            if let Some(name) = rest.split(':').next() {
-                fields.push(name.trim().to_owned());
-            }
+        if let Some(rest) = trimmed.strip_prefix("pub ")
+            && let Some(name) = rest.split(':').next()
+        {
+            fields.push(name.trim().to_owned());
         }
     }
     fields

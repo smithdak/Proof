@@ -1,8 +1,8 @@
 //! Retained artifact test for the deployable stack (work item P-0018).
 //!
-//! Boots the real `proof-server` binary against an isolated PostgreSQL schema,
+//! Boots the real `proof-server` binary against an isolated `PostgreSQL` schema,
 //! proves liveness through capabilities, proves the unauthenticated session
-//! boundary fails closed with a stable Problem body, then seeds one
+//! boundary fails closed with a stable `Problem` body, then seeds one
 //! `preview.release/v1` outbox row and runs the real `proof-worker` binary to
 //! prove it drains.
 
@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use proof_pg::outbox::{OutboxEnqueueV1, enqueue};
 use proof_domain::{ContentDigest, Timestamp, WorkspaceId};
+use proof_pg::outbox::{OutboxEnqueueV1, enqueue};
 use proof_pg::wiring::PgRuntime;
 use uuid::Uuid;
 
@@ -54,8 +54,6 @@ struct Stack {
     schema: String,
     cleanup_runtime: PgRuntime,
     child: Option<std::process::Child>,
-    base_url: String,
-    scoped_dsn: String,
     preview_root: PathBuf,
 }
 
@@ -65,10 +63,10 @@ impl Drop for Stack {
             let _ = child.kill();
             let _ = child.wait();
         }
-        let _ = self
-            .cleanup_runtime
-            .client_mut()
-            .batch_execute(&format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", self.schema));
+        let _ = self.cleanup_runtime.client_mut().batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
+            self.schema
+        ));
         let _ = std::fs::remove_dir_all(&self.preview_root);
     }
 }
@@ -77,8 +75,10 @@ impl Drop for Stack {
 #[allow(clippy::too_many_lines)]
 fn deployed_stack_serves_and_the_worker_drains() {
     let schema = format!("p0018_artifact_{}", Uuid::now_v7().simple());
-    let preview_root =
-        std::env::temp_dir().join(format!("proof-artifact-preview-{}", Uuid::now_v7().simple()));
+    let preview_root = std::env::temp_dir().join(format!(
+        "proof-artifact-preview-{}",
+        Uuid::now_v7().simple()
+    ));
     let _ = std::fs::remove_dir_all(&preview_root);
     std::fs::create_dir_all(&preview_root).expect("create preview root");
 
@@ -102,10 +102,7 @@ fn deployed_stack_serves_and_the_worker_drains() {
     let mut envs = HashMap::new();
     envs.insert("PROOF_LISTEN_ADDR".to_owned(), "127.0.0.1:0".to_owned());
     envs.insert("PROOF_PG_DSN".to_owned(), scoped_dsn.clone());
-    envs.insert(
-        "PROOF_WORKSPACE_ID".to_owned(),
-        WORKSPACE.to_owned(),
-    );
+    envs.insert("PROOF_WORKSPACE_ID".to_owned(), WORKSPACE.to_owned());
     envs.insert(
         "PROOF_SESSION_SECRET".to_owned(),
         format!("{:02x}", 0x5a_u8).repeat(32),
@@ -125,14 +122,14 @@ fn deployed_stack_serves_and_the_worker_drains() {
             .expect("the server pipes its listening line"),
     );
     let mut listening_line = String::new();
-    std::io::BufRead::read_line(&mut stdout, &mut listening_line)
-        .expect("read the listening line");
+    std::io::BufRead::read_line(&mut stdout, &mut listening_line).expect("read the listening line");
     let bound_addr = listening_line
         .trim()
         .strip_prefix("proof-server listening on ")
         .unwrap_or_else(|| panic!("unexpected first output line: {listening_line}"))
         .to_owned();
     let base_url = format!("http://{bound_addr}");
+    let _ = &base_url;
 
     // Liveness: public capabilities discovery answers on the deployed router.
     let response = http_get(&format!("{base_url}/api/v1/capabilities"));
@@ -184,8 +181,7 @@ fn deployed_stack_serves_and_the_worker_drains() {
         .transaction()
         .expect("begin enqueue transaction");
     enqueue(&mut transaction, &event).expect("enqueue outbox event");
-    let params: &[&(dyn postgres::types::ToSql + Sync)] =
-        &[&event.event_id, &delivery_id];
+    let params: &[&(dyn postgres::types::ToSql + Sync)] = &[&event.event_id, &delivery_id];
     transaction
         .execute(
             "INSERT INTO delivery_state (
@@ -232,8 +228,6 @@ fn deployed_stack_serves_and_the_worker_drains() {
         schema,
         cleanup_runtime,
         child: Some(child),
-        base_url,
-        scoped_dsn,
         preview_root,
     });
 }

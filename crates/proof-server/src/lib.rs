@@ -347,9 +347,12 @@ impl AppState {
 /// Brings one runtime's schema to the current migration head, applying only
 /// the scripts its head still lacks (a fresh database applies every script; an
 /// already-current database applies none).
-fn bring_migration_head_to_current(runtime: &mut proof_pg::wiring::PgRuntime) -> Result<(), ServerError> {
+fn bring_migration_head_to_current(
+    runtime: &mut proof_pg::wiring::PgRuntime,
+) -> Result<(), ServerError> {
     runtime.migrate().map_err(ServerError::Storage)?;
-    let head = proof_pg::migration::read_head(runtime.client_mut()).map_err(ServerError::Storage)?;
+    let head =
+        proof_pg::migration::read_head(runtime.client_mut()).map_err(ServerError::Storage)?;
     let current = head.map_or(0, |ledger| ledger.head_version);
     for script in [
         proof_pg::migration::session_boundary_migration_v2(),
