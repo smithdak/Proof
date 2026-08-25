@@ -174,6 +174,23 @@ and residual boundaries in `docs/work/evidence/P-0015/` per the
   release signer into the PG backend — keys live outside the store by design)
   and `context.build/v2` build-semantics (the existing arm reads imported
   packs; the build path needs the `context_resources` port).
+- Slice 11 (2026-08-24): `context.build/v2` mirrored end to end — keyed
+  replay over imported build-operation facts (now imported from
+  `localized_context_build_operations` with the bootstrap principal),
+  policy-rule normalization under the canonical envelope, intent digest
+  binding, limit validation, baseline currency, per-target resource
+  assembly from verified source/schema/rendition facts (including
+  absent-target markers), exact manifest construction, byte-budget
+  enforcement, ContextPackV2 digest recomputation (the manifest excludes its
+  own digest), and idempotent operation-fact persistence. A retained test
+  proves byte-identical accepted and keyed-replay traces against SQLite;
+  the tamper-divergence test now deletes the operation fact so the replay
+  path itself diverges. Ten of the eleven localized `/v2` rows execute
+  through the PG executor. One row remains: `release.create/v2`, whose
+  port must thread the workspace's file-backed Ed25519 signing key through
+  the backend constructor (keys live outside the store by design) before
+  reproducing request digests, artifact preflight, Environment rotation,
+  in-toto statement construction, signatures, and Release/Proof persistence.
 - Slice 8 (2026-08-24): `changeset.commit/v2` mirrored end to end —
   keyed replay over commit operation facts with effect reproduction, Approved
   gating with imported approval evidence, seal-head verification, write-head
