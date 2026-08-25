@@ -1,0 +1,159 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0018",
+ "base_sha": "13bc956d0f7a2fd97a59bed2f4580a0f235f9ab8",
+ "claim_commit": "7abadf108090aa57c3c745c06dd41945a95a8387",
+ "intermediate_commits": [],
+ "candidate_parent_sha": "e71a06c4de4d56b870ebdee061221bef66412549",
+ "candidate_commit": "WORKTREE",
+ "candidate_tree": "f50ef657c790596f94649a5f174ab5182e85c580",
+ "item_work_commit": null,
+ "destination_shape_commit": null,
+ "branch": "main",
+ "qualified_at": "2026-08-25T18:21:49.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "none",
+ "successors_created": [],
+ "deployed": false,
+ "milestone_complete": false,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "cargo test -p proof-server --test deployable_artifact",
+   "exit_code": 0,
+   "result": "passed (real binaries: capabilities 200, session Problem 401, outbox row delivered)"
+  },
+  {
+   "command": "docker compose -f deploy/compose.yml up -d --build",
+   "exit_code": 0,
+   "result": "passed (postgres/server/worker healthy)"
+  },
+  {
+   "command": "curl http://127.0.0.1:8080/api/v1/capabilities",
+   "exit_code": 0,
+   "result": "200 with route_count 9"
+  },
+  {
+   "command": "PROOF_SDK_BASE_URL=http://127.0.0.1:8080 pnpm --filter proof-sdk test",
+   "exit_code": 0,
+   "result": "passed (15 tests incl. live leg against the containerized stack)"
+  },
+  {
+   "command": "docker compose -f deploy/compose.yml down -v",
+   "exit_code": 0,
+   "result": "passed (clean teardown)"
+  },
+  {
+   "command": "cargo fmt --all --check",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --workspace --all-targets --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --doc --workspace --all-features",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed (18 items)"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed"
+  }
+ ],
+ "inventory": {
+  "changed_files": 11,
+  "insertions": 662,
+  "deletions": 24,
+  "new_retained_vectors": [],
+  "new_test_binary": {
+   "path": "crates/proof-server/tests/deployable_artifact.rs",
+   "tests": 1
+  },
+  "new_frontend_suite": {
+   "path": "web/packages/proof-sdk/test/live.spec.ts",
+   "tests": 2
+  },
+  "frozen_vector_change_count": 0,
+  "new_third_party_packages": [],
+  "storage_schema_version": "unchanged (existing migration ledger applied on first start)",
+  "operation_registry_change_count": 0
+ },
+ "residuals": [
+  "TLS termination and trusted-proxy configuration remain deployment prerequisites outside the artifact, per contract",
+  "the compose worker loops the bounded single-pass reference worker every five seconds; a long-poll daemon is a later delivery-surface concern",
+  "PROOF_SESSION_SECRET defaults to the fixed development value when unset; production deployments must supply a real secret (compose documents generation)"
+ ],
+ "environment": {
+  "operating_system": "Linux (Debian bookworm/glibc, WSL2 host)",
+  "kernel": "5.15.167.4-microsoft-standard-WSL2",
+  "architecture": "x86_64-unknown-linux-gnu",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "cargo": "1.97.1 (c980f4866 2026-06-30)",
+  "node": "v22.23.2",
+  "pnpm": "11.22.0",
+  "docker": "29.7.2",
+  "git": "2.43.0"
+ },
+ "artifact_digests": [
+  {
+   "path": "crates/proof-server/src/main.rs",
+   "git_blob_oid": "8cdb20569467ebaa22e46594cde2b994ea76d071",
+   "algorithm": "sha256",
+   "digest": "9080337524d71d402fb63a8e30c5b67acc61895c83ddf6e1018288eac0dd3f83"
+  },
+  {
+   "path": "crates/proof-server/src/lib.rs",
+   "git_blob_oid": "8156ca8135e0a4cb97b127cbe4576d2ec5a7f894",
+   "algorithm": "sha256",
+   "digest": "3f14c2a46b79d0bc891b04469687c333f27e7deb9cc3f17e5adb76445d8e9a33"
+  },
+  {
+   "path": "crates/proof-server/tests/deployable_artifact.rs",
+   "git_blob_oid": "4d45fa46138143ce25135daf16f00c50d954ed52",
+   "algorithm": "sha256",
+   "digest": "41ddc7f0222b06e5f2e5d2ac2d5d7be60c22d649cbff3990acd29c3d1a75cf2a"
+  },
+  {
+   "path": "Dockerfile",
+   "git_blob_oid": "bcbbd786090f541fd6027c0f648f9b7413718fb6",
+   "algorithm": "sha256",
+   "digest": "01193bdc77ab1628e064f952406f0b1c9ad4eda1db44ee19d28244b86f035481"
+  },
+  {
+   "path": ".dockerignore",
+   "git_blob_oid": "7e8b903bdbdd2e5f1974b4b6a8547c6afd8eba0b",
+   "algorithm": "sha256",
+   "digest": "639e4138df28779fe2fe5b598cfdceecf3d5e36fa7a327752a0becf1bf074d47"
+  },
+  {
+   "path": "deploy/compose.yml",
+   "git_blob_oid": "09d86e546519932a9a5a394cf2eb956e3992ff7c",
+   "algorithm": "sha256",
+   "digest": "636b060dcee30684b3069b4ae87bf6347ca43f561a865810c422f7ddef8554cf"
+  },
+  {
+   "path": "web/packages/proof-sdk/test/live.spec.ts",
+   "git_blob_oid": "73ab549c14c899017c04a333f5592a0fa484eea4",
+   "algorithm": "sha256",
+   "digest": "18fcff350bd4360ae8db9ec0d068215d298e5db8a038553ae431c2a71668a0c9"
+  }
+ ],
+ "evidence_paths": [
+  "docs/work/evidence/P-0018/receipt.md",
+  "docs/work/evidence/P-0018/manifest.json"
+ ]
+}

@@ -1,7 +1,7 @@
 ---
 id: P-0018
 title: Produce the deployable server artifact with one-command bring-up
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: []
@@ -52,6 +52,32 @@ drive a governed ChangeSet end to end.
 Record exact commands, environment, revisions, exit codes, artifact digests,
 and residual boundaries in `docs/work/evidence/P-0018/` per the
 [work-control protocol](../README.md).
+
+## Completion record
+
+Implemented and qualified by `ox-alpha:proof:p-0018` on 2026-08-25.
+
+1. The `proof-server` binary exists: env-driven `ServerConfig`, listener bind,
+   frozen nine-route router, graceful SIGTERM/SIGINT shutdown through
+   `serve_until`; liveness rides the public capabilities route and no new route
+   was introduced. Satisfied.
+2. The existing `proof-worker` binary participates in bring-up against the
+   same PostgreSQL deployment, applying the delivery-state migration and
+   draining the shared transactional outbox. Satisfied.
+3. One command (`docker compose -f deploy/compose.yml up -d --build`) brings
+   PostgreSQL, server, and worker up healthy from a clean state with schema
+   migration on first start; `down -v` tears it down cleanly. Satisfied.
+4. The retained artifact test boots both real binaries against an isolated
+   schema and proves capabilities 200 (route_count 9), a cookie-less session
+   read failing closed with the stable Problem body, and a seeded outbox row
+   reaching `delivered`. Satisfied.
+5. The full Linux gate passed; the P-0017 SDK live leg ran green against both
+   a locally booted server and the containerized stack (15/15). Satisfied.
+
+Item-work commit: recorded in the evidence manifest. Evidence:
+[receipt](../evidence/P-0018/receipt.md) and
+[manifest](../evidence/P-0018/manifest.json) bind commands, environment,
+revisions, digests, and residual boundaries per the evidence contract.
 
 ## Progress log
 
