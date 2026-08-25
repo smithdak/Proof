@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `ready` | none | Ship the quickstart that takes an operator from compose-up to a verified agent-completed release, with every command asserted by a retained test. |
+| [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `claimed` | none | Ship the quickstart that takes an operator from compose-up to a verified agent-completed release, with every command asserted by a retained test. |
 | [Initial human web console with notarial-register design system](items/P-0016-web-console-design-system.md) | `review` | none | Ship the roadmap's initial human web console: six surfaces over the frozen operation registry, a documented design system, contract-faithful mocks, and screenshot evidence, awaiting the finish-review gate. |
 
 ## Next

@@ -1,13 +1,13 @@
 ---
 id: P-0019
 title: Author the documentation site quickstart to a verified agent run
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: []
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0019
+claimed_at: 2026-08-25T18:50:14.994Z
+base_sha: d93c3acab343d8b2e6c6ec2a085d14218a757e77
 review_gate: none
 accepted_by: null
 accepted_at: null
