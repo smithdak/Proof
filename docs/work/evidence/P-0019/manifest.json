@@ -1,13 +1,13 @@
 {
  "schema_version": 2,
  "item_id": "P-0019",
- "base_sha": "d93c3acab3430000000000000000000000000000",
+ "base_sha": "d93c3acab343d8b2e6c6ec2a085d14218a757e77",
  "claim_commit": "7af4067",
  "intermediate_commits": [
   "f8b2db3"
  ],
- "candidate_commit": "WORKTREE",
- "item_work_commit": "WORKTREE",
+ "candidate_commit": "819426dbb293118f1e2fc2d6286ac9156357dd5c",
+ "item_work_commit": "819426dbb293118f1e2fc2d6286ac9156357dd5c",
  "branch": "main",
  "qualified_at": "2026-08-25T19:30:00.000Z",
  "qualification_state": "implementation-qualified-review-eligible",
@@ -62,13 +62,14 @@
  "artifact_digests": [
   {
    "path": "docs/quickstart.md",
-   "git_blob_oid": "FILLED_AT_COMMIT",
+   "git_blob_oid": "19594d73f116128e0b05bba8e9a57a17bef00066",
    "algorithm": "sha256",
-   "digest": "FILLED_AT_COMMIT"
+   "digest": "e2dbefa1e9ccba569657b42e81c7710ae3348aef439fa329e61997cc0f0d0d47"
   }
  ],
  "evidence_paths": [
   "docs/work/evidence/P-0019/receipt.md",
   "docs/work/evidence/P-0019/manifest.json"
- ]
+ ],
+ "map_blockers_note": "blocked_by [] in frontmatter; Completed row uses none"
 }
