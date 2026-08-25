@@ -1,7 +1,7 @@
 ---
 id: P-0016
 title: Initial human web console with notarial-register design system
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: []
@@ -82,6 +82,18 @@ stack; contract-faithful mocks over live wiring for the first build.
 
 ## Rework log
 
+- Rework pass 1 executed (2026-08-25): three parallel front-end workers
+  audited and polished all six surfaces; 58/58 console tests, tsc, and eslint
+  green. Key changes: the Release-detail verdict stamp no longer reads as a
+  control (natural scale, meta-line placement — the owner's "Incomplete
+  button"); consequential ink reserved for irreversible actions on New
+  ChangeSet; Edits tab gained its missing mobile card; real empty states on
+  authority surfaces; locale chips unified to one spec; id/digest cells
+  truncate with tooltips; sentence-case labels; AA contrast fixes in
+  DiffRowView, Stamp token floor (text-2xs replaces hardcoded 11px), and
+  sub-4.5:1 meta text raised. SDK live-spec made collection-safe so the shared
+  workspace test run stays hermetic (13 pass + 2 skip without a live server;
+  live leg re-proven during P-0018). Item returns to the finish-review gate.
 - Rework pass 1 (2026-08-25): finish-review returned by the project owner with
   three findings: (1) the Incomplete control on the Releases surface reads as a
   button but does not behave like one — rework its affordance; (2) an overall
