@@ -53,7 +53,9 @@ const columns = [
     header: "Initiated by",
     width: "11rem",
     render: (row: ChangeSet) => (
-      <span className="text-sm text-ink-700">{row.created_by.display_name}</span>
+      <span className="whitespace-nowrap text-sm text-ink-700">
+        {row.created_by.display_name}
+      </span>
     ),
   },
   {
@@ -77,6 +79,26 @@ const columns = [
     ),
   },
 ];
+
+function renderChangesetMobileCard(row: ChangeSet) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink-700">{row.changeset_id}</span>
+        <Stamp tone={stampToneForStatus(row.status)}>{row.status}</Stamp>
+      </div>
+      <p className="mt-1.5 line-clamp-2 text-sm leading-5 text-ink-900">
+        {row.intent}
+      </p>
+      <p className="mt-1.5 font-mono text-xs text-ink-500">
+        by {row.created_by.display_name} · {row.edit_count} edits
+      </p>
+      <p className="mt-1 font-mono text-2xs text-ink-400">
+        {formatTimestamp(row.updated_at)}
+      </p>
+    </div>
+  );
+}
 
 const openChangeSets = [...changesets].sort((a, b) =>
   b.updated_at.localeCompare(a.updated_at),
@@ -122,6 +144,7 @@ export default function OverviewPage() {
           onRowClick={(row: ChangeSet) =>
             void navigate(`/changesets/${row.changeset_id}`)
           }
+          renderMobileCard={renderChangesetMobileCard}
           emptyState={<EmptyState title="No open entries" />}
         />
       </RegisterPanel>

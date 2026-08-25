@@ -140,6 +140,51 @@ const releaseColumns: Array<DataTableColumn<Release>> = [
   },
 ];
 
+function renderEditionMobileCard(row: Edition) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink-700">{row.edition_id}</span>
+        <span className="whitespace-nowrap font-mono text-xs text-ink-500">
+          {formatTimestamp(row.created_at)}
+        </span>
+      </div>
+      <div className="mt-1.5">
+        <DigestText
+          value={row.content_digest}
+          copyLabel={`Copy content digest for ${row.edition_id}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function renderReleaseMobileCard(row: Release) {
+  const verdict = verificationReports[row.release_id]?.verdict;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink-700">{row.release_id}</span>
+        {verdict ? (
+          <Stamp tone={stampToneForStatus(verdict)}>{verdict}</Stamp>
+        ) : (
+          <span className="text-sm text-ink-300">—</span>
+        )}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-sm text-ink-800">{row.environment}</span>
+        <DigestText
+          value={row.envelope_digest}
+          copyLabel={`Copy envelope digest for ${row.release_id}`}
+        />
+      </div>
+      <p className="mt-1 font-mono text-2xs text-ink-400">
+        {formatTimestamp(row.created_at)}
+      </p>
+    </div>
+  );
+}
+
 export default function ReleasesPage() {
   const navigate = useNavigate();
 
@@ -162,6 +207,7 @@ export default function ReleasesPage() {
           columns={editionColumns}
           rows={editionRows}
           rowKey={(row) => row.edition_id}
+          renderMobileCard={renderEditionMobileCard}
           emptyState={
             <EmptyState
               title="No editions on file"
@@ -179,6 +225,7 @@ export default function ReleasesPage() {
           rows={releaseRows}
           rowKey={(row) => row.release_id}
           onRowClick={(row) => void navigate(`/releases/${row.release_id}`)}
+          renderMobileCard={renderReleaseMobileCard}
           emptyState={
             <EmptyState
               title="No releases on file"

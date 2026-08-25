@@ -125,6 +125,23 @@ const columns: Array<DataTableColumn<ReleasedObject>> = [
   },
 ];
 
+function renderObjectMobileCard(row: ReleasedObject) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink-700">{row.object_id}</span>
+        <span className="whitespace-nowrap font-mono text-xs text-ink-500">
+          {formatTimestamp(row.released_at)}
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-mono text-xs text-ink-700">{row.schema_id}</span>
+        <LocaleChip locale={row.locale} />
+      </div>
+    </div>
+  );
+}
+
 export default function ObjectsPage() {
   const [environment, setEnvironment] = useState(ENVIRONMENTS[0] ?? "preview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -182,6 +199,7 @@ export default function ObjectsPage() {
               current === row.object_id ? null : row.object_id,
             )
           }
+          renderMobileCard={renderObjectMobileCard}
           emptyState={
             <EmptyState
               title={`Nothing released in ${environment}`}

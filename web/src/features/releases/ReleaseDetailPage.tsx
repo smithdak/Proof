@@ -140,6 +140,18 @@ const deliveryColumns: Array<DataTableColumn<DeliveryRecord>> = [
   },
 ];
 
+function renderDeliveryMobileCard(row: DeliveryRecord) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink-700">{row.delivery_id}</span>
+        <Stamp tone={stampToneForStatus(row.state)}>{row.state}</Stamp>
+      </div>
+      <p className="mt-1.5 text-sm text-ink-800">{row.subscriber}</p>
+    </div>
+  );
+}
+
 function DeliveriesSection() {
   const { toast } = useToast();
 
@@ -190,6 +202,7 @@ function DeliveriesSection() {
         columns={[...deliveryColumns, actionColumn]}
         rows={deliveries}
         rowKey={(row) => row.delivery_id}
+        renderMobileCard={renderDeliveryMobileCard}
         emptyState={
           <EmptyState
             title="No deliveries on file"

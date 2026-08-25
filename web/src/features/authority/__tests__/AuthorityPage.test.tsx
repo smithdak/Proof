@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import AuthorityPage from "../AuthorityPage";
 
 describe("AuthorityPage", () => {
@@ -14,9 +14,10 @@ describe("AuthorityPage", () => {
     ]) {
       expect(screen.getAllByText(name).length).toBeGreaterThan(0);
     }
-    expect(screen.getAllByText("human")).toHaveLength(2);
-    expect(screen.getAllByText("agent")).toHaveLength(2);
-    expect(screen.getByText("prin-agent-locale7")).toBeInTheDocument();
+    const table = within(screen.getByRole("table"));
+    expect(table.getAllByText("human")).toHaveLength(2);
+    expect(table.getAllByText("agent")).toHaveLength(2);
+    expect(table.getByText("prin-agent-locale7")).toBeInTheDocument();
   });
 
   it("composes issuer -> grantee delegation entry lines with expiry and revocation", () => {

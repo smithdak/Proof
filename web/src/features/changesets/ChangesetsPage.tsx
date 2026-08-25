@@ -99,6 +99,26 @@ const columns: Array<DataTableColumn<ChangeSet>> = [
   },
 ];
 
+function renderEntryMobileCard(row: ChangeSet) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink-700">{row.changeset_id}</span>
+        <Stamp tone={stampToneForStatus(row.status)}>{row.status}</Stamp>
+      </div>
+      <p className="mt-1.5 line-clamp-2 text-sm leading-5 text-ink-900">
+        {row.intent}
+      </p>
+      <p className="mt-1.5 font-mono text-xs text-ink-500">
+        by {row.created_by.display_name} · {row.edit_count} edits
+      </p>
+      <p className="mt-1 font-mono text-2xs text-ink-400">
+        {formatTimestamp(row.updated_at)}
+      </p>
+    </div>
+  );
+}
+
 function NewChangeSetDialog({
   open,
   onOpenChange,
@@ -195,6 +215,7 @@ function ChangesetsRegister() {
           onRowClick={(row) => {
             void navigate(`/changesets/${row.changeset_id}`);
           }}
+          renderMobileCard={renderEntryMobileCard}
           emptyState={
             <EmptyState
               title="No entries"

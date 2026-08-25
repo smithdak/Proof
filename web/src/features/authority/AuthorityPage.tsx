@@ -130,6 +130,20 @@ const principalColumns: Array<DataTableColumn<Principal>> = [
   },
 ];
 
+function renderPrincipalMobileCard(row: Principal) {
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Stamp tone={KIND_TONES[row.kind]}>{row.kind}</Stamp>
+        <span className="text-sm font-medium text-ink-900">
+          {row.display_name}
+        </span>
+      </div>
+      <p className="mt-1.5 font-mono text-xs text-ink-700">{row.principal_id}</p>
+    </div>
+  );
+}
+
 function AuthoritySurface() {
   const { toast } = useToast();
   const [locallyRevoked, setLocallyRevoked] = useState<Set<string>>(new Set());
@@ -197,6 +211,7 @@ function AuthoritySurface() {
           columns={principalColumns}
           rows={PRINCIPAL_LIST}
           rowKey={(row) => row.principal_id}
+          renderMobileCard={renderPrincipalMobileCard}
         />
       </RegisterPanel>
 

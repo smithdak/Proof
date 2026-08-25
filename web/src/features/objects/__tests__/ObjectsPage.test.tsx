@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import ObjectsPage from "../ObjectsPage";
 
 describe("ObjectsPage", () => {
   it("lists released objects for the preview environment", () => {
     render(<ObjectsPage />);
 
-    expect(screen.getByText("obj-home-hero")).toBeInTheDocument();
-    expect(screen.getByText("sch-hero@3")).toBeInTheDocument();
-    expect(screen.getByText("fr-CA")).toBeInTheDocument();
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("obj-home-hero")).toBeInTheDocument();
+    expect(table.getByText("sch-hero@3")).toBeInTheDocument();
+    expect(table.getByText("fr-CA")).toBeInTheDocument();
     expect(
       screen.getByRole("columnheader", { name: "Edition" }),
     ).toBeInTheDocument();
@@ -22,7 +23,9 @@ describe("ObjectsPage", () => {
     });
 
     expect(
-      screen.getByText("Nothing released in production"),
+      within(screen.getByRole("table")).getByText(
+        "Nothing released in production",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText("obj-home-hero")).not.toBeInTheDocument();
   });
@@ -36,7 +39,9 @@ describe("ObjectsPage", () => {
       ),
     ).not.toBeInTheDocument();
 
-    const row = screen.getByText("obj-home-hero").closest("tr")!;
+    const row = within(screen.getByRole("table"))
+      .getByText("obj-home-hero")
+      .closest("tr")!;
     fireEvent.click(row);
 
     expect(

@@ -87,4 +87,33 @@ describe("DataTable", () => {
     );
     expect(screen.getByText("Nothing filed yet.")).toBeInTheDocument();
   });
+
+  it("renders stacked mobile cards below sm when renderMobileCard is provided", () => {
+    const { container } = render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        renderMobileCard={(row) => <p>{`${row.id}: ${row.intent}`}</p>}
+      />,
+    );
+
+    expect(screen.getByText("cs_1: Rewrite landing hero")).toBeInTheDocument();
+    expect(screen.getByText("cs_2: Fix pricing typos")).toBeInTheDocument();
+    const mobileList = container.querySelector("ul.sm\\:hidden");
+    expect(mobileList).not.toBeNull();
+    expect(mobileList!.querySelectorAll("li")).toHaveLength(2);
+    expect(
+      container.querySelector("div.hidden.sm\\:block table"),
+    ).not.toBeNull();
+  });
+
+  it("keeps the table without a mobile list when renderMobileCard is absent", () => {
+    const { container } = render(
+      <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} />,
+    );
+
+    expect(container.querySelector("ul.sm\\:hidden")).toBeNull();
+    expect(container.querySelector("table")).not.toBeNull();
+  });
 });

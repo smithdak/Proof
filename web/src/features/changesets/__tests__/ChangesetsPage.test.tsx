@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import ChangesetsPage from "../ChangesetsPage";
 
@@ -21,13 +21,14 @@ describe("ChangesetsPage", () => {
   it("renders an entry line for every seeded changeset", () => {
     renderRegister();
 
+    const table = within(screen.getByRole("table"));
     expect(
-      screen.getByText(
+      table.getByText(
         "Localize the launch homepage hero and navigation into fr-CA per campaign brief v3",
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
+      table.getByText(
         "Refresh de-DE terminology per legal glossary 2026-08 revision",
       ),
     ).toBeInTheDocument();
@@ -37,7 +38,8 @@ describe("ChangesetsPage", () => {
   it("navigates to the detail route on row click", () => {
     renderRegister();
 
-    const row = screen.getByText("cs-01j9x77bwz2d6s48").closest("tr")!;
+    const table = within(screen.getByRole("table"));
+    const row = table.getByText("cs-01j9x77bwz2d6s48").closest("tr")!;
     fireEvent.click(row);
 
     expect(screen.getByText("detail-marker")).toBeInTheDocument();
@@ -46,7 +48,8 @@ describe("ChangesetsPage", () => {
   it("navigates to the detail route via keyboard activation", () => {
     renderRegister();
 
-    const row = screen.getByText("cs-01j9x69hnq8f1v33").closest("tr")!;
+    const table = within(screen.getByRole("table"));
+    const row = table.getByText("cs-01j9x69hnq8f1v33").closest("tr")!;
     fireEvent.keyDown(row, { key: "Enter" });
 
     expect(screen.getByText("detail-marker")).toBeInTheDocument();
@@ -67,7 +70,9 @@ describe("ChangesetsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open entry" }));
 
     expect(
-      await screen.findByText("Add FAQ entry covering enterprise billing"),
+      await within(screen.getByRole("table")).findByText(
+        "Add FAQ entry covering enterprise billing",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("ChangeSet opened")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

@@ -21,9 +21,12 @@ No component may hardcode hex values; use token classes only.
   optional small-caps title over a hairline. No shadow.
 - DataTable.tsx: generic entry-line table. Props: columns
   ({key, header, render?, align?, width?}[]), rows, rowKey, onRowClick?,
-  emptyState?. Header small-caps with double hairline underneath; row hover
-  bg-paper-100; selected row shows 2px ruling-600 inset left border;
-  tabular numerals throughout.
+  emptyState?, renderMobileCard? (row => ReactNode). Header small-caps with
+  double hairline underneath; row hover bg-paper-100; selected row shows 2px
+  ruling-600 inset left border; tabular numerals throughout. With
+  renderMobileCard, viewports under sm render a stacked list of ruled entry
+  cards (border-b hairline, py-4, full-width wrapping) in place of the
+  table; without it, the table scrolls horizontally at min-w-[640px].
 - Dialog.tsx: Radix wrapper - paper panel bg-paper-25 border-ruling-200
   rounded-md shadow-lg over ink-950/40 scrim; Title/Description/Close built in.
 - Tooltip.tsx: Radix tooltip, ink-900 background, paper text.
