@@ -5,3 +5,11 @@
 /.swarm-reports
 /tools
 /.agents
+
+# web console
+/web/node_modules/
+/web/dist/
+/web/coverage/
+/web/playwright-report/
+/web/test-results/
+*.local

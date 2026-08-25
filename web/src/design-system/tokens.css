@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "Hanken Grotesk Variable", "Hanken Grotesk", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono:
+    "Spline Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Ledger paper: laid paper with a cool cast */
+  --color-paper-25: #fcfdfb;
+  --color-paper-50: #f7f9f4;
+  --color-paper-100: #eff3ea;
+  --color-paper-150: #e7ecdf;
+  --color-paper-200: #dde4d4;
+  --color-paper-300: #c8d2bd;
+
+  /* Iron-gall ink: blue-black writing ink */
+  --color-ink-950: #0d1615;
+  --color-ink-900: #18231f;
+  --color-ink-800: #26332e;
+  --color-ink-700: #3a4842;
+  --color-ink-600: #55635c;
+  --color-ink-500: #707d75;
+  --color-ink-400: #97a29a;
+  --color-ink-300: #b8c0b8;
+  --color-ink-200: #d5dbd2;
+  --color-ink-100: #e8ece5;
+
+  /* Ruling: faded prussian hairlines, also the interactive ink */
+  --color-ruling-700: #47719a;
+  --color-ruling-600: #5588aa;
+  --color-ruling-500: #6e93b8;
+  --color-ruling-400: #93b3cf;
+  --color-ruling-300: #b7cde2;
+  --color-ruling-200: #d3e1ed;
+  --color-ruling-100: #e5eef5;
+  --color-ruling-50: #f2f7fb;
+
+  /* Seal green: rubber-stamp approval ink */
+  --color-seal-800: #1c5638;
+  --color-seal-700: #236b46;
+  --color-seal-600: #2f7d4f;
+  --color-seal-500: #43936a;
+  --color-seal-100: #dcebe1;
+  --color-seal-50: #edf5ef;
+
+  /* Vermilion: rejection, failure, destructive findings */
+  --color-vermilion-700: #a32d1e;
+  --color-vermilion-600: #c43d2b;
+  --color-vermilion-500: #d45944;
+  --color-vermilion-100: #f7ddd7;
+  --color-vermilion-50: #faeeeb;
+
+  /* Amber screen: live/running processes */
+  --color-amber-screen-700: #8a5a06;
+  --color-amber-screen-600: #a16207;
+  --color-amber-screen-100: #f5ecd4;
+  --color-amber-screen-50: #faf5e6;
+
+  /* Consequential ink: the one reserved saturated color for irreversible
+     actions (approve, commit, release). Never decoration. */
+  --color-consequential-700: #8f3014;
+  --color-consequential-600: #b03a12;
+  --color-consequential-100: #f9e2d7;
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+}
+
+@layer base {
+  html {
+    background-color: var(--color-paper-50);
+  }
+
+  body {
+    @apply bg-paper-50 text-ink-900 font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--color-ruling-200);
+    color: var(--color-ink-950);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ruling-600);
+    outline-offset: 2px;
+  }
+
+  /* Numeric data renders in tabular figures everywhere by default */
+  td,
+  time,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@utility rule-hairline {
+  border-color: var(--color-ruling-200);
+}
