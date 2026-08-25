@@ -129,7 +129,12 @@ function renderObjectMobileCard(row: ReleasedObject) {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-xs text-ink-700">{row.object_id}</span>
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.object_id}
+        >
+          {row.object_id}
+        </span>
         <span className="whitespace-nowrap font-mono text-xs text-ink-500">
           {formatTimestamp(row.released_at)}
         </span>

@@ -120,18 +120,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [open]);
 
   const results = useMemo(() => {
-    return ENTRIES.map((entry) => ({
-      entry,
-      score: fuzzyScore(
-        query.trim(),
-        `${entry.label} ${entry.detail} ${entry.section}`,
-      ),
-    }))
-      .filter((hit): hit is { entry: PaletteEntry; score: number } =>
-        hit.score !== null,
-      )
-      .sort((a, b) => b.score - a.score)
-      .map((hit) => hit.entry);
+    const matches = (entry: PaletteEntry) =>
+      fuzzyScore(query.trim(), `${entry.label} ${entry.detail} ${entry.section}`);
+    const groups: PaletteEntry[][] = [
+      ENTRIES.filter((e) => e.section === "Destinations" && matches(e) !== null),
+      ENTRIES.filter((e) => e.section === "Actions" && matches(e) !== null),
+    ];
+    return groups.flat();
   }, [query]);
 
   const active = Math.min(activeIndex, Math.max(results.length - 1, 0));
@@ -211,7 +206,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           ref={listRef}
           role="listbox"
           aria-label="Commands"
-          className="max-h-80 overflow-y-auto py-1"
+          className="max-h-[30rem] overflow-y-auto py-1"
         >
           {results.map((entry, index) => {
             const header =
@@ -222,7 +217,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 {header && (
                   <div
                     role="presentation"
-                    className="px-4 pb-1 pt-3 text-2xs uppercase tracking-[0.14em] text-ink-500"
+                    className="scroll-mt-2 px-4 pb-1 pt-3 text-2xs uppercase tracking-[0.14em] text-ink-500"
                   >
                     {header}
                   </div>

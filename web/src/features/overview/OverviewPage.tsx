@@ -4,6 +4,7 @@ import {
   DataTable,
   DigestText,
   EmptyState,
+  LifecycleRail,
   PageHeader,
   RegisterPanel,
   SectionHeading,
@@ -84,7 +85,12 @@ function renderChangesetMobileCard(row: ChangeSet) {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-xs text-ink-700">{row.changeset_id}</span>
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.changeset_id}
+        >
+          {row.changeset_id}
+        </span>
         <Stamp tone={stampToneForStatus(row.status)}>{row.status}</Stamp>
       </div>
       <p className="mt-1.5 line-clamp-2 text-sm leading-5 text-ink-900">
@@ -103,6 +109,23 @@ function renderChangesetMobileCard(row: ChangeSet) {
 const openChangeSets = [...changesets].sort((a, b) =>
   b.updated_at.localeCompare(a.updated_at),
 );
+
+const STATUS_ADVANCEMENT: Record<ChangeSet["status"], number> = {
+  draft: 0,
+  validated: 1,
+  submitted: 2,
+  approved: 3,
+  committed: 4,
+  rejected: -1,
+};
+
+const leadingEntry = [...openChangeSets]
+  .filter((cs) => cs.status !== "committed" && cs.status !== "rejected")
+  .sort(
+    (a, b) =>
+      STATUS_ADVANCEMENT[b.status] - STATUS_ADVANCEMENT[a.status] ||
+      b.updated_at.localeCompare(a.updated_at),
+  )[0];
 
 const latestReleases = Object.values(releases).sort((a, b) =>
   b.created_at.localeCompare(a.created_at),
@@ -131,7 +154,7 @@ export default function OverviewPage() {
           </span>
         }
         actions={
-          <Button size="sm" onClick={() => navigate("/changesets")}>
+          <Button size="sm" variant="consequential" onClick={() => navigate("/changesets")}>
             New ChangeSet
           </Button>
         }
@@ -152,6 +175,32 @@ export default function OverviewPage() {
         Known State
         <DigestText value={workspaceStatus.known_state_digest} copyLabel="Copy Known State digest" />
       </p>
+      {leadingEntry ? (
+        <section className="mt-10">
+          <SectionHeading>Leading entry</SectionHeading>
+          <button
+            type="button"
+            onClick={() => void navigate(`/changesets/${leadingEntry.changeset_id}`)}
+            className="mt-1 block w-full border-b border-ruling-200 py-4 text-left transition-colors duration-150 hover:bg-paper-100"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <span className="font-mono text-xs text-ink-700">
+                {leadingEntry.changeset_id}
+              </span>
+              <Stamp tone={stampToneForStatus(leadingEntry.status)}>
+                {leadingEntry.status}
+              </Stamp>
+            </div>
+            <p className="mt-1.5 max-w-prose text-sm text-ink-900">
+              {leadingEntry.intent}
+            </p>
+            <LifecycleRail
+              status={leadingEntry.status}
+              className="mt-4"
+            />
+          </button>
+        </section>
+      ) : null}
       <section className="mt-10">
         <SectionHeading>Latest releases</SectionHeading>
         <ul className="mt-1 divide-y divide-ruling-200">

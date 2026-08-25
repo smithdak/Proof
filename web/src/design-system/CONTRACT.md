@@ -20,7 +20,8 @@ derive it from `src/design-system/tokens.css` and the direction contract in
    `vermilion-*`; running/pending/submitted = `amber-screen-*`;
    draft/informational = `ruling-*` or ink neutrals.
 5. `consequential-*` ink is reserved for irreversible actions (Approve,
-   Commit, Release, Revoke). It must not decorate anything else.
+   Commit, Release, Revoke) and for the register's single primary action
+   (New ChangeSet). It must not decorate anything else.
 6. Motion: 120-200ms ease-out micro-transitions only; nothing moves while
    the user reads; honor `prefers-reduced-motion`.
 7. Every interactive element is keyboard reachable with visible focus

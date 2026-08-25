@@ -86,6 +86,7 @@ complete.** No provider, deployment, or live remote operation exists.
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
 | [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `claimed` | none | Close the P-0010 "not yet mirrored" residual so all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces. |
+| [Initial human web console with notarial-register design system](items/P-0016-web-console-design-system.md) | `review` | none | Ship the roadmap's initial human web console: six surfaces over the frozen operation registry, a documented design system, contract-faithful mocks, and screenshot evidence, awaiting the finish-review gate. |
 
 ## Next
 

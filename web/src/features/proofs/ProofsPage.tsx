@@ -125,6 +125,43 @@ const exportColumns: Array<DataTableColumn<EvidenceExportSummary>> = [
   },
 ];
 
+function renderExportMobileCard(row: EvidenceExportSummary) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.export_id}
+        >
+          {row.export_id}
+        </span>
+        {row.verifier_conclusion ? (
+          <Stamp tone={stampToneForStatus(row.verifier_conclusion)}>
+            {row.verifier_conclusion}
+          </Stamp>
+        ) : (
+          <span className="text-sm text-ink-300">—</span>
+        )}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span
+          className="block max-w-full truncate font-mono text-xs text-ink-500"
+          title={row.release_id}
+        >
+          {row.release_id}
+        </span>
+        <span className="inline-block rounded-full border border-ruling-200 bg-paper-50 px-2 py-0.5 font-mono text-2xs leading-4 text-ink-600">
+          {row.bundle_format}
+        </span>
+      </div>
+      <p className="mt-1 font-mono text-2xs text-ink-400">
+        {row.artifact_count} {row.artifact_count === 1 ? "artifact" : "artifacts"}{" "}
+        · {formatTimestamp(row.created_at)}
+      </p>
+    </div>
+  );
+}
+
 function ExportEvidenceDialog({
   open,
   onOpenChange,
@@ -197,7 +234,12 @@ function ProofsSurface() {
       <PageHeader
         kicker="Register"
         title="Proofs and Evidence"
-        meta={<span>{exportRows.length} bundles on file</span>}
+        meta={
+          <span>
+            {exportRows.length} {exportRows.length === 1 ? "bundle" : "bundles"}{" "}
+            on file
+          </span>
+        }
         actions={
           <Button size="sm" onClick={() => setDialogOpen(true)}>
             Export Evidence
@@ -218,6 +260,7 @@ function ProofsSurface() {
           columns={exportColumns}
           rows={exportRows}
           rowKey={(row) => row.export_id}
+          renderMobileCard={renderExportMobileCard}
           emptyState={
             <EmptyState
               title="No exports on file"

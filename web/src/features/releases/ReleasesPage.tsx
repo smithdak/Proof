@@ -144,7 +144,12 @@ function renderEditionMobileCard(row: Edition) {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-xs text-ink-700">{row.edition_id}</span>
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.edition_id}
+        >
+          {row.edition_id}
+        </span>
         <span className="whitespace-nowrap font-mono text-xs text-ink-500">
           {formatTimestamp(row.created_at)}
         </span>
@@ -164,7 +169,12 @@ function renderReleaseMobileCard(row: Release) {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-xs text-ink-700">{row.release_id}</span>
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.release_id}
+        >
+          {row.release_id}
+        </span>
         {verdict ? (
           <Stamp tone={stampToneForStatus(verdict)}>{verdict}</Stamp>
         ) : (

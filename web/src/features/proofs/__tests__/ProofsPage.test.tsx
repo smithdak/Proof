@@ -6,13 +6,12 @@ describe("ProofsPage", () => {
   it("renders an evidence export entry line for every seeded export", () => {
     render(<ProofsPage />);
 
-    expect(screen.getByText("evx-01j9x88ktu6v3a05")).toBeInTheDocument();
-    expect(
-      screen.getByText("rel-01j9x86kfm2w9d71"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("RemoteEvidenceBundleV2")).toBeInTheDocument();
+    // Row content renders twice by design (mobile cards + desktop table).
+    expect(screen.getAllByText("evx-01j9x88ktu6v3a05")).not.toHaveLength(0);
+    expect(screen.getAllByText("rel-01j9x86kfm2w9d71")).not.toHaveLength(0);
+    expect(screen.getAllByText("RemoteEvidenceBundleV2")).not.toHaveLength(0);
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("Incomplete")).toBeInTheDocument();
+    expect(screen.getAllByText("Incomplete")).not.toHaveLength(0);
     expect(screen.getAllByRole("columnheader")).toHaveLength(6);
   });
 

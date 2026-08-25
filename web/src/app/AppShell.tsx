@@ -50,6 +50,12 @@ function WorkspaceIdentity() {
       <span className="truncate text-sm font-semibold tracking-tight text-ink-900">
         {data.name}
       </span>
+      <span
+        className="hidden rounded-full border border-ruling-200 bg-paper-100 px-2 py-0.5 font-mono text-2xs leading-4 tracking-[0.1em] text-ink-600 md:inline"
+        title="All entries in this workspace are generated demonstration records, not customer data."
+      >
+        SYNTHETIC DEMO DATA
+      </span>
       <span className="hidden font-mono text-2xs text-ink-400 xl:inline">
         {data.workspace_id}
       </span>

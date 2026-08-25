@@ -1,0 +1,164 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0016",
+ "base_sha": "7e8162e36f5a6a2f11c64cf7059947ca43d161e0",
+ "claim_commit": "adad15c7f75889492be976b8283ada646524caa8",
+ "intermediate_commits": [
+  "d227bf6",
+  "be16f49476b28758774208368eb03db7f060c0a8",
+  "15374d65df30f7ed16a98fb252e7a5e6b3e57a56",
+  "04de45b04d4473f3b5424e7d54c9158a1cf34bd0"
+ ],
+ "candidate_parent_sha": "04de45b04d4473f3b5424e7d54c9158a1cf34bd0",
+ "candidate_commit": "588d74bf641e84b3f919c30de5fd6a04bf324de0",
+ "candidate_tree": "a2bc2605455379a80fb118d27ce87c8038724d0a",
+ "item_work_commit": "588d74bf641e84b3f919c30de5fd6a04bf324de0",
+ "destination_shape_commit": "pending-finish-review-and-documenter",
+ "branch": "main",
+ "qualified_at": "2026-08-25T00:45:00.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "impeccable-finish-review",
+ "successors_created": [],
+ "deployed": false,
+ "milestone_complete": false,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "pnpm install",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "pnpm exec msw init public/",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "pnpm typecheck",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "pnpm lint",
+   "exit_code": 0,
+   "result": "passed (0 errors; 2 accepted react-refresh warnings from contract-mandated co-exports)"
+  },
+  {
+   "command": "pnpm test",
+   "exit_code": 0,
+   "result": "passed (45/45)"
+  },
+  {
+   "command": "pnpm build",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "node scripts/capture.mjs",
+   "exit_code": 0,
+   "result": "passed (19 captures into .impeccable/review/)"
+  },
+  {
+   "command": "node .agents/skills/impeccable/scripts/detect.mjs --json src",
+   "exit_code": 0,
+   "result": "passed (zero findings)"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed"
+  }
+ ],
+ "inventory": {
+  "changed_files": 60,
+  "insertions": "approximately 9000 (web/ new tree plus docs)",
+  "deletions": 0,
+  "new_third_party_packages": [
+   "react",
+   "react-dom",
+   "react-router",
+   "@tanstack/react-query",
+   "msw",
+   "lucide-react",
+   "@radix-ui/react-dialog",
+   "@radix-ui/react-tooltip",
+   "@radix-ui/react-tabs",
+   "@fontsource-variable/hanken-grotesk",
+   "@fontsource/spline-sans-mono",
+   "tailwindcss",
+   "vite",
+   "typescript",
+   "vitest",
+   "@playwright/test",
+   "eslint",
+   "typescript-eslint"
+  ],
+  "storage_schema_version": "not-applicable (no Rust/storage changes)",
+  "operation_registry_change_count": 0
+ },
+ "artifact_digests": [
+  {
+   "path": "web/src/design-system/tokens.css",
+   "git_blob_oid": "aab2cb0eb2934f3c97bba9c32213f613496f5063",
+   "algorithm": "git-blob-oid",
+   "digest": "aab2cb0eb2934f3c97bba9c32213f613496f5063"
+  },
+  {
+   "path": "web/src/design-system/CONTRACT.md",
+   "git_blob_oid": "169cea60d83bf3895d8957c38482b9787f3fc2df",
+   "algorithm": "git-blob-oid",
+   "digest": "169cea60d83bf3895d8957c38482b9787f3fc2df"
+  },
+  {
+   "path": "web/src/design-system/index.ts",
+   "git_blob_oid": "fed757c77f35dffa809e9a4ba5bdd86c29bb2b7b",
+   "algorithm": "git-blob-oid",
+   "digest": "fed757c77f35dffa809e9a4ba5bdd86c29bb2b7b"
+  },
+  {
+   "path": "web/src/app/AppShell.tsx",
+   "git_blob_oid": "a2fd08a598409b93b7700d1459cb86681ece2bac",
+   "algorithm": "git-blob-oid",
+   "digest": "a2fd08a598409b93b7700d1459cb86681ece2bac"
+  },
+  {
+   "path": "web/src/api/client.ts",
+   "git_blob_oid": "6eaab900e095893c3595d97b4f46fb6b4f62ff50",
+   "algorithm": "git-blob-oid",
+   "digest": "6eaab900e095893c3595d97b4f46fb6b4f62ff50"
+  }
+ ],
+ "evidence_paths": [
+  "docs/work/evidence/P-0016/receipt.md",
+  "docs/work/evidence/P-0016/manifest.json",
+  ".impeccable/review/ (19 viewport captures)",
+  ".impeccable/surfaces/web.md",
+  ".swarm-reports/p0016-a-primitives.md",
+  ".swarm-reports/p0016-b-shell.md",
+  ".swarm-reports/p0016-d-changesets.md",
+  ".swarm-reports/p0016-e-releases.md",
+  ".swarm-reports/p0016-f-authority.md",
+  ".swarm-reports/p0016-g-fixround.md",
+  ".swarm-reports/p0016-h-mobilecards.md",
+  ".swarm-reports/p0016-finish-review.md"
+ ],
+ "residuals": [
+  "mock payload shapes are console-side projections; byte-level parity with proof-remote payloads is unverified",
+  "production embedding of the built console into proof-server requires an ADR against the frozen nine-route contract",
+  "live OIDC/PostgreSQL wiring not attempted; MSW contract mocks only",
+  "two react-refresh lint warnings accepted from contract-mandated co-exports",
+  "Playwright on this machine needs the LD_LIBRARY_PATH shim until browser system libs are installed"
+ ],
+ "environment": {
+  "operating_system": "Linux",
+  "node": "v22.23.2",
+  "pnpm": "11.22.0",
+  "browser": "playwright chromium-headless-shell v1234 with local LD_LIBRARY_PATH shim",
+  "rust_toolchain": "untouched"
+ }
+}

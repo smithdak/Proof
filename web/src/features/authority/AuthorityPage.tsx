@@ -139,7 +139,12 @@ function renderPrincipalMobileCard(row: Principal) {
           {row.display_name}
         </span>
       </div>
-      <p className="mt-1.5 font-mono text-xs text-ink-700">{row.principal_id}</p>
+      <p
+        className="mt-1.5 truncate font-mono text-xs text-ink-700"
+        title={row.principal_id}
+      >
+        {row.principal_id}
+      </p>
     </div>
   );
 }

@@ -103,7 +103,12 @@ function renderEntryMobileCard(row: ChangeSet) {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-xs text-ink-700">{row.changeset_id}</span>
+        <span
+          className="block max-w-[60%] truncate font-mono text-xs text-ink-700"
+          title={row.changeset_id}
+        >
+          {row.changeset_id}
+        </span>
         <Stamp tone={stampToneForStatus(row.status)}>{row.status}</Stamp>
       </div>
       <p className="mt-1.5 line-clamp-2 text-sm leading-5 text-ink-900">
@@ -201,7 +206,7 @@ function ChangesetsRegister() {
         title="ChangeSets"
         meta={<span>{entries.length} entries on file</span>}
         actions={
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
+          <Button size="sm" variant="consequential" onClick={() => setDialogOpen(true)}>
             New ChangeSet
           </Button>
         }

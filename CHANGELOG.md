@@ -6,6 +6,21 @@ All notable project changes are documented here. The format follows [Keep a Chan
 
 ### Added
 
+- Implemented the initial human web console with its design system (P-0016):
+  a new `web/` React 19 + Vite + TypeScript console covering Overview,
+  ChangeSets (list, lifecycle detail with diff and validation findings,
+  approve/commit), Released content, Editions and Releases (six-root
+  verification report, deliveries), Proofs and Evidence, and Authority
+  (principals, delegations) behind a session-aware shell with a global
+  command palette. The notarial-register design system (laid-paper ground,
+  iron-gall ink, prussian ruling hairlines, rubber-stamp status marks, one
+  reserved consequential ink for irreversible actions) is documented in
+  `DESIGN.md` with its primitive contract under `web/src/design-system/`.
+  A typed client mirrors the exact nine-route HTTP surface and operation
+  registry against contract-faithful MSW mocks with a seeded synthetic
+  workspace; live-server wiring and production embedding remain open and
+  require their own decision. 45 unit tests, mechanical design-detector
+  pass, and 19 viewport captures recorded under `.impeccable/review/`.
 - Implemented route-complete enrollment with usable credentials (P-0014):
   `agent-binding.issue/v1` verifies the caller-supplied enrollment closure
   (challenge validity, candidate-key proof of possession, and envelope
