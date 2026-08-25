@@ -1,7 +1,7 @@
 ---
 id: P-0016
 title: Initial human web console with notarial-register design system
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: []
@@ -9,8 +9,8 @@ claimed_by: ox-alpha:proof:p-0016
 claimed_at: 2026-08-24T21:30:00.000Z
 base_sha: 7e8162e36f5a6a2f11c64cf7059947ca43d161e0
 review_gate: impeccable-finish-review
-accepted_by: null
-accepted_at: null
+accepted_by: project-owner
+accepted_at: 2026-08-25T19:34:23.219Z
 ---
 
 # Initial human web console with notarial-register design system
