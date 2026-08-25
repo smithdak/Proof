@@ -1,7 +1,7 @@
 ---
 id: P-0016
 title: Initial human web console with notarial-register design system
-status: review
+status: claimed
 wave: now
 kind: implementation
 blocked_by: []
@@ -79,6 +79,14 @@ stack; contract-faithful mocks over live wiring for the first build.
   fix rounds; recorded in `.swarm-reports/p0016-finish-review.md`.
 - `DESIGN.md` and its sidecar (`.impeccable/design.json`) recorded from the
   built world by the documenter pass.
+
+## Rework log
+
+- Rework pass 1 (2026-08-25): finish-review returned by the project owner with
+  three findings: (1) the Incomplete control on the Releases surface reads as a
+  button but does not behave like one — rework its affordance; (2) an overall
+  polish pass is required before ship; (3) direction confirmed: good
+  foundation, fan out parallel front-end work across all six surfaces.
 
 ## Completion record
 
