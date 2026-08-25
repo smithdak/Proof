@@ -6444,13 +6444,10 @@ fn pg_load_context(
                     .unwrap_or(0),
             )
             .unwrap_or(0),
-            max_bytes: u64::try_from(
-                limits_value
-                    .get("max_bytes")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0),
-            )
-            .unwrap_or(0),
+            max_bytes: limits_value
+                .get("max_bytes")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
         },
         created_at: json_str(&body, "created_at")?
             .parse()
