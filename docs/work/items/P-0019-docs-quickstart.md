@@ -52,4 +52,22 @@ and residual boundaries in `docs/work/evidence/P-0019/` per the
 
 ## Progress log
 
-Populated by the claiming executor.
+- Slice 1 (2026-08-25): claimed. Boundary decision recorded per acceptance
+  criterion 2 before implementation: the strategy names MCP, but no MCP surface
+  is shipped in this destination, so the quickstart ships the equivalent frozen
+  HTTP path (Human sessions for the operator legs; the enrolled-Agent leg via
+  the dual-auth route) and records that MCP remains future delivery-surface
+  work. The agent-invocation signing helper stays with the provisioning path as
+  recorded in P-0017.
+- Slice 2 (2026-08-25): `docs/quickstart.md` written against the proven command
+  spine — compose-up, capabilities liveness, deterministic-issuer Human login,
+  the north-star operation sequence (intent → context → edits → validate →
+  submit → approve → commit → edition → release), Agent enrollment plus
+  delegation, then `proof-verifier verify` with the ratified exit-code table.
+  Each section links its retained guarding test: `deployable_artifact.rs`
+  (boot), `session_impl`/`bff_impl` (login), `north_star_remote_impl.rs` (the
+  full two-Humans-one-Agent HTTP run ending in a `Complete` verification),
+  `enrollment_impl.rs`, and `portable_matrix.rs`.
+- Next slice: add the quickstart-conformance retained test that executes the
+  documented command spine against the deployed artifact and asserts the
+  verifier's exit code on the produced bundle.
