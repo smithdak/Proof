@@ -100,12 +100,12 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ship the TypeScript SDK over the shared HTTP contracts](items/P-0017-typescript-sdk.md) | `review` | none | Extract the P-0016 console client into a standalone typed SDK package covering the frozen nine-route surface, consumable from Node and browsers. |
 
 ## Completed
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Ship the TypeScript SDK over the shared HTTP contracts](items/P-0017-typescript-sdk.md) | `done` | none | Shipped `web/packages/proof-sdk`: a typed client over all 14 frozen operation pairs with cross-language drift enforcement against the Rust contracts. |
 | [Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity](items/P-0015-pg-mutation-executor-parity.md) | `done` | none | Closed the P-0010 "not yet mirrored" residual: all 11 localized mutation rows produce byte-identical SQLite/PostgreSQL oracle traces, including signed `release.create/v2`. |
 | [Stabilize and qualify the current Release and read-authority baseline](items/P-0001-stabilize-current-baseline.md) | `done` | none | Qualified the Release/read-authority baseline at `1fef16e` and established durable rolling-wave work control. |
 | [Ratify the Milestone 2 delegated content contract](items/P-0002-ratify-delegated-content-contract.md) | `done` | P-0001 | Ratified exact-locale renditions, append-only repair, immutable resource intent, and causally closed Edition/Release semantics. |

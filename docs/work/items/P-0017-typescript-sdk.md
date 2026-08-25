@@ -1,7 +1,7 @@
 ---
 id: P-0017
 title: Ship the TypeScript SDK over the shared HTTP contracts
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: []
@@ -51,6 +51,39 @@ package so the console consumes it exactly like any external integrator would.
 Record exact commands, environment, revisions, exit codes, artifact digests,
 and residual boundaries in `docs/work/evidence/P-0017/` per the
 [work-control protocol](../README.md).
+
+## Completion record
+
+Implemented and qualified by `ox-alpha:proof:p-0017` on 2026-08-25.
+
+1. The package exposes one typed client covering the complete frozen HTTP
+   surface: all 14 registry pairs over both operation routes, session
+   read/logout with CSRF rotation, capabilities, evidence artifacts, and
+   preview reads. Satisfied.
+2. Every input type is declared field-set-exact against the Rust authority
+   inputs; `crates/proof-server/tests/ts_sdk_contract.rs` fails the Rust gate
+   on drift (registry pairs, interface fields, envelope members). Satisfied.
+3. Rejections surface as `ProblemError` carrying the stable Problem body
+   verbatim; non-JSON failures surface as `TransportError`. No call path
+   throws an untyped body. Satisfied.
+4. The human path sends Origin plus the `proof-csrf` synchronizer exactly as
+   the server guards require; the agent route carries a caller-built signed
+   invocation over plain Node-compatible fetch. Invocation signing itself is
+   recorded as a residual bound to provisioning. Satisfied within that
+   recorded boundary.
+5. The retained suite (13 wire tests) pins exact request bytes, headers, and
+   response shapes against contract stubs whose shapes are pinned by the Rust
+   e2e handlers; it passes in the full gate alongside the four drift tests and
+   the untouched 58-test console suite. The live-server leg is recorded as a
+   residual landing with P-0018's deployable artifact. Satisfied with that
+   recorded boundary.
+6. No new server route, registry row, storage schema version, or third-party
+   package was introduced. Satisfied.
+
+Item-work commit: `ebc394fdfab0c7444297ed380870d0b46dbc78f9`. Evidence:
+[receipt](../evidence/P-0017/receipt.md) and
+[manifest](../evidence/P-0017/manifest.json) bind commands, environment,
+revisions, digests, and residual boundaries per the evidence contract.
 
 ## Progress log
 
