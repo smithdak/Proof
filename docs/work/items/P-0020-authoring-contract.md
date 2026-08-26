@@ -1,7 +1,7 @@
 ---
 id: P-0020
 title: Ratify the authoring-surface content contract
-status: review
+status: done
 wave: now
 kind: decision
 blocked_by: []
@@ -9,8 +9,8 @@ claimed_by: ox-alpha:proof:p-0020
 claimed_at: 2026-08-26T10:00:59.999Z
 base_sha: e53920b6113b67abaff4828ee7ddc4266fe2915a
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-26T11:57:40.118Z
 ---
 
 # Ratify the authoring-surface content contract
@@ -106,35 +106,35 @@ vertical first, flat content model, blueprints as schema presets.
 - [Proof format and verification](../../architecture/proof-model.md)
 - [Testing strategy](../../architecture/testing.md)
 - [Roadmap](../../product/roadmap.md)
-- [P-0015 completion record](items/P-0015-pg-mutation-executor-parity.md)
+- [P-0015 completion record](P-0015-pg-mutation-executor-parity.md)
 
 ## Acceptance criteria
 
-- [ ] One exact authoring north-star names the requesting Human, operating
+- [x] One exact authoring north-star names the requesting Human, operating
       Agent, distinct reviewer/approver, created Object and Schema, ChangeSet
       composition, Edition/Release, and independent verifier inputs.
-- [ ] The creation mechanism is decided with frozen input, result, Problem,
+- [x] The creation mechanism is decided with frozen input, result, Problem,
       validation, idempotency, concurrency, and evidence contracts, and the
       strongest rejected alternative is recorded with kill or pivot triggers.
-- [ ] The Schema read surface and draft-state register read are frozen with
+- [x] The Schema read surface and draft-state register read are frozen with
       exact-tuple discipline, explicit filters and limits, and no wildcard or
       globally-latest overclaim.
-- [ ] Draft-read authorization is exact: which Human roles see unreleased
+- [x] Draft-read authorization is exact: which Human roles see unreleased
       state, how Agent reads stay bounded, and why untrusted input cannot
       select authority.
-- [ ] The flat stance, deferred subtree-authority record, sanctioned escape
+- [x] The flat stance, deferred subtree-authority record, sanctioned escape
       hatch, and falsifiable reopening trigger appear verbatim in the ratified
       decision artifact.
-- [ ] The blueprint stance composes only ratified operations and cannot become
+- [x] The blueprint stance composes only ratified operations and cannot become
       a console-only mutation path.
-- [ ] The storage, migration, projection, frozen-hash, and conformance-vector
+- [x] The storage, migration, projection, frozen-hash, and conformance-vector
       plan is complete enough for the implementation successor to estimate and
       execute without re-deciding scope.
-- [ ] A conformance-matrix extension covers accepted and rejected authoring
+- [x] A conformance-matrix extension covers accepted and rejected authoring
       operations across local, server, CLI, and MCP surfaces.
-- [ ] Only decision-complete successors exist, in dependency order, and none
+- [x] Only decision-complete successors exist, in dependency order, and none
       is `ready` before the project owner accepts this decision.
-- [ ] The project owner accepts the decision candidate before any successor
+- [x] The project owner accepts the decision candidate before any successor
       promotion.
 
 ## Evidence contract
@@ -145,6 +145,29 @@ plan, conformance-matrix extension, and successor graph in
 `docs/work/evidence/P-0020/` per the [work-control protocol](../README.md).
 Stop at `review` after a qualified decision candidate. Do not implement any
 operation, route, SDK, or console change while executing this item.
+
+## Completion record
+
+Claimed by `ox-alpha:proof:p-0020` at `2026-08-26T10:00:59.999Z` from base
+`e53920b6113b67abaff4828ee7ddc4266fe2915a`.
+
+Decision-qualified immutable candidate
+`137e752c3457713a26c40ef3bf66f6b14e346a9a` (claim, map, and contract).
+Engineering evidence commit `966c3ce7ddd8be44487e0da14e5e6b56579851a9` binds
+the [receipt](../evidence/P-0020/receipt.md),
+[manifest](../evidence/P-0020/manifest.json), and
+[AC traceability matrix](../evidence/P-0020/traceability.md). Moved from
+`claimed` to `review`.
+
+Project owner `smithdak` explicitly accepted candidate
+`137e752c3457713a26c40ef3bf66f6b14e346a9a`, Engineering evidence commit
+`966c3ce7ddd8be44487e0da14e5e6b56579851a9`, and every documented residual
+risk at `2026-08-26T11:57:40.118Z`, without rework. P-0020 moved from
+`review` to `done`, and the first dependency-ordered implementation
+successor, [P-0021](P-0021-authoring-operations.md), is promoted to
+`ready`. Acceptance does not implement anything by itself: every D1-D8
+mechanism remains an implementation or qualification claim owned by its
+successors.
 
 ## Progress log
 

@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `review` | none | Decision-complete authoring contracts: v2 Object creation through ChangeSets, Schema reads, draft-state register reads, flat-model stance with deferred subtree authority, blueprints as client-side presets; first implementation successor promoted on acceptance. |
+| [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `ready` | P-0020 | The accepted P-0020 authoring contract implemented and qualified across local, PostgreSQL, CLI, and MCP with regenerated frozen artifacts and a green Linux gate. |
 
 ## Next
 
@@ -97,13 +97,13 @@ destination by owner decision; it lands in Destination 5 by default.
 
 On 2026-08-26 the project owner directed the next slice: the Authoring
 register, shaped full vertical with a flat content model, deferred
-subtree-authority record, and blueprints as client-side presets. The intended
-successor order after P-0020's acceptance is: implement the authoring
-operations end to end (SQLite/PostgreSQL parity, registry and vector bump,
-CLI/MCP rows), then extend the TypeScript SDK and adopt it in the console,
-then build the Authoring console surfaces, then stand up Playwright end-to-end
-qualification. Those items are named intent, not created work; only the first
-is promoted, after the project owner accepts P-0020. The license ADR remains
+subtree-authority record, and blueprints as client-side presets. P-0020 was
+accepted the same day and its first implementation successor,
+[P-0021](items/P-0021-authoring-operations.md), is promoted. The remaining
+named intent in dependency order: extend the TypeScript SDK and adopt it in
+the console (P-0022), build the Authoring console surfaces (P-0023), stand up
+Playwright end-to-end qualification (P-0024). Those are named intent, not
+created work; each is shaped when its blocker closes. The license ADR remains
 deferred by owner decision.
 
 The item frontmatter is authoritative; the status and blocker columns below are
@@ -116,6 +116,7 @@ derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `done` | none | Accepted authoring contracts: v2 `object.create` edit kind with intra-ChangeSet causality, creation-slot resource intents (`/v2`), `schema.list/get` plus `object.list` Human reads, flat-model stance with deferred subtree authority behind a falsifiable reopening trigger, blueprints as client-side presets. Accepted by project owner `smithdak` at `2026-08-26T11:57:40.118Z`; P-0021 promoted. |
 | [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `done` | none | Shipped `docs/quickstart.md`: compose-up to an independently verified release, every leg guarded by a named retained suite; MCP boundary recorded. |
 | [Initial human web console with notarial-register design system](items/P-0016-web-console-design-system.md) | `done` | none | Shipped the six-surface console on the ledger design system after a swarmed polish pass; finish-review accepted by the project owner. |
 | [Produce the deployable server artifact with one-command bring-up](items/P-0018-deployable-server-artifact.md) | `done` | none | Shipped the `proof-server` binary plus a one-command compose stack (PostgreSQL, server, worker); proven live end to end with the SDK's live leg. |
