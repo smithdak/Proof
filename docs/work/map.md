@@ -85,6 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `claimed` | none | Decision-complete authoring contracts: v2 Object creation through ChangeSets, Schema reads, draft-state register reads, flat-model stance with deferred subtree authority, blueprints as client-side presets; first implementation successor promoted on acceptance. |
 
 ## Next
 
@@ -94,12 +95,22 @@ TypeScript SDK, deployable server artifact, documentation quickstart, and
 license ADR are shaped in that order. The public flip is excluded from this
 destination by owner decision; it lands in Destination 5 by default.
 
+On 2026-08-26 the project owner directed the next slice: the Authoring
+register, shaped full vertical with a flat content model, deferred
+subtree-authority record, and blueprints as client-side presets. The intended
+successor order after P-0020's acceptance is: implement the authoring
+operations end to end (SQLite/PostgreSQL parity, registry and vector bump,
+CLI/MCP rows), then extend the TypeScript SDK and adopt it in the console,
+then build the Authoring console surfaces, then stand up Playwright end-to-end
+qualification. Those items are named intent, not created work; only the first
+is promoted, after the project owner accepts P-0020. The license ADR remains
+deferred by owner decision.
+
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-
 
 ## Completed
 
