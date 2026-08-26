@@ -1,7 +1,7 @@
 ---
 id: P-0020
 title: Ratify the authoring-surface content contract
-status: claimed
+status: review
 wave: now
 kind: decision
 blocked_by: []

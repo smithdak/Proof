@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `claimed` | none | Decision-complete authoring contracts: v2 Object creation through ChangeSets, Schema reads, draft-state register reads, flat-model stance with deferred subtree authority, blueprints as client-side presets; first implementation successor promoted on acceptance. |
+| [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `review` | none | Decision-complete authoring contracts: v2 Object creation through ChangeSets, Schema reads, draft-state register reads, flat-model stance with deferred subtree authority, blueprints as client-side presets; first implementation successor promoted on acceptance. |
 
 ## Next
 
