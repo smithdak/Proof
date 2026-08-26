@@ -1,13 +1,13 @@
 ---
 id: P-0021
 title: Implement the authoring operations end to end
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0020]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0021
+claimed_at: 2026-08-26T12:06:52.496Z
+base_sha: 67e7c874c0ca889b96d687de8d9cf36f4e414db3
 review_gate: none
 accepted_by: null
 accepted_at: null
