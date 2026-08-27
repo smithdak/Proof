@@ -1,13 +1,13 @@
 ---
 id: P-0025
 title: Ratify one HTTP operation envelope across schema and runtime
-status: ready
+status: claimed
 wave: now
 kind: decision
 blocked_by: [P-0021]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0025
+claimed_at: 2026-08-27T17:15:54.000Z
+base_sha: 41364224e4fba87964da8c0974535330eba18195
 review_gate: project-owner
 accepted_by: null
 accepted_at: null

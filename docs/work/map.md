@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `ready` | P-0021 | Select one exact Human/Agent request and typed-result envelope across the conflicting accepted JSON Schema and Rust/SDK representations, with an explicit migration rule. |
+| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `claimed` | P-0021 | Select one exact Human/Agent request and typed-result envelope across the conflicting accepted JSON Schema and Rust/SDK representations, with an explicit migration rule. |
 
 ## Next
 
