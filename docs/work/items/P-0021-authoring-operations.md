@@ -1,7 +1,7 @@
 ---
 id: P-0021
 title: Implement the authoring operations end to end
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0020]
@@ -110,3 +110,33 @@ closes.
 Record exact commands, environment, revisions, exit codes, artifact digests,
 frozen-hash before/after values, and residual boundaries in
 `docs/work/evidence/P-0021/` per the [work-control protocol](../README.md).
+
+## Completion record
+
+Implemented and qualified by `ox-alpha:proof:p-0021` on 2026-08-27.
+
+1. Creation, duplicate-Object rejection, unknown-Schema rejection,
+   create-before-put causality, put-before-create findings, creation-slot
+   mismatch/double consumption, and intent-v2 non-existence checks pass across
+   the retained local and PostgreSQL suites. Satisfied.
+2. `schema.get/v1`, `schema.list/v1`, and `object.list/v1` return the frozen
+   typed projections with bounded filters, stable cursors, page caps,
+   provenance, committed-state disclosure, and live Release coverage. Satisfied.
+3. The three reads use the `release.get/v2` role set at the centralized
+   authorization boundary; delegated creation remains clamped by the exact
+   creation-slot intent. Satisfied.
+4. The localized-content artifacts and vectors were regenerated; the HTTP and
+   authorization hashes changed to their retained values while the Agent
+   authority hash remained byte-identical. Satisfied.
+5. The remote HTTP/PostgreSQL north-star creates an Object, applies its locale
+   rendition under Delegation, publishes it, delivers the Release, and reaches
+   verifier `Complete`. Satisfied.
+6. The CLI supports kind-discriminated `changeset add`, `schema list`,
+   `schema get`, and `object list`; MCP descriptors consume the regenerated
+   operation schema. Satisfied.
+7. The complete locked Linux gate passed: formatting, strict Clippy, 942
+   workspace/all-target/all-feature tests, doc tests, work-item validation,
+   and documentation-link validation. Satisfied.
+
+Evidence: [receipt](../evidence/P-0021/receipt.md) and
+[manifest](../evidence/P-0021/manifest.json).

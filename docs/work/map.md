@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `claimed` | P-0020 | The accepted P-0020 authoring contract implemented and qualified across local, PostgreSQL, CLI, and MCP with regenerated frozen artifacts and a green Linux gate. |
+| [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `review` | P-0020 | The accepted P-0020 authoring contract implemented and qualified across local, PostgreSQL, CLI, and MCP with regenerated frozen artifacts and a green Linux gate. |
 
 ## Next
 

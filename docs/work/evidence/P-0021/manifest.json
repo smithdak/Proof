@@ -1,0 +1,159 @@
+{
+ "schema_version": 2,
+ "item_id": "P-0021",
+ "base_sha": "67e7c874c0ca889b96d687de8d9cf36f4e414db3",
+ "claim_commit": "9ff1bcf573a687dab20c8435655ac4adbe5a957b",
+ "intermediate_commits": [],
+ "candidate_parent_sha": "9ff1bcf573a687dab20c8435655ac4adbe5a957b",
+ "candidate_commit": "75ce593d43fbd12eb74dd40bbc7e8f122c712ea8",
+ "candidate_tree": "e72b75d9491edaf05dfc8753def1797891e980e3",
+ "item_work_commit": "75ce593d43fbd12eb74dd40bbc7e8f122c712ea8",
+ "branch": "main",
+ "qualified_at": "2026-08-27T15:54:48.000Z",
+ "qualification_state": "implementation-qualified-review-eligible",
+ "review_gate": "none",
+ "successors_created": ["P-0022"],
+ "deployed": false,
+ "milestone_complete": false,
+ "public_release": false,
+ "commands": [
+  {
+   "command": "cargo fmt --all --check",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+   "exit_code": 0,
+   "result": "passed"
+  },
+  {
+   "command": "cargo test --locked --workspace --all-targets --all-features",
+   "exit_code": 0,
+   "result": "passed (942 tests across 82 suites)"
+  },
+  {
+   "command": "cargo test --locked --doc --workspace --all-features",
+   "exit_code": 0,
+   "result": "passed (11 doc-test suites)"
+  },
+  {
+   "command": "cargo test -p proof-local --test p0021_authoring",
+   "exit_code": 0,
+   "result": "passed (9 tests)"
+  },
+  {
+   "command": "cargo test -p proof-pg --test parity_impl",
+   "exit_code": 0,
+   "result": "passed (24 tests)"
+  },
+  {
+   "command": "cargo test -p proof-pg --test transaction_impl",
+   "exit_code": 0,
+   "result": "passed (14 tests)"
+  },
+  {
+   "command": "cargo test -p proof-pg --test migration_impl",
+   "exit_code": 0,
+   "result": "passed (10 tests)"
+  },
+  {
+   "command": "cargo test -p proof-server --test north_star_remote_impl north_star_two_humans_and_one_agent_end_to_end_over_http_and_postgresql -- --exact",
+   "exit_code": 0,
+   "result": "passed (1 test)"
+  },
+  {
+   "command": "node scripts/check-work-items.mjs",
+   "exit_code": 0,
+   "result": "passed (21 items before P-0022 shaping)"
+  },
+  {
+   "command": "node scripts/check-doc-links.mjs",
+   "exit_code": 0,
+   "result": "passed (431 links before this evidence packet)"
+  }
+ ],
+ "inventory": {
+  "changed_files": 92,
+  "insertions": 25183,
+  "deletions": 4135,
+  "new_retained_vectors": [],
+  "new_test_binary": {
+   "path": "crates/proof-local/tests/p0021_authoring.rs",
+   "tests": 9
+  },
+  "frozen_vector_change_count": 7,
+  "new_third_party_packages": [],
+  "storage_schema_version": "SQLite v15; PostgreSQL migration ledger v5",
+  "operation_registry_change_count": 3
+ },
+ "registry_hashes": {
+  "complete_http_operation_registry_sha256": "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca",
+  "remote_authorization_projection_sha256": "d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171",
+  "agent_authority_registry_sha256": "b4e67916e0d1cae8e7b73ce681057edcad7f83bc953487ccf127333a3340bca7"
+ },
+ "residuals": [
+  "SDK and console adoption are excluded and pass to P-0022/P-0023",
+  "register-read performance at scale remains unmeasured; secondary indexes are deferred",
+  "ambiguous commit uses deterministic post-commit acknowledgement-loss and separate HTTP mapping qualification rather than induced live packet loss",
+  "Windows runtime, deployment, and public release remain unqualified"
+ ],
+ "environment": {
+  "operating_system": "Linux 5.15.167.4-microsoft-standard-WSL2",
+  "architecture": "x86_64-unknown-linux-gnu",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "cargo": "1.97.1 (c980f4866 2026-06-30)",
+  "node": "v22.23.2",
+  "git": "2.43.0",
+  "postgresql": "integration service reachable at the configured Proof test DSN; psql client unavailable, server version not claimed"
+ },
+ "artifact_digests": [
+  {
+   "path": "conformance/v2/localized-content/schemas/operations.schema.json",
+   "git_blob_oid": "113d2871135e3b59b724254df691926ec165ea15",
+   "algorithm": "sha256",
+   "digest": "8926631b0b90fd418aeb5b226a538400eb4e74f81e817a2df089fa2c81a2a231"
+  },
+  {
+   "path": "conformance/v2/localized-content/schemas/artifacts.schema.json",
+   "git_blob_oid": "fe2303ffe2399471f1ceb1e97063198958535bf9",
+   "algorithm": "sha256",
+   "digest": "626fac902008da8f87180ae41172f0b2dd7c5e88355475f4553a2dea8ed5255d"
+  },
+  {
+   "path": "conformance/v2/localized-content/vectors/operation-instances.valid.json",
+   "git_blob_oid": "7861d3b0dbfea1fa7d5709df0fa4d1fabc5e13e6",
+   "algorithm": "sha256",
+   "digest": "f5d41775ac401ad4a1dc1dd51daea4dcb63819ab8c4a930ae4607023eb9a18f3"
+  },
+  {
+   "path": "conformance/v2/localized-content/vectors/artifact-digests.valid.json",
+   "git_blob_oid": "9868c572818f10f185aa803452288ce20ca372a7",
+   "algorithm": "sha256",
+   "digest": "9604f0f9a908e8ce985649fbe6f5281170f4d9987f188de1a2350a63aa9988a4"
+  },
+  {
+   "path": "conformance/v2/localized-content/vectors/portable-artifacts.valid.json",
+   "git_blob_oid": "ed47bfc696720bbeed38938775cc78423ccb6a84",
+   "algorithm": "sha256",
+   "digest": "13245d9a1e6668e23ef26e1aa034f493308a275a273e816efa2415ab7a95ffe8"
+  },
+  {
+   "path": "conformance/v1/collaboration-server/vectors/http-operation-registry.valid.json",
+   "git_blob_oid": "aff15d23aa4df61238e826c2f5a21927eb6499b0",
+   "algorithm": "sha256",
+   "digest": "fe54d150e2e694304431ee25f38699167e63282becc028bdd81ef41663596f29"
+  },
+  {
+   "path": "crates/proof-local/tests/p0021_authoring.rs",
+   "git_blob_oid": "f1f3a5080fbec3c5bfa029687d9a22a3b512a607",
+   "algorithm": "sha256",
+   "digest": "580cf087a0ecf3832c45c0a19b83810165f779552eeb225e5bdb56a72c6f3952"
+  }
+ ],
+ "evidence_paths": [
+  "docs/work/evidence/P-0021/receipt.md",
+  "docs/work/evidence/P-0021/manifest.json"
+ ],
+ "map_blockers_note": "blocked_by [P-0020] in frontmatter; map rows use P-0020"
+}
