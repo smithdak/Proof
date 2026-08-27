@@ -11,6 +11,8 @@ base_sha: 67e7c874c0ca889b96d687de8d9cf36f4e414db3
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the authoring operations end to end

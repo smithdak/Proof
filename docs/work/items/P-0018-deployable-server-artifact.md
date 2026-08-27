@@ -11,6 +11,8 @@ base_sha: 13bc956d0f7a2fd97a59bed2f4580a0f235f9ab8
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Produce the deployable server artifact with one-command bring-up

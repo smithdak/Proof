@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "item_id": "P-0026",
+  "base_sha": "2c0faf59875fd479d6599f45e66d9495b4c02555",
+  "item_work_commit": "2c0faf59875fd479d6599f45e66d9495b4c02555",
+  "commands": [
+    {
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0
+    }
+  ],
+  "environment": {
+    "os": "Linux (Ubuntu 24.04)",
+    "node": "v22.23.2",
+    "git_head_at_claim": "2c0faf59875fd479d6599f45e66d9495b4c02555"
+  },
+  "artifact_digests": [
+    {
+      "path": "docs/decisions/0014-agent-first-cms-capability-canon.md",
+      "algorithm": "sha256",
+      "digest": "TBD_AT_EVIDENCE_COMMIT"
+    },
+    {
+      "path": "docs/work/items/P-0026-agent-first-cms-capability-canon.md",
+      "algorithm": "sha256",
+      "digest": "TBD_AT_EVIDENCE_COMMIT"
+    }
+  ],
+  "evidence_paths": [
+    "docs/work/evidence/P-0026/receipt.md",
+    "docs/work/evidence/P-0026/manifest.json"
+  ]
+}

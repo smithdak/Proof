@@ -11,6 +11,8 @@ base_sha: d6532ffcd9ea00dc18c31005695a40692b1f8cc2
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-18T12:44:20.977Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Ratify the Milestone 2 delegated content contract

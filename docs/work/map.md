@@ -85,28 +85,31 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Build the governed Authoring surfaces in the web console](items/P-0023-governed-authoring-console.md) | `ready` | P-0022 | Extend the notarial register with committed Object/Schema registers, governed detail, and a receipt-bearing New Item composition over exact SDK contracts. |
+| [Ratify the agent-first CMS capability canon](items/P-0026-agent-first-cms-capability-canon.md) | `done` | P-0025 | ADR-0014 enumerates 45 CMS capabilities with agent operation class, governance profile, and Sitecore disposition; defines the CMS-completeness gate and out-of-scope boundary. |
+| [Ratify the Proof performance benchmark specification](items/P-0029-performance-benchmark-spec.md) | `ready` | P-0026 | Decision contract defining falsifiable latency, throughput, concurrency, bulk, publish, evidence, and recovery workloads with absolute pass/fail thresholds. |
+| [Produce the evidence-backed Sitecore pain-point register](items/P-0027-sitecore-pain-point-register.md) | `ready` | P-0026 | Evidence-cited register of Sitecore pain points, each with Proof's redesign commitment and measurable elimination condition. |
+| [Produce the Sitecore-to-Proof capability gap matrix](items/P-0028-sitecore-gap-matrix.md) | `blocked` | P-0026, P-0027 | One-row-per-capability roadmap mapping every canon item to its Sitecore counterpart, current state, disposition, wave assignment, and acceptance evidence type. |
+| [Build the governed Authoring surfaces in the web console](items/P-0023-governed-authoring-console.md) | `blocked` | P-0022, P-0028 | Frozen until P-0026 defines the CMS-completeness gate; resumes after the project owner re-opens UI work. |
 
 ## Next
 
-P-0021 closed the complete local/PostgreSQL/CLI/MCP authoring implementation on
-2026-08-27. Successor shaping exposed a conflict between the accepted HTTP JSON
-Schema (`data`/`result_anchor`/`result_schema`) and the accepted Rust/SDK wire
-shape (`result`/`committed_anchor`). The project owner directed a separate
-contract decision and bounded P-0022 console adoption to SDK construction,
-session, and logout transport only. Project owner `smithdak` accepted P-0025
-candidate `1c76c0a` on 2026-08-27, making the frozen Schema authoritative.
-Project owner `smithdak` accepted P-0022 candidate `01ff4b0` and its explicit
-fail-closed residuals at `2026-08-27T19:50:20.000Z`. P-0023 is now the sole
-executable frontier: committed Object/Schema registers, governed detail, and a
-receipt-bearing New Item composition inside the established notarial-register
-system. P-0024 Playwright qualification remains named intent and is shaped only
-when P-0023 closes. The license ADR remains deferred by owner decision.
+The project owner redirected the frontier on 2026-08-27: no production UI work
+until the entire system supports full agent-first CMS operations, benchmarked
+against SitecoreAI but designed from first principles to exceed it in
+performance, governance, and agent operability. P-0023 is superseded by this
+direction and remains `blocked` until the backend completeness gate closes.
+
+The immediate frontier is P-0026 (capability canon), which unblocks P-0027
+(pain-point register), P-0028 (gap matrix), and P-0029 (benchmark spec).
+P-0027 and P-0028 can execute in parallel once P-0026 closes. P-0029 can
+execute in parallel with P-0027 and P-0028 once P-0026 closes. Backend
+implementation waves are shaped from P-0028's output.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
-No additional item is shaped beyond the immediate P-0023 frontier.
+No additional backend implementation item is shaped beyond P-0028's wave
+assignments; those become new work items when P-0028 closes.
 
 ## Completed
 

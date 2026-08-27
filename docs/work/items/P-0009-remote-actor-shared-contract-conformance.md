@@ -11,6 +11,8 @@ base_sha: 40b79a50dbff88efca40ee6c64c47e2f4d8d46a4
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the remote actor and shared-contract conformance foundation

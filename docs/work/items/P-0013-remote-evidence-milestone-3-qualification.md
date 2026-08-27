@@ -11,6 +11,8 @@ base_sha: ab3071349162a945e698036070f72a64441e17ba
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-24T13:30:25.292Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement remote evidence and qualify Milestone 3

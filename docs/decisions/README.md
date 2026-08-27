@@ -27,6 +27,7 @@ Architecture decision records preserve the context and consequences of durable c
 | [0011](0011-local-agent-command-authentication.md) | Authenticate local Agent commands with bound Ed25519 credentials | Accepted |
 | [0012](0012-localized-object-renditions.md) | Represent localization as subordinate Object renditions | Accepted |
 | [0013](0013-single-workspace-collaboration-server.md) | Begin remote collaboration with one Workspace and one server | Accepted |
+| [0014](0014-agent-first-cms-capability-canon.md) | Define the agent-first CMS capability canon and UI-freeze gate | Accepted |
 
 ## Template
 

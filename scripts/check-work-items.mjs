@@ -21,6 +21,8 @@ const requiredFields = [
   "review_gate",
   "accepted_by",
   "accepted_at",
+  "required_reading",
+  "allowed_paths",
 ];
 const statuses = new Set([
   "proposed",
@@ -36,6 +38,7 @@ const kinds = new Set(["decision", "implementation", "qualification"]);
 const allowedTransitions = new Map([
   ["proposed", new Set(["ready", "superseded"])],
   ["ready", new Set(["claimed", "superseded"])],
+  ["ready", new Set(["claimed", "blocked", "superseded"])],
   ["claimed", new Set(["review", "blocked", "superseded"])],
   ["blocked", new Set(["proposed", "ready", "superseded"])],
   ["review", new Set(["done", "claimed", "superseded"])],
@@ -186,6 +189,8 @@ for (const [id, item] of items) {
   if (!waves.has(metadata.wave)) fail(`${id}: invalid wave ${metadata.wave}`);
   if (!kinds.has(metadata.kind)) fail(`${id}: invalid kind ${metadata.kind}`);
   if (!Array.isArray(metadata.blocked_by)) fail(`${id}: blocked_by must be an array`);
+  if (!Array.isArray(metadata.required_reading)) fail(`${id}: required_reading must be an array`);
+  if (!Array.isArray(metadata.allowed_paths)) fail(`${id}: allowed_paths must be an array`);
   if (typeof metadata.title !== "string" || metadata.title.length === 0) {
     fail(`${id}: title must be non-empty`);
   }
@@ -194,6 +199,12 @@ for (const [id, item] of items) {
     !/^(?:none|[a-z0-9][a-z0-9-]*)$/.test(metadata.review_gate)
   ) {
     fail(`${id}: invalid review_gate ${JSON.stringify(metadata.review_gate)}`);
+  }
+  if ((metadata.required_reading ?? []).some((entry) => typeof entry !== "string" || entry.length === 0)) {
+    fail(`${id}: every required_reading entry must be a non-empty string`);
+  }
+  if ((metadata.allowed_paths ?? []).some((entry) => typeof entry !== "string" || entry.length === 0)) {
+    fail(`${id}: every allowed_paths entry must be a non-empty string`);
   }
   if (metadata.kind === "decision" && metadata.review_gate !== "project-owner") {
     fail(`${id}: decision items require the project-owner review gate`);
@@ -445,6 +456,21 @@ function visit(id, trail) {
 }
 for (const id of items.keys()) visit(id, []);
 
+const claimedPaths = new Map();
+for (const [id, item] of items) {
+  if (!["claimed", "review"].includes(item.metadata.status)) continue;
+  const paths = item.metadata.allowed_paths ?? [];
+  for (const allowedPath of paths) {
+    for (const [otherId, otherPaths] of claimedPaths) {
+      if (otherId === id) continue;
+      if (otherPaths.some((other) => other === allowedPath || other.startsWith(`${allowedPath}/`) || allowedPath.startsWith(`${other}/`))) {
+        fail(`${id}: claimed path ${allowedPath} overlaps ${otherId}`);
+      }
+    }
+  }
+  claimedPaths.set(id, paths);
+}
+
 const mapRows = new Map();
 for (const line of readFileSync(mapPath, "utf8").split(/\r?\n/)) {
   if (!line.startsWith("| [")) continue;
@@ -487,7 +513,7 @@ for (const [id, item] of items) {
   const path = relative(root, item.path);
   const previousText = gitText(previousReference, path);
   if (previousText === null) continue;
-  const previous = parseItem(previousText, `${previousReference}:${path}`);
+  const previous = parseFrontmatterDocument(previousText, `${previousReference}:${path}`);
   if (!previous || previous.metadata.status === item.metadata.status) continue;
   const allowed = allowedTransitions.get(previous.metadata.status);
   if (!allowed?.has(item.metadata.status)) {

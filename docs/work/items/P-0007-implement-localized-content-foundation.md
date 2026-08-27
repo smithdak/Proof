@@ -11,6 +11,8 @@ base_sha: a95ee484b7038358c0d4e30167862dbed85728c0
 review_gate: proof-assurance
 accepted_by: proof-assurance
 accepted_at: 2026-08-20T18:40:20.012Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the localized content foundation

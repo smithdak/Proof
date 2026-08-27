@@ -11,6 +11,8 @@ base_sha: bea0075a74237626848e1c2f8bb070248b773863
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-23T17:48:11.461Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Ratify the single-Workspace Milestone 3 collaboration-server contract

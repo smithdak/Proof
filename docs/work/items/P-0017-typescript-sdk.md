@@ -11,6 +11,8 @@ base_sha: dcdaf485cf1a12332ae61f09b25a8c55ee73ce18
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Ship the TypeScript SDK over the shared HTTP contracts

@@ -11,6 +11,8 @@ base_sha: e53920b6113b67abaff4828ee7ddc4266fe2915a
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-26T11:57:40.118Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Ratify the authoring-surface content contract

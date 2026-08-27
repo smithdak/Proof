@@ -47,6 +47,13 @@ Frontmatter metadata uses these profiles:
 - `review_gate`: `none` or the named human/independent gate required before
   `done`.
 - `accepted_by` and `accepted_at`: populated only by the named gate.
+- `required_reading`: array of repository paths that bound the executor's
+  mandatory context. Executors read the item plus these paths and nothing else
+  from `docs/` unless the item text explicitly directs more.
+- `allowed_paths`: array of repository paths (directories without trailing
+  slash) this item may modify. Two claimed items with overlapping
+  `allowed_paths` fail validation, making write-set conflicts a modeling error
+  instead of a merge-time discovery.
 
 Allowed transitions are `blocked → proposed` after blockers close and the item
 needs more shaping, `blocked → ready` when the same reviewed change closes its
@@ -75,7 +82,8 @@ map parity, status transitions, and required evidence for executed items.
 3. Set `status`, `claimed_by`, `claimed_at`, and `base_sha` in one narrow
    change. When multiple synchronized worktrees exist, commit that claim before
    implementation; an uncommitted file is not a distributed lock.
-4. Execute the full item autonomously inside its authorized scope. Do not absorb
+4. Execute the full item autonomously inside its authorized scope. Read only
+   the item, its `required_reading`, and the files the task touches. Do not absorb
    adjacent work merely because it is convenient.
 5. Record exact evidence, residual risks, and newly sharpened work. The JSON
    manifest binds the qualified item-work commit—implementation,

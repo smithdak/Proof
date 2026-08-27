@@ -11,6 +11,8 @@ base_sha: 57c8615c0b9e05e7b408f0bd1fc4e99e176113d7
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the HTTP and OIDC server boundary

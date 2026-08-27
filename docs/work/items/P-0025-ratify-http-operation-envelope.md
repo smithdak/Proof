@@ -11,6 +11,8 @@ base_sha: 41364224e4fba87964da8c0974535330eba18195
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-27T18:08:13.000Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Ratify one HTTP operation envelope across schema and runtime

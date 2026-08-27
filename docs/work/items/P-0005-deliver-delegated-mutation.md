@@ -11,6 +11,8 @@ base_sha: 9c469e219ce5a2c6ec29f06dc6509a346b62cc10
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Deliver delegated mutation through a verified Release

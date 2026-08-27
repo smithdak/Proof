@@ -11,6 +11,8 @@ base_sha: 3373f3768a4e07a0e5680d88cb7fe4b2c2848f0d
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Stabilize and qualify the current Release and read-authority baseline

@@ -11,6 +11,8 @@ base_sha: c9db396f1a2ecdffe050f9a7208b3c401501ed84
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-27T19:50:20.000Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Adopt the authoring contract in the TypeScript SDK and console transport

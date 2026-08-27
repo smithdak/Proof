@@ -11,6 +11,8 @@ base_sha: b5ff8f9c42c9b2991979a67a37b521baf514a552
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the PostgreSQL-backed application semantic executor for full mutation-row trace parity

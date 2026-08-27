@@ -11,6 +11,8 @@ base_sha: 445f56c8737e97d7041ece2971ac755fea5fa05c
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the authenticated authorization kernel

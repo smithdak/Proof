@@ -11,6 +11,8 @@ base_sha: 7e8162e36f5a6a2f11c64cf7059947ca43d161e0
 review_gate: impeccable-finish-review
 accepted_by: project-owner
 accepted_at: 2026-08-25T19:34:23.219Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Initial human web console with notarial-register design system

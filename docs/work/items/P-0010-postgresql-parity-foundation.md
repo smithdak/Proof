@@ -11,6 +11,8 @@ base_sha: 559ef7cb39b557b7ebf0a57053b93e21592196c8
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the PostgreSQL parity foundation

@@ -11,6 +11,8 @@ base_sha: 5e1810e89571d87840fb9af6b56eb44f728f351c
 review_gate: none
 accepted_by: null
 accepted_at: null
+required_reading: []
+allowed_paths: []
 ---
 
 # Implement the artifact outbox and private preview delivery

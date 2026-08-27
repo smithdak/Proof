@@ -1,10 +1,12 @@
 ---
 id: P-0023
 title: Build the governed Authoring surfaces in the web console
-status: ready
+status: blocked
 wave: now
 kind: implementation
-blocked_by: [P-0022]
+blocked_by: [P-0022, P-0028]
+required_reading: [docs/work/items/P-0026-agent-first-cms-capability-canon.md]
+allowed_paths: [web, docs/work]
 claimed_by: null
 claimed_at: null
 base_sha: null
@@ -32,6 +34,13 @@ SDK-backed contract data, migrates every touched feature operation away from
 the legacy `executeOperation` transport, and keeps the remaining console
 surfaces behaviorally intact. P-0024 owns the compose-stack browser north star
 and final cross-surface polish.
+
+## Blocked by owner direction
+
+**Blocked 2026-08-27:** the project owner froze all production UI work until
+the backend supports full agent-first CMS operations (P-0026 through P-0029).
+This item resumes only after the CMS-completeness gate defined in P-0026 is
+satisfied and the project owner explicitly re-opens UI work.
 
 ## UX brief
 

@@ -11,6 +11,8 @@ base_sha: 0a5becaf9794d81c9a5b1d7118e190b16dd247d2
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-23T00:34:50.674Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Close Milestone 2 with independently verifiable evidence and conformance

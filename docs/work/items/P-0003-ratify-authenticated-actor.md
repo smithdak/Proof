@@ -11,6 +11,8 @@ base_sha: 8aede43c1e4ec7f24bc0fd4761aa117a5173bfa8
 review_gate: project-owner
 accepted_by: smithdak
 accepted_at: 2026-08-20T19:52:12.756Z
+required_reading: []
+allowed_paths: []
 ---
 
 # Ratify authenticated actor and Delegation semantics
