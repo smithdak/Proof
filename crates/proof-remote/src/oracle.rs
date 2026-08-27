@@ -640,9 +640,12 @@ pub fn localized_error_code(error: &proof_application::LocalizedContentError) ->
         LocalizedContentError::UnsupportedVersion => "proof.input.unsupported_version",
         LocalizedContentError::InvalidInput => "proof.input.schema_mismatch",
         LocalizedContentError::IntentMismatch => "proof.input.intent_mismatch",
+        LocalizedContentError::IntentSlotMismatch => "proof.intent.slot_mismatch",
+        LocalizedContentError::SchemaNotFound => "proof.schema.not_found",
         LocalizedContentError::SourceConflict => "proof.state.source_conflict",
         LocalizedContentError::TargetConflict => "proof.state.target_conflict",
         LocalizedContentError::StateConflict => "proof.state.conflict",
+        LocalizedContentError::ObjectExists => "proof.state.object_exists",
         LocalizedContentError::DuplicateActiveTarget => "proof.changeset.duplicate_target",
         LocalizedContentError::InvalidSupersession => "proof.changeset.invalid_supersession",
         LocalizedContentError::InvalidRepairEvidence => "proof.validation.repair_evidence_invalid",
@@ -689,7 +692,7 @@ pub fn build_add_edits_command(
     let mut edits = Vec::with_capacity(input.edits.len());
     let mut assigned_edit_ids = Vec::with_capacity(input.edits.len());
     for (index, edit) in input.edits.into_iter().enumerate() {
-        let content = Value::Object(edit.content.clone());
+        let content = Value::Object(edit.content().clone());
         let canonical = canonicalize(&content).map_err(|_| ())?;
         let application_input = edit
             .into_application_input(canonical.as_str().to_owned())
@@ -866,8 +869,8 @@ fn serialize_localized_edit(edit: &LocalizedEdit) -> Value {
         "effective": edit.effective,
         "edit_digest": edit.edit_digest.to_string(),
         "input": {
-            "object_id": edit.input.object_id.to_string(),
-            "locale": edit.input.locale.to_string(),
+            "object_id": edit.input.object_id().to_string(),
+            "locale": edit.input.locale().map(ToString::to_string),
         },
         "canonical": parse_json(&edit.canonical_json),
     })
@@ -1025,4 +1028,26 @@ fn severity_str(severity: Severity) -> &'static str {
 /// artifact content is not itself a JSON document.
 fn parse_json(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::localized_error_code;
+    use proof_application::LocalizedContentError;
+
+    #[test]
+    fn creation_errors_keep_their_registered_remote_codes() {
+        assert_eq!(
+            localized_error_code(&LocalizedContentError::IntentSlotMismatch),
+            "proof.intent.slot_mismatch"
+        );
+        assert_eq!(
+            localized_error_code(&LocalizedContentError::SchemaNotFound),
+            "proof.schema.not_found"
+        );
+        assert_eq!(
+            localized_error_code(&LocalizedContentError::ObjectExists),
+            "proof.state.object_exists"
+        );
+    }
 }

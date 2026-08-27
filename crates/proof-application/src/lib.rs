@@ -244,17 +244,18 @@ impl ExitCode {
             || code == "proof.approval.required"
         {
             Self::Authorization
+        } else if code == "proof.schema.not_found" || code == "proof.resource.not_found" {
+            Self::NotFound
         } else if code.starts_with("proof.validation.")
             || code.starts_with("proof.policy.")
             || code.starts_with("proof.schema.")
             || code.starts_with("proof.relationship.")
         {
             Self::Validation
-        } else if code == "proof.resource.not_found" {
-            Self::NotFound
         } else if code.starts_with("proof.state.")
             || code.starts_with("proof.changeset.")
             || code.starts_with("proof.idempotency.")
+            || code.starts_with("proof.intent.")
         {
             Self::Conflict
         } else if code.starts_with("proof.digest.")
@@ -2389,10 +2390,13 @@ const LOCALIZED_AUTHENTICATED_ERROR_CODES: &[&str] = &[
     "proof.input.limit_exceeded",
     "proof.input.schema_mismatch",
     "proof.input.unsupported_version",
+    "proof.intent.slot_mismatch",
     "proof.internal",
     "proof.policy.denied",
     "proof.resource.not_found",
+    "proof.schema.not_found",
     "proof.state.conflict",
+    "proof.state.object_exists",
     "proof.state.source_conflict",
     "proof.state.target_conflict",
     "proof.validation.repair_evidence_invalid",
@@ -3659,6 +3663,18 @@ mod tests {
         assert_eq!(
             ExitCode::for_problem_code("proof.resource.not_found"),
             ExitCode::NotFound
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.schema.not_found"),
+            ExitCode::NotFound
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.intent.slot_mismatch"),
+            ExitCode::Conflict
+        );
+        assert_eq!(
+            ExitCode::for_problem_code("proof.state.object_exists"),
+            ExitCode::Conflict
         );
         assert_eq!(
             ExitCode::for_problem_code("proof.dependency.unavailable"),

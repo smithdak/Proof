@@ -574,7 +574,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {
@@ -671,6 +671,13 @@
           {
             "route_id": "human-operations",
             "operation": {
+              "name": "object.list",
+              "version": "proof.dev/operation/object.list/v1"
+            }
+          },
+          {
+            "route_id": "human-operations",
+            "operation": {
               "name": "oidc-binding.issue",
               "version": "proof.dev/operation/oidc-binding.issue/v1"
             }
@@ -701,6 +708,20 @@
             "operation": {
               "name": "release.verify",
               "version": "proof.dev/operation/release.verify/v2"
+            }
+          },
+          {
+            "route_id": "human-operations",
+            "operation": {
+              "name": "schema.get",
+              "version": "proof.dev/operation/schema.get/v1"
+            }
+          },
+          {
+            "route_id": "human-operations",
+            "operation": {
+              "name": "schema.list",
+              "version": "proof.dev/operation/schema.list/v1"
             }
           },
           {
@@ -1124,7 +1145,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {
@@ -1787,7 +1808,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {
@@ -1884,6 +1905,13 @@
           {
             "route_id": "human-operations",
             "operation": {
+              "name": "object.list",
+              "version": "proof.dev/operation/object.list/v1"
+            }
+          },
+          {
+            "route_id": "human-operations",
+            "operation": {
               "name": "oidc-binding.issue",
               "version": "proof.dev/operation/oidc-binding.issue/v1"
             }
@@ -1914,6 +1942,20 @@
             "operation": {
               "name": "release.verify",
               "version": "proof.dev/operation/release.verify/v2"
+            }
+          },
+          {
+            "route_id": "human-operations",
+            "operation": {
+              "name": "schema.get",
+              "version": "proof.dev/operation/schema.get/v1"
+            }
+          },
+          {
+            "route_id": "human-operations",
+            "operation": {
+              "name": "schema.list",
+              "version": "proof.dev/operation/schema.list/v1"
             }
           },
           {
@@ -3920,7 +3962,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {
@@ -4064,7 +4106,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {
@@ -4416,7 +4458,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {
@@ -4560,7 +4602,7 @@
             "route_id": "human-operations",
             "operation": {
               "name": "content-resource-intent.issue",
-              "version": "proof.dev/operation/content-resource-intent.issue/v1"
+              "version": "proof.dev/operation/content-resource-intent.issue/v2"
             }
           },
           {

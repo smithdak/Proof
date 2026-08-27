@@ -18,8 +18,8 @@ use proof_server::{
 };
 
 #[test]
-fn problem_registry_is_exactly_41_tuples() {
-    assert_eq!(PROBLEM_REGISTRY.len(), 41);
+fn problem_registry_is_exactly_44_tuples() {
+    assert_eq!(PROBLEM_REGISTRY.len(), 44);
     let unknown = problem_tuple("proof.operation.unknown_outcome").expect("504 tuple");
     assert!(unknown.retryable);
     assert_eq!(unknown.status, 504);
@@ -79,7 +79,7 @@ fn deterministic_issuer_constructs_and_reports() {
 
 #[test]
 fn registries_have_exact_row_counts() {
-    assert_eq!(HumanOperationRegistryV1.rows().len(), 23);
+    assert_eq!(HumanOperationRegistryV1.rows().len(), 26);
     assert_eq!(AgentOperationProjectionV1.rows().len(), 14);
 }
 

@@ -1,7 +1,7 @@
 //! Closed operation registries, remote authorization decision/consequence
 //! types, and the exact digest preimage builders.
 //!
-//! This module implements the complete type surface for the 23-row Human
+//! This module implements the complete type surface for the 26-row Human
 //! registry, the 14-pair Agent projection, the nine-route HTTP surface, the
 //! `RemoteAuthorizationDecisionV1` and `RemoteApplicationConsequenceV1`
 //! authority payloads, and the closed digest preimages under
@@ -26,11 +26,11 @@ pub const AGENT_AUTHORITY_REGISTRY_SHA256: &str =
 /// Non-circular remote authorization projection SHA-256. Must be recomputed
 /// byte-exactly from the retained registry vectors; fail closed on any mismatch.
 pub const REMOTE_AUTHORIZATION_PROJECTION_SHA256: &str =
-    "e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b";
+    "d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171";
 /// Complete HTTP operation registry SHA-256. Must be recomputed byte-exactly
 /// from the retained registry vectors; fail closed on any mismatch.
 pub const COMPLETE_HTTP_OPERATION_REGISTRY_SHA256: &str =
-    "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf";
+    "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca";
 
 /// BLAKE3-256 derive-key context for one authorization resource binding.
 pub const AUTHORIZATION_RESOURCE_BINDING_DIGEST_CONTEXT: &str =
@@ -339,12 +339,12 @@ pub struct HumanOperationRowV1 {
     pub application_problem_codes: Vec<String>,
 }
 
-/// The ordered 23-row Human RPC registry.
+/// The ordered 26-row Human RPC registry.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HumanOperationRegistryV1;
 
 impl HumanOperationRegistryV1 {
-    /// Returns the exact ordered 23 rows.
+    /// Returns the exact ordered 26 rows.
     #[must_use]
     pub fn rows(&self) -> &'static [HumanOperationRowV1] {
         HUMAN_ROWS.as_slice()
@@ -366,6 +366,10 @@ pub struct AgentOperationRowV1 {
     pub operation: RemoteOperationV1,
     pub requested_action: String,
     pub authorization_rule: String,
+    /// Complete-registry idempotency metadata used by execution. This field is
+    /// deliberately omitted from the frozen 14-row authorization projection.
+    #[serde(skip)]
+    pub application_key_kind: ApplicationKeyKind,
     pub effect_digest_rule: EffectDigestRule,
     pub effect_timestamp_field: Option<EffectTimestampField>,
     pub application_problem_codes: Vec<String>,
@@ -588,9 +592,9 @@ pub fn application_problem_digest_preimage(
 const HUMAN_AUTHENTICATION_PROFILE: &str = "proof.server/authentication/oidc-human/v1";
 const AGENT_DIRECT_AUTHORIZATION_RULE: &str = "proof.local/authority/direct/v1";
 
-/// The 17 exact post-Allow application Problem codes shared by every localized
+/// The 20 exact post-Allow application Problem codes shared by every localized
 /// v2 Agent row (contract §"Agent registry projection").
-const LOCALIZED_V2_PROBLEM_CODES: [&str; 17] = [
+const LOCALIZED_V2_PROBLEM_CODES: [&str; 20] = [
     "proof.changeset.duplicate_target",
     "proof.changeset.invalid_supersession",
     "proof.changeset.not_approved",
@@ -602,9 +606,12 @@ const LOCALIZED_V2_PROBLEM_CODES: [&str; 17] = [
     "proof.input.limit_exceeded",
     "proof.input.schema_mismatch",
     "proof.input.unsupported_version",
+    "proof.intent.slot_mismatch",
     "proof.policy.denied",
     "proof.resource.not_found",
+    "proof.schema.not_found",
     "proof.state.conflict",
+    "proof.state.object_exists",
     "proof.state.source_conflict",
     "proof.state.target_conflict",
     "proof.validation.repair_evidence_invalid",
@@ -671,7 +678,7 @@ static HUMAN_ROWS: LazyLock<Vec<HumanOperationRowV1>> = LazyLock::new(|| {
         HumanOperationRowV1 {
             operation: operation(
                 "content-resource-intent.issue",
-                "proof.dev/operation/content-resource-intent.issue/v1",
+                "proof.dev/operation/content-resource-intent.issue/v2",
             ),
             status: "Reused".to_owned(),
             authentication: HUMAN_AUTHENTICATION_PROFILE.to_owned(),
@@ -683,8 +690,11 @@ static HUMAN_ROWS: LazyLock<Vec<HumanOperationRowV1>> = LazyLock::new(|| {
             effect_digest_rule: EffectDigestRule::ContentResourceIntent,
             effect_timestamp_field: None,
             application_problem_codes: strings(&[
+                "proof.input.limit_exceeded",
                 "proof.resource.not_found",
+                "proof.schema.not_found",
                 "proof.state.conflict",
+                "proof.state.object_exists",
             ]),
         },
         HumanOperationRowV1 {
@@ -918,6 +928,23 @@ static HUMAN_ROWS: LazyLock<Vec<HumanOperationRowV1>> = LazyLock::new(|| {
             application_problem_codes: strings(&["proof.resource.not_found"]),
         },
         HumanOperationRowV1 {
+            operation: operation("object.list", "proof.dev/operation/object.list/v1"),
+            status: "Successor transport projection".to_owned(),
+            authentication: HUMAN_AUTHENTICATION_PROFILE.to_owned(),
+            idempotency: "none".to_owned(),
+            concurrency_anchor: "authoritative-sequence-cursor".to_owned(),
+            authorization_rule: "proof.server/authorization/schema-reader/v1".to_owned(),
+            roles_any_of: roles(&[
+                ContentPublisher,
+                ContentRequester,
+                ContentReviewer,
+                EvidenceAuditor,
+            ]),
+            effect_digest_rule: EffectDigestRule::None,
+            effect_timestamp_field: None,
+            application_problem_codes: strings(&["proof.resource.not_found"]),
+        },
+        HumanOperationRowV1 {
             operation: operation(
                 "oidc-binding.issue",
                 "proof.dev/operation/oidc-binding.issue/v1",
@@ -1010,6 +1037,43 @@ static HUMAN_ROWS: LazyLock<Vec<HumanOperationRowV1>> = LazyLock::new(|| {
             ]),
         },
         HumanOperationRowV1 {
+            operation: operation("schema.get", "proof.dev/operation/schema.get/v1"),
+            status: "Successor transport projection".to_owned(),
+            authentication: HUMAN_AUTHENTICATION_PROFILE.to_owned(),
+            idempotency: "none".to_owned(),
+            concurrency_anchor: "exact-schema-version".to_owned(),
+            authorization_rule: "proof.server/authorization/schema-reader/v1".to_owned(),
+            roles_any_of: roles(&[
+                ContentPublisher,
+                ContentRequester,
+                ContentReviewer,
+                EvidenceAuditor,
+            ]),
+            effect_digest_rule: EffectDigestRule::None,
+            effect_timestamp_field: None,
+            application_problem_codes: strings(&[
+                "proof.resource.not_found",
+                "proof.schema.not_found",
+            ]),
+        },
+        HumanOperationRowV1 {
+            operation: operation("schema.list", "proof.dev/operation/schema.list/v1"),
+            status: "Successor transport projection".to_owned(),
+            authentication: HUMAN_AUTHENTICATION_PROFILE.to_owned(),
+            idempotency: "none".to_owned(),
+            concurrency_anchor: "authoritative-sequence-cursor".to_owned(),
+            authorization_rule: "proof.server/authorization/schema-reader/v1".to_owned(),
+            roles_any_of: roles(&[
+                ContentPublisher,
+                ContentRequester,
+                ContentReviewer,
+                EvidenceAuditor,
+            ]),
+            effect_digest_rule: EffectDigestRule::None,
+            effect_timestamp_field: None,
+            application_problem_codes: strings(&[]),
+        },
+        HumanOperationRowV1 {
             operation: operation(
                 "workspace-role.assign",
                 "proof.dev/operation/workspace-role.assign/v1",
@@ -1054,6 +1118,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("changeset.add", "proof.dev/operation/changeset.add/v2"),
             requested_action: "changeset:add".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1065,6 +1130,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "changeset:commit".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1076,6 +1142,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "changeset:create".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1084,6 +1151,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("changeset.diff", "proof.dev/operation/changeset.diff/v2"),
             requested_action: "changeset:diff".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::None,
             effect_digest_rule: EffectDigestRule::None,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1092,6 +1160,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("changeset.get", "proof.dev/operation/changeset.get/v2"),
             requested_action: "changeset:get".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::None,
             effect_digest_rule: EffectDigestRule::None,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1103,6 +1172,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "changeset:submit".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::DerivedChangeset,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1114,6 +1184,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "changeset:validate".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::DerivedProposalPolicyValidator,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1122,6 +1193,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("context.build", "proof.dev/operation/context.build/v1"),
             requested_action: "context:build".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&[
@@ -1135,6 +1207,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("context.build", "proof.dev/operation/context.build/v2"),
             requested_action: "context:build".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1143,6 +1216,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("edition.create", "proof.dev/operation/edition.create/v2"),
             requested_action: "edition:create".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1154,6 +1228,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "object:query_released".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::None,
             effect_digest_rule: EffectDigestRule::None,
             effect_timestamp_field: None,
             application_problem_codes: strings(&[
@@ -1168,6 +1243,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "object:query_released".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::None,
             effect_digest_rule: EffectDigestRule::None,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1176,6 +1252,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             operation: operation("release.create", "proof.dev/operation/release.create/v2"),
             requested_action: "release:create".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::RequiredUuidV7,
             effect_digest_rule: EffectDigestRule::LocalizedEffect,
             effect_timestamp_field: None,
             application_problem_codes: strings(&LOCALIZED_V2_PROBLEM_CODES),
@@ -1187,6 +1264,7 @@ static AGENT_ROWS: LazyLock<Vec<AgentOperationRowV1>> = LazyLock::new(|| {
             ),
             requested_action: "workspace:status".to_owned(),
             authorization_rule: AGENT_DIRECT_AUTHORIZATION_RULE.to_owned(),
+            application_key_kind: ApplicationKeyKind::None,
             effect_digest_rule: EffectDigestRule::None,
             effect_timestamp_field: None,
             application_problem_codes: Vec::new(),

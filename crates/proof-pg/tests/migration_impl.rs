@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use postgres::Client;
 use proof_pg::PgError;
 use proof_pg::migration::{
-    MigrationPhase, MigrationScriptV1, read_head, run_expand_backfill_verify_cutover, verify_head,
+    MigrationPhase, MigrationScriptV1, application_idempotency_migration_v4, read_head,
+    run_expand_backfill_verify_cutover, verify_head, workspace_global_idempotency_migration_v5,
 };
 use proof_pg::schema::ALL_TABLE_DDL;
 
@@ -89,6 +90,63 @@ fn migration_error_message(error: PgError) -> String {
         PgError::Migration(message) => message,
         other => panic!("expected PgError::Migration, got {other:?}"),
     }
+}
+
+fn prepare_v4_idempotency_schema(schema: &mut SchemaGuard) {
+    schema
+        .client()
+        .batch_execute(
+            "DROP TABLE idempotency_keys;
+             CREATE TABLE idempotency_keys (
+                 workspace_id TEXT NOT NULL,
+                 operation TEXT NOT NULL,
+                 operation_version TEXT NOT NULL,
+                 normalized_input_digest TEXT NOT NULL,
+                 requesting_principal TEXT NOT NULL,
+                 operating_principal TEXT NOT NULL,
+                 delegation_id TEXT,
+                 application_key TEXT,
+                 key_kind TEXT NOT NULL,
+                 result_digest TEXT NOT NULL,
+                 replay_count BIGINT NOT NULL DEFAULT 0,
+                 committed_at TIMESTAMPTZ NOT NULL,
+                 PRIMARY KEY (
+                     workspace_id, operation, operation_version, normalized_input_digest,
+                     requesting_principal, operating_principal
+                 )
+             );
+             CREATE UNIQUE INDEX idempotency_application_key_unique
+                 ON idempotency_keys (
+                     workspace_id, operation, operation_version,
+                     requesting_principal, operating_principal, application_key
+                 );",
+        )
+        .unwrap();
+
+    let v4 = application_idempotency_migration_v4();
+    schema
+        .client()
+        .execute(
+            "INSERT INTO migration_head (
+                 singleton, version, name, script_digest, phase,
+                 actor, tool_version, started_at, verified_at
+             ) VALUES (1, 4, $1, $2, 'verified', 'test', 'test', now(), now())",
+            &[&v4.name, &v4.digest.to_string()],
+        )
+        .unwrap();
+    schema
+        .client()
+        .execute(
+            "INSERT INTO workspace_write_head (
+                 singleton, workspace_id, migration_version,
+                 transaction_sequence, authority_sequence, content_sequence, release_sequence,
+                 authority_head_digest, authority_head_sequence,
+                 content_head_digest, release_head_digest,
+                 policy_head_digest, configuration_head_digest
+             ) VALUES (1, $1, 4, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)",
+            &[&"019c0000-0000-7000-8000-000000000001"],
+        )
+        .unwrap();
 }
 
 #[test]
@@ -285,4 +343,166 @@ fn script_digest_is_domain_separated_over_exact_bytes() {
         digest,
         proof_pg::migration::migration_script_digest(with_whitespace)
     );
+}
+
+#[test]
+fn workspace_global_idempotency_cutover_advances_workspace_and_drops_scoped_index() {
+    let mut schema = SchemaGuard::new("workspace_global_idempotency");
+    prepare_v4_idempotency_schema(&mut schema);
+
+    let v5 = workspace_global_idempotency_migration_v5();
+    run_expand_backfill_verify_cutover(schema.client(), &v5).unwrap();
+
+    verify_head(schema.client(), &v5).unwrap();
+    let workspace_version: i32 = schema
+        .client()
+        .query_one(
+            "SELECT migration_version FROM workspace_write_head WHERE singleton = 1",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(workspace_version, 5);
+
+    let scoped_index: Option<String> = schema
+        .client()
+        .query_one(
+            "SELECT to_regclass('idempotency_application_key_unique')::text",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(scoped_index, None);
+
+    let primary_key_columns: Vec<String> = schema
+        .client()
+        .query_one(
+            "SELECT array_agg(attribute.attname ORDER BY key.ordinality)
+             FROM pg_constraint constraint_row
+             CROSS JOIN LATERAL unnest(constraint_row.conkey)
+                 WITH ORDINALITY AS key(attribute_number, ordinality)
+             JOIN pg_attribute attribute
+               ON attribute.attrelid = constraint_row.conrelid
+              AND attribute.attnum = key.attribute_number
+             WHERE constraint_row.conrelid = 'idempotency_keys'::regclass
+               AND constraint_row.contype = 'p'",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(primary_key_columns, ["workspace_id", "application_key"]);
+}
+
+#[test]
+fn workspace_global_idempotency_cutover_retains_only_legacy_rows_without_result_bytes() {
+    let mut schema = SchemaGuard::new("workspace_global_legacy_result");
+    prepare_v4_idempotency_schema(&mut schema);
+    let workspace_id = "019c0000-0000-7000-8000-000000000001";
+    let principal_id = "019c0000-0000-7000-8000-000000000002";
+    let digest = proof_domain::ContentDigest::blake3([0x45; 32]).to_string();
+    schema
+        .client()
+        .execute(
+            "INSERT INTO idempotency_keys (
+                 workspace_id, operation, operation_version, normalized_input_digest,
+                 requesting_principal, operating_principal, delegation_id, application_key,
+                 key_kind, result_digest, replay_count, committed_at
+             ) VALUES ($1, 'object.query', 'proof.dev/operation/object.query/v1',
+                       $2, $3, $3, NULL, NULL, 'none', $2, 0, now())",
+            &[&workspace_id, &digest, &principal_id],
+        )
+        .unwrap();
+
+    run_expand_backfill_verify_cutover(
+        schema.client(),
+        &workspace_global_idempotency_migration_v5(),
+    )
+    .unwrap();
+
+    let row = schema
+        .client()
+        .query_one(
+            "SELECT application_key, result_body FROM idempotency_keys WHERE workspace_id = $1",
+            &[&workspace_id],
+        )
+        .unwrap();
+    let application_key: String = row.get(0);
+    let result_body: Option<Vec<u8>> = row.get(1);
+    assert_eq!(
+        application_key,
+        format!(
+            "legacy:object.query:proof.dev/operation/object.query/v1:{digest}:{principal_id}:{principal_id}:none"
+        )
+    );
+    assert_eq!(result_body, None);
+
+    let error = schema
+        .client()
+        .execute(
+            "INSERT INTO idempotency_keys (
+                 workspace_id, operation, operation_version, normalized_input_digest,
+                 requesting_principal, operating_principal, delegation_id, application_key,
+                 key_kind, result_digest, result_body, replay_count, committed_at
+             ) VALUES ($1, 'workspace-role.assign', 'proof.dev/operation/workspace-role.assign/v1',
+                       $2, $3, $3, NULL, $4, 'required-uuidv7', $2, NULL, 0, now())",
+            &[
+                &workspace_id,
+                &digest,
+                &principal_id,
+                &"019d0000-0000-7000-8000-000000000010",
+            ],
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.as_db_error().map(postgres::error::DbError::code),
+        Some(&postgres::error::SqlState::CHECK_VIOLATION)
+    );
+}
+
+#[test]
+fn workspace_global_idempotency_cutover_rejects_unreplayable_v4_key() {
+    let mut schema = SchemaGuard::new("workspace_global_unreplayable");
+    prepare_v4_idempotency_schema(&mut schema);
+    let digest = proof_domain::ContentDigest::blake3([0x44; 32]).to_string();
+    schema
+        .client()
+        .execute(
+            "INSERT INTO idempotency_keys (
+                 workspace_id, operation, operation_version, normalized_input_digest,
+                 requesting_principal, operating_principal, delegation_id, application_key,
+                 key_kind, result_digest, replay_count, committed_at
+             ) VALUES ($1, 'workspace-role.assign', 'proof.dev/operation/workspace-role.assign/v1',
+                       $2, $3, $3, NULL, $4, 'required-uuidv7', $2, 0, now())",
+            &[
+                &"019c0000-0000-7000-8000-000000000001",
+                &digest,
+                &"019c0000-0000-7000-8000-000000000002",
+                &"019d0000-0000-7000-8000-000000000010",
+            ],
+        )
+        .unwrap();
+
+    let error = run_expand_backfill_verify_cutover(
+        schema.client(),
+        &workspace_global_idempotency_migration_v5(),
+    )
+    .unwrap_err();
+    let message = migration_error_message(error);
+    assert!(
+        message.contains("requires retained result bytes"),
+        "migration must explain why exact replay cannot be preserved: {message}"
+    );
+
+    let workspace_version: i32 = schema
+        .client()
+        .query_one(
+            "SELECT migration_version FROM workspace_write_head WHERE singleton = 1",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(workspace_version, 4);
+    let head = read_head(schema.client()).unwrap().unwrap();
+    assert_eq!(head.head_version, 5);
+    assert_eq!(head.phase, MigrationPhase::Failed);
 }

@@ -14,6 +14,7 @@ use crate::{
 pub struct PgRuntime {
     config: PgConfig,
     client: postgres::Client,
+    search_path: Option<String>,
 }
 
 impl PgRuntime {
@@ -25,7 +26,11 @@ impl PgRuntime {
     pub fn connect(config: PgConfig) -> Result<Self, PgError> {
         let client = postgres::Client::connect(&config.dsn, postgres::NoTls)
             .map_err(|error| PgError::Connect(error.to_string()))?;
-        Ok(Self { config, client })
+        Ok(Self {
+            config,
+            client,
+            search_path: None,
+        })
     }
 
     /// Returns the fixed single-Workspace configuration.
@@ -44,6 +49,52 @@ impl PgRuntime {
     #[must_use]
     pub const fn client_mut(&mut self) -> &mut postgres::Client {
         &mut self.client
+    }
+
+    /// Configures and retains an isolated PostgreSQL Schema search path so a
+    /// replacement connection restores the same authority namespace.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PgError::Connect`] when `schema` is not a safe unquoted
+    /// identifier or PostgreSQL rejects the setting.
+    pub fn set_search_path(&mut self, schema: &str) -> Result<(), PgError> {
+        if schema.is_empty()
+            || !schema
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            return Err(PgError::Connect(
+                "PostgreSQL search path is not a safe identifier".to_owned(),
+            ));
+        }
+        self.client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .map_err(|error| PgError::Connect(error.to_string()))?;
+        self.search_path = Some(schema.to_owned());
+        Ok(())
+    }
+
+    /// Replaces a closed authority connection and restores retained session
+    /// configuration. A healthy connection is left unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PgError::Connect`] when reconnection or session restoration
+    /// fails.
+    pub fn ensure_connected(&mut self) -> Result<(), PgError> {
+        if !self.client.is_closed() {
+            return Ok(());
+        }
+        let mut client = postgres::Client::connect(&self.config.dsn, postgres::NoTls)
+            .map_err(|error| PgError::Connect(error.to_string()))?;
+        if let Some(schema) = &self.search_path {
+            client
+                .batch_execute(&format!("SET search_path TO \"{schema}\""))
+                .map_err(|error| PgError::Connect(error.to_string()))?;
+        }
+        self.client = client;
+        Ok(())
     }
 
     /// Runs the immutable migration ledger to the required head.
@@ -129,6 +180,11 @@ impl PgRuntime {
     /// [`PgError::Integrity`] when a durability precondition is not met.
     pub fn migrate_delivery_state(&mut self) -> Result<(), PgError> {
         self.migrate()?;
+        if crate::migration::read_head(self.client_mut())?.is_some_and(|head| {
+            head.head_version >= crate::migration::DELIVERY_STATE_MIGRATION_VERSION
+        }) {
+            return Ok(());
+        }
         crate::migration::run_expand_backfill_verify_cutover(
             self.client_mut(),
             &crate::migration::delivery_state_migration_v3(),

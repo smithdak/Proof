@@ -23,6 +23,7 @@ proof-canonical = { path = "../proof-canonical" }
 proof-domain = { path = "../proof-domain" }
 proof-pg = { path = "../proof-pg" }
 proof-remote = { path = "../proof-remote" }
+postgres.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

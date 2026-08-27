@@ -411,6 +411,7 @@ fn nested_artifact_context(kind: &str) -> Option<&'static str> {
         "context_pack_v2" => "proof:context-pack:v2",
         "edit_batch_v2" => "proof:edit-batch:v2",
         "edit_v2" => "proof:edit:v2",
+        "object_create_edit_v2" => "proof:object-create-edit:v2",
         "changeset_v2" => "proof:changeset:v2",
         "validation_results_v2" => "proof:validation-results:v2",
         "object_locale_revision_v1" => "proof:object-locale-revision:v1",

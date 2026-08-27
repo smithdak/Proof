@@ -314,7 +314,7 @@
             "known_state_v1", "schema_version_v1", "edit_batch_v1", "operation_effect_v1",
             "schema_set_v1", "object_revision_v1", "object_set_v1", "environment_config_v1",
             "release_v1", "proof_envelope_v1", "authorization_decision_v1", "policy_bundle_v1",
-            "content_resource_intent_v1", "context_pack_v2", "edit_batch_v2", "edit_v2",
+            "content_resource_intent_v1", "context_pack_v2", "edit_batch_v2", "edit_v2", "object_create_edit_v2",
             "changeset_v2", "validation_results_v2", "object_locale_revision_v1", "object_set_v2",
             "known_state_v2", "edition_v2", "release_v2",
             "release_signing_key_v1", "release_signing_key_revocation_v1",

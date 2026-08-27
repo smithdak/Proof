@@ -2,7 +2,7 @@
   "api_version": "proof.dev/verifier-finding-code-registry/v1",
   "namespace": "proof.verify.",
   "report_findings": {
-    "code_count": 156,
+    "code_count": 161,
     "families": {
       "actor": [
         "proof.verify.actor.missing"
@@ -104,6 +104,7 @@
         "proof.verify.content.delta_state_mismatch",
         "proof.verify.content.edit_artifact",
         "proof.verify.content.edit_batch",
+        "proof.verify.content.edit_causality",
         "proof.verify.content.edit_lineage",
         "proof.verify.content.edit_shape",
         "proof.verify.content.edit_targets",
@@ -114,6 +115,10 @@
         "proof.verify.content.intent",
         "proof.verify.content.intent_cross_link",
         "proof.verify.content.intent_targets",
+        "proof.verify.content.object_cross_link",
+        "proof.verify.content.object_removal",
+        "proof.verify.content.object_targets",
+        "proof.verify.content.objects",
         "proof.verify.content.promotion_shape",
         "proof.verify.content.proposal_reconstruction",
         "proof.verify.content.reference_artifacts",

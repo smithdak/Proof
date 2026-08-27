@@ -256,6 +256,7 @@ impl Fixture {
         prepare_release(&repository, object_id, now);
         let intent = repository
             .issue_content_resource_intent(IssueContentResourceIntentCommand {
+                creations: Vec::new(),
                 intent_id: generated_id(),
                 environment_id: ENVIRONMENT_ID.parse().unwrap(),
                 targets: vec![LocalizedContentTarget {

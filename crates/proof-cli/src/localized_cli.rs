@@ -13,13 +13,13 @@ use proof_application::{
     ExpectedLocalizedTarget, IdempotencyKey, IssueContentResourceIntentCommand, LocaleId,
     LocaleRevision, LocalizedChangeSet, LocalizedChangeSetDiff, LocalizedContentBaseline,
     LocalizedContentError, LocalizedContentRepository, LocalizedContentTarget,
-    LocalizedContextLimits, LocalizedContextPack, LocalizedEdit, LocalizedEdition,
-    LocalizedFinding, LocalizedPolicyRule, LocalizedRelease, LocalizedReleaseVerification,
-    LocalizedValidation, ObjectLocalePutInput, ObjectLocaleRevision, ObjectRevision,
-    PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand, ReleaseArtifactReference,
-    ReleasedLocaleTarget, ReleasedRendition, ReleasedRenditionQuery, ResultEnvelope,
-    RollbackLocalizedReleaseCommand, SchemaId, SchemaVersion, SubmittedLocalizedChangeSet,
-    VerifyLocalizedReleaseCommand,
+    LocalizedContextLimits, LocalizedContextPack, LocalizedCreationSlot, LocalizedEdit,
+    LocalizedEditAttempt, LocalizedEdition, LocalizedFinding, LocalizedPolicyRule,
+    LocalizedRelease, LocalizedReleaseVerification, LocalizedValidation, ObjectCreateInput,
+    ObjectLocalePutInput, ObjectLocaleRevision, ObjectRevision, PromoteLocalizedReleaseCommand,
+    QueryReleasedRenditionsCommand, ReleaseArtifactReference, ReleasedLocaleTarget,
+    ReleasedRendition, ReleasedRenditionQuery, ResultEnvelope, RollbackLocalizedReleaseCommand,
+    SchemaId, SchemaVersion, SubmittedLocalizedChangeSet, VerifyLocalizedReleaseCommand,
 };
 use proof_canonical::canonicalize;
 use proof_local::LocalWorkspace;
@@ -44,6 +44,9 @@ pub(super) enum LocalizedAction {
         /// Exact `OBJECT_ID:SCHEMA_ID:LOCALE` tuple; repeat for every target.
         #[arg(long, required = true)]
         target: Vec<String>,
+        /// Reserved `OBJECT_ID:SCHEMA_ID:LOCALE[,LOCALE...]` slot; repeat per Object.
+        #[arg(long)]
+        creation: Vec<String>,
         /// Supply a `UUIDv7` retry key; one is generated when omitted.
         #[arg(long)]
         idempotency_key: Option<String>,
@@ -94,7 +97,7 @@ pub(super) enum LocalizedAction {
         #[arg(long)]
         idempotency_key: Option<String>,
     },
-    /// Atomically append `object.locale.put` attempts from NDJSON.
+    /// Atomically append kind-discriminated localized Edit attempts from NDJSON.
     ChangesetAdd {
         /// Target localized `ChangeSet` `UUIDv7`.
         changeset_id: String,
@@ -222,15 +225,27 @@ struct ContextLimitsInput {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EditInput {
-    object_id: String,
-    locale: String,
-    expected_source: SourceInput,
-    expected_target: Option<TargetInput>,
-    content: Value,
-    supersedes_edit_id: Option<String>,
-    repair_of_validation_result_digest: Option<String>,
+#[serde(tag = "kind", deny_unknown_fields)]
+enum EditInput {
+    #[serde(rename = "object.locale.put")]
+    ObjectLocalePut {
+        object_id: String,
+        locale: String,
+        expected_source: SourceInput,
+        expected_target: Option<TargetInput>,
+        content: Value,
+        supersedes_edit_id: Option<String>,
+        repair_of_validation_result_digest: Option<String>,
+    },
+    #[serde(rename = "object.create")]
+    ObjectCreate {
+        object_id: String,
+        schema_id: String,
+        schema_version: u32,
+        content: Value,
+        supersedes_edit_id: Option<String>,
+        repair_of_validation_result_digest: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -265,11 +280,16 @@ pub(super) fn run_localized(
         LocalizedAction::IntentIssue {
             environment,
             target,
+            creation,
             idempotency_key,
         } => {
             let idempotency_key = optional_id(idempotency_key, operation, context)?;
             let intent = repository
                 .issue_content_resource_intent(IssueContentResourceIntentCommand {
+                    creations: creation
+                        .iter()
+                        .map(|value| parse_creation_slot(value, operation, context))
+                        .collect::<Result<Vec<_>, _>>()?,
                     intent_id: generated_id(),
                     environment_id: parse(&environment, "environment", operation, context)?,
                     targets: target
@@ -619,6 +639,45 @@ fn parse_content_target(
     })
 }
 
+fn parse_creation_slot(
+    value: &str,
+    operation: &str,
+    context: ExecutionContext,
+) -> Result<LocalizedCreationSlot, Box<Problem>> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(input_problem(
+            operation,
+            context,
+            "creation must use OBJECT_ID:SCHEMA_ID:LOCALE[,LOCALE...]".to_owned(),
+        ));
+    }
+    let mut locales = parts[2]
+        .split(',')
+        .map(|locale| {
+            LocaleId::new(locale).map_err(|error| {
+                input_problem(
+                    operation,
+                    context,
+                    format!("invalid creation locale: {error}"),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    locales.sort();
+    Ok(LocalizedCreationSlot {
+        object_id: parse(parts[0], "creation object-id", operation, context)?,
+        schema_id: SchemaId::new(parts[1]).map_err(|error| {
+            input_problem(
+                operation,
+                context,
+                format!("invalid creation schema-id: {error}"),
+            )
+        })?,
+        locales,
+    })
+}
+
 fn parse_locale_target(
     value: &str,
     operation: &str,
@@ -648,7 +707,7 @@ fn read_edits(
     path: &Path,
     operation: &str,
     context: ExecutionContext,
-) -> Result<Vec<ObjectLocalePutInput>, Box<Problem>> {
+) -> Result<Vec<proof_application::LocalizedEditAttempt>, Box<Problem>> {
     let bytes = read_input(path).map_err(|detail| input_problem(operation, context, detail))?;
     let text = std::str::from_utf8(&bytes)
         .map_err(|error| input_problem(operation, context, error.to_string()))?;
@@ -664,46 +723,85 @@ fn read_edits(
                 format!("invalid NDJSON record {}: {error}", index + 1),
             )
         })?;
-        let canonical_content = canonicalize(&input.content)
-            .map_err(|error| input_problem(operation, context, error.to_string()))?;
-        edits.push(ObjectLocalePutInput {
-            object_id: parse(&input.object_id, "object-id", operation, context)?,
-            locale: parse(&input.locale, "locale", operation, context)?,
-            expected_source: ExpectedLocalizedSource {
-                revision: ObjectRevision::new(input.expected_source.revision)
-                    .map_err(|error| input_problem(operation, context, error.to_string()))?,
-                digest: parse(
-                    &input.expected_source.digest,
-                    "source digest",
-                    operation,
-                    context,
-                )?,
-                schema_id: SchemaId::new(input.expected_source.schema_id)
-                    .map_err(|error| input_problem(operation, context, error.to_string()))?,
-                schema_version: SchemaVersion::new(input.expected_source.schema_version)
-                    .map_err(|error| input_problem(operation, context, error.to_string()))?,
-            },
-            expected_target: input
-                .expected_target
-                .map(|target| {
-                    Ok::<ExpectedLocalizedTarget, Box<Problem>>(ExpectedLocalizedTarget {
-                        revision: LocaleRevision::new(target.revision).map_err(|error| {
+        let edit = match input {
+            EditInput::ObjectLocalePut {
+                object_id,
+                locale,
+                expected_source,
+                expected_target,
+                content,
+                supersedes_edit_id,
+                repair_of_validation_result_digest,
+            } => {
+                let canonical_content = canonicalize(&content)
+                    .map_err(|error| input_problem(operation, context, error.to_string()))?;
+                LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
+                    object_id: parse(&object_id, "object-id", operation, context)?,
+                    locale: parse(&locale, "locale", operation, context)?,
+                    expected_source: ExpectedLocalizedSource {
+                        revision: ObjectRevision::new(expected_source.revision).map_err(
+                            |error| input_problem(operation, context, error.to_string()),
+                        )?,
+                        digest: parse(
+                            &expected_source.digest,
+                            "source digest",
+                            operation,
+                            context,
+                        )?,
+                        schema_id: SchemaId::new(expected_source.schema_id).map_err(|error| {
                             input_problem(operation, context, error.to_string())
                         })?,
-                        digest: parse(&target.digest, "target digest", operation, context)?,
-                    })
+                        schema_version: SchemaVersion::new(expected_source.schema_version)
+                            .map_err(|error| {
+                                input_problem(operation, context, error.to_string())
+                            })?,
+                    },
+                    expected_target: expected_target
+                        .map(|target| {
+                            Ok::<ExpectedLocalizedTarget, Box<Problem>>(ExpectedLocalizedTarget {
+                                revision: LocaleRevision::new(target.revision).map_err(
+                                    |error| input_problem(operation, context, error.to_string()),
+                                )?,
+                                digest: parse(&target.digest, "target digest", operation, context)?,
+                            })
+                        })
+                        .transpose()?,
+                    canonical_content: canonical_content.as_str().to_owned(),
+                    supersedes_edit_id: supersedes_edit_id
+                        .map(|value| parse(&value, "supersedes-edit-id", operation, context))
+                        .transpose()?,
+                    repair_of_validation_result_digest: repair_of_validation_result_digest
+                        .map(|value| parse(&value, "repair validation digest", operation, context))
+                        .transpose()?,
                 })
-                .transpose()?,
-            canonical_content: canonical_content.as_str().to_owned(),
-            supersedes_edit_id: input
-                .supersedes_edit_id
-                .map(|value| parse(&value, "supersedes-edit-id", operation, context))
-                .transpose()?,
-            repair_of_validation_result_digest: input
-                .repair_of_validation_result_digest
-                .map(|value| parse(&value, "repair validation digest", operation, context))
-                .transpose()?,
-        });
+            }
+            EditInput::ObjectCreate {
+                object_id,
+                schema_id,
+                schema_version,
+                content,
+                supersedes_edit_id,
+                repair_of_validation_result_digest,
+            } => {
+                let canonical_content = canonicalize(&content)
+                    .map_err(|error| input_problem(operation, context, error.to_string()))?;
+                LocalizedEditAttempt::ObjectCreate(ObjectCreateInput {
+                    object_id: parse(&object_id, "object-id", operation, context)?,
+                    schema_id: SchemaId::new(schema_id)
+                        .map_err(|error| input_problem(operation, context, error.to_string()))?,
+                    schema_version: SchemaVersion::new(schema_version)
+                        .map_err(|error| input_problem(operation, context, error.to_string()))?,
+                    canonical_content: canonical_content.as_str().to_owned(),
+                    supersedes_edit_id: supersedes_edit_id
+                        .map(|value| parse(&value, "supersedes-edit-id", operation, context))
+                        .transpose()?,
+                    repair_of_validation_result_digest: repair_of_validation_result_digest
+                        .map(|value| parse(&value, "repair validation digest", operation, context))
+                        .transpose()?,
+                })
+            }
+        };
+        edits.push(edit);
     }
     Ok(edits)
 }
@@ -848,6 +946,18 @@ fn localized_problem(
             "proof.input.intent_mismatch",
             false,
         ),
+        LocalizedContentError::IntentSlotMismatch => (
+            "urn:proof:problem:intent-slot-mismatch",
+            "Resource intent creation slot mismatch",
+            "proof.intent.slot_mismatch",
+            false,
+        ),
+        LocalizedContentError::SchemaNotFound => (
+            "urn:proof:problem:schema-not-found",
+            "Schema not found",
+            "proof.schema.not_found",
+            false,
+        ),
         LocalizedContentError::SourceConflict => conflict_mapping(
             "The locale-neutral source precondition changed",
             "proof.state.source_conflict",
@@ -859,6 +969,12 @@ fn localized_problem(
         LocalizedContentError::StateConflict => conflict_mapping(
             "The localized-content baseline changed concurrently",
             "proof.state.conflict",
+        ),
+        LocalizedContentError::ObjectExists => (
+            "urn:proof:problem:object-exists",
+            "Object already exists",
+            "proof.state.object_exists",
+            false,
         ),
         LocalizedContentError::DuplicateActiveTarget => conflict_mapping(
             "The ChangeSet already has an active Edit for this target",
@@ -1019,12 +1135,26 @@ fn target_value(target: &LocalizedContentTarget) -> Value {
     })
 }
 
+fn creation_slot_value(slot: &proof_application::LocalizedCreationSlot) -> Value {
+    json!({
+        "locales": slot.locales.iter().map(LocaleId::as_str).collect::<Vec<_>>(),
+        "object_id": slot.object_id.to_string(),
+        "schema_id": slot.schema_id.as_str(),
+    })
+}
+
 fn content_intent_value(
     intent: &ContentResourceIntent,
     idempotency_key: Option<IdempotencyKey>,
 ) -> Value {
+    let canonical = serde_json::from_str::<Value>(&intent.canonical_json).unwrap_or(Value::Null);
+    let api_version = canonical
+        .get("api_version")
+        .and_then(Value::as_str)
+        .unwrap_or(proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2)
+        .to_owned();
     json!({
-        "api_version": proof_application::CONTENT_RESOURCE_INTENT_API_VERSION,
+        "api_version": api_version,
         "intent_id": intent.intent_id.to_string(),
         "workspace_id": intent.workspace_id.to_string(),
         "issued_by_principal_id": intent.issued_by_principal_id.to_string(),
@@ -1032,7 +1162,8 @@ fn content_intent_value(
         "environment_id": intent.environment_id.as_str(),
         "base": baseline_value(&intent.base),
         "targets": intent.targets.iter().map(target_value).collect::<Vec<_>>(),
-        "canonical": serde_json::from_str::<Value>(&intent.canonical_json).unwrap_or(Value::Null),
+        "creations": intent.creations.iter().map(creation_slot_value).collect::<Vec<_>>(),
+        "canonical": canonical,
         "canonical_json": intent.canonical_json,
         "intent_digest": intent.intent_digest.to_string(),
         "idempotency_key": idempotency_key.map(|value| value.to_string()),
@@ -1068,26 +1199,51 @@ fn context_pack_value(
 }
 
 fn edit_value(edit: &LocalizedEdit) -> Value {
+    let (kind, object_id, locale) = match &edit.input {
+        proof_application::LocalizedEditAttempt::LocalePut(input) => (
+            "object.locale.put",
+            input.object_id.to_string(),
+            Some(input.locale.as_str().to_owned()),
+        ),
+        proof_application::LocalizedEditAttempt::ObjectCreate(input) => {
+            ("object.create", input.object_id.to_string(), None)
+        }
+    };
     json!({
         "ordinal": edit.ordinal,
         "edit_id": edit.edit_id.to_string(),
         "effective": edit.effective,
-        "object_id": edit.input.object_id.to_string(),
-        "locale": edit.input.locale.as_str(),
-        "expected_source": {
-            "revision": edit.input.expected_source.revision.get(),
-            "digest": edit.input.expected_source.digest.to_string(),
-            "schema_id": edit.input.expected_source.schema_id.as_str(),
-            "schema_version": edit.input.expected_source.schema_version.get(),
+        "kind": kind,
+        "object_id": object_id,
+        "locale": locale,
+        "expected_source": match &edit.input {
+            proof_application::LocalizedEditAttempt::LocalePut(input) => json!({
+                "revision": input.expected_source.revision.get(),
+                "digest": input.expected_source.digest.to_string(),
+                "schema_id": input.expected_source.schema_id.as_str(),
+                "schema_version": input.expected_source.schema_version.get(),
+            }),
+            proof_application::LocalizedEditAttempt::ObjectCreate(_) => Value::Null,
         },
-        "expected_target": edit.input.expected_target.as_ref().map(|target| json!({
-            "revision": target.revision.get(),
-            "digest": target.digest.to_string(),
-        })),
-        "content": serde_json::from_str::<Value>(&edit.input.canonical_content).unwrap_or(Value::Null),
-        "canonical_content": edit.input.canonical_content,
-        "supersedes_edit_id": edit.input.supersedes_edit_id.map(|value| value.to_string()),
-        "repair_of_validation_result_digest": edit.input.repair_of_validation_result_digest.map(|value| value.to_string()),
+        "expected_target": match &edit.input {
+            proof_application::LocalizedEditAttempt::LocalePut(input) => {
+                input.expected_target.as_ref().map(|target| json!({
+                    "revision": target.revision.get(),
+                    "digest": target.digest.to_string(),
+                }))
+            }
+            proof_application::LocalizedEditAttempt::ObjectCreate(_) => None,
+        },
+        "content": serde_json::from_str::<Value>(match &edit.input {
+            proof_application::LocalizedEditAttempt::LocalePut(input) => &input.canonical_content,
+            proof_application::LocalizedEditAttempt::ObjectCreate(input) => &input.canonical_content,
+        }).unwrap_or(Value::Null),
+        "canonical_content": match &edit.input {
+            proof_application::LocalizedEditAttempt::LocalePut(input) => &input.canonical_content,
+            proof_application::LocalizedEditAttempt::ObjectCreate(input) => &input.canonical_content,
+        },
+        "supersedes_edit_id": edit.input.supersedes_edit_id().map(|value| value.to_string()),
+        "repair_of_validation_result_digest": edit.input.repair_of_validation_result_digest().map(|value| value.to_string()),
         "canonical": serde_json::from_str::<Value>(&edit.canonical_json).unwrap_or(Value::Null),
         "canonical_json": edit.canonical_json,
         "edit_digest": edit.edit_digest.to_string(),
@@ -1298,4 +1454,38 @@ fn verification_value(verification: &LocalizedReleaseVerification) -> Value {
         "findings": verification.findings,
         "verified_at": verification.verified_at.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creation_errors_keep_their_registered_cli_problems() {
+        let context = ExecutionContext {
+            operation_id: "019d0000-0000-7000-8000-000000000001".parse().unwrap(),
+            correlation_id: "019d0000-0000-7000-8000-000000000002".parse().unwrap(),
+        };
+        for (error, expected_code, expected_type) in [
+            (
+                LocalizedContentError::IntentSlotMismatch,
+                "proof.intent.slot_mismatch",
+                "urn:proof:problem:intent-slot-mismatch",
+            ),
+            (
+                LocalizedContentError::SchemaNotFound,
+                "proof.schema.not_found",
+                "urn:proof:problem:schema-not-found",
+            ),
+            (
+                LocalizedContentError::ObjectExists,
+                "proof.state.object_exists",
+                "urn:proof:problem:object-exists",
+            ),
+        ] {
+            let problem = localized_problem(&error, "changeset.add", context);
+            assert_eq!(problem.code, expected_code);
+            assert_eq!(problem.problem_type, expected_type);
+        }
+    }
 }

@@ -64,6 +64,9 @@ const V1_SCHEMA_EDIT_ID: &str = "019c0000-0000-7000-8000-00000000008d";
 const V1_OBJECT_EDIT_ID: &str = "019c0000-0000-7000-8000-00000000008e";
 const V1_IDEMPOTENCY_KEY: &str = "019c0000-0000-7000-8000-00000000008f";
 const OBJECT_ID: &str = "019c0000-0000-7000-8000-000000000010";
+const CREATED_OBJECT_ID: &str = "019c0000-0000-7000-8000-000000000090";
+const CREATE_EDIT_ID: &str = "019c0000-0000-7000-8000-000000000091";
+const REPAIRED_CREATE_EDIT_ID: &str = "019c0000-0000-7000-8000-000000000092";
 const SCHEMA_ID: &str = "campaign";
 const LOCALE: &str = "es-ES";
 const ENVIRONMENT_ID: &str = "preview";
@@ -166,6 +169,18 @@ pub enum SignatureMode {
     ReleaseSignerReusesAuthorityRootKey,
     ReleaseSignerReusesBindingKey,
     V2ReleaseBeforeEditionCreatedAt,
+    LocalizedCreationConstructive,
+    LocalizedCreationCandidateOmitted,
+    LocalizedCreationCausalityViolation,
+    LocalizedCreationRepaired,
+    LocalizedCreationRepairEvidenceMissing,
+    LocalizedCreationRepairPairMissing,
+    LocalizedCreationRepairSupersedesMismatch,
+    LocalizedV2CreationsOmitted,
+    LocalizedV2CreationsEmpty,
+    LocalizedV2CreationsMalformed,
+    LocalizedV2CreationsUnsorted,
+    LocalizedV2CreationsOverLimit,
     HistoricalV2DistinctAuthorizationTime,
     HistoricalV2ResultProofMetadataMismatch,
     HistoricalV2ResultProofIdMismatch,
@@ -207,6 +222,48 @@ fn non_genesis_v1_mode(signature: SignatureMode) -> bool {
             | SignatureMode::NonGenesisV1SequenceGap
             | SignatureMode::NonGenesisV1ApprovalPrincipalMismatch
             | SignatureMode::NonGenesisV1ZeroBasedOrdinals
+    )
+}
+
+fn localized_creation_mode(signature: SignatureMode) -> bool {
+    matches!(
+        signature,
+        SignatureMode::LocalizedCreationConstructive
+            | SignatureMode::LocalizedCreationCandidateOmitted
+            | SignatureMode::LocalizedCreationCausalityViolation
+            | SignatureMode::LocalizedCreationRepaired
+            | SignatureMode::LocalizedCreationRepairEvidenceMissing
+            | SignatureMode::LocalizedCreationRepairPairMissing
+            | SignatureMode::LocalizedCreationRepairSupersedesMismatch
+    )
+}
+
+fn localized_creation_repair_mode(signature: SignatureMode) -> bool {
+    matches!(
+        signature,
+        SignatureMode::LocalizedCreationRepaired
+            | SignatureMode::LocalizedCreationRepairEvidenceMissing
+            | SignatureMode::LocalizedCreationRepairPairMissing
+            | SignatureMode::LocalizedCreationRepairSupersedesMismatch
+    )
+}
+
+fn localized_creation_repair_validation_mode(signature: SignatureMode) -> bool {
+    matches!(
+        signature,
+        SignatureMode::LocalizedCreationRepaired
+            | SignatureMode::LocalizedCreationRepairSupersedesMismatch
+    )
+}
+
+fn localized_v2_noncreation_intent_mode(signature: SignatureMode) -> bool {
+    matches!(
+        signature,
+        SignatureMode::LocalizedV2CreationsOmitted
+            | SignatureMode::LocalizedV2CreationsEmpty
+            | SignatureMode::LocalizedV2CreationsMalformed
+            | SignatureMode::LocalizedV2CreationsUnsorted
+            | SignatureMode::LocalizedV2CreationsOverLimit
     )
 }
 
@@ -730,6 +787,48 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         ArtifactKind::ObjectRevisionV1,
         &source,
     );
+    let creation_mode = localized_creation_mode(signature);
+    let creation_repair_mode = localized_creation_repair_mode(signature);
+    let creation_repair_has_validation = localized_creation_repair_validation_mode(signature);
+    let max_edits_per_changeset = if creation_repair_mode {
+        3
+    } else if creation_mode {
+        2
+    } else {
+        1
+    };
+    let created_source = json!({
+        "api_version": "proof.dev/object-revision/v1",
+        "content": {"title": "Canonical source"},
+        "lifecycle_state": "active",
+        "object_id": CREATED_OBJECT_ID,
+        "relationships": [],
+        "revision": 1,
+        "schema_id": SCHEMA_ID,
+        "schema_version": 1,
+    });
+    let created_source_ref = creation_mode.then(|| {
+        store.add(
+            EvidenceRole::Object,
+            ArtifactKind::ObjectRevisionV1,
+            &created_source,
+        )
+    });
+    let omitted_candidate_document = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {"title": {"maxLength": 200, "type": "string"}},
+        "required": ["title"],
+        "type": "object",
+        "x-proof-localizable": ["/title"],
+    });
+    let omitted_candidate_ref = (signature == SignatureMode::LocalizedCreationCandidateOmitted)
+        .then(|| {
+            store.add(
+                EvidenceRole::Schema,
+                ArtifactKind::SchemaVersionV1,
+                &omitted_candidate_document,
+            )
+        });
     let schema_state = json!({
         "document_digest": schema_ref.digest,
         "schema_id": SCHEMA_ID,
@@ -1255,9 +1354,15 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
     }
     let base_release_reference = release_reference_v1(base_release_ref, BASE_RELEASE_ID);
 
+    let localized_object_id = if creation_mode {
+        CREATED_OBJECT_ID
+    } else {
+        OBJECT_ID
+    };
+    let localized_source_ref = created_source_ref.unwrap_or(source_ref);
     let targets = json!([{
         "locale": LOCALE,
-        "object_id": OBJECT_ID,
+        "object_id": localized_object_id,
         "schema_id": SCHEMA_ID,
     }]);
     let base_closure = json!({
@@ -1266,21 +1371,135 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "release": base_release_reference,
     });
     let content_created_at = if non_genesis_v1 { V1_RELEASED_AT } else { T0 };
-    let intent = json!({
-        "api_version": "proof.dev/content-resource-intent/v1",
-        "base": base_closure,
-        "environment_id": ENVIRONMENT_ID,
-        "intent_id": INTENT_ID,
-        "issued_at": content_created_at,
-        "issued_by_principal_id": HUMAN_ID,
-        "targets": targets,
-        "workspace_id": WORKSPACE_ID,
-    });
+    let intent = if creation_mode {
+        json!({
+            "api_version": "proof.dev/content-resource-intent/v2",
+            "base": base_closure,
+            "creations": [{
+                "locales": [LOCALE],
+                "object_id": CREATED_OBJECT_ID,
+                "schema_id": SCHEMA_ID,
+            }],
+            "environment_id": ENVIRONMENT_ID,
+            "intent_id": INTENT_ID,
+            "issued_at": content_created_at,
+            "issued_by_principal_id": HUMAN_ID,
+            "targets": targets,
+            "workspace_id": WORKSPACE_ID,
+        })
+    } else if localized_v2_noncreation_intent_mode(signature) {
+        let mut intent = json!({
+            "api_version": "proof.dev/content-resource-intent/v2",
+            "base": base_closure,
+            "environment_id": ENVIRONMENT_ID,
+            "intent_id": INTENT_ID,
+            "issued_at": content_created_at,
+            "issued_by_principal_id": HUMAN_ID,
+            "targets": targets,
+            "workspace_id": WORKSPACE_ID,
+        });
+        let creations = match signature {
+            SignatureMode::LocalizedV2CreationsEmpty => Some(json!([])),
+            SignatureMode::LocalizedV2CreationsMalformed => Some(json!([{}])),
+            SignatureMode::LocalizedV2CreationsUnsorted => Some(json!([
+                {
+                    "locales": [LOCALE],
+                    "object_id": "019c0000-0000-7000-8000-000000000092",
+                    "schema_id": SCHEMA_ID,
+                },
+                {
+                    "locales": [LOCALE],
+                    "object_id": "019c0000-0000-7000-8000-000000000091",
+                    "schema_id": SCHEMA_ID,
+                },
+            ])),
+            SignatureMode::LocalizedV2CreationsOverLimit => Some(Value::Array(
+                (0..101)
+                    .map(|index| {
+                        json!({
+                            "locales": [LOCALE],
+                            "object_id": format!("019c0000-0000-7000-8000-{index:012x}"),
+                            "schema_id": SCHEMA_ID,
+                        })
+                    })
+                    .collect(),
+            )),
+            SignatureMode::LocalizedV2CreationsOmitted => None,
+            _ => unreachable!(),
+        };
+        if let Some(creations) = creations {
+            intent["creations"] = creations;
+        }
+        intent
+    } else {
+        json!({
+            "api_version": "proof.dev/content-resource-intent/v1",
+            "base": base_closure,
+            "environment_id": ENVIRONMENT_ID,
+            "intent_id": INTENT_ID,
+            "issued_at": content_created_at,
+            "issued_by_principal_id": HUMAN_ID,
+            "targets": targets,
+            "workspace_id": WORKSPACE_ID,
+        })
+    };
     let intent_ref = store.add(
         EvidenceRole::ResourceIntent,
         ArtifactKind::ContentResourceIntentV1,
         &intent,
     );
+    let schema_closure = json!({
+        "document": schema,
+        "document_digest": schema_ref.digest,
+        "localizable_pointers": ["/title"],
+        "schema_id": SCHEMA_ID,
+        "schema_version": 1,
+    });
+    let creation_candidates = if let Some(candidate_ref) = omitted_candidate_ref {
+        json!([{
+            "document": omitted_candidate_document,
+            "document_digest": candidate_ref.digest,
+            "localizable_pointers": ["/title"],
+            "schema_id": SCHEMA_ID,
+            "schema_version": 2,
+        }])
+    } else {
+        Value::Array(vec![schema_closure.clone()])
+    };
+    let context_resource = if creation_mode {
+        json!({
+            "locale": LOCALE,
+            "object_id": CREATED_OBJECT_ID,
+            "schema_candidates": creation_candidates,
+            "source": {
+                "absent": true,
+                "api_version": "proof.dev/object-revision-absence/v1",
+                "authoritative_sequence": base_authoritative_sequence,
+            },
+            "target": {
+                "absent": true,
+                "api_version": "proof.dev/object-locale-absence/v1",
+                "authoritative_sequence": base_authoritative_sequence,
+            },
+        })
+    } else {
+        json!({
+            "locale": LOCALE,
+            "object_id": OBJECT_ID,
+            "schema": schema_closure,
+            "source": {
+                "api_version": "proof.dev/object-revision/v1",
+                "content": source["content"],
+                "digest": source_ref.digest,
+                "revision": 1,
+            },
+            "target": {
+                "absent": true,
+                "api_version": "proof.dev/object-locale-absence/v1",
+                "authoritative_sequence": base_authoritative_sequence,
+            },
+        })
+    };
     let context_pack = json!({
         "allowed_operations": [
             "proof.dev/operation/changeset.create/v2",
@@ -1308,38 +1527,21 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         ],
         "expires_at": "2027-08-21T10:00:00Z",
         "limits": {
-            "max_bytes": 4096,
-            "max_edits": 1,
+            "max_bytes": if signature == SignatureMode::LocalizedV2CreationsOverLimit {
+                1_048_576
+            } else {
+                4096
+            },
+            "max_edits": max_edits_per_changeset,
             "max_objects": 1,
-            "max_validation_attempts": 1,
+            "max_validation_attempts": if creation_repair_has_validation { 2 } else { 1 },
         },
         "policy": localized_policy,
         "policy_digest": localized_policy_ref.digest,
         "principal_id": HUMAN_ID,
         "resource_intent": intent,
         "resource_intent_digest": intent_ref.digest,
-        "resources": [{
-            "locale": LOCALE,
-            "object_id": OBJECT_ID,
-            "schema": {
-                "document": schema,
-                "document_digest": schema_ref.digest,
-                "localizable_pointers": ["/title"],
-                "schema_id": SCHEMA_ID,
-                "schema_version": 1,
-            },
-            "source": {
-                "api_version": "proof.dev/object-revision/v1",
-                "content": source["content"],
-                "digest": source_ref.digest,
-                "revision": 1,
-            },
-            "target": {
-                "absent": true,
-                "api_version": "proof.dev/object-locale-absence/v1",
-                "authoritative_sequence": base_authoritative_sequence,
-            },
-        }],
+        "resources": [context_resource],
         "target_ordering": "object_id,schema_id,locale:utf8-ascending",
         "validator": "proof/localized-content/1",
         "workspace_id": WORKSPACE_ID,
@@ -1349,12 +1551,126 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         ArtifactKind::ContextPackV2,
         &context_pack,
     );
+    let create_edit = json!({
+        "api_version": "proof.dev/edit/v2",
+        "content": if creation_repair_mode {
+            json!({"title": "Guaranteed approval"})
+        } else {
+            created_source["content"].clone()
+        },
+        "edit_id": CREATE_EDIT_ID,
+        "kind": "object.create",
+        "object_id": CREATED_OBJECT_ID,
+        "repair_of_validation_result_digest": null,
+        "schema_id": SCHEMA_ID,
+        "schema_version": 1,
+        "supersedes_edit_id": null,
+    });
+    let create_edit_ref = creation_mode.then(|| {
+        store.add(
+            EvidenceRole::Edit,
+            ArtifactKind::ObjectCreateEditV2,
+            &create_edit,
+        )
+    });
+    let repair_validation = creation_repair_has_validation.then(|| {
+        let create_ref = create_edit_ref.unwrap();
+        let prefix_batch = json!({
+            "api_version": "proof.dev/edit-batch/v2",
+            "edits": [create_edit],
+        });
+        let prefix_effective_digest = digest(ArtifactKind::EditBatchV2, &canonical(&prefix_batch));
+        let prefix_leaves = json!([{
+            "edit_digest": create_ref.digest,
+            "edit_id": CREATE_EDIT_ID,
+            "object_id": CREATED_OBJECT_ID,
+        }]);
+        let prefix_proposal = json!({
+            "api_version": "proof.dev/changeset/v2",
+            "base_state": base_state_reference,
+            "changeset_id": CHANGESET_ID,
+            "context_pack_digest": context_ref.digest,
+            "context_pack_id": CONTEXT_ID,
+            "created_at": content_created_at,
+            "edits": [create_edit],
+            "effective_leaf_digest": prefix_effective_digest,
+            "effective_leaves": prefix_leaves,
+            "intent": "Create an approved Spanish rendition",
+            "principal_id": HUMAN_ID,
+            "resource_intent_digest": intent_ref.digest,
+            "resource_intent_id": INTENT_ID,
+            "workspace_id": WORKSPACE_ID,
+        });
+        let prefix_proposal_digest =
+            digest(ArtifactKind::ChangeSetV2, &canonical(&prefix_proposal));
+        let validation = json!({
+            "api_version": "proof.dev/validation-results/v2",
+            "attempt": 1,
+            "changeset_id": CHANGESET_ID,
+            "context_pack_digest": context_ref.digest,
+            "effective_leaf_digest": prefix_effective_digest,
+            "findings": [{
+                "code": "proof.validation.prohibited_legal_claim",
+                "edit_id": CREATE_EDIT_ID,
+                "locale": LOCALE,
+                "object_id": CREATED_OBJECT_ID,
+                "pointer": "/title",
+                "policy_digest": localized_policy_ref.digest,
+                "severity": "error",
+                "validator": "proof/localized-content/1",
+            }],
+            "policy_digest": localized_policy_ref.digest,
+            "previous_validation_result_digest": null,
+            "proposal_digest": prefix_proposal_digest,
+            "schema_digests": [schema_state],
+            "valid": false,
+            "validator": "proof/localized-content/1",
+        });
+        let reference = store.add(
+            EvidenceRole::ValidationAttempt,
+            ArtifactKind::ValidationResultsV2,
+            &validation,
+        );
+        (reference, prefix_proposal_digest)
+    });
+    let repair_validation_digest = match signature {
+        SignatureMode::LocalizedCreationRepaired
+        | SignatureMode::LocalizedCreationRepairSupersedesMismatch => {
+            serde_json::to_value(repair_validation.unwrap().0.digest).unwrap()
+        }
+        SignatureMode::LocalizedCreationRepairEvidenceMissing => {
+            serde_json::to_value(Digest([0x94; 32])).unwrap()
+        }
+        _ => Value::Null,
+    };
+    let repaired_create_edit = json!({
+        "api_version": "proof.dev/edit/v2",
+        "content": created_source["content"],
+        "edit_id": REPAIRED_CREATE_EDIT_ID,
+        "kind": "object.create",
+        "object_id": CREATED_OBJECT_ID,
+        "repair_of_validation_result_digest": repair_validation_digest,
+        "schema_id": SCHEMA_ID,
+        "schema_version": 1,
+        "supersedes_edit_id": if signature == SignatureMode::LocalizedCreationRepairSupersedesMismatch {
+            EDIT_ID
+        } else {
+            CREATE_EDIT_ID
+        },
+    });
+    let repaired_create_edit_ref = creation_repair_mode.then(|| {
+        store.add(
+            EvidenceRole::Edit,
+            ArtifactKind::ObjectCreateEditV2,
+            &repaired_create_edit,
+        )
+    });
     let edit = json!({
         "api_version": "proof.dev/edit/v2",
         "content": {"title": "Versión aprobada"},
         "edit_id": EDIT_ID,
         "expected_source": {
-            "digest": source_ref.digest,
+            "digest": localized_source_ref.digest,
             "revision": 1,
             "schema_id": SCHEMA_ID,
             "schema_version": 1,
@@ -1362,26 +1678,65 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "expected_target": null,
         "kind": "object.locale.put",
         "locale": LOCALE,
-        "object_id": OBJECT_ID,
+        "object_id": localized_object_id,
         "repair_of_validation_result_digest": null,
         "supersedes_edit_id": null,
     });
     let edit_ref = store.add(EvidenceRole::Edit, ArtifactKind::EditV2, &edit);
+    let effective_edits = if creation_repair_mode {
+        vec![repaired_create_edit.clone(), edit.clone()]
+    } else if creation_mode {
+        vec![create_edit.clone(), edit.clone()]
+    } else {
+        vec![edit.clone()]
+    };
+    let all_edits = if signature == SignatureMode::LocalizedCreationCausalityViolation {
+        vec![edit.clone(), create_edit.clone()]
+    } else if creation_repair_mode {
+        vec![
+            create_edit.clone(),
+            repaired_create_edit.clone(),
+            edit.clone(),
+        ]
+    } else {
+        effective_edits.clone()
+    };
     let effective_batch = json!({
         "api_version": "proof.dev/edit-batch/v2",
-        "edits": [edit],
+        "edits": effective_edits,
     });
     let effective_ref = store.add(
         EvidenceRole::Edit,
         ArtifactKind::EditBatchV2,
         &effective_batch,
     );
-    let effective_leaves = json!([{
-        "edit_digest": edit_ref.digest,
-        "edit_id": EDIT_ID,
-        "locale": LOCALE,
-        "object_id": OBJECT_ID,
-    }]);
+    let effective_leaves =
+        if let Some(create_edit_ref) = repaired_create_edit_ref.or(create_edit_ref) {
+            json!([
+                {
+                    "edit_digest": create_edit_ref.digest,
+                    "edit_id": if creation_repair_mode {
+                        REPAIRED_CREATE_EDIT_ID
+                    } else {
+                        CREATE_EDIT_ID
+                    },
+                    "object_id": CREATED_OBJECT_ID,
+                },
+                {
+                    "edit_digest": edit_ref.digest,
+                    "edit_id": EDIT_ID,
+                    "locale": LOCALE,
+                    "object_id": localized_object_id,
+                }
+            ])
+        } else {
+            json!([{
+                "edit_digest": edit_ref.digest,
+                "edit_id": EDIT_ID,
+                "locale": LOCALE,
+                "object_id": localized_object_id,
+            }])
+        };
     let proposal = json!({
         "api_version": "proof.dev/changeset/v2",
         "base_state": base_state_reference,
@@ -1389,7 +1744,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "context_pack_digest": context_ref.digest,
         "context_pack_id": CONTEXT_ID,
         "created_at": content_created_at,
-        "edits": [edit],
+        "edits": all_edits,
         "effective_leaf_digest": effective_ref.digest,
         "effective_leaves": effective_leaves,
         "intent": "Create an approved Spanish rendition",
@@ -1403,17 +1758,26 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         ArtifactKind::ChangeSetV2,
         &proposal,
     );
+    let validation_schema_state = if let Some(candidate_ref) = omitted_candidate_ref {
+        json!({
+            "document_digest": candidate_ref.digest,
+            "schema_id": SCHEMA_ID,
+            "schema_version": 2,
+        })
+    } else {
+        schema_state.clone()
+    };
     let validation = json!({
         "api_version": "proof.dev/validation-results/v2",
-        "attempt": 1,
+        "attempt": if creation_repair_has_validation { 2 } else { 1 },
         "changeset_id": CHANGESET_ID,
         "context_pack_digest": context_ref.digest,
         "effective_leaf_digest": effective_ref.digest,
         "findings": [],
         "policy_digest": localized_policy_ref.digest,
-        "previous_validation_result_digest": null,
+        "previous_validation_result_digest": repair_validation.map(|(reference, _)| reference.digest),
         "proposal_digest": proposal_ref.digest,
-        "schema_digests": [schema_state],
+        "schema_digests": [validation_schema_state],
         "valid": true,
         "validator": "proof/localized-content/1",
     });
@@ -1422,25 +1786,53 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         ArtifactKind::ValidationResultsV2,
         &validation,
     );
+    let validation_evidence =
+        if let Some((repair_reference, prefix_proposal_digest)) = repair_validation {
+            vec![
+                json!({
+                    "attempt": 1,
+                    "previous_validation_result_digest": null,
+                    "proposal_digest": prefix_proposal_digest,
+                    "results_digest": repair_reference.digest,
+                    "valid": false,
+                }),
+                json!({
+                    "attempt": 2,
+                    "previous_validation_result_digest": repair_reference.digest,
+                    "proposal_digest": proposal_ref.digest,
+                    "results_digest": validation_ref.digest,
+                    "valid": true,
+                }),
+            ]
+        } else {
+            vec![json!({
+                "attempt": 1,
+                "previous_validation_result_digest": null,
+                "proposal_digest": proposal_ref.digest,
+                "results_digest": validation_ref.digest,
+                "valid": true,
+            })]
+        };
     let seal = json!({
         "api_version": "proof.dev/changeset-seal/v2",
         "proposal_digest": proposal_ref.digest,
         "validation_results_digest": validation_ref.digest,
     });
     let seal_ref = store.add(EvidenceRole::ChangeSet, ArtifactKind::ChangeSetV2, &seal);
+    let transition_edit_count = if creation_mode { 2 } else { 1 };
     let rendition = json!({
         "api_version": "proof.dev/object-locale-revision/v1",
-        "authoritative_sequence": base_authoritative_sequence + 1,
+        "authoritative_sequence": base_authoritative_sequence + transition_edit_count,
         "changeset_id": CHANGESET_ID,
         "content": {"title": "Versión aprobada"},
         "edit_id": EDIT_ID,
         "locale": LOCALE,
-        "object_id": OBJECT_ID,
+        "object_id": localized_object_id,
         "previous_revision_digest": null,
         "revision": 1,
         "schema_id": SCHEMA_ID,
         "schema_version": 1,
-        "source_object_digest": source_ref.digest,
+        "source_object_digest": localized_source_ref.digest,
         "source_object_revision": 1,
         "workspace_id": WORKSPACE_ID,
     });
@@ -1451,17 +1843,30 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
     );
     let rendition_state = json!({
         "locale": LOCALE,
-        "object_id": OBJECT_ID,
+        "object_id": localized_object_id,
         "rendition_digest": rendition_ref.digest,
         "revision": 1,
         "schema_id": SCHEMA_ID,
         "schema_version": 1,
-        "source_object_digest": source_ref.digest,
+        "source_object_digest": localized_source_ref.digest,
     });
+    let created_object_state = json!({
+        "lifecycle_state": "active",
+        "object_digest": localized_source_ref.digest,
+        "object_id": localized_object_id,
+        "revision": 1,
+        "schema_id": SCHEMA_ID,
+        "schema_version": 1,
+    });
+    let target_objects = if creation_mode {
+        vec![object_state.clone(), created_object_state.clone()]
+    } else {
+        vec![object_state.clone()]
+    };
     let target_state = json!({
         "api_version": "proof.dev/known-state/v2",
-        "authoritative_sequence": base_authoritative_sequence + 1,
-        "objects": [object_state],
+        "authoritative_sequence": base_authoritative_sequence + transition_edit_count,
+        "objects": target_objects,
         "previous_state": base_state_reference,
         "renditions": [rendition_state],
         "schemas": [schema_state],
@@ -1475,7 +1880,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
     let target_state_reference = state_reference(
         target_state_ref,
         "proof.dev/known-state/v2",
-        base_authoritative_sequence + 1,
+        base_authoritative_sequence + transition_edit_count,
     );
     let changeset_evidence = json!({
         "changeset_id": CHANGESET_ID,
@@ -1494,14 +1899,14 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
     });
     let target_object_set = json!({
         "api_version": "proof.dev/object-set/v2",
-        "objects": [object_state],
+        "objects": target_objects,
         "renditions": [rendition_state],
     });
     let target_object_set_digest =
         digest(ArtifactKind::ObjectSetV2, &canonical(&target_object_set));
     let target_edition = json!({
         "api_version": "proof.dev/edition/v2",
-        "authoritative_sequence": base_authoritative_sequence + 1,
+        "authoritative_sequence": base_authoritative_sequence + transition_edit_count,
         "base_edition": base_edition_reference,
         "changeset": changeset_evidence,
         "created_at": if signature == SignatureMode::V2ReleaseBeforeEditionCreatedAt {
@@ -1511,7 +1916,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         },
         "edition_id": TARGET_EDITION_ID,
         "object_set_digest": target_object_set_digest,
-        "objects": [object_state],
+        "objects": target_objects,
         "principal_id": HUMAN_ID,
         "renditions": [rendition_state],
         "schema_set_digest": schema_set_digest,
@@ -1532,12 +1937,20 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
     let mut delta = json!({
         "api_version": "proof.dev/edition-delta/v2",
         "base": {"edition": base_edition_reference, "state": base_state_reference},
-        "objects": [],
+        "objects": if creation_mode {
+            json!([{
+                "after": created_object_state,
+                "before": null,
+                "object_id": localized_object_id,
+            }])
+        } else {
+            json!([])
+        },
         "renditions": [{
             "after": rendition_state,
             "before": null,
             "locale": LOCALE,
-            "object_id": OBJECT_ID,
+            "object_id": localized_object_id,
         }],
         "schemas": [],
         "target": {"edition": target_edition_reference, "state": target_state_reference},
@@ -1672,11 +2085,11 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "renditions": [{
             "edit_id": EDIT_ID,
             "locale": LOCALE,
-            "object_id": OBJECT_ID,
+            "object_id": localized_object_id,
             "rendition_digest": rendition_ref.digest,
             "schema_id": SCHEMA_ID,
             "schema_version": 1,
-            "source_object_digest": source_ref.digest,
+            "source_object_digest": localized_source_ref.digest,
         }],
         "resource_intent": {
             "digest": intent_ref.digest,
@@ -1684,13 +2097,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
             "targets": targets,
         },
         "resulting_state": target_state_reference,
-        "validations": [{
-            "attempt": 1,
-            "previous_validation_result_digest": null,
-            "proposal_digest": proposal_ref.digest,
-            "results_digest": validation_ref.digest,
-            "valid": true,
-        }],
+        "validations": validation_evidence,
     });
     match signature {
         SignatureMode::HistoricalV2ContentEvidenceUnknownField => {
@@ -2342,7 +2749,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
                 "constraints": {
                     "allow_subdelegation": false,
                     "max_context_bytes": 4096,
-                    "max_edits_per_changeset": 1,
+                    "max_edits_per_changeset": max_edits_per_changeset,
                     "max_objects": 1,
                 },
                 "delegation_id": SECOND_HUMAN_DELEGATION_ID,
@@ -2355,7 +2762,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
                 "scope": {
                     "environment_ids": [ENVIRONMENT_ID],
                     "locales": [LOCALE],
-                    "object_ids": [OBJECT_ID],
+                    "object_ids": [localized_object_id],
                     "schema_ids": [SCHEMA_ID],
                 },
                 "workspace_id": WORKSPACE_ID,
@@ -2370,7 +2777,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "constraints": {
             "allow_subdelegation": false,
             "max_context_bytes": 4096,
-            "max_edits_per_changeset": 1,
+            "max_edits_per_changeset": max_edits_per_changeset,
             "max_objects": 1,
         },
         "delegation_id": DELEGATION_ID,
@@ -2383,7 +2790,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "scope": {
             "environment_ids": [ENVIRONMENT_ID],
             "locales": [LOCALE],
-            "object_ids": [OBJECT_ID],
+            "object_ids": [localized_object_id],
             "schema_ids": [SCHEMA_ID],
         },
         "workspace_id": WORKSPACE_ID,
@@ -2406,7 +2813,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         "edition_ids": [TARGET_EDITION_ID],
         "environment_ids": [ENVIRONMENT_ID],
         "locales": [LOCALE],
-        "object_ids": [OBJECT_ID],
+        "object_ids": [localized_object_id],
         "release_ids": [BASE_RELEASE_ID, TARGET_RELEASE_ID],
         "schema_ids": [SCHEMA_ID],
         "workspace_ids": [WORKSPACE_ID],
@@ -2442,7 +2849,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
             },
             "effective_constraints": {
                 "max_context_bytes": 4096,
-                "max_edits_per_changeset": 1,
+                "max_edits_per_changeset": max_edits_per_changeset,
                 "max_objects": 1,
             },
             "evaluated_at": if signature == SignatureMode::HistoricalV2DistinctAuthorizationTime {
@@ -2544,7 +2951,7 @@ pub fn generate(opening: OpeningMode, signature: SignatureMode) -> GeneratedFixt
         },
         "effective_constraints": {
             "max_context_bytes": 4096,
-            "max_edits_per_changeset": 1,
+            "max_edits_per_changeset": max_edits_per_changeset,
             "max_objects": 1,
         },
         "evaluated_at": EVALUATED_AT,

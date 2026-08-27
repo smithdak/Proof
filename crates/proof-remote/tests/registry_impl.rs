@@ -134,11 +134,11 @@ fn frozen_registry_hashes_recompute_byte_exactly() {
     );
     assert_eq!(
         REMOTE_AUTHORIZATION_PROJECTION_SHA256,
-        "e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b"
+        "d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171"
     );
     assert_eq!(
         COMPLETE_HTTP_OPERATION_REGISTRY_SHA256,
-        "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf"
+        "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca"
     );
 }
 
@@ -147,7 +147,7 @@ fn registry_lookup_accepts_known_rows_and_rejects_unknown() {
     let human = HumanOperationRegistryV1;
     let agent = AgentOperationProjectionV1;
 
-    assert_eq!(human.rows().len(), 23);
+    assert_eq!(human.rows().len(), 26);
     assert_eq!(agent.rows().len(), 14);
 
     // Known Human rows resolve; the route-scoped registries reject the other
@@ -204,6 +204,26 @@ fn registry_lookup_accepts_known_rows_and_rejects_unknown() {
         agent
             .lookup("changeset.add", "proof.dev/operation/changeset.add/v1")
             .is_none()
+    );
+    assert_eq!(
+        agent
+            .lookup(
+                "changeset.submit",
+                "proof.dev/operation/changeset.submit/v2"
+            )
+            .unwrap()
+            .application_key_kind,
+        ApplicationKeyKind::DerivedChangeset
+    );
+    assert_eq!(
+        agent
+            .lookup(
+                "changeset.validate",
+                "proof.dev/operation/changeset.validate/v2"
+            )
+            .unwrap()
+            .application_key_kind,
+        ApplicationKeyKind::DerivedProposalPolicyValidator
     );
 }
 
@@ -320,7 +340,7 @@ fn digest_preimages_match_the_frozen_vectors() {
     .unwrap();
     assert_eq!(
         requested_digest.to_string(),
-        "blake3:4fbc4c2df1351f3aa3c316102605d07501ecb029064fa661a9516fe05dba3251"
+        "blake3:24deea4bf8cd3fcd6669e3639dfa6e6e1ed55962d34ee18328290a981b96a0fc"
     );
 
     // policy_bundle_digest (remote-authorization-policy-selection).
@@ -343,7 +363,7 @@ fn digest_preimages_match_the_frozen_vectors() {
     .unwrap();
     assert_eq!(
         policy_digest.to_string(),
-        "blake3:f1a941b4d67907001f74ea5d01fb38f51900ff36fee114fb7fb79dc5ff3e2712"
+        "blake3:33709f35803e000e506c19a750b19dc1d5ed5b81afa0d8fa3cdd1229df59e684"
     );
 
     // operation-effect digest over the exact release.create result.

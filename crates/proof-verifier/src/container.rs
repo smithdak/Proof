@@ -464,7 +464,10 @@ const fn role_accepts_kind(role: EvidenceRole, kind: ArtifactKind) -> bool {
         }
         EvidenceRole::Edit => matches!(
             kind,
-            ArtifactKind::EditBatchV1 | ArtifactKind::EditBatchV2 | ArtifactKind::EditV2
+            ArtifactKind::EditBatchV1
+                | ArtifactKind::EditBatchV2
+                | ArtifactKind::EditV2
+                | ArtifactKind::ObjectCreateEditV2
         ),
         EvidenceRole::ValidationAttempt => matches!(
             kind,

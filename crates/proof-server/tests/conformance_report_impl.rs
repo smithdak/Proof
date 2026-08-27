@@ -34,9 +34,13 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use proof_application::authority::{
     AgentPrincipalType, AuthenticatedCommandApiVersion, AuthenticatedCommandEnvelopeJson,
     AuthenticatedCommandKeyUsage, AuthenticatedCommandV1, AuthenticatedInvocationApiVersion,
-    AuthenticatedInvocationV1, AuthorityAudience, AuthorityOperation, AuthoritySequence,
-    CommandInputApiVersion, CommandInputV1, Ed25519Algorithm, Ed25519KeyId, Ed25519PublicKey,
-    LocalEd25519AuthenticatedSubjectV1, PrincipalBindingApiVersion, PrincipalBindingV1,
+    AuthenticatedInvocationV1, AuthorityAction, AuthorityAudience, AuthorityOperation,
+    AuthoritySequence, CommandInputApiVersion, CommandInputV1, DelegationActionsV2,
+    DelegationApiVersion, DelegationConstraintsV2, DelegationEnvironmentIdsV2, DelegationLocalesV2,
+    DelegationObjectIdsV2, DelegationSchemaIdsV2, DelegationScopeV2, DelegationV2,
+    DirectAuthorityProfileV1, Ed25519Algorithm, Ed25519KeyId, Ed25519PublicKey,
+    LocalEd25519AuthenticatedSubjectV1, MaxContextBytes, MaxEditsPerChangeSet, MaxObjects,
+    PrincipalBindingApiVersion, PrincipalBindingV1, SubdelegationDisabled,
 };
 use proof_application::{
     AddChangeSetEditsCommand, ApprovalName, ApproveChangeSetCommand, BuildLocalizedContextCommand,
@@ -78,7 +82,7 @@ use proof_remote::{
         OidcHumanAuthenticationProfile,
     },
     oracle::IdentityFixtureV1,
-    registry::operation_effect_digest,
+    registry::{RemoteApplicationConsequenceV1, operation_effect_digest},
 };
 use proof_server::{AppState, ServerConfig, routes::router};
 use serde_json::{Map, Value, json};
@@ -133,7 +137,7 @@ const TRACE_DIGEST_CONTEXT: &str = "proof:oracle-trace:v1";
 const CLASS_BYTE_IDENTICAL: &str = "byte_identical";
 const CLASS_NOT_MIRRORED: &str = "not_mirrored_stable_error";
 const CLASS_UNREGISTERED: &str = "oracle_unregistered_operation";
-const CLASS_GOVERNED_EFFECT_ONLY: &str = "server_governed_effect_only";
+const CLASS_GOVERNED_PROJECTION_ONLY: &str = "server_governed_projection_only";
 const CLASS_ADAPTER_PROJECTED: &str = "adapter_projected";
 const CLASS_HTTP_NATIVE: &str = "http_adapter_native";
 
@@ -383,6 +387,7 @@ fn conformance_workspace(root: &Path) -> LocalWorkspace {
                 schema_id: SchemaId::new(SCHEMA_ID).unwrap(),
                 locale: LOCALE.parse::<LocaleId>().unwrap(),
             }],
+            creations: Vec::new(),
             idempotency_key: INTENT_KEY.parse().unwrap(),
             issued_at: "2026-08-21T12:00:08Z".parse().unwrap(),
         })
@@ -621,8 +626,8 @@ impl ServerFixture {
             .expect("verification search path");
 
         seed_human_binding(&state);
-        seed_principal_status(&state, REQUESTER, true);
-        seed_principal_status(&state, OPERATOR, true);
+        seed_principal_status(&state, REQUESTER, RemotePrincipalType::Human, true);
+        seed_principal_status(&state, OPERATOR, RemotePrincipalType::Agent, true);
         seed_role_assignment(
             &state,
             REQUESTER,
@@ -637,6 +642,7 @@ impl ServerFixture {
         );
         seed_authority_root(&state);
         let agent_provider = seed_agent_binding(&state);
+        seed_delegation(&state);
 
         let session = state
             .sessions
@@ -787,12 +793,17 @@ fn seed_human_binding(state: &AppState) {
     );
 }
 
-fn seed_principal_status(state: &AppState, principal_id: &str, enabled: bool) {
+fn seed_principal_status(
+    state: &AppState,
+    principal_id: &str,
+    principal_type: RemotePrincipalType,
+    enabled: bool,
+) {
     let status = RemotePrincipalStatusV2 {
         api_version: RemotePrincipalStatusApiVersion::V1,
         workspace_id: WS_ID.to_owned(),
         principal_id: principal_id.to_owned(),
-        principal_type: RemotePrincipalType::Human,
+        principal_type,
         enabled,
         reason: "conformance-report-fixture".to_owned(),
         recorded_by_principal_id: REQUESTER.to_owned(),
@@ -899,6 +910,43 @@ fn seed_agent_binding(state: &AppState) -> Ed25519SigningProvider {
         &binding_body,
     );
     provider
+}
+
+fn seed_delegation(state: &AppState) {
+    let issued_at = timestamp_offset(-60);
+    let delegation = DelegationV2 {
+        api_version: DelegationApiVersion::V1,
+        authority_sequence: AuthoritySequence::new(6).unwrap(),
+        previous_authority_record_digest: Some(deterministic_digest(0x01)),
+        delegation_id: DELEGATION_ID.parse().unwrap(),
+        workspace_id: WS_ID.parse().unwrap(),
+        delegation_profile: DirectAuthorityProfileV1::Direct,
+        issuer_principal_id: REQUESTER.parse().unwrap(),
+        recipient_principal_id: OPERATOR.parse().unwrap(),
+        actions: DelegationActionsV2::new(vec![AuthorityAction::WorkspaceStatus]).unwrap(),
+        scope: DelegationScopeV2 {
+            environment_ids: DelegationEnvironmentIdsV2::new(Vec::new()).unwrap(),
+            object_ids: DelegationObjectIdsV2::new(Vec::new()).unwrap(),
+            schema_ids: DelegationSchemaIdsV2::new(Vec::new()).unwrap(),
+            locales: DelegationLocalesV2::new(Vec::new()).unwrap(),
+        },
+        constraints: DelegationConstraintsV2 {
+            max_objects: MaxObjects::new(1).unwrap(),
+            max_context_bytes: MaxContextBytes::new(1).unwrap(),
+            max_edits_per_changeset: MaxEditsPerChangeSet::new(1).unwrap(),
+            allow_subdelegation: SubdelegationDisabled,
+        },
+        not_before: issued_at,
+        expires_at: timestamp_offset(3600),
+        issued_at,
+    };
+    insert_fact(
+        state,
+        &format!("delegation/{DELEGATION_ID}"),
+        "delegation",
+        RemoteAuthorityRecordV1::delegation_issue(delegation.clone()).digest(),
+        &serde_json::to_value(delegation).unwrap(),
+    );
 }
 
 /// Signs a fresh dual-auth Agent invocation for `workspace.status/v1`.
@@ -1045,13 +1093,11 @@ fn verify_assignment_record(server: &mut ServerFixture, envelope: &Value) -> Con
     );
     assert_eq!(
         record.evaluated_authority_head.sequence.to_string(),
-        decision["evaluated_authority_head"]["sequence"].to_string()
+        decision["authority_sequence"].to_string()
     );
     assert_eq!(
         record.evaluated_authority_head.record_digest.to_string(),
-        decision["evaluated_authority_head"]["record_digest"]
-            .as_str()
-            .unwrap()
+        decision_digest_text
     );
     assert_eq!(
         record.authority_key_id,
@@ -1075,20 +1121,28 @@ fn verify_assignment_record(server: &mut ServerFixture, envelope: &Value) -> Con
     // canonical bytes, and both consequence bindings point at it.
     let recomputed = RemoteAuthorityRecordV1::workspace_role_assignment(record).digest();
     assert_eq!(recomputed.to_string(), fact_digest_text);
+    let (_, consequence_body) = server.row(
+        "SELECT consequence_digest, body FROM application_consequences \
+         WHERE operation = 'workspace-role.assign' \
+         ORDER BY authority_sequence DESC LIMIT 1",
+    );
+    let consequence: RemoteApplicationConsequenceV1 =
+        serde_json::from_slice(&consequence_body).unwrap();
     assert_eq!(
-        envelope["result"]["application_effect_digest"].as_str(),
-        Some(fact_digest_text.as_str()),
+        consequence.application_effect_digest,
+        Some(recomputed),
         "the success consequence binds the governed fact exactly"
     );
     assert_eq!(
-        envelope["committed_anchor"]["result_digest"],
-        envelope["result"]["result_digest"]
+        envelope["committed_anchor"]["result_digest"].as_str(),
+        consequence
+            .result_digest
+            .map(|value| value.to_string())
+            .as_deref()
     );
     let record_value: Value = serde_json::from_slice(&fact_body).unwrap();
     assert_eq!(
-        envelope["result"]["result_digest"]
-            .as_str()
-            .and_then(|text| text.parse::<ContentDigest>().ok()),
+        consequence.result_digest,
         operation_effect_digest(&record_value).ok(),
         "the result digest is the exact operation-effect digest of the typed record"
     );
@@ -1119,13 +1173,14 @@ fn verify_revocation_record(server: &mut ServerFixture, envelope: &Value) {
     assert_eq!(revocation.principal_id, OPERATOR);
     assert_eq!(revocation.role, WorkspaceRole::ContentRequester);
     assert_eq!(revocation.revoked_by_principal_id, REQUESTER);
-    let first_observed_assignment = decision["role_assignment_digests"][0]
-        .as_str()
-        .expect("the decision observes the acting principal's active assignments");
+    let assignment_digest = server.scalar(&format!(
+        "SELECT fact_digest FROM facts \
+         WHERE fact_id = 'workspace_role_assignment/{ASSIGNMENT_ID}'"
+    ));
     assert_eq!(
         revocation.assignment_record_digest.to_string(),
-        first_observed_assignment,
-        "the revocation binds exactly the first role-assignment digest observed by the decision"
+        assignment_digest,
+        "the revocation binds the exact target role-assignment fact"
     );
     assert_eq!(
         revocation.revoked_by_actor_context_digest.to_string(),
@@ -1136,9 +1191,11 @@ fn verify_revocation_record(server: &mut ServerFixture, envelope: &Value) {
             .evaluated_authority_head
             .record_digest
             .to_string(),
-        decision["evaluated_authority_head"]["record_digest"]
-            .as_str()
-            .unwrap()
+        decision_digest_text
+    );
+    assert_eq!(
+        revocation.evaluated_authority_head.sequence.to_string(),
+        decision["authority_sequence"].to_string()
     );
     assert_eq!(
         revocation.authority_key_id,
@@ -1168,9 +1225,20 @@ fn verify_revocation_record(server: &mut ServerFixture, envelope: &Value) {
 
     let recomputed = RemoteAuthorityRecordV1::workspace_role_revocation(revocation).digest();
     assert_eq!(recomputed.to_string(), fact_digest_text);
+    let (_, consequence_body) = server.row(
+        "SELECT consequence_digest, body FROM application_consequences \
+         WHERE operation = 'workspace-role.revoke' \
+         ORDER BY authority_sequence DESC LIMIT 1",
+    );
+    let consequence: RemoteApplicationConsequenceV1 =
+        serde_json::from_slice(&consequence_body).unwrap();
+    assert_eq!(consequence.application_effect_digest, Some(recomputed));
     assert_eq!(
-        envelope["result"]["application_effect_digest"].as_str(),
-        Some(fact_digest_text.as_str())
+        envelope["committed_anchor"]["result_digest"].as_str(),
+        consequence
+            .result_digest
+            .map(|value| value.to_string())
+            .as_deref()
     );
 }
 
@@ -1300,10 +1368,8 @@ fn milestone3_conformance_report_three_runner_classification() {
         "idempotency_key": ASSIGN_KEY,
     });
     let revoke_input = json!({
-        "workspace_id": WS_ID,
-        "principal_id": OPERATOR,
-        "role": "content.requester",
         "assignment_id": ASSIGNMENT_ID,
+        "reason": "conformance report cleanup",
         "idempotency_key": REVOKE_KEY,
     });
 
@@ -1343,7 +1409,11 @@ fn milestone3_conformance_report_three_runner_classification() {
             }),
         )
         .await;
-        assert_eq!(status_code, StatusCode::OK, "agent status must succeed");
+        assert_eq!(
+            status_code,
+            StatusCode::OK,
+            "agent status must succeed: {status_envelope}"
+        );
 
         // Step 2 through the direct-Human surface.
         let (get_code, get_envelope) = post_operation(
@@ -1402,15 +1472,24 @@ fn milestone3_conformance_report_three_runner_classification() {
         })
     });
 
-    // Governed-effect observables for the two shared reads in server mode.
+    // Effect-free registry rows retain their decision and consequence without
+    // manufacturing an application fact.
     let mut governed_count = |suffix: &str| {
         server.scalar(&format!(
             "SELECT COUNT(*)::text FROM facts WHERE fact_kind = 'governed_effect' \
              AND fact_id LIKE 'governed_effect/{suffix}/%'"
         ))
     };
-    assert_eq!(governed_count("workspace.status"), "1");
-    assert_eq!(governed_count("changeset.get"), "1");
+    assert_eq!(governed_count("workspace.status"), "0");
+    assert_eq!(governed_count("changeset.get"), "0");
+    let mut consequence_count = |operation: &str| {
+        server.scalar(&format!(
+            "SELECT COUNT(*)::text FROM application_consequences \
+             WHERE operation = '{operation}'"
+        ))
+    };
+    assert_eq!(consequence_count("workspace.status"), "1");
+    assert_eq!(consequence_count("changeset.get"), "1");
 
     let assignment_effect =
         verify_assignment_record(&mut server, &http_observations["assign_envelope"]);
@@ -1435,9 +1514,9 @@ fn milestone3_conformance_report_three_runner_classification() {
             "http-server",
             &json!({
                 "outcome": "classified",
-                "classification": CLASS_GOVERNED_EFFECT_ONLY,
-                "observed": { "fact_kind": "governed_effect", "count": 1 },
-                "note": "the server executes owned rows through the unit of work without running the domain state machine; the typed Workspace status JSON is not reproduced",
+                "classification": CLASS_GOVERNED_PROJECTION_ONLY,
+                "observed": { "governed_effect_count": 0, "consequence_count": 1 },
+                "note": "the server returns the opaque governed projection and retains decision/consequence evidence; EffectDigestRule::None forbids an application fact",
             }),
         ),
         entry(
@@ -1455,9 +1534,9 @@ fn milestone3_conformance_report_three_runner_classification() {
             "http-server",
             &json!({
                 "outcome": "classified",
-                "classification": CLASS_GOVERNED_EFFECT_ONLY,
-                "observed": { "fact_kind": "governed_effect", "count": 1 },
-                "note": "the server wraps the read in the opaque governed-effect projection; no content state is consulted",
+                "classification": CLASS_GOVERNED_PROJECTION_ONLY,
+                "observed": { "governed_effect_count": 0, "consequence_count": 1 },
+                "note": "the server wraps the read in the opaque governed projection; no content state is consulted and EffectDigestRule::None forbids an application fact",
             }),
         ),
         entry(
@@ -1596,12 +1675,12 @@ fn milestone3_conformance_report_three_runner_classification() {
         comparison(
             ["sqlite-oracle", "http-server"],
             1,
-            &json!({ "verdict": CLASS_GOVERNED_EFFECT_ONLY }),
+            &json!({ "verdict": CLASS_GOVERNED_PROJECTION_ONLY }),
         ),
         comparison(
             ["sqlite-oracle", "http-server"],
             2,
-            &json!({ "verdict": CLASS_GOVERNED_EFFECT_ONLY }),
+            &json!({ "verdict": CLASS_GOVERNED_PROJECTION_ONLY }),
         ),
         comparison(
             ["sqlite-oracle", "http-server"],
@@ -1633,8 +1712,8 @@ fn milestone3_conformance_report_three_runner_classification() {
                 "the PostgreSQL parity mirror fails closed with its ratified stable not-mirrored integrity error; the exact error text is the recorded observable",
             CLASS_UNREGISTERED:
                 "the operation/version pair is outside the closed 14-row shared application authority registry, so no oracle trace can exist in either storage mode",
-            CLASS_GOVERNED_EFFECT_ONLY:
-                "server mode executed the row but emitted only the opaque proof.dev/governed-effect/v1 projection without running the domain state machine",
+            CLASS_GOVERNED_PROJECTION_ONLY:
+                "server mode returned the opaque proof.dev/governed-effect/v1 projection and retained decision/consequence evidence without an application fact, as required by EffectDigestRule::None",
             CLASS_ADAPTER_PROJECTED:
                 "server mode emitted the exact contracted typed authority record; all non-volatile fields were verified against observable bindings, and remaining differences are named exclusions",
             CLASS_HTTP_NATIVE:
@@ -1655,7 +1734,7 @@ fn milestone3_conformance_report_three_runner_classification() {
             exclusion(4, "revocation_id", "server-minted UUIDv7 identity; shape-verified but not reproducible outside the adapter"),
         ],
         "residual_boundary":
-            "PG-backed semantic execution of mutation rows (a PostgreSQL implementation of the shared application operations beyond the two mirrored read rows) remains deferred; server mode currently commits decisions, governed effects, and typed authority records without executing the shared domain state machines.",
+            "PG-backed semantic execution of mutation rows (a PostgreSQL implementation of the shared application operations beyond the two mirrored read rows) remains deferred; server mode currently commits decisions, consequences, and typed authority effects where the registry requires them without executing the shared domain state machines.",
         "execution_binding":
             "the report binds one execution. Within the run, the mirrored A<->B oracle traces are byte-identical (field equality plus equal canonical digests, including keyed replay), which is exactly what the acceptance criterion claims. Across executions, content-typed traces embed the local Workspace's per-instance Release signing-key identity (proof-local generates a fresh Ed25519 release signer per root) and server typed records embed wall-clock stamps and server-minted UUIDv7 identifiers, so cross-run byte-reproducibility of this artifact is bounded by those documented identities.",
     });
@@ -1685,7 +1764,7 @@ fn milestone3_conformance_report_three_runner_classification() {
                 CLASS_BYTE_IDENTICAL,
                 CLASS_NOT_MIRRORED,
                 CLASS_UNREGISTERED,
-                CLASS_GOVERNED_EFFECT_ONLY,
+                CLASS_GOVERNED_PROJECTION_ONLY,
                 CLASS_ADAPTER_PROJECTED,
                 CLASS_HTTP_NATIVE,
             ]
@@ -1723,8 +1802,8 @@ fn milestone3_conformance_report_three_runner_classification() {
     );
     println!("report canonical byte length: {}", canonical.as_str().len());
     println!(
-        "per-step verdicts: s1 {CLASS_BYTE_IDENTICAL}(A-B)/{CLASS_GOVERNED_EFFECT_ONLY}(A-C); \
-         s2 {CLASS_NOT_MIRRORED}(A-B)/{CLASS_GOVERNED_EFFECT_ONLY}(A-C); \
+        "per-step verdicts: s1 {CLASS_BYTE_IDENTICAL}(A-B)/{CLASS_GOVERNED_PROJECTION_ONLY}(A-C); \
+         s2 {CLASS_NOT_MIRRORED}(A-B)/{CLASS_GOVERNED_PROJECTION_ONLY}(A-C); \
          s3+s4 {CLASS_UNREGISTERED}(A-B)/{CLASS_ADAPTER_PROJECTED}(A-C); \
          s5 {CLASS_UNREGISTERED}(A-B)/{CLASS_HTTP_NATIVE}(A-C)"
     );

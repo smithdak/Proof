@@ -103,6 +103,7 @@ pub enum ArtifactKind {
     ContextPackV2,
     EditBatchV2,
     EditV2,
+    ObjectCreateEditV2,
     #[serde(rename = "changeset_v2")]
     ChangeSetV2,
     ValidationResultsV2,
@@ -155,6 +156,7 @@ impl ArtifactKind {
             Self::ContextPackV2 => "proof:context-pack:v2",
             Self::EditBatchV2 => "proof:edit-batch:v2",
             Self::EditV2 => "proof:edit:v2",
+            Self::ObjectCreateEditV2 => "proof:object-create-edit:v2",
             Self::ChangeSetV2 => "proof:changeset:v2",
             Self::ValidationResultsV2 => "proof:validation-results:v2",
             Self::ObjectLocaleRevisionV1 => "proof:object-locale-revision:v1",
@@ -208,6 +210,7 @@ impl ArtifactKind {
             Self::ContextPackV2 => "context_pack_v2",
             Self::EditBatchV2 => "edit_batch_v2",
             Self::EditV2 => "edit_v2",
+            Self::ObjectCreateEditV2 => "object_create_edit_v2",
             Self::ChangeSetV2 => "changeset_v2",
             Self::ValidationResultsV2 => "validation_results_v2",
             Self::ObjectLocaleRevisionV1 => "object_locale_revision_v1",
@@ -832,6 +835,7 @@ mod tests {
             (ArtifactKind::ContextPackV2, "context_pack_v2"),
             (ArtifactKind::EditBatchV2, "edit_batch_v2"),
             (ArtifactKind::EditV2, "edit_v2"),
+            (ArtifactKind::ObjectCreateEditV2, "object_create_edit_v2"),
             (ArtifactKind::ChangeSetV2, "changeset_v2"),
             (ArtifactKind::ValidationResultsV2, "validation_results_v2"),
             (
@@ -869,7 +873,7 @@ mod tests {
                 "release_signing_key_revocation_v1",
             ),
         ];
-        assert_eq!(cases.len(), 45);
+        assert_eq!(cases.len(), 46);
         for (kind, wire) in cases {
             assert_eq!(kind.wire_name(), wire);
             assert_eq!(serde_json::to_value(kind).unwrap(), wire);

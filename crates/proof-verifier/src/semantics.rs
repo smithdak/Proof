@@ -265,6 +265,7 @@ fn verify_public_wire_schemas(loaded: &LoadedBundle, report: &mut Report) {
             api_version,
             Some(
                 "proof.dev/content-resource-intent/v1"
+                    | "proof.dev/content-resource-intent/v2"
                     | "proof.dev/localized-content-policy/v1"
                     | "proof.dev/context-pack/v2"
                     | "proof.dev/edit/v2"
@@ -3407,7 +3408,7 @@ fn intent_closure_is_exact(
     else {
         return false;
     };
-    if string(&intent.value, "api_version") != Some("proof.dev/content-resource-intent/v1")
+    if !is_content_resource_intent(&intent.value)
         || intent.value.get("intent_id") != intent_closure.get("intent_id")
         || intent.value.get("issued_by_principal_id")
             != intent_closure.get("issued_by_principal_id")
@@ -6800,10 +6801,29 @@ fn verify_content_references<'a>(
     if predecessor != Some(base_state_ref)
         || u64_field(target_state_ref, "authoritative_sequence")
             != u64_field(base_state_ref, "authoritative_sequence").and_then(|sequence| {
-                delta
+                let rendition_count = delta
                     .get("renditions")
                     .and_then(Value::as_array)
                     .and_then(|renditions| u64::try_from(renditions.len()).ok())
+                    .unwrap_or(0);
+                let object_count = delta
+                    .get("objects")
+                    .and_then(Value::as_array)
+                    .and_then(|objects| {
+                        u64::try_from(
+                            objects
+                                .iter()
+                                .filter(|object| {
+                                    object.get("before").is_some_and(Value::is_null)
+                                        && object.get("after").is_some_and(|after| !after.is_null())
+                                })
+                                .count(),
+                        )
+                        .ok()
+                    })
+                    .unwrap_or(0);
+                rendition_count
+                    .checked_add(object_count)
                     .and_then(|count| sequence.checked_add(count))
             })
         || target_edition.value.get("schemas") != target_state.value.get("schemas")
@@ -6836,10 +6856,6 @@ fn verify_promotion_content(
         .get("schemas")
         .and_then(Value::as_array)
         .is_some_and(Vec::is_empty)
-        || !delta
-            .get("objects")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
     {
         return Err("proof.verify.content.hitchhike");
     }
@@ -6885,6 +6901,7 @@ fn verify_promotion_content(
     {
         return Err("proof.verify.content.validation_head");
     }
+    verify_creation_closure(loaded, content, delta, changeset, &proposal.value)?;
     verify_rendition_closure(loaded, content, delta, changeset, &proposal.value)?;
     verify_submission_and_approval(
         loaded,
@@ -7222,6 +7239,74 @@ fn rendition_key(value: &Value) -> Option<String> {
     ))
 }
 
+fn edit_key(value: &Value) -> Option<String> {
+    match string(value, "kind")? {
+        "object.create" => Some(format!("0\0{}", string(value, "object_id")?)),
+        "object.locale.put" => Some(format!(
+            "1\0{}\0{}",
+            string(value, "object_id")?,
+            string(value, "locale")?
+        )),
+        _ => None,
+    }
+}
+
+fn creation_slots_are_canonical(slots: &[Value]) -> bool {
+    if slots.len() > 100 {
+        return false;
+    }
+    let mut previous = None;
+    for slot in slots {
+        let Some(object_id) = string(slot, "object_id") else {
+            return false;
+        };
+        let Some(schema_id) = string(slot, "schema_id") else {
+            return false;
+        };
+        let Some(locales) = slot.get("locales").and_then(Value::as_array) else {
+            return false;
+        };
+        let Some(locales) = locales
+            .iter()
+            .map(Value::as_str)
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        if locales.is_empty()
+            || locales.len() > 100
+            || locales.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return false;
+        }
+        let key = format!("{object_id}\0{schema_id}\0{}", locales.join("\0"));
+        if previous.as_ref().is_some_and(|previous| previous >= &key) {
+            return false;
+        }
+        previous = Some(key);
+    }
+    true
+}
+
+fn intent_creation_slots(intent: &Value) -> Option<&[Value]> {
+    match (string(intent, "api_version"), intent.get("creations")) {
+        (
+            Some("proof.dev/content-resource-intent/v1" | "proof.dev/content-resource-intent/v2"),
+            None,
+        ) => Some(&[]),
+        (Some("proof.dev/content-resource-intent/v2"), Some(Value::Array(slots))) => Some(slots),
+        _ => None,
+    }
+}
+
+fn edit_artifact_kind(value: &Value) -> Option<ArtifactKind> {
+    match string(value, "kind")? {
+        "object.create" => Some(ArtifactKind::ObjectCreateEditV2),
+        "object.locale.put" => Some(ArtifactKind::EditV2),
+        _ => None,
+    }
+}
+
 fn verify_delta_against_states(
     delta: &Value,
     base_state: &Value,
@@ -7343,7 +7428,7 @@ fn verify_intent_and_context(
         digest_field(intent_evidence, "digest"),
     )
     .ok_or("proof.verify.content.intent")?;
-    if string(&intent.value, "api_version") != Some("proof.dev/content-resource-intent/v1")
+    if !is_content_resource_intent(&intent.value)
         || string(&intent.value, "workspace_id") != Some(loaded.bundle.workspace_id.as_str())
         || intent.value.get("intent_id") != intent_evidence.get("intent_id")
         || intent.value.get("targets") != intent_evidence.get("targets")
@@ -7419,12 +7504,50 @@ fn verify_intent_and_context(
         })
         .collect::<Option<Vec<_>>>()
         .ok_or("proof.verify.content.intent_targets")?;
+    let creation_slots =
+        intent_creation_slots(&intent.value).ok_or("proof.verify.content.intent_targets")?;
+    if targets
+        .len()
+        .checked_add(creation_slots.len())
+        .is_none_or(|count| count > 100)
+        || !creation_slots_are_canonical(creation_slots)
+    {
+        return Err("proof.verify.content.intent_targets");
+    }
+    let mut creation_objects = BTreeSet::new();
+    for slot in creation_slots {
+        let object_id = string(slot, "object_id").ok_or("proof.verify.content.intent_targets")?;
+        let schema_id = string(slot, "schema_id").ok_or("proof.verify.content.intent_targets")?;
+        let locales = slot
+            .get("locales")
+            .and_then(Value::as_array)
+            .ok_or("proof.verify.content.intent_targets")?;
+        if !creation_objects.insert(object_id)
+            || locales.is_empty()
+            || locales.iter().any(|locale| {
+                locale
+                    .as_str()
+                    .is_none_or(|locale| !target_keys.contains(&(object_id, schema_id, locale)))
+            })
+            || target_keys
+                .iter()
+                .filter(|(target_object, _, _)| *target_object == object_id)
+                .count()
+                != locales.len()
+        {
+            return Err("proof.verify.content.intent_targets");
+        }
+    }
     let resource_keys = resources
         .iter()
         .map(|resource| {
+            let schema_id = resource
+                .pointer("/schema/schema_id")
+                .or_else(|| resource.pointer("/schema_candidates/0/schema_id"))?
+                .as_str()?;
             Some((
                 string(resource, "object_id")?,
-                resource.pointer("/schema/schema_id")?.as_str()?,
+                schema_id,
                 string(resource, "locale")?,
             ))
         })
@@ -7454,9 +7577,14 @@ fn verify_intent_and_context(
         .ok_or("proof.verify.content.edits")?;
     if u64::try_from(unique_objects).map_or(true, |count| count > maximum_objects)
         || u64::try_from(resources.len()).map_or(true, |count| count > maximum_edits)
+        || resources
+            .len()
+            .checked_add(creation_slots.len())
+            .and_then(|count| u64::try_from(count).ok())
+            .is_none_or(|count| count > maximum_edits)
         || u64::try_from(edits.len()).map_or(true, |count| count > maximum_edits)
-        || !context_policy_is_legal(resources, &context_policy.value)
-        || !verify_context_resources(loaded, content, resources, edits)
+        || !context_policy_is_legal(resources, &context_policy.value, edits)
+        || !verify_context_resources(loaded, content, &intent.value, resources, edits)
     {
         return Err("proof.verify.content.context_resources");
     }
@@ -7466,6 +7594,7 @@ fn verify_intent_and_context(
 fn verify_context_resources(
     loaded: &LoadedBundle,
     content: &Value,
+    intent: &Value,
     resources: &[Value],
     edits: &[Value],
 ) -> bool {
@@ -7480,6 +7609,15 @@ fn verify_context_resources(
         return false;
     };
     resources.iter().all(|resource| {
+        if resource.get("schema").is_none() {
+            return verify_creation_context_resource(
+                loaded,
+                intent,
+                &base_state.value,
+                resource,
+                edits,
+            );
+        }
         let Some(schema_closure) = resource.get("schema") else {
             return false;
         };
@@ -7633,6 +7771,162 @@ fn verify_context_resources(
     })
 }
 
+fn verify_creation_context_resource(
+    loaded: &LoadedBundle,
+    intent: &Value,
+    base_state: &Value,
+    resource: &Value,
+    edits: &[Value],
+) -> bool {
+    let Some(object_id) = string(resource, "object_id") else {
+        return false;
+    };
+    let Some(locale) = string(resource, "locale") else {
+        return false;
+    };
+    let Some(creations) = intent_creation_slots(intent) else {
+        return false;
+    };
+    let mut matching_slots = creations
+        .iter()
+        .filter(|slot| string(slot, "object_id") == Some(object_id));
+    let Some(slot) = matching_slots.next() else {
+        return false;
+    };
+    if matching_slots.next().is_some()
+        || !slot
+            .get("locales")
+            .and_then(Value::as_array)
+            .is_some_and(|locales| locales.contains(&Value::String(locale.to_owned())))
+    {
+        return false;
+    }
+    let Some(schema_id) = string(slot, "schema_id") else {
+        return false;
+    };
+    let Some(candidates) = resource
+        .get("schema_candidates")
+        .and_then(Value::as_array)
+        .filter(|candidates| !candidates.is_empty())
+    else {
+        return false;
+    };
+    if candidates.windows(2).any(|pair| {
+        schema_key(&pair[0])
+            .zip(schema_key(&pair[1]))
+            .is_none_or(|(a, b)| a >= b)
+    }) {
+        return false;
+    }
+    let Some(base_schemas) = base_state.get("schemas").and_then(Value::as_array) else {
+        return false;
+    };
+    let expected_schemas = base_schemas
+        .iter()
+        .filter(|schema| string(schema, "schema_id") == Some(schema_id))
+        .collect::<Vec<_>>();
+    if candidates.len() != expected_schemas.len()
+        || candidates
+            .iter()
+            .zip(&expected_schemas)
+            .any(|(candidate, expected)| {
+                string(candidate, "schema_id") != Some(schema_id)
+                    || candidate.get("schema_id") != expected.get("schema_id")
+                    || candidate.get("schema_version") != expected.get("schema_version")
+                    || candidate.get("document_digest") != expected.get("document_digest")
+                    || exact_role_artifact(
+                        loaded,
+                        EvidenceRole::Schema,
+                        digest_field(candidate, "document_digest"),
+                    )
+                    .is_none_or(|artifact| {
+                        candidate.get("document") != Some(&artifact.value)
+                            || !localizable_pointers_are_exact(&artifact.value, candidate)
+                    })
+            })
+    {
+        return false;
+    }
+    let Some(create) = effective_object_create(edits, object_id) else {
+        return false;
+    };
+    if create.get("schema_id") != slot.get("schema_id") {
+        return false;
+    }
+    let mut selected_candidates = candidates.iter().filter(|candidate| {
+        candidate.get("schema_id") == create.get("schema_id")
+            && candidate.get("schema_version") == create.get("schema_version")
+    });
+    let Some(selected) = selected_candidates.next() else {
+        return false;
+    };
+    if selected_candidates.next().is_some()
+        || !schema::document_accepts(
+            selected.get("document").unwrap_or(&Value::Null),
+            create.get("content").unwrap_or(&Value::Null),
+        )
+    {
+        return false;
+    }
+    let source_absent = resource.get("source").is_some_and(|source| {
+        object_keys_exact(source, &["absent", "api_version", "authoritative_sequence"])
+            && source.get("absent") == Some(&Value::Bool(true))
+            && string(source, "api_version") == Some("proof.dev/object-revision-absence/v1")
+            && source.get("authoritative_sequence") == base_state.get("authoritative_sequence")
+    }) && base_state
+        .get("objects")
+        .and_then(Value::as_array)
+        .is_none_or(|objects| {
+            !objects
+                .iter()
+                .any(|object| string(object, "object_id") == Some(object_id))
+        });
+    let target_absent = resource.get("target").is_some_and(|target| {
+        object_keys_exact(target, &["absent", "api_version", "authoritative_sequence"])
+            && target.get("absent") == Some(&Value::Bool(true))
+            && string(target, "api_version") == Some("proof.dev/object-locale-absence/v1")
+            && target.get("authoritative_sequence") == base_state.get("authoritative_sequence")
+    }) && base_state
+        .get("renditions")
+        .and_then(Value::as_array)
+        .is_none_or(|renditions| {
+            !renditions.iter().any(|rendition| {
+                string(rendition, "object_id") == Some(object_id)
+                    && string(rendition, "locale") == Some(locale)
+            })
+        });
+    let Some((created_object, object_digest)) = created_object_manifest(create) else {
+        return false;
+    };
+    let matching_put = edits.iter().rev().find(|edit| {
+        string(edit, "kind") == Some("object.locale.put")
+            && string(edit, "object_id") == Some(object_id)
+            && string(edit, "locale") == Some(locale)
+    });
+    source_absent
+        && target_absent
+        && matching_put.is_some_and(|edit| {
+            edit.pointer("/expected_source/digest")
+                == Some(&Value::String(object_digest.to_string()))
+                && edit.pointer("/expected_source/revision") == Some(&Value::from(1_u64))
+                && edit.pointer("/expected_source/schema_id") == create.get("schema_id")
+                && edit.pointer("/expected_source/schema_version") == create.get("schema_version")
+                && edit.get("expected_target").is_some_and(Value::is_null)
+                && schema::document_accepts(
+                    selected.get("document").unwrap_or(&Value::Null),
+                    edit.get("content").unwrap_or(&Value::Null),
+                )
+                && edit_content_is_localized_only(
+                    created_object.get("content").unwrap_or(&Value::Null),
+                    edit.get("content").unwrap_or(&Value::Null),
+                    selected
+                        .get("localizable_pointers")
+                        .and_then(Value::as_array)
+                        .map_or(&[], Vec::as_slice),
+                )
+        })
+}
+
 fn localizable_pointers_are_exact(document: &Value, schema_closure: &Value) -> bool {
     let Some(document_pointers) = document
         .get("x-proof-localizable")
@@ -7699,7 +7993,7 @@ fn pointer_is_prefix(left: &[String], right: &[String]) -> bool {
     left.len() <= right.len() && left.iter().zip(right).all(|(left, right)| left == right)
 }
 
-fn context_policy_is_legal(resources: &[Value], policy: &Value) -> bool {
+fn context_policy_is_legal(resources: &[Value], policy: &Value, edits: &[Value]) -> bool {
     let Some(rules) = policy.get("rules").and_then(Value::as_array) else {
         return false;
     };
@@ -7726,20 +8020,14 @@ fn context_policy_is_legal(resources: &[Value], policy: &Value) -> bool {
             return false;
         }
         previous = Some((locale, pointer));
-        let mut matching_resources = resources
-            .iter()
-            .filter(|resource| string(resource, "locale") == Some(locale));
-        if !matching_resources.any(|resource| {
-            resource
-                .pointer("/schema/localizable_pointers")
-                .and_then(Value::as_array)
-                .is_some_and(|pointers| pointers.contains(&Value::String(pointer.to_owned())))
-        }) || resources
+        let matching_resources = resources
             .iter()
             .filter(|resource| string(resource, "locale") == Some(locale))
-            .any(|resource| {
-                resource
-                    .pointer("/schema/localizable_pointers")
+            .collect::<Vec<_>>();
+        if matching_resources.is_empty()
+            || matching_resources.iter().any(|resource| {
+                selected_resource_schema(resource, edits)
+                    .and_then(|schema| schema.get("localizable_pointers"))
                     .and_then(Value::as_array)
                     .is_none_or(|pointers| !pointers.contains(&Value::String(pointer.to_owned())))
             })
@@ -7748,6 +8036,29 @@ fn context_policy_is_legal(resources: &[Value], policy: &Value) -> bool {
         }
     }
     true
+}
+
+fn selected_resource_schema<'a>(resource: &'a Value, edits: &[Value]) -> Option<&'a Value> {
+    if let Some(schema) = resource.get("schema") {
+        return Some(schema);
+    }
+    let object_id = string(resource, "object_id")?;
+    let create = effective_object_create(edits, object_id)?;
+    resource
+        .get("schema_candidates")?
+        .as_array()?
+        .iter()
+        .find(|candidate| {
+            candidate.get("schema_id") == create.get("schema_id")
+                && candidate.get("schema_version") == create.get("schema_version")
+        })
+}
+
+fn effective_object_create<'a>(edits: &'a [Value], object_id: &str) -> Option<&'a Value> {
+    edits.iter().rev().find(|edit| {
+        string(edit, "kind") == Some("object.create")
+            && string(edit, "object_id") == Some(object_id)
+    })
 }
 
 fn schema_pointer_is_localizable(document: &Value, segments: &[String]) -> bool {
@@ -8072,13 +8383,24 @@ fn validation_policy_is_exact(
     };
     let mut expected_schema_digests = resources
         .iter()
-        .filter_map(|resource| {
-            let schema = resource.get("schema")?;
-            Some(json!({
-                "document_digest": schema.get("document_digest"),
-                "schema_id": schema.get("schema_id"),
-                "schema_version": schema.get("schema_version"),
-            }))
+        .flat_map(|resource| {
+            resource
+                .get("schema")
+                .into_iter()
+                .chain(
+                    resource
+                        .get("schema_candidates")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten(),
+                )
+                .map(|schema| {
+                    json!({
+                        "document_digest": schema.get("document_digest"),
+                        "schema_id": schema.get("schema_id"),
+                        "schema_version": schema.get("schema_version"),
+                    })
+                })
         })
         .collect::<Vec<_>>();
     expected_schema_digests.sort_by_key(|schema| {
@@ -8097,7 +8419,7 @@ fn validation_policy_is_exact(
     };
     let mut active = BTreeMap::<String, &Value>::new();
     for edit in edits {
-        let Some(key) = rendition_key(edit) else {
+        let Some(key) = edit_key(edit) else {
             return false;
         };
         active.insert(key, edit);
@@ -8105,7 +8427,15 @@ fn validation_policy_is_exact(
     let mut expected_findings = Vec::new();
     for edit in active.values() {
         for rule in rules {
-            if edit.get("locale") != rule.get("locale") {
+            let applies = match string(edit, "kind") {
+                Some("object.locale.put") => edit.get("locale") == rule.get("locale"),
+                Some("object.create") => resources.iter().any(|resource| {
+                    resource.get("object_id") == edit.get("object_id")
+                        && resource.get("locale") == rule.get("locale")
+                }),
+                _ => return false,
+            };
+            if !applies {
                 continue;
             }
             let Some(pointer) = string(rule, "pointer") else {
@@ -8125,7 +8455,7 @@ fn validation_policy_is_exact(
                 expected_findings.push(json!({
                     "code": "proof.validation.prohibited_legal_claim",
                     "edit_id": edit.get("edit_id"),
-                    "locale": edit.get("locale"),
+                    "locale": rule.get("locale"),
                     "object_id": edit.get("object_id"),
                     "pointer": pointer,
                     "policy_digest": context.value.get("policy_digest"),
@@ -8150,7 +8480,7 @@ fn proposal_snapshot(proposal: &Value, edits: &[Value]) -> Result<ProposalSnapsh
     let mut active = BTreeMap::<String, &Value>::new();
     for edit in edits {
         active.insert(
-            rendition_key(edit).ok_or("proof.verify.content.edit_shape")?,
+            edit_key(edit).ok_or("proof.verify.content.edit_shape")?,
             edit,
         );
     }
@@ -8167,12 +8497,26 @@ fn proposal_snapshot(proposal: &Value, edits: &[Value]) -> Result<ProposalSnapsh
             .map(|edit| {
                 let bytes =
                     canonical_bytes(*edit).map_err(|_| "proof.verify.content.edit_shape")?;
-                Ok(json!({
-                    "edit_digest": domain_digest(ArtifactKind::EditV2, &bytes),
-                    "edit_id": edit.get("edit_id"),
-                    "locale": edit.get("locale"),
-                    "object_id": edit.get("object_id"),
-                }))
+                let kind = edit_artifact_kind(edit).ok_or("proof.verify.content.edit_shape")?;
+                let mut leaf = serde_json::Map::from_iter([
+                    (
+                        "edit_digest".to_owned(),
+                        serde_json::to_value(domain_digest(kind, &bytes))
+                            .map_err(|_| "proof.verify.content.edit_shape")?,
+                    ),
+                    (
+                        "edit_id".to_owned(),
+                        edit.get("edit_id").cloned().unwrap_or(Value::Null),
+                    ),
+                    (
+                        "object_id".to_owned(),
+                        edit.get("object_id").cloned().unwrap_or(Value::Null),
+                    ),
+                ]);
+                if let Some(locale) = edit.get("locale") {
+                    leaf.insert("locale".to_owned(), locale.clone());
+                }
+                Ok(Value::Object(leaf))
             })
             .collect::<Result<Vec<_>, &'static str>>()?,
     );
@@ -8202,30 +8546,108 @@ fn verify_edit_lineage(
     content: &Value,
     proposal: &Value,
 ) -> ContentVerificationResult {
-    let mut active = BTreeMap::<String, &str>::new();
+    let intent = exact_role_artifact(
+        loaded,
+        EvidenceRole::ResourceIntent,
+        digest_field(proposal, "resource_intent_digest"),
+    )
+    .ok_or("proof.verify.content.intent")?;
+    let creation_slots =
+        intent_creation_slots(&intent.value).ok_or("proof.verify.content.intent_targets")?;
+    if !creation_slots_are_canonical(creation_slots) {
+        return Err("proof.verify.content.intent_targets");
+    }
+    let mut slots = BTreeMap::new();
+    for slot in creation_slots {
+        let object_id = string(slot, "object_id").ok_or("proof.verify.content.intent_targets")?;
+        if slots.insert(object_id, slot).is_some() {
+            return Err("proof.verify.content.intent_targets");
+        }
+    }
+    let mut active_puts = BTreeMap::<String, &str>::new();
+    let mut active_creates = BTreeMap::<String, &str>::new();
+    let mut seen_creations = BTreeMap::<String, (Digest, &Value)>::new();
     let mut ids = BTreeSet::new();
     for edit in edits {
         let id = string(edit, "edit_id").ok_or("proof.verify.content.edit_shape")?;
-        let key = rendition_key(edit).ok_or("proof.verify.content.edit_shape")?;
-        let prior = active.get(&key).copied();
-        let supersedes = edit.get("supersedes_edit_id").and_then(Value::as_str);
-        let repair = digest_field(edit, "repair_of_validation_result_digest");
         let bytes = canonical_bytes(edit).map_err(|_| "proof.verify.content.edit_shape")?;
-        let digest = domain_digest(ArtifactKind::EditV2, &bytes);
+        let artifact_kind = edit_artifact_kind(edit).ok_or("proof.verify.content.edit_shape")?;
+        let digest = domain_digest(artifact_kind, &bytes);
         let artifact = exact_role_artifact(loaded, EvidenceRole::Edit, Some(digest))
             .ok_or("proof.verify.content.edit_artifact")?;
         if string(edit, "api_version") != Some("proof.dev/edit/v2")
-            || string(edit, "kind") != Some("object.locale.put")
             || !ids.insert(id.to_owned())
             || artifact.value != *edit
-            || match prior {
-                None => supersedes.is_some() || repair.is_some(),
-                Some(prior) => supersedes != Some(prior) || repair.is_none(),
-            }
         {
             return Err("proof.verify.content.edit_lineage");
         }
-        active.insert(key, id);
+        match string(edit, "kind") {
+            Some("object.create") => {
+                let object_id = string(edit, "object_id")
+                    .ok_or("proof.verify.content.edit_shape")?
+                    .to_owned();
+                let slot = slots
+                    .get(object_id.as_str())
+                    .ok_or("proof.verify.content.edit_targets")?;
+                let prior = active_creates.get(&object_id).copied();
+                let supersedes = edit.get("supersedes_edit_id").and_then(Value::as_str);
+                let repair = digest_field(edit, "repair_of_validation_result_digest");
+                if !object_keys_exact(
+                    edit,
+                    &[
+                        "api_version",
+                        "content",
+                        "edit_id",
+                        "kind",
+                        "object_id",
+                        "repair_of_validation_result_digest",
+                        "schema_id",
+                        "schema_version",
+                        "supersedes_edit_id",
+                    ],
+                ) || match prior {
+                    None => supersedes.is_some() || repair.is_some(),
+                    Some(prior) => supersedes != Some(prior) || repair.is_none(),
+                } || edit.get("schema_id") != slot.get("schema_id")
+                {
+                    return Err("proof.verify.content.edit_lineage");
+                }
+                active_creates.insert(object_id.clone(), id);
+                let (_, object_digest) =
+                    created_object_manifest(edit).ok_or("proof.verify.content.edit_shape")?;
+                seen_creations.insert(object_id, (object_digest, edit));
+            }
+            Some("object.locale.put") => {
+                let key = rendition_key(edit).ok_or("proof.verify.content.edit_shape")?;
+                let prior = active_puts.get(&key).copied();
+                let supersedes = edit.get("supersedes_edit_id").and_then(Value::as_str);
+                let repair = digest_field(edit, "repair_of_validation_result_digest");
+                if match prior {
+                    None => supersedes.is_some() || repair.is_some(),
+                    Some(prior) => supersedes != Some(prior) || repair.is_none(),
+                } {
+                    return Err("proof.verify.content.edit_lineage");
+                }
+                let object_id =
+                    string(edit, "object_id").ok_or("proof.verify.content.edit_shape")?;
+                if slots.contains_key(object_id) {
+                    let (source_digest, create) = seen_creations
+                        .get(object_id)
+                        .ok_or("proof.verify.content.edit_causality")?;
+                    if edit.pointer("/expected_source/digest")
+                        != Some(&Value::String(source_digest.to_string()))
+                        || edit.pointer("/expected_source/revision") != Some(&Value::from(1_u64))
+                        || edit.pointer("/expected_source/schema_id") != create.get("schema_id")
+                        || edit.pointer("/expected_source/schema_version")
+                            != create.get("schema_version")
+                    {
+                        return Err("proof.verify.content.edit_causality");
+                    }
+                }
+                active_puts.insert(key, id);
+            }
+            _ => return Err("proof.verify.content.edit_shape"),
+        }
     }
     let target_keys = content
         .pointer("/resource_intent/targets")
@@ -8235,12 +8657,39 @@ fn verify_edit_lineage(
         .map(rendition_key)
         .collect::<Option<BTreeSet<_>>>()
         .ok_or("proof.verify.content.intent_targets")?;
-    if active.keys().cloned().collect::<BTreeSet<_>>() != target_keys
+    let slot_keys = slots.keys().copied().collect::<BTreeSet<_>>();
+    let active_creation_keys = active_creates
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if active_puts.keys().cloned().collect::<BTreeSet<_>>() != target_keys
+        || active_creation_keys != slot_keys
         || proposal.get("base_state") != content.pointer("/base/known_state")
     {
         return Err("proof.verify.content.edit_targets");
     }
     Ok(())
+}
+
+fn created_object_manifest(edit: &Value) -> Option<(Value, Digest)> {
+    if string(edit, "kind") != Some("object.create") || !edit.get("content")?.is_object() {
+        return None;
+    }
+    let object = json!({
+        "api_version": "proof.dev/object-revision/v1",
+        "content": edit.get("content"),
+        "lifecycle_state": "active",
+        "object_id": edit.get("object_id"),
+        "relationships": [],
+        "revision": 1,
+        "schema_id": edit.get("schema_id"),
+        "schema_version": edit.get("schema_version"),
+    });
+    let bytes = canonical_bytes(&object).ok()?;
+    Some((
+        object,
+        domain_digest(ArtifactKind::ObjectRevisionV1, &bytes),
+    ))
 }
 
 fn verify_repair_edges(
@@ -8270,7 +8719,8 @@ fn verify_repair_edges(
                 findings.iter().any(|finding| {
                     string(finding, "edit_id") == Some(superseded)
                         && finding.get("object_id") == edit.get("object_id")
-                        && finding.get("locale") == edit.get("locale")
+                        && (string(edit, "kind") == Some("object.create")
+                            || finding.get("locale") == edit.get("locale"))
                         && string(finding, "severity") == Some("error")
                 })
             });
@@ -8284,6 +8734,70 @@ fn verify_repair_edges(
             .any(|edit| digest_field(edit, "repair_of_validation_result_digest") == Some(*digest))
     }) {
         return Err("proof.verify.content.unrepaired_validation");
+    }
+    Ok(())
+}
+
+fn verify_creation_closure(
+    loaded: &LoadedBundle,
+    _content: &Value,
+    delta: &Value,
+    _changeset: &Value,
+    proposal: &Value,
+) -> ContentVerificationResult {
+    let edits = proposal
+        .get("edits")
+        .and_then(Value::as_array)
+        .ok_or("proof.verify.content.edits")?;
+    let mut active = BTreeMap::new();
+    for edit in edits {
+        active.insert(
+            edit_key(edit).ok_or("proof.verify.content.edit_shape")?,
+            edit,
+        );
+    }
+    let creates = active
+        .values()
+        .filter(|edit| string(edit, "kind") == Some("object.create"))
+        .copied()
+        .collect::<Vec<_>>();
+    let object_changes = ordered_value_map(
+        delta
+            .get("objects")
+            .and_then(Value::as_array)
+            .ok_or("proof.verify.content.objects")?,
+        object_key,
+    )
+    .ok_or("proof.verify.content.objects")?;
+    if creates.len() != object_changes.len() {
+        return Err("proof.verify.content.object_targets");
+    }
+    for create in creates {
+        let object_id = string(create, "object_id").ok_or("proof.verify.content.edit_shape")?;
+        let change = object_changes
+            .get(object_id)
+            .ok_or("proof.verify.content.object_targets")?;
+        let before = change.get("before").filter(|value| !value.is_null());
+        let after = change
+            .get("after")
+            .filter(|value| !value.is_null())
+            .ok_or("proof.verify.content.object_removal")?;
+        let (object, object_digest) =
+            created_object_manifest(create).ok_or("proof.verify.content.edit_shape")?;
+        let artifact = exact_role_artifact(loaded, EvidenceRole::Object, Some(object_digest))
+            .ok_or("proof.verify.content.source_object")?;
+        if before.is_some()
+            || change.get("object_id") != create.get("object_id")
+            || after.get("object_id") != create.get("object_id")
+            || after.get("schema_id") != create.get("schema_id")
+            || after.get("schema_version") != create.get("schema_version")
+            || after.get("revision") != Some(&Value::from(1_u64))
+            || string(after, "lifecycle_state") != Some("active")
+            || digest_field(after, "object_digest") != Some(object_digest)
+            || artifact.value != object
+        {
+            return Err("proof.verify.content.object_cross_link");
+        }
     }
     Ok(())
 }
@@ -8315,12 +8829,24 @@ fn verify_rendition_closure(
         .get("edits")
         .and_then(Value::as_array)
         .ok_or("proof.verify.content.edits")?;
-    let mut active_edits = BTreeMap::new();
+    let mut effective_edits = BTreeMap::new();
     for edit in edits {
-        active_edits.insert(
-            rendition_key(edit).ok_or("proof.verify.content.edit_shape")?,
+        effective_edits.insert(
+            edit_key(edit).ok_or("proof.verify.content.edit_shape")?,
             edit,
         );
+    }
+    let mut active_edits = BTreeMap::new();
+    let mut edit_ordinals = BTreeMap::new();
+    for (index, edit) in effective_edits.values().enumerate() {
+        let edit_id = string(edit, "edit_id").ok_or("proof.verify.content.edit_shape")?;
+        edit_ordinals.insert(edit_id, index);
+        if string(edit, "kind") == Some("object.locale.put") {
+            active_edits.insert(
+                rendition_key(edit).ok_or("proof.verify.content.edit_shape")?,
+                *edit,
+            );
+        }
     }
     if delta_renditions.len() != evidence_renditions.len()
         || delta_renditions.len() != active_edits.len()
@@ -8342,7 +8868,7 @@ fn verify_rendition_closure(
         .pointer("/base/state/authoritative_sequence")
         .and_then(Value::as_u64)
         .ok_or("proof.verify.content.rendition_sequence")?;
-    for (index, (key, change)) in delta_renditions.iter().enumerate() {
+    for (key, change) in &delta_renditions {
         let after = change
             .get("after")
             .filter(|value| !value.is_null())
@@ -8353,6 +8879,10 @@ fn verify_rendition_closure(
             .ok_or("proof.verify.content.rendition_evidence")?;
         let edit = active_edits
             .get(key)
+            .copied()
+            .ok_or("proof.verify.content.rendition_edit")?;
+        let edit_ordinal = string(edit, "edit_id")
+            .and_then(|edit_id| edit_ordinals.get(edit_id))
             .copied()
             .ok_or("proof.verify.content.rendition_edit")?;
         let rendition_digest = digest_field(after, "rendition_digest")
@@ -8390,7 +8920,7 @@ fn verify_rendition_closure(
             || revision.value.get("source_object_revision")
                 != edit.pointer("/expected_source/revision")
             || u64_field(&revision.value, "authoritative_sequence")
-                != u64::try_from(index)
+                != u64::try_from(edit_ordinal)
                     .ok()
                     .and_then(|index| base_sequence.checked_add(index + 1))
         {
@@ -9625,6 +10155,13 @@ fn string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
     value.get(field).and_then(Value::as_str)
 }
 
+fn is_content_resource_intent(value: &Value) -> bool {
+    matches!(
+        string(value, "api_version"),
+        Some("proof.dev/content-resource-intent/v1" | "proof.dev/content-resource-intent/v2")
+    )
+}
+
 fn u64_field(value: &Value, field: &str) -> Option<u64> {
     value.get(field).and_then(Value::as_u64)
 }
@@ -9724,6 +10261,55 @@ mod tests {
     };
 
     const WORKSPACE: &str = "019c0000-0000-7000-8000-000000000001";
+
+    #[test]
+    fn content_resource_intent_lineage_accepts_both_contract_versions() {
+        assert!(is_content_resource_intent(&json!({
+            "api_version": "proof.dev/content-resource-intent/v1",
+        })));
+        assert!(is_content_resource_intent(&json!({
+            "api_version": "proof.dev/content-resource-intent/v2",
+        })));
+        assert!(!is_content_resource_intent(&json!({
+            "api_version": "proof.dev/content-resource-intent/v3",
+        })));
+    }
+
+    #[test]
+    fn creation_slots_are_sorted_unique_and_bounded() {
+        let sorted = json!([
+            {
+                "locales": ["en-US", "es-ES"],
+                "object_id": "019c0000-0000-7000-8000-000000000001",
+                "schema_id": "campaign",
+            },
+            {
+                "locales": ["fr-FR"],
+                "object_id": "019c0000-0000-7000-8000-000000000002",
+                "schema_id": "campaign",
+            },
+        ]);
+        assert!(creation_slots_are_canonical(sorted.as_array().unwrap()));
+
+        let mut unsorted_slots = sorted.clone();
+        unsorted_slots.as_array_mut().unwrap().reverse();
+        assert!(!creation_slots_are_canonical(
+            unsorted_slots.as_array().unwrap()
+        ));
+
+        let mut duplicate_locales = sorted.clone();
+        duplicate_locales[0]["locales"] = json!(["en-US", "en-US"]);
+        assert!(!creation_slots_are_canonical(
+            duplicate_locales.as_array().unwrap()
+        ));
+
+        let oversized = json!([{
+            "locales": (0..101).map(|index| format!("x-{index:03}")).collect::<Vec<_>>(),
+            "object_id": "019c0000-0000-7000-8000-000000000001",
+            "schema_id": "campaign",
+        }]);
+        assert!(!creation_slots_are_canonical(oversized.as_array().unwrap()));
+    }
 
     fn reference(kind: ArtifactKind, tag: u8) -> ArtifactRef {
         ArtifactRef {

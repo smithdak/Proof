@@ -350,6 +350,34 @@ impl TestDb {
             .get(0)
     }
 
+    fn idempotency_replay_count(&self, application_key: &str) -> i64 {
+        let mut guard = self.runtime();
+        let runtime = guard.as_mut().unwrap();
+        runtime
+            .client_mut()
+            .query_one(
+                "SELECT replay_count FROM idempotency_keys
+                 WHERE workspace_id = $1 AND application_key = $2",
+                &[&WS_ID, &application_key],
+            )
+            .unwrap()
+            .get(0)
+    }
+
+    fn causal_sequences(&self) -> (i64, i64, i64, i64) {
+        let mut guard = self.runtime();
+        let runtime = guard.as_mut().unwrap();
+        let row = runtime
+            .client_mut()
+            .query_one(
+                "SELECT transaction_sequence, authority_sequence, content_sequence, release_sequence
+                 FROM workspace_write_head WHERE singleton = 1",
+                &[],
+            )
+            .unwrap();
+        (row.get(0), row.get(1), row.get(2), row.get(3))
+    }
+
     fn management_fact_payloads(&self, delivery_id: &str) -> Vec<DeliveryManagementFactV1> {
         let mut guard = self.runtime();
         let runtime = guard.as_mut().unwrap();
@@ -751,6 +779,100 @@ fn replay_returns_pending_with_new_generation_and_preserved_identities() {
 }
 
 #[test]
+fn delivery_key_replays_exact_result_and_conflicts_globally_without_new_effect() {
+    let db = TestDb::new("global_key");
+    seed_human_actor(
+        &db,
+        WorkspaceRole::EnvironmentAdmin,
+        "019c0000-0000-7000-8000-0000000000d6",
+    );
+    seed_role_assignment(
+        &db,
+        WorkspaceRole::EnvironmentActivator,
+        "019c0000-0000-7000-8000-0000000000d7",
+    );
+    db.seed_delivery_state(EVENT_ID, DELIVERY_ID, 1, "dead-letter", 12, None);
+
+    let application_key = "019d0000-0000-7000-8000-000000000016";
+    let replay_operation = delivery_replay_operation();
+    let replay_input = json!({
+        "event_id": EVENT_ID,
+        "delivery_id": DELIVERY_ID,
+        "expected_generation": 1,
+        "idempotency_key": application_key,
+    });
+    let context = human_context_for(&db, &replay_operation, &replay_input);
+    let decision =
+        evaluate_authorization(&db.state, &context, &replay_input).expect("fresh allow decision");
+    let fresh = HumanOperationExecutor::execute_for_dispatch(
+        &db.state,
+        &replay_operation,
+        &replay_input,
+        &context,
+        &decision,
+    )
+    .expect("fresh delivery replay commits");
+
+    let after_fresh = db.causal_sequences();
+    assert_eq!(db.count("delivery_management_facts"), 1);
+    assert_eq!(db.count("idempotency_keys"), 1);
+
+    let context = human_context_for(&db, &replay_operation, &replay_input);
+    let decision =
+        evaluate_authorization(&db.state, &context, &replay_input).expect("retry allow decision");
+    let replayed = HumanOperationExecutor::execute_for_dispatch(
+        &db.state,
+        &replay_operation,
+        &replay_input,
+        &context,
+        &decision,
+    )
+    .expect("equivalent retry replays");
+
+    assert_eq!(replayed.result, fresh.result);
+    assert_eq!(
+        replayed.consequence.outcome,
+        ApplicationConsequenceOutcome::IdempotentReplay
+    );
+    assert_eq!(db.idempotency_replay_count(application_key), 1);
+    assert_eq!(db.count("delivery_management_facts"), 1);
+    assert_eq!(db.delivery_state_rows(EVENT_ID, DELIVERY_ID).len(), 2);
+    let after_replay = db.causal_sequences();
+    assert_eq!(after_replay.2, after_fresh.2);
+    assert_eq!(after_replay.3, after_fresh.3);
+
+    let abandon_operation = delivery_abandon_operation();
+    let abandon_input = json!({
+        "event_id": EVENT_ID,
+        "delivery_id": DELIVERY_ID,
+        "expected_generation": 2,
+        "reason": "operator-confirmed-poison-delivery",
+        "idempotency_key": application_key,
+    });
+    let context = human_context_for(&db, &abandon_operation, &abandon_input);
+    let decision = evaluate_authorization(&db.state, &context, &abandon_input)
+        .expect("cross-operation allow decision");
+    let error = HumanOperationExecutor::execute_for_dispatch(
+        &db.state,
+        &abandon_operation,
+        &abandon_input,
+        &context,
+        &decision,
+    )
+    .expect_err("Workspace-global key reuse conflicts");
+    assert!(matches!(
+        error,
+        ServerError::ApplicationProblem(ref code) if code == "proof.idempotency.key_reused"
+    ));
+    assert_eq!(db.count("idempotency_keys"), 1);
+    assert_eq!(db.count("delivery_management_facts"), 1);
+    assert_eq!(db.delivery_state_rows(EVENT_ID, DELIVERY_ID).len(), 2);
+    let after_conflict = db.causal_sequences();
+    assert_eq!(after_conflict.2, after_fresh.2);
+    assert_eq!(after_conflict.3, after_fresh.3);
+}
+
+#[test]
 fn abandon_is_terminal_with_null_to_generation_and_preserved_generation() {
     let db = TestDb::new("abandon");
     seed_human_actor(
@@ -819,17 +941,13 @@ fn non_dead_letter_replay_and_non_poison_abandon_reject() {
     });
     let context = human_context_for(&db, &replay, &replay_input);
     let decision = evaluate_authorization(&db.state, &context, &replay_input).expect("decision");
-    let replay_consequence =
+    let replay_error =
         HumanOperationExecutor::execute(&db.state, &replay, &replay_input, &context, &decision)
-            .expect("replay commits a failure consequence");
-    assert_eq!(
-        replay_consequence.outcome,
-        ApplicationConsequenceOutcome::ApplicationFailure
-    );
-    assert_eq!(
-        replay_consequence.problem_code.as_deref(),
-        Some("proof.state.conflict")
-    );
+            .expect_err("replay returns a state-conflict Problem");
+    assert!(matches!(
+        replay_error,
+        ServerError::ApplicationProblem(ref code) if code == "proof.state.conflict"
+    ));
     assert_eq!(db.count("delivery_management_facts"), 0);
 
     // The activator role is also required for the abandon reject case; assign it
@@ -849,17 +967,13 @@ fn non_dead_letter_replay_and_non_poison_abandon_reject() {
     });
     let context = human_context_for(&db, &abandon, &abandon_input);
     let decision = evaluate_authorization(&db.state, &context, &abandon_input).expect("decision");
-    let abandon_consequence =
+    let abandon_error =
         HumanOperationExecutor::execute(&db.state, &abandon, &abandon_input, &context, &decision)
-            .expect("abandon commits a failure consequence");
-    assert_eq!(
-        abandon_consequence.outcome,
-        ApplicationConsequenceOutcome::ApplicationFailure
-    );
-    assert_eq!(
-        abandon_consequence.problem_code.as_deref(),
-        Some("proof.state.conflict")
-    );
+            .expect_err("abandon returns a state-conflict Problem");
+    assert!(matches!(
+        abandon_error,
+        ServerError::ApplicationProblem(ref code) if code == "proof.state.conflict"
+    ));
     assert_eq!(db.count("delivery_management_facts"), 0);
 
     // The delivery remains pending; neither reject mutated state.

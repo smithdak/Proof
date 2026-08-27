@@ -2197,7 +2197,7 @@ fn collect_localized_changeset(
 
     let mut edits = connection
         .prepare(
-            "SELECT edit_json, edit_digest, edit_id, object_id, locale
+            "SELECT edit_kind, edit_json, edit_digest, edit_id, object_id, locale
              FROM localized_edits
              WHERE changeset_id = ?1 ORDER BY ordinal",
         )
@@ -2210,24 +2210,31 @@ fn collect_localized_changeset(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
             ))
         })
         .map_err(storage)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(storage)?;
     let mut all_edits = Vec::with_capacity(edit_rows.len());
-    let mut effective = BTreeMap::<(String, String), (Value, String, String)>::new();
-    for (edit_json, edit_digest, edit_id, object_id, locale) in edit_rows {
+    let mut effective = BTreeMap::<(u8, String, String), (Value, String, String, bool)>::new();
+    for (edit_kind, edit_json, edit_digest, edit_id, object_id, locale) in edit_rows {
         let edit_value = parse_strict(edit_json.as_bytes())
             .map_err(|error| invalid(format!("localized Edit is invalid: {error}")))?;
-        collector.include_expected(
-            EvidenceRoleV1::Edit,
-            ArtifactKind::EditV2,
-            edit_json,
-            &edit_digest,
-        )?;
+        if edit_value.get("kind").and_then(Value::as_str) != Some(edit_kind.as_str()) {
+            return Err(invalid("localized Edit kind disagrees with its artifact"));
+        }
+        let (artifact_kind, sort_kind, is_creation) = match edit_kind.as_str() {
+            "object.create" => (ArtifactKind::ObjectCreateEditV2, 0, true),
+            "object.locale.put" => (ArtifactKind::EditV2, 1, false),
+            _ => return Err(invalid("localized Edit kind is unsupported")),
+        };
+        collector.include_expected(EvidenceRoleV1::Edit, artifact_kind, edit_json, &edit_digest)?;
         all_edits.push(edit_value.clone());
-        effective.insert((object_id, locale), (edit_value, edit_digest, edit_id));
+        effective.insert(
+            (sort_kind, object_id, locale),
+            (edit_value, edit_digest, edit_id, is_creation),
+        );
     }
     if let Some(proposal_digest) = proposal_digest.as_deref() {
         let expected_effective_digest = effective_leaf_digest.as_deref().ok_or_else(|| {
@@ -2235,7 +2242,7 @@ fn collect_localized_changeset(
         })?;
         let effective_edits = effective
             .values()
-            .map(|(edit, _, _)| edit.clone())
+            .map(|(edit, _, _, _)| edit.clone())
             .collect::<Vec<_>>();
         let effective_batch = canonicalize(&json!({
             "api_version": "proof.dev/edit-batch/v2",
@@ -2250,14 +2257,18 @@ fn collect_localized_changeset(
         )?;
         let effective_leaves = effective
             .iter()
-            .map(|((object_id, locale), (_, edit_digest, edit_id))| {
-                json!({
-                    "edit_digest": edit_digest,
-                    "edit_id": edit_id,
-                    "locale": locale,
-                    "object_id": object_id,
-                })
-            })
+            .map(
+                |((_, object_id, locale), (_, edit_digest, edit_id, is_creation))| {
+                    let mut leaf = serde_json::Map::new();
+                    leaf.insert("edit_digest".to_owned(), json!(edit_digest));
+                    leaf.insert("edit_id".to_owned(), json!(edit_id));
+                    if !is_creation {
+                        leaf.insert("locale".to_owned(), json!(locale));
+                    }
+                    leaf.insert("object_id".to_owned(), json!(object_id));
+                    Value::Object(leaf)
+                },
+            )
             .collect::<Vec<_>>();
         let proposal = canonicalize(&json!({
             "api_version": "proof.dev/changeset/v2",
@@ -2718,9 +2729,10 @@ mod tests {
         CreateLocalizedChangeSetCommand, CreateLocalizedEditionCommand, ExpectedLocalizedSource,
         IdempotencyKey, InitializeWorkspaceCommand, IssueContentResourceIntentCommand, LocaleId,
         LocalizedContentRepository, LocalizedContentTarget, LocalizedContextLimits,
-        ObjectCreateEdit, ObjectId, ObjectLocalePutInput, ObjectRevision, PrincipalId,
-        PromoteReleaseCommand, ProofId, ReleaseId, SchemaCreateEdit, SchemaId, SchemaVersion,
-        SubmitChangeSetCommand, Timestamp, WorkspaceId, add_changeset_edits, approve_changeset,
+        LocalizedCreationSlot, LocalizedPolicyRule, ObjectCreateEdit, ObjectCreateInput, ObjectId,
+        ObjectLocalePutInput, ObjectRevision, PrincipalId, PromoteReleaseCommand, ProofId,
+        ReleaseId, SchemaCreateEdit, SchemaId, SchemaVersion, SubmitChangeSetCommand, Timestamp,
+        WorkspaceId, add_changeset_edits, approve_changeset,
         authority::{
             AgentPrincipalType, AuthenticatedAuthorityExecutor, AuthenticatedCommandApiVersion,
             AuthenticatedCommandEnvelopeJson, AuthenticatedCommandKeyUsage, AuthenticatedCommandV1,
@@ -3124,13 +3136,14 @@ mod tests {
         _directory: TestDirectory,
         repository: LocalWorkspace,
         release_id: ReleaseId,
+        localized_object_id: ObjectId,
     }
 
     #[expect(
         clippy::too_many_lines,
         reason = "the fixture creates one real localized Release then authenticates its exact replay"
     )]
-    fn prepare_pre_v14_export_fixture() -> PreV14ExportFixture {
+    fn prepare_export_fixture(localized_creation: bool) -> PreV14ExportFixture {
         let directory = TestDirectory::new();
         let base_time = "2026-08-21T12:00:00Z".parse::<Timestamp>().unwrap();
         let repository = LocalWorkspace::with_deterministic_authority_adapter(
@@ -3152,13 +3165,46 @@ mod tests {
             },
         )
         .unwrap();
-        let object_id = evidence_fixture_id(0x30).parse::<ObjectId>().unwrap();
+        let base_object_id = evidence_fixture_id(0x30).parse::<ObjectId>().unwrap();
         let schema_id = SchemaId::new("campaign").unwrap();
         let schema_version = SchemaVersion::new(1).unwrap();
-        let (base_release_id, source_digest) =
-            prepare_external_commitment_baseline(&repository, object_id, &schema_id);
+        let (base_release_id, base_source_digest) =
+            prepare_external_commitment_baseline(&repository, base_object_id, &schema_id);
+        let object_id = if localized_creation {
+            evidence_fixture_id(0x31).parse::<ObjectId>().unwrap()
+        } else {
+            base_object_id
+        };
+        let initial_source = serde_json::json!({
+            "legal": "Standard terms apply",
+            "slug": "summer-campaign",
+            "title": "Unapproved summer campaign",
+        });
+        let source = serde_json::json!({
+            "legal": "Standard terms apply",
+            "slug": "summer-campaign",
+            "title": "Summer campaign",
+        });
+        let initial_source_digest = if localized_creation {
+            object_revision_digest(object_id, &schema_id, schema_version, &initial_source).unwrap()
+        } else {
+            base_source_digest
+        };
+        let source_digest = if localized_creation {
+            object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap()
+        } else {
+            base_source_digest
+        };
         let intent = repository
             .issue_content_resource_intent(IssueContentResourceIntentCommand {
+                creations: localized_creation
+                    .then(|| LocalizedCreationSlot {
+                        object_id,
+                        schema_id: schema_id.clone(),
+                        locales: vec!["fr-FR".parse().unwrap()],
+                    })
+                    .into_iter()
+                    .collect(),
                 intent_id: evidence_fixture_id(0x40).parse().unwrap(),
                 environment_id: "preview".parse().unwrap(),
                 targets: vec![LocalizedContentTarget {
@@ -3175,11 +3221,18 @@ mod tests {
                 context_pack_id: evidence_fixture_id(0x42).parse().unwrap(),
                 resource_intent_id: intent.intent_id,
                 resource_intent_digest: intent.intent_digest,
-                policy_rules: Vec::new(),
+                policy_rules: localized_creation
+                    .then(|| LocalizedPolicyRule {
+                        locale: "fr-FR".parse().unwrap(),
+                        pointer: "/title".to_owned(),
+                        disallowed_values: vec!["Unapproved summer campaign".to_owned()],
+                    })
+                    .into_iter()
+                    .collect(),
                 limits: LocalizedContextLimits {
                     max_objects: 1,
-                    max_edits: 1,
-                    max_validation_attempts: 1,
+                    max_edits: if localized_creation { 4 } else { 1 },
+                    max_validation_attempts: if localized_creation { 3 } else { 1 },
                     max_bytes: 65_536,
                 },
                 idempotency_key: evidence_fixture_key(0x43),
@@ -3218,7 +3271,12 @@ mod tests {
                 constraints: DelegationConstraintsV2 {
                     max_objects: MaxObjects::new(1).unwrap(),
                     max_context_bytes: MaxContextBytes::new(65_536).unwrap(),
-                    max_edits_per_changeset: MaxEditsPerChangeSet::new(1).unwrap(),
+                    max_edits_per_changeset: MaxEditsPerChangeSet::new(if localized_creation {
+                        4
+                    } else {
+                        1
+                    })
+                    .unwrap(),
                     allow_subdelegation: SubdelegationDisabled,
                 },
                 not_before: add_test_seconds(base_time, 23),
@@ -3246,33 +3304,125 @@ mod tests {
             "title": "Campagne d’été",
         }))
         .unwrap();
+        let mut edits = Vec::new();
+        let mut assigned_edit_ids = Vec::new();
+        if localized_creation {
+            edits.push(proof_application::LocalizedEditAttempt::ObjectCreate(
+                ObjectCreateInput {
+                    object_id,
+                    schema_id: schema_id.clone(),
+                    schema_version,
+                    canonical_content: canonicalize(&initial_source).unwrap().as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            ));
+            assigned_edit_ids.push(evidence_fixture_id(0x52).parse().unwrap());
+        }
+        edits.push(proof_application::LocalizedEditAttempt::LocalePut(
+            ObjectLocalePutInput {
+                object_id,
+                locale: "fr-FR".parse().unwrap(),
+                expected_source: ExpectedLocalizedSource {
+                    revision: ObjectRevision::INITIAL,
+                    digest: initial_source_digest,
+                    schema_id: schema_id.clone(),
+                    schema_version,
+                },
+                expected_target: None,
+                canonical_content: localized.as_str().to_owned(),
+                supersedes_edit_id: None,
+                repair_of_validation_result_digest: None,
+            },
+        ));
+        assigned_edit_ids.push(
+            evidence_fixture_id(if localized_creation { 0x5a } else { 0x52 })
+                .parse()
+                .unwrap(),
+        );
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: changeset.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id,
-                    locale: "fr-FR".parse().unwrap(),
-                    expected_source: ExpectedLocalizedSource {
-                        revision: ObjectRevision::INITIAL,
-                        digest: source_digest,
-                        schema_id: schema_id.clone(),
-                        schema_version,
-                    },
-                    expected_target: None,
-                    canonical_content: localized.as_str().to_owned(),
-                    supersedes_edit_id: None,
-                    repair_of_validation_result_digest: None,
-                }],
-                assigned_edit_ids: vec![evidence_fixture_id(0x52).parse().unwrap()],
+                edits,
+                assigned_edit_ids,
                 idempotency_key: evidence_fixture_key(0x53),
             })
             .unwrap();
-        assert!(
+        let initial_validation = repository
+            .validate_localized_changeset(changeset.changeset_id)
+            .unwrap();
+        if localized_creation {
+            assert!(!initial_validation.valid);
+            assert_eq!(initial_validation.findings.len(), 1);
+            assert_eq!(
+                initial_validation.findings[0].code,
+                proof_application::PROHIBITED_LEGAL_CLAIM_CODE
+            );
+            let initial_create_id = evidence_fixture_id(0x52).parse().unwrap();
+            let repaired_create_id = evidence_fixture_id(0x5b).parse().unwrap();
             repository
+                .add_localized_edits(AddLocalizedEditsCommand {
+                    changeset_id: changeset.changeset_id,
+                    edits: vec![proof_application::LocalizedEditAttempt::ObjectCreate(
+                        ObjectCreateInput {
+                            object_id,
+                            schema_id: schema_id.clone(),
+                            schema_version,
+                            canonical_content: canonicalize(&source).unwrap().as_str().to_owned(),
+                            supersedes_edit_id: Some(initial_create_id),
+                            repair_of_validation_result_digest: Some(
+                                initial_validation.validation_results_digest,
+                            ),
+                        },
+                    )],
+                    assigned_edit_ids: vec![repaired_create_id],
+                    idempotency_key: evidence_fixture_key(0x5c),
+                })
+                .unwrap();
+            let source_validation = repository
                 .validate_localized_changeset(changeset.changeset_id)
-                .unwrap()
-                .valid
-        );
+                .unwrap();
+            assert!(!source_validation.valid);
+            assert_eq!(source_validation.findings.len(), 1);
+            assert_eq!(
+                source_validation.findings[0].code,
+                proof_application::LOCALIZED_SOURCE_CONFLICT_CODE
+            );
+            let initial_put_id = evidence_fixture_id(0x5a).parse().unwrap();
+            repository
+                .add_localized_edits(AddLocalizedEditsCommand {
+                    changeset_id: changeset.changeset_id,
+                    edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                        ObjectLocalePutInput {
+                            object_id,
+                            locale: "fr-FR".parse().unwrap(),
+                            expected_source: ExpectedLocalizedSource {
+                                revision: ObjectRevision::INITIAL,
+                                digest: source_digest,
+                                schema_id: schema_id.clone(),
+                                schema_version,
+                            },
+                            expected_target: None,
+                            canonical_content: localized.as_str().to_owned(),
+                            supersedes_edit_id: Some(initial_put_id),
+                            repair_of_validation_result_digest: Some(
+                                source_validation.validation_results_digest,
+                            ),
+                        },
+                    )],
+                    assigned_edit_ids: vec![evidence_fixture_id(0x5d).parse().unwrap()],
+                    idempotency_key: evidence_fixture_key(0x5e),
+                })
+                .unwrap();
+            assert!(
+                repository
+                    .validate_localized_changeset(changeset.changeset_id)
+                    .unwrap()
+                    .valid
+            );
+        } else {
+            assert!(initial_validation.valid);
+        }
         repository
             .submit_localized_changeset(changeset.changeset_id, add_test_seconds(base_time, 60))
             .unwrap();
@@ -3368,6 +3518,126 @@ mod tests {
             _directory: directory,
             repository,
             release_id,
+            localized_object_id: object_id,
+        }
+    }
+
+    fn prepare_pre_v14_export_fixture() -> PreV14ExportFixture {
+        prepare_export_fixture(false)
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn creation_release_export_reproduces_kind_discriminated_proposal_artifacts() {
+        let fixture = prepare_export_fixture(true);
+        let exported = fixture
+            .repository
+            .export_authority_evidence_bundle(ExportAuthorityEvidenceBundleV1Command {
+                release_id: fixture.release_id,
+                subject_opening: SubjectOpeningDisclosureV1::Withhold,
+            })
+            .unwrap();
+        exported.bundle.validate().unwrap();
+        let (manifest, manifest_digest) = exported.bundle.canonical_manifest().unwrap();
+        assert_eq!(manifest, exported.canonical_manifest_json);
+        assert_eq!(manifest_digest, exported.manifest_digest);
+        for artifact in &exported.artifacts {
+            let value = parse_strict(artifact.canonical_json.as_bytes()).unwrap();
+            let canonical = canonicalize(&value).unwrap();
+            assert_eq!(canonical.as_str(), artifact.canonical_json);
+            assert_eq!(
+                canonical_digest(artifact.artifact.artifact_kind, &canonical),
+                artifact.artifact.digest
+            );
+        }
+
+        let artifact = |kind| {
+            exported
+                .artifacts
+                .iter()
+                .find(|artifact| artifact.artifact.artifact_kind == kind)
+                .unwrap()
+        };
+        let batch = artifact(ArtifactKind::EditBatchV2);
+        let changeset = exported
+            .artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.artifact.artifact_kind == ArtifactKind::ChangeSetV2
+                    && parse_strict(artifact.canonical_json.as_bytes())
+                        .is_ok_and(|value| value.get("effective_leaf_digest").is_some())
+            })
+            .unwrap();
+        let batch_value = parse_strict(batch.canonical_json.as_bytes()).unwrap();
+        let changeset_value = parse_strict(changeset.canonical_json.as_bytes()).unwrap();
+        let create_value = batch_value["edits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|edit| edit["kind"] == "object.create")
+            .unwrap();
+        let create = exported
+            .artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.artifact.artifact_kind == ArtifactKind::ObjectCreateEditV2
+                    && parse_strict(artifact.canonical_json.as_bytes())
+                        .is_ok_and(|value| value == *create_value)
+            })
+            .unwrap();
+        assert_eq!(
+            exported
+                .artifacts
+                .iter()
+                .filter(|artifact| {
+                    artifact.artifact.artifact_kind == ArtifactKind::ObjectCreateEditV2
+                })
+                .count(),
+            2
+        );
+        assert_eq!(create_value["kind"], "object.create");
+        assert_eq!(
+            create_value["object_id"],
+            fixture.localized_object_id.to_string()
+        );
+        assert_eq!(
+            create_value["supersedes_edit_id"],
+            evidence_fixture_id(0x52)
+        );
+        assert!(create_value["repair_of_validation_result_digest"].is_string());
+        assert_eq!(batch_value["edits"][0], *create_value);
+        assert_eq!(
+            changeset_value["effective_leaf_digest"],
+            batch.artifact.digest.to_string()
+        );
+        let creation_leaf = changeset_value["effective_leaves"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|leaf| leaf.get("locale").is_none())
+            .unwrap();
+        assert_eq!(
+            creation_leaf["object_id"],
+            fixture.localized_object_id.to_string()
+        );
+        assert_eq!(
+            creation_leaf["edit_digest"],
+            create.artifact.digest.to_string()
+        );
+        for reference in [create.artifact, batch.artifact, changeset.artifact] {
+            assert!(exported.bundle.artifacts.iter().any(|descriptor| {
+                descriptor.role
+                    == if reference == changeset.artifact {
+                        EvidenceRoleV1::ChangeSet
+                    } else {
+                        EvidenceRoleV1::Edit
+                    }
+                    && descriptor.artifact == reference
+                    && matches!(
+                        descriptor.availability,
+                        EvidenceAvailabilityV1::Included { .. }
+                    )
+            }));
         }
     }
 
@@ -3410,6 +3680,9 @@ mod tests {
                 "DROP TRIGGER authorization_decision_requires_command_presentation;
                  DROP TABLE authenticated_command_presentations_v1;
                  DROP TABLE authenticated_command_presentation_cutover_v1;
+                 ALTER TABLE localized_edits DROP COLUMN edit_kind;
+                 ALTER TABLE content_resource_intents DROP COLUMN creations_json;
+                 DELETE FROM schema_migrations WHERE version = 15;
                  DELETE FROM schema_migrations WHERE version = 14;
                  UPDATE workspace_metadata SET schema_version = 13 WHERE singleton = 1;
                  PRAGMA user_version = 13;",
@@ -3487,7 +3760,7 @@ mod tests {
                     |row| row.get::<_, u32>(0),
                 )
                 .unwrap(),
-            14
+            15
         );
         assert_eq!(
             migrated
@@ -4008,6 +4281,9 @@ mod tests {
                 "DROP TRIGGER authorization_decision_requires_command_presentation;
                  DROP TABLE authenticated_command_presentations_v1;
                  DROP TABLE authenticated_command_presentation_cutover_v1;
+                 ALTER TABLE localized_edits DROP COLUMN edit_kind;
+                 ALTER TABLE content_resource_intents DROP COLUMN creations_json;
+                 DELETE FROM schema_migrations WHERE version = 15;
                  DELETE FROM schema_migrations WHERE version = 14;
                  UPDATE workspace_metadata SET schema_version = 13 WHERE singleton = 1;
                  PRAGMA user_version = 13;",

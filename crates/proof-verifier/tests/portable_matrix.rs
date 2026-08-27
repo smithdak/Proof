@@ -193,6 +193,92 @@ fn independently_generated_complete_include_and_withhold_are_equivalent() {
 }
 
 #[test]
+fn localized_creation_requires_candidate_and_causal_closure() {
+    for mode in [
+        SignatureMode::LocalizedCreationConstructive,
+        SignatureMode::LocalizedCreationRepaired,
+    ] {
+        let constructive = generate(OpeningMode::Withhold, mode);
+        let report = verify(&constructive, Some(&constructive.checkpoint_json));
+        assert_eq!(report.outcome, Outcome::Complete, "{mode:?}: {report:#?}");
+        assert!(report.findings.is_empty(), "{mode:?}: {report:#?}");
+    }
+
+    for (mode, expected_code) in [
+        (
+            SignatureMode::LocalizedCreationCandidateOmitted,
+            "proof.verify.content.context_resources",
+        ),
+        (
+            SignatureMode::LocalizedCreationCausalityViolation,
+            "proof.verify.content.edit_causality",
+        ),
+        (
+            SignatureMode::LocalizedCreationRepairEvidenceMissing,
+            "proof.verify.content.repair_evidence",
+        ),
+        (
+            SignatureMode::LocalizedCreationRepairPairMissing,
+            "proof.verify.content.edit_lineage",
+        ),
+        (
+            SignatureMode::LocalizedCreationRepairSupersedesMismatch,
+            "proof.verify.content.edit_lineage",
+        ),
+    ] {
+        let fixture = generate(OpeningMode::Withhold, mode);
+        let report = verify(&fixture, Some(&fixture.checkpoint_json));
+        assert_eq!(report.outcome, Outcome::Invalid, "{mode:?}: {report:#?}");
+        assert_eq!(
+            report.dimensions["content_delta"],
+            DimensionStatus::Invalid,
+            "{mode:?}: {report:#?}"
+        );
+        assert!(
+            finding_codes(&report).contains(&expected_code),
+            "{mode:?}: {report:#?}"
+        );
+    }
+}
+
+#[test]
+fn localized_v2_creation_slots_are_optional_closed_and_bounded() {
+    for mode in [
+        SignatureMode::LocalizedV2CreationsOmitted,
+        SignatureMode::LocalizedV2CreationsEmpty,
+    ] {
+        let fixture = generate(OpeningMode::Withhold, mode);
+        let report = verify(&fixture, Some(&fixture.checkpoint_json));
+        assert_eq!(report.outcome, Outcome::Complete, "{mode:?}: {report:#?}");
+        assert!(report.findings.is_empty(), "{mode:?}: {report:#?}");
+    }
+
+    for (mode, schema_invalid) in [
+        (SignatureMode::LocalizedV2CreationsMalformed, true),
+        (SignatureMode::LocalizedV2CreationsUnsorted, false),
+        (SignatureMode::LocalizedV2CreationsOverLimit, true),
+    ] {
+        let fixture = generate(OpeningMode::Withhold, mode);
+        let report = verify(&fixture, Some(&fixture.checkpoint_json));
+        assert_eq!(report.outcome, Outcome::Invalid, "{mode:?}: {report:#?}");
+        assert_eq!(
+            report.dimensions["content_delta"],
+            DimensionStatus::Invalid,
+            "{mode:?}: {report:#?}"
+        );
+        assert!(
+            finding_codes(&report).contains(&"proof.verify.content.intent_targets"),
+            "{mode:?}: {report:#?}"
+        );
+        assert_eq!(
+            finding_codes(&report).contains(&"proof.verify.artifact.schema"),
+            schema_invalid,
+            "{mode:?}: {report:#?}"
+        );
+    }
+}
+
+#[test]
 fn required_withheld_opening_and_missing_checkpoint_are_incomplete() {
     let mut fixture = generate(OpeningMode::Withhold, SignatureMode::Valid);
     let mut trust = fixture.trust_value();

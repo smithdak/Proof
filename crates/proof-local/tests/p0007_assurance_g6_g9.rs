@@ -260,6 +260,7 @@ fn create_intent(
 ) -> proof_application::ContentResourceIntent {
     repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            creations: Vec::new(),
             intent_id: assurance_id(sequence).parse().unwrap(),
             environment_id: ENVIRONMENT_ID.parse().unwrap(),
             targets: vec![LocalizedContentTarget {
@@ -458,10 +459,12 @@ fn p0007_g7_separate_context_edit_and_validation_budgets_are_atomic() {
         .repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: edit_fixture.changeset_id,
-            edits: vec![localized_input(
-                &edit_fixture.expected_source,
-                "Garantie absolue",
-                "Campagne d’été",
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                localized_input(
+                    &edit_fixture.expected_source,
+                    "Garantie absolue",
+                    "Campagne d’été",
+                ),
             )],
             assigned_edit_ids: vec![first_edit_id],
             idempotency_key: assurance_id(0x211).parse().unwrap(),
@@ -485,7 +488,7 @@ fn p0007_g7_separate_context_edit_and_validation_budgets_are_atomic() {
             .repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: edit_fixture.changeset_id,
-                edits: vec![repair],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(repair)],
                 assigned_edit_ids: vec![assurance_id(0x212).parse().unwrap()],
                 idempotency_key: assurance_id(0x213).parse().unwrap(),
             })
@@ -510,10 +513,12 @@ fn p0007_g7_separate_context_edit_and_validation_budgets_are_atomic() {
         .repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: validation_fixture.changeset_id,
-            edits: vec![localized_input(
-                &validation_fixture.expected_source,
-                "Garantie absolue",
-                "Campagne d’été",
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                localized_input(
+                    &validation_fixture.expected_source,
+                    "Garantie absolue",
+                    "Campagne d’été",
+                ),
             )],
             assigned_edit_ids: vec![assurance_id(0x310).parse().unwrap()],
             idempotency_key: assurance_id(0x311).parse().unwrap(),
@@ -572,7 +577,9 @@ fn lineage_fixture(label: &str, sequence: u64) -> LineageFixture {
         .repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![first_input.clone()],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                first_input.clone(),
+            )],
             assigned_edit_ids: vec![first_edit_id],
             idempotency_key: assurance_id(sequence + 0x12).parse().unwrap(),
         })
@@ -593,7 +600,9 @@ fn lineage_fixture(label: &str, sequence: u64) -> LineageFixture {
         .repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![repair_input.clone()],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                repair_input.clone(),
+            )],
             assigned_edit_ids: vec![repair_edit_id],
             idempotency_key: assurance_id(sequence + 0x13).parse().unwrap(),
         })
@@ -862,7 +871,28 @@ fn downgrade_database_to_v12(repository: &LocalWorkspace) {
         .unwrap();
 }
 
+fn downgrade_database_to_v14(repository: &LocalWorkspace) {
+    let connection = repository.open_database().unwrap();
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    if version == 14 {
+        return;
+    }
+    assert_eq!(version, 15);
+    connection
+        .execute_batch(
+            "ALTER TABLE localized_edits DROP COLUMN edit_kind;
+             ALTER TABLE content_resource_intents DROP COLUMN creations_json;
+             DELETE FROM schema_migrations WHERE version = 15;
+             UPDATE workspace_metadata SET schema_version = 14 WHERE singleton = 1;
+             PRAGMA user_version = 14;",
+        )
+        .unwrap();
+}
+
 fn downgrade_database_to_v13(repository: &LocalWorkspace) {
+    downgrade_database_to_v14(repository);
     let connection = repository.open_database().unwrap();
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -1394,7 +1424,7 @@ fn p0007_g9_each_v1_to_v10_failure_rolls_back_retries_and_preserves_legacy_hash(
             .unwrap();
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_eq!(storage_version(&repository), (14, 14, 14));
+        assert_eq!(storage_version(&repository), (15, 15, 15));
         let legacy_after_retry = legacy_fingerprint(&repository, source_version);
         assert_eq!(
             legacy_after_retry, legacy_before,
@@ -1404,7 +1434,7 @@ fn p0007_g9_each_v1_to_v10_failure_rolls_back_retries_and_preserves_legacy_hash(
         let migration_history = table_fingerprint(&repository, &["schema_migrations"]);
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_eq!(storage_version(&repository), (14, 14, 14));
+        assert_eq!(storage_version(&repository), (15, 15, 15));
         assert_eq!(
             legacy_fingerprint(&repository, source_version),
             legacy_before

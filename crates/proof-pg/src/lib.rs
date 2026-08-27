@@ -74,9 +74,17 @@ pub enum PgError {
     /// A serializable Workspace transaction failed or exhausted retries.
     #[error("transaction failed: {0}")]
     Transaction(String),
+    /// PostgreSQL disconnected while committing, so commit versus rollback
+    /// cannot be determined from this connection.
+    #[error("commit outcome is unknown: {0}")]
+    AmbiguousCommit(String),
     /// Keyed idempotency replay/conflict evaluation failed.
     #[error("idempotency failed: {0}")]
     Idempotency(String),
+    /// An authorized, stable application Problem whose evidence was prepared
+    /// outside the governed-success savepoint and may be committed.
+    #[error("application failed: {0}")]
+    ApplicationFailure(String),
     /// The immutable artifact boundary failed a put/read/verify step.
     #[error("artifact failed: {0}")]
     Artifact(String),

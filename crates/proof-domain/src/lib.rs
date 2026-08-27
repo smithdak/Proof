@@ -741,6 +741,8 @@ pub enum ArtifactKind {
     EditBatchV2,
     /// One immutable localized-content Edit.
     EditV2,
+    /// One immutable localized-content Object creation Edit.
+    ObjectCreateEditV2,
     /// One repairable localized-content `ChangeSet` proposal or seal.
     ChangeSetV2,
     /// One immutable localized-content validation attempt.
@@ -808,6 +810,7 @@ impl ArtifactKind {
             Self::ContextPackV2 => "proof:context-pack:v2",
             Self::EditBatchV2 => "proof:edit-batch:v2",
             Self::EditV2 => "proof:edit:v2",
+            Self::ObjectCreateEditV2 => "proof:object-create-edit:v2",
             Self::ChangeSetV2 => "proof:changeset:v2",
             Self::ValidationResultsV2 => "proof:validation-results:v2",
             Self::ObjectLocaleRevisionV1 => "proof:object-locale-revision:v1",
@@ -862,6 +865,7 @@ impl ArtifactKind {
             Self::ContextPackV2 => "context_pack_v2",
             Self::EditBatchV2 => "edit_batch_v2",
             Self::EditV2 => "edit_v2",
+            Self::ObjectCreateEditV2 => "object_create_edit_v2",
             Self::ChangeSetV2 => "changeset_v2",
             Self::ValidationResultsV2 => "validation_results_v2",
             Self::ObjectLocaleRevisionV1 => "object_locale_revision_v1",
@@ -891,7 +895,7 @@ impl ArtifactKind {
 }
 
 /// Closed artifact-kind registry in stable wire order.
-pub const ALL_ARTIFACT_KINDS: [ArtifactKind; 45] = [
+pub const ALL_ARTIFACT_KINDS: [ArtifactKind; 46] = [
     ArtifactKind::EditionV1,
     ArtifactKind::ChangeSetV1,
     ArtifactKind::ContextPackV1,
@@ -922,6 +926,7 @@ pub const ALL_ARTIFACT_KINDS: [ArtifactKind; 45] = [
     ArtifactKind::ContextPackV2,
     ArtifactKind::EditBatchV2,
     ArtifactKind::EditV2,
+    ArtifactKind::ObjectCreateEditV2,
     ArtifactKind::ChangeSetV2,
     ArtifactKind::ValidationResultsV2,
     ArtifactKind::ObjectLocaleRevisionV1,

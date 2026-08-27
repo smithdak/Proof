@@ -135,11 +135,11 @@ fn crate_root_exposes_the_full_documented_surface() {
     );
     assert_eq!(
         REMOTE_AUTHORIZATION_PROJECTION_SHA256,
-        "e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b"
+        "d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171"
     );
     assert_eq!(
         COMPLETE_HTTP_OPERATION_REGISTRY_SHA256,
-        "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf"
+        "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca"
     );
     assert_eq!(
         REMOTE_AUTHORITY_RECORD_PAYLOAD_TYPE,

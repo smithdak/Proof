@@ -137,6 +137,30 @@ fn ensure_schema(client: &mut postgres::Client) -> Result<(), PgError> {
             .batch_execute(ddl)
             .map_err(|error| PgError::Import(error.to_string()))?;
     }
+    client
+        .batch_execute(crate::migration::SESSION_BOUNDARY_V2_DDL)
+        .map_err(|error| PgError::Import(error.to_string()))?;
+    client
+        .batch_execute(crate::migration::DELIVERY_STATE_V3_DDL)
+        .map_err(|error| PgError::Import(error.to_string()))?;
+
+    let current = crate::migration::workspace_global_idempotency_migration_v5();
+    let version = i32::try_from(current.version)
+        .map_err(|_| PgError::Import("current migration version exceeds INTEGER".to_owned()))?;
+    client
+        .execute(
+            "INSERT INTO migration_head (
+                 singleton, version, name, script_digest, phase,
+                 actor, tool_version, started_at, verified_at
+             ) VALUES (1, $1, $2, $3, 'verified', 'proof-pg-import', $4, now(), now())",
+            &[
+                &version,
+                &current.name,
+                &current.digest.to_string(),
+                &env!("CARGO_PKG_VERSION"),
+            ],
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?;
     Ok(())
 }
 
@@ -817,6 +841,21 @@ fn insert_workspace_head(
     transaction: &mut postgres::Transaction<'_>,
     source: &VerifiedSource,
 ) -> Result<(), PgError> {
+    let migration = transaction
+        .query_opt(
+            "SELECT version, phase FROM migration_head WHERE singleton = 1",
+            &[],
+        )
+        .map_err(|error| PgError::Import(error.to_string()))?
+        .ok_or_else(|| PgError::Import("migration head is absent during import".to_owned()))?;
+    let migration_version: i32 = migration.get(0);
+    let migration_phase: String = migration.get(1);
+    if migration_phase != "verified" {
+        return Err(PgError::Import(format!(
+            "migration head is in phase `{migration_phase}` during import"
+        )));
+    }
+
     let release_head = source
         .facts
         .iter()
@@ -838,9 +877,10 @@ fn insert_workspace_head(
                  authority_sequence, content_sequence, release_sequence,
                  authority_head_digest, authority_head_sequence, content_head_digest,
                  release_head_digest, policy_head_digest, configuration_head_digest
-             ) VALUES (1, $1, 1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL)",
+             ) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL)",
             &[
                 &source.workspace_id.to_string(),
+                &migration_version,
                 &authority_head_sequence,
                 &authority_head_sequence,
                 &authoritative_sequence,

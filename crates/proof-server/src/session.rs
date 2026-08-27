@@ -678,6 +678,7 @@ impl SessionStore {
         let runtime = guard.as_mut().ok_or_else(|| {
             ServerError::Internal("session store has no attached PostgreSQL runtime".to_owned())
         })?;
+        runtime.ensure_connected().map_err(ServerError::Storage)?;
         operation(runtime)
     }
 

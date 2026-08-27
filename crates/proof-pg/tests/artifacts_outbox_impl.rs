@@ -16,7 +16,7 @@ use proof_pg::artifacts::{
     ArtifactIdentity, ArtifactKeyV1, FsStoragePort, SignedArtifactBodyStore, StoragePort,
     catalog_commit,
 };
-use proof_pg::outbox::{OutboxEnqueueV1, enqueue};
+use proof_pg::outbox::{OutboxEnqueueV1, enqueue, enqueue_initial_delivery};
 use proof_pg::schema::{ARTIFACT_BODY_PG_DDL, ARTIFACT_CATALOG_DDL, OUTBOX_EVENTS_DDL};
 
 const WORKSPACE: &str = "019c0000-0000-7000-8000-000000000001";
@@ -25,6 +25,7 @@ const CAUSATION: &str = "019c0000-0000-7000-8000-000000000003";
 const EVENT_ID: &str = "019c0000-0000-7000-8000-0000000000e1";
 const EVENT_ID_2: &str = "019c0000-0000-7000-8000-0000000000e2";
 const EVENT_ID_3: &str = "019c0000-0000-7000-8000-0000000000e3";
+const DELIVERY_ID: &str = "019c0000-0000-7000-8000-0000000000d1";
 
 fn dsn() -> String {
     std::env::var(proof_pg::DSN_ENV).unwrap_or_else(|_| proof_pg::DEFAULT_DSN.to_owned())
@@ -369,8 +370,8 @@ fn outbox_enqueue_rejects_both_uniqueness_keys() {
     let mut tx = db.client.transaction().unwrap();
     let error = enqueue(&mut tx, &second).unwrap_err();
     assert!(
-        matches!(error, PgError::Outbox(_)),
-        "logical-event key collision must be an outbox error: {error}"
+        matches!(error, PgError::Transaction(_)),
+        "logical-event key collision must be a transaction error: {error}"
     );
     assert!(
         error.to_string().contains("event_v_key"),
@@ -389,8 +390,8 @@ fn outbox_enqueue_rejects_both_uniqueness_keys() {
     let mut tx = db.client.transaction().unwrap();
     let error = enqueue(&mut tx, &third).unwrap_err();
     assert!(
-        matches!(error, PgError::Outbox(_)),
-        "ordinal key collision must be an outbox error: {error}"
+        matches!(error, PgError::Transaction(_)),
+        "ordinal key collision must be a transaction error: {error}"
     );
     assert!(
         error.to_string().contains("sequence_o_key"),
@@ -495,5 +496,58 @@ fn outbox_enqueue_round_trips_all_fields_exactly() {
     assert_eq!(
         stored_nanos,
         event.committed_creation_time.unix_timestamp_nanos()
+    );
+}
+
+#[test]
+fn initial_delivery_is_atomic_pending_and_database_scheduled() {
+    let mut db = TestDb::new(&[
+        OUTBOX_EVENTS_DDL,
+        proof_pg::migration::DELIVERY_STATE_V3_DDL,
+    ]);
+    let event = base_event(
+        workspace(),
+        1,
+        0,
+        ContentDigest::blake3([0x55; 32]),
+        EVENT_ID,
+    );
+
+    let mut tx = db.client.transaction().unwrap();
+    enqueue_initial_delivery(&mut tx, &event, DELIVERY_ID).unwrap();
+    let row = tx
+        .query_one(
+            "SELECT generation, status, next_attempt_at IS NOT NULL,
+                    attempts_in_generation, lease_token_hash, lease_expires_at,
+                    receipt_digest, next_attempt_at = generation_started_at,
+                    generation_started_at = committed_at
+             FROM delivery_state WHERE event_id = $1 AND delivery_id = $2",
+            &[&EVENT_ID, &DELIVERY_ID],
+        )
+        .unwrap();
+    assert_eq!(row.get::<_, i64>(0), 1);
+    assert_eq!(row.get::<_, String>(1), "pending");
+    assert!(row.get::<_, bool>(2));
+    assert_eq!(row.get::<_, i64>(3), 0);
+    assert_eq!(row.get::<_, Option<String>>(4), None);
+    assert_eq!(row.get::<_, Option<SystemTime>>(5), None);
+    assert_eq!(row.get::<_, Option<String>>(6), None);
+    assert!(row.get::<_, bool>(7));
+    assert!(row.get::<_, bool>(8));
+    tx.rollback().unwrap();
+
+    assert_eq!(
+        db.client
+            .query_one("SELECT COUNT(*) FROM outbox_events", &[])
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
+    assert_eq!(
+        db.client
+            .query_one("SELECT COUNT(*) FROM delivery_state", &[])
+            .unwrap()
+            .get::<_, i64>(0),
+        0
     );
 }

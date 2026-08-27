@@ -4,6 +4,7 @@
   "title": "Proof localized-content artifacts",
   "oneOf": [
     { "$ref": "#/$defs/contentResourceIntentV1" },
+    { "$ref": "#/$defs/contentResourceIntentV2" },
     { "$ref": "#/$defs/localizedContentPolicyV1" },
     { "$ref": "#/$defs/contextPackV2" },
     { "$ref": "#/$defs/editV2" },
@@ -216,6 +217,62 @@
         "workspace_id": { "$ref": "#/$defs/uuidV7" }
       }
     },
+    "creationSlotV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locales", "object_id", "schema_id"],
+      "properties": {
+        "locales": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "x-proof-set-order": "locales are strictly sorted ascending canonical UTF-8 bytes; duplicates are rejected",
+          "items": { "$ref": "#/$defs/locale" }
+        },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "schema_id": { "$ref": "#/$defs/logicalId" }
+      }
+    },
+    "contentResourceIntentV2": {
+      "x-proof-aggregate-limit": "targets.length + (creations.length when present, otherwise 0) <= 100; excess is proof.input.limit_exceeded",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "base",
+        "environment_id",
+        "intent_id",
+        "issued_at",
+        "issued_by_principal_id",
+        "targets",
+        "workspace_id"
+      ],
+      "properties": {
+        "api_version": { "const": "proof.dev/content-resource-intent/v2" },
+        "base": { "$ref": "#/$defs/baseline" },
+        "creations": {
+          "description": "Optional creation slots; omission and an explicit empty array both mean zero creation slots.",
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "x-proof-set-order": "creation slots are strictly sorted by (object_id, schema_id, locales) ascending canonical UTF-8 bytes; each locales array is strictly sorted ascending canonical UTF-8 bytes; duplicates are rejected",
+          "items": { "$ref": "#/$defs/creationSlotV2" }
+        },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "intent_id": { "$ref": "#/$defs/uuidV7" },
+        "issued_at": { "$ref": "#/$defs/timestamp" },
+        "issued_by_principal_id": { "$ref": "#/$defs/uuidV7" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/targetTuple" }
+        },
+        "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
     "policyRule": {
       "type": "object",
       "additionalProperties": false,
@@ -289,6 +346,16 @@
         "revision": { "const": 1 }
       }
     },
+    "absentSourceClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["absent", "api_version", "authoritative_sequence"],
+      "properties": {
+        "absent": { "const": true },
+        "api_version": { "const": "proof.dev/object-revision-absence/v1" },
+        "authoritative_sequence": { "$ref": "#/$defs/safeSequence" }
+      }
+    },
     "absentTargetClosure": {
       "type": "object",
       "additionalProperties": false,
@@ -311,7 +378,7 @@
         "revision": { "$ref": "#/$defs/positiveInteger" }
       }
     },
-    "contextResource": {
+    "existingContextResource": {
       "type": "object",
       "additionalProperties": false,
       "required": ["locale", "object_id", "schema", "source", "target"],
@@ -327,6 +394,30 @@
           ]
         }
       }
+    },
+    "creationContextResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locale", "object_id", "schema_candidates", "source", "target"],
+      "properties": {
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_id": { "$ref": "#/$defs/uuidV7" },
+        "schema_candidates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/schemaClosure" }
+        },
+        "source": { "$ref": "#/$defs/absentSourceClosure" },
+        "target": { "$ref": "#/$defs/absentTargetClosure" }
+      }
+    },
+    "contextResource": {
+      "oneOf": [
+        { "$ref": "#/$defs/existingContextResource" },
+        { "$ref": "#/$defs/creationContextResource" }
+      ]
     },
     "contextPackV2": {
       "type": "object",
@@ -391,7 +482,12 @@
         "policy": { "$ref": "#/$defs/localizedContentPolicyV1" },
         "policy_digest": { "$ref": "#/$defs/digest" },
         "principal_id": { "$ref": "#/$defs/uuidV7" },
-        "resource_intent": { "$ref": "#/$defs/contentResourceIntentV1" },
+        "resource_intent": {
+          "oneOf": [
+            { "$ref": "#/$defs/contentResourceIntentV1" },
+            { "$ref": "#/$defs/contentResourceIntentV2" }
+          ]
+        },
         "resource_intent_digest": { "$ref": "#/$defs/digest" },
         "resources": {
           "type": "array",
@@ -405,52 +501,99 @@
       }
     },
     "editV2": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "api_version",
-        "content",
-        "edit_id",
-        "expected_source",
-        "expected_target",
-        "kind",
-        "locale",
-        "object_id",
-        "repair_of_validation_result_digest",
-        "supersedes_edit_id"
-      ],
-      "properties": {
-        "api_version": { "const": "proof.dev/edit/v2" },
-        "content": { "type": "object" },
-        "edit_id": { "$ref": "#/$defs/uuidV7" },
-        "expected_source": { "$ref": "#/$defs/expectedSource" },
-        "expected_target": {
-          "oneOf": [
-            { "type": "null" },
-            { "$ref": "#/$defs/expectedTarget" }
-          ]
-        },
-        "kind": { "const": "object.locale.put" },
-        "locale": { "$ref": "#/$defs/locale" },
-        "object_id": { "$ref": "#/$defs/uuidV7" },
-        "repair_of_validation_result_digest": {
-          "oneOf": [
-            { "type": "null" },
-            { "$ref": "#/$defs/digest" }
-          ]
-        },
-        "supersedes_edit_id": {
-          "oneOf": [
-            { "type": "null" },
-            { "$ref": "#/$defs/uuidV7" }
-          ]
-        }
-      },
-      "allOf": [
+      "anyOf": [
         {
-          "if": { "properties": { "supersedes_edit_id": { "type": "null" } } },
-          "then": { "properties": { "repair_of_validation_result_digest": { "type": "null" } } },
-          "else": { "properties": { "repair_of_validation_result_digest": { "$ref": "#/$defs/digest" } } }
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "api_version",
+            "content",
+            "edit_id",
+            "expected_source",
+            "expected_target",
+            "kind",
+            "locale",
+            "object_id",
+            "repair_of_validation_result_digest",
+            "supersedes_edit_id"
+          ],
+          "properties": {
+            "api_version": { "const": "proof.dev/edit/v2" },
+            "content": { "type": "object" },
+            "edit_id": { "$ref": "#/$defs/uuidV7" },
+            "expected_source": { "$ref": "#/$defs/expectedSource" },
+            "expected_target": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/expectedTarget" }
+              ]
+            },
+            "kind": { "const": "object.locale.put" },
+            "locale": { "$ref": "#/$defs/locale" },
+            "object_id": { "$ref": "#/$defs/uuidV7" },
+            "repair_of_validation_result_digest": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/digest" }
+              ]
+            },
+            "supersedes_edit_id": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/uuidV7" }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "supersedes_edit_id": { "type": "null" } } },
+              "then": { "properties": { "repair_of_validation_result_digest": { "type": "null" } } },
+              "else": { "properties": { "repair_of_validation_result_digest": { "$ref": "#/$defs/digest" } } }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "api_version",
+            "content",
+            "edit_id",
+            "kind",
+            "object_id",
+            "repair_of_validation_result_digest",
+            "schema_id",
+            "schema_version",
+            "supersedes_edit_id"
+          ],
+          "properties": {
+            "api_version": { "const": "proof.dev/edit/v2" },
+            "content": { "type": "object" },
+            "edit_id": { "$ref": "#/$defs/uuidV7" },
+            "kind": { "const": "object.create" },
+            "object_id": { "$ref": "#/$defs/uuidV7" },
+            "repair_of_validation_result_digest": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/digest" }
+              ]
+            },
+            "schema_id": { "$ref": "#/$defs/logicalId" },
+            "schema_version": { "$ref": "#/$defs/positiveInteger" },
+            "supersedes_edit_id": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/uuidV7" }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "supersedes_edit_id": { "type": "null" } } },
+              "then": { "properties": { "repair_of_validation_result_digest": { "type": "null" } } },
+              "else": { "properties": { "repair_of_validation_result_digest": { "$ref": "#/$defs/digest" } } }
+            }
+          ]
         }
       ]
     },
@@ -468,7 +611,7 @@
         }
       }
     },
-    "effectiveLeaf": {
+    "existingEffectiveLeaf": {
       "type": "object",
       "additionalProperties": false,
       "required": ["edit_digest", "edit_id", "locale", "object_id"],
@@ -478,6 +621,22 @@
         "locale": { "$ref": "#/$defs/locale" },
         "object_id": { "$ref": "#/$defs/uuidV7" }
       }
+    },
+    "creationEffectiveLeaf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edit_digest", "edit_id", "object_id"],
+      "properties": {
+        "edit_digest": { "$ref": "#/$defs/digest" },
+        "edit_id": { "$ref": "#/$defs/uuidV7" },
+        "object_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "effectiveLeaf": {
+      "oneOf": [
+        { "$ref": "#/$defs/existingEffectiveLeaf" },
+        { "$ref": "#/$defs/creationEffectiveLeaf" }
+      ]
     },
     "changeSetV2": {
       "type": "object",

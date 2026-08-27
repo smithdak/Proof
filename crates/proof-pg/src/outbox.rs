@@ -1,6 +1,5 @@
-//! Transactional outbox enqueue only (contract §"Transactional outbox and
-//! delivery"). No worker, lease, claim, acknowledgement, or delivery state is
-//! introduced by this item.
+//! Transactional outbox enqueue and initial delivery state (contract
+//! §"Transactional outbox and delivery").
 
 use std::time::{Duration, SystemTime};
 
@@ -95,9 +94,8 @@ impl OutboxEnqueueV1 {
 ///
 /// # Errors
 ///
-/// Returns [`PgError::Outbox`] when the event cannot be enqueued, including a
-/// database-level uniqueness violation on either uniqueness key or an out of
-/// range `BIGINT` field.
+/// Returns [`PgError::Outbox`] for invalid numeric bounds and
+/// [`PgError::Transaction`] for a database insertion failure.
 pub fn enqueue(transaction: &mut Transaction, event: &OutboxEnqueueV1) -> Result<(), PgError> {
     let workspace_transaction_sequence = i64::try_from(event.workspace_transaction_sequence)
         .map_err(|_| {
@@ -161,18 +159,45 @@ pub fn enqueue(transaction: &mut Transaction, event: &OutboxEnqueueV1) -> Result
              )",
             params,
         )
-        .map_err(|error| PgError::Outbox(pg_db_error_message(&error)))?;
+        .map_err(|error| crate::transaction::transaction_error(&error))?;
     Ok(())
 }
 
-/// Renders the most specific available PostgreSQL error detail: the
-/// server-supplied severity and message when present (which includes unique
-/// constraint names), otherwise the driver-level description.
-fn pg_db_error_message(error: &postgres::Error) -> String {
-    match error.as_db_error() {
-        Some(db_error) => db_error.to_string(),
-        None => error.to_string(),
-    }
+/// Enqueues one immutable event and creates its stable generation-1 delivery
+/// as immediately pending in the caller's transaction.
+///
+/// The event and delivery identities are supplied by the caller so a complete
+/// transaction retry reuses them. One database timestamp initializes
+/// `next_attempt_at`, `generation_started_at`, and `committed_at`; a failure in
+/// either insert leaves the caller to roll back the complete transaction.
+///
+/// # Errors
+///
+/// Returns [`PgError::Outbox`] for invalid event bounds and
+/// [`PgError::Transaction`] when either insertion fails.
+pub fn enqueue_initial_delivery(
+    transaction: &mut Transaction,
+    event: &OutboxEnqueueV1,
+    delivery_id: &str,
+) -> Result<(), PgError> {
+    enqueue(transaction, event)?;
+    transaction
+        .execute(
+            "WITH initial_clock AS (
+                 SELECT clock_timestamp() AS recorded_at
+             )
+             INSERT INTO delivery_state (
+                 event_id, delivery_id, generation, status, next_attempt_at,
+                 attempts_in_generation, lease_token_hash, lease_expires_at, receipt_digest,
+                 generation_started_at, committed_at
+             )
+             SELECT $1, $2, 1, 'pending', recorded_at,
+                    0, NULL, NULL, NULL, recorded_at, recorded_at
+             FROM initial_clock",
+            &[&event.event_id, &delivery_id],
+        )
+        .map_err(|error| crate::transaction::transaction_error(&error))?;
+    Ok(())
 }
 
 /// Converts a domain [`Timestamp`] into a [`SystemTime`] for `TIMESTAMPTZ`

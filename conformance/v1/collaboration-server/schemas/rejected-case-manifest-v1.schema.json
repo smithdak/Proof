@@ -77,7 +77,7 @@
         { "name": "changeset.approve", "version": "proof.dev/operation/changeset.approve/v3" },
         { "name": "changeset.diff", "version": "proof.dev/operation/changeset.diff/v2" },
         { "name": "changeset.get", "version": "proof.dev/operation/changeset.get/v2" },
-        { "name": "content-resource-intent.issue", "version": "proof.dev/operation/content-resource-intent.issue/v1" },
+        { "name": "content-resource-intent.issue", "version": "proof.dev/operation/content-resource-intent.issue/v2" },
         { "name": "context.build", "version": "proof.dev/operation/context.build/v2" },
         { "name": "delegation.issue", "version": "proof.dev/operation/delegation.issue/v2" },
         { "name": "delegation.revoke", "version": "proof.dev/operation/delegation.revoke/v1" },
@@ -88,11 +88,14 @@
         { "name": "environment-config.propose", "version": "proof.dev/operation/environment-config.propose/v2" },
         { "name": "evidence.export", "version": "proof.dev/operation/evidence.export/v2" },
         { "name": "evidence.export.get", "version": "proof.dev/operation/evidence.export.get/v1" },
+        { "name": "object.list", "version": "proof.dev/operation/object.list/v1" },
         { "name": "oidc-binding.issue", "version": "proof.dev/operation/oidc-binding.issue/v1" },
         { "name": "oidc-binding.revoke", "version": "proof.dev/operation/oidc-binding.revoke/v1" },
         { "name": "principal.status.set", "version": "proof.dev/operation/principal.status.set/v2" },
         { "name": "release.get", "version": "proof.dev/operation/release.get/v2" },
         { "name": "release.verify", "version": "proof.dev/operation/release.verify/v2" },
+        { "name": "schema.get", "version": "proof.dev/operation/schema.get/v1" },
+        { "name": "schema.list", "version": "proof.dev/operation/schema.list/v1" },
         { "name": "workspace-role.assign", "version": "proof.dev/operation/workspace-role.assign/v1" },
         { "name": "workspace-role.revoke", "version": "proof.dev/operation/workspace-role.revoke/v1" }
       ]

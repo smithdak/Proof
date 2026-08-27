@@ -1314,7 +1314,7 @@ fn private_oidc_subject_opening_matches_every_public_commitment() {
     ));
     assert_eq!(
         operation_registry_sha256,
-        "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf"
+        "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca"
     );
     assert_eq!(
         decision["operation_registry_sha256"],
@@ -1419,7 +1419,7 @@ fn private_oidc_subject_opening_matches_every_public_commitment() {
     );
     assert_eq!(
         decision["requested_resources_digest"],
-        "blake3:4fbc4c2df1351f3aa3c316102605d07501ecb029064fa661a9516fe05dba3251"
+        "blake3:24deea4bf8cd3fcd6669e3639dfa6e6e1ed55962d34ee18328290a981b96a0fc"
     );
     let environment_config = parse_file(&collaboration_path(
         "vectors/environment-config-v2.valid.json",
@@ -1444,7 +1444,7 @@ fn private_oidc_subject_opening_matches_every_public_commitment() {
     );
     assert_eq!(
         decision["policy_bundle_digest"],
-        "blake3:f1a941b4d67907001f74ea5d01fb38f51900ff36fee114fb7fb79dc5ff3e2712"
+        "blake3:33709f35803e000e506c19a750b19dc1d5ed5b81afa0d8fa3cdd1229df59e684"
     );
     let release_result = parse_file(&collaboration_path(
         "vectors/release-create-result.private-test.json",
@@ -1542,7 +1542,7 @@ fn private_oidc_subject_opening_matches_every_public_commitment() {
     let decision_digest = canonical_digest("proof:remote-authority-record:v1", &decision);
     assert_eq!(
         decision_digest,
-        "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1"
+        "blake3:b361e9492e6c03a0e561b6e8a6ea67595e05c652d87527930edab76fc42d45f7"
     );
     assert_ne!(release_policy_digest, decision_digest);
     assert_eq!(consequence["decision_id"], decision["decision_id"]);
@@ -2356,7 +2356,7 @@ fn private_oidc_subject_opening_matches_every_public_commitment() {
     );
     assert_eq!(
         canonical_digest("proof:remote-authority-record:v1", &consequence),
-        "blake3:e4c349626423fa88dcf844ee026da2cb6e0db2334bb99b6588c55450e19da119"
+        "blake3:21372ddf6036f909d43831bf79aebad6d155b22b69b14b49a37649b6685b7541"
     );
 }
 
@@ -2811,6 +2811,70 @@ fn remote_authority_dsse_bytes_are_canonical_digest_bound_and_signature_valid() 
 }
 
 #[test]
+fn retained_content_resource_intent_v1_metadata_remains_historical() {
+    let (_, schema_registry) = schema_registry();
+    let schema = parse_file(&collaboration_path(
+        "schemas/application-operations-v1.schema.json",
+    ));
+    let definition = &schema["$defs"]["contentResourceIntentIssueInputV1"];
+    assert_eq!(
+        definition["x-proof-result-schema"],
+        "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contentResourceIntentV1"
+    );
+    assert_eq!(
+        definition["x-proof-effect-schema"],
+        definition["x-proof-result-schema"]
+    );
+    for field in [
+        "x-proof-normalized-input-digest-preimage",
+        "x-proof-public-input-projection-rule",
+        "x-proof-success-binding",
+    ] {
+        let metadata = definition[field].as_str().unwrap();
+        assert!(
+            metadata.contains("content-resource-intent.issue/v1"),
+            "{field} lost its historical operation version"
+        );
+        assert!(
+            !metadata.contains("content-resource-intent.issue/v2"),
+            "{field} was rewritten to the V2 operation"
+        );
+    }
+    assert!(
+        definition["x-proof-public-input-projection-rule"]
+            .as_str()
+            .unwrap()
+            .contains("{intent_id,environment_id,targets,idempotency_key,issued_at}")
+    );
+    assert!(
+        !definition["x-proof-public-input-projection-rule"]
+            .as_str()
+            .unwrap()
+            .contains("creations")
+    );
+
+    let validator = validator(
+        &schema_registry,
+        &format!("{APPLICATION_SCHEMA_ID}#/$defs/contentResourceIntentIssueInputV1"),
+    );
+    let historical_input = json!({
+        "environment_id": "preview",
+        "idempotency_key": "019c0000-0000-7000-8000-000000000001",
+        "intent_id": "019c0000-0000-7000-8000-000000000002",
+        "issued_at": "2026-08-21T10:00:00Z",
+        "targets": [{
+            "locale": "en-US",
+            "object_id": "019c0000-0000-7000-8000-000000000003",
+            "schema_id": "campaign",
+        }],
+    });
+    assert!(validator.is_valid(&historical_input));
+    let mut widened = historical_input;
+    widened["creations"] = json!([]);
+    assert!(!validator.is_valid(&widened));
+}
+
+#[test]
 fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() {
     let (schemas, schema_registry) = schema_registry();
     let registry_path = collaboration_path("vectors/http-operation-registry.valid.json");
@@ -2822,7 +2886,7 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
         .expect("the HTTP registry must canonicalize under RFC 8785");
     let registry_sha256 = hex_lower(&sha256(&registry_canonical_bytes));
     assert_eq!(
-        registry_sha256, "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf",
+        registry_sha256, "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca",
         "the exact reviewed canonical HTTP registry changed"
     );
     let routes = registry["routes"].as_array().unwrap();
@@ -2919,7 +2983,7 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             ),
             (
                 "content-resource-intent.issue",
-                "proof.dev/operation/content-resource-intent.issue/v1",
+                "proof.dev/operation/content-resource-intent.issue/v2",
             ),
             ("context.build", "proof.dev/operation/context.build/v2"),
             ("changeset.get", "proof.dev/operation/changeset.get/v2"),
@@ -2955,6 +3019,7 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
                 "evidence.export.get",
                 "proof.dev/operation/evidence.export.get/v1",
             ),
+            ("object.list", "proof.dev/operation/object.list/v1"),
             (
                 "oidc-binding.issue",
                 "proof.dev/operation/oidc-binding.issue/v1",
@@ -2969,6 +3034,8 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             ),
             ("release.get", "proof.dev/operation/release.get/v2"),
             ("release.verify", "proof.dev/operation/release.verify/v2"),
+            ("schema.get", "proof.dev/operation/schema.get/v1"),
+            ("schema.list", "proof.dev/operation/schema.list/v1"),
             (
                 "workspace-role.assign",
                 "proof.dev/operation/workspace-role.assign/v1",
@@ -3037,11 +3104,14 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
         json!({ "authorization_rule": "proof.server/authorization/environment-config-distinct-activator/v1", "roles_any_of": ["environment.activator"] }),
         json!({ "authorization_rule": "proof.server/authorization/evidence-export-reader/v1", "roles_any_of": ["content.publisher", "evidence.auditor"] }),
         json!({ "authorization_rule": "proof.server/authorization/evidence-export-reader/v1", "roles_any_of": ["content.publisher", "evidence.auditor"] }),
+        json!({ "authorization_rule": "proof.server/authorization/schema-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] }),
         json!({ "authorization_rule": "proof.server/authorization/oidc-binding-admin/v1", "roles_any_of": ["identity.admin"] }),
         json!({ "authorization_rule": "proof.server/authorization/oidc-binding-admin/v1", "roles_any_of": ["identity.admin"] }),
         json!({ "authorization_rule": "proof.server/authorization/principal-disable-admin/v1", "roles_any_of": ["identity.admin"] }),
         json!({ "authorization_rule": "proof.server/authorization/release-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] }),
         json!({ "authorization_rule": "proof.server/authorization/release-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] }),
+        json!({ "authorization_rule": "proof.server/authorization/schema-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] }),
+        json!({ "authorization_rule": "proof.server/authorization/schema-reader/v1", "roles_any_of": ["content.publisher", "content.requester", "content.reviewer", "evidence.auditor"] }),
         json!({ "authorization_rule": "proof.server/authorization/workspace-role-admin/v1", "roles_any_of": ["identity.admin"] }),
         json!({ "authorization_rule": "proof.server/authorization/workspace-role-admin/v1", "roles_any_of": ["identity.admin"] }),
     ];
@@ -3075,7 +3145,7 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
         .flat_map(|route| route["operations"].as_array().into_iter().flatten())
         .filter(|row| row.get("authorization").is_some())
         .collect::<Vec<_>>();
-    assert_eq!(human_rows.len(), 26);
+    assert_eq!(human_rows.len(), 29);
     assert_eq!(human_projection.len(), human_rows.len());
     let mut human_input_schemas = BTreeMap::new();
     let mut referenced_rules = BTreeSet::new();
@@ -3288,9 +3358,60 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
                         limit["schema_path"],
                         schema
                     );
+                    if let Some(additional_path) = limit["additional_schema_path"].as_str() {
+                        assert!(
+                            instance_path_exists_in_schema(&schemas, schema, additional_path),
+                            "{} additional path {} does not resolve in {}",
+                            row["operation"],
+                            additional_path,
+                            schema
+                        );
+                    }
                 }
             }
         }
+    }
+    let intent_row = routes
+        .iter()
+        .flat_map(|route| route["operations"].as_array().into_iter().flatten())
+        .find(|row| {
+            row["operation"]["version"] == "proof.dev/operation/content-resource-intent.issue/v2"
+        })
+        .unwrap();
+    let aggregate_intent_limit = json!([{
+        "additional_schema_path": "/creations",
+        "dimension": "intent_items",
+        "maximum": 100,
+        "measure": "sum-array-lengths",
+        "schema_path": "/targets",
+    }]);
+    assert_eq!(intent_row["request_limits"], aggregate_intent_limit);
+    assert_eq!(intent_row["result_limits"], aggregate_intent_limit);
+    assert!(
+        intent_row["application_problem_codes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("proof.input.limit_exceeded"))
+    );
+    let over_limit_intent = json!({
+        "creations": [null],
+        "targets": vec![Value::Null; 100],
+    });
+    for limit in [
+        &intent_row["request_limits"][0],
+        &intent_row["result_limits"][0],
+    ] {
+        let measured = ["schema_path", "additional_schema_path"]
+            .iter()
+            .map(|field| {
+                over_limit_intent
+                    .pointer(limit[field].as_str().unwrap())
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len)
+            })
+            .sum::<usize>();
+        let maximum = usize::try_from(limit["maximum"].as_u64().unwrap()).unwrap();
+        assert!(measured > maximum);
     }
     for operation in [
         "proof.dev/operation/changeset.diff/v2",
@@ -3314,7 +3435,7 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
     let capability_result = json!({
         "agent_operation_count": 14,
         "api_version": "proof.dev/capabilities-discover-result/v1",
-        "human_operation_count": 23,
+        "human_operation_count": 26,
         "profile": "proof.server/single-workspace/v1",
         "registry": registry.clone(),
         "registry_canonicalization": "RFC8785",
@@ -3439,13 +3560,16 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
         ("proof.input.unsupported_media_type", 415),
         ("proof.input.unsupported_version", 400),
         ("proof.integrity.failure", 500),
+        ("proof.intent.slot_mismatch", 409),
         ("proof.internal", 500),
         ("proof.operation.timeout", 504),
         ("proof.operation.unknown_outcome", 504),
         ("proof.policy.denied", 403),
         ("proof.rate_limit.exceeded", 429),
         ("proof.resource.not_found", 404),
+        ("proof.schema.not_found", 404),
         ("proof.state.conflict", 409),
+        ("proof.state.object_exists", 409),
         ("proof.state.source_conflict", 409),
         ("proof.state.target_conflict", 409),
         ("proof.storage.conflict", 503),
@@ -3454,8 +3578,23 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
     ]);
     let definitions = registry["problem_definitions"].as_array().unwrap();
     let statuses = registry["problem_statuses"].as_object().unwrap();
-    assert_eq!(definitions.len(), 41);
-    assert_eq!(statuses.len(), 41);
+    assert_eq!(definitions.len(), 44);
+    assert_eq!(statuses.len(), 44);
+    let registry_schema =
+        &schemas["https://proof.dev/schema/collaboration-server/http-operation-registry/v1"];
+    assert_eq!(
+        registry_schema["$defs"]["problemCodeArray"]["maxItems"].as_u64(),
+        u64::try_from(definitions.len()).ok()
+    );
+    let application_problem_code_count =
+        schemas[ARTIFACT_SCHEMA_ID]["$defs"]["applicationProblemCode"]["enum"]
+            .as_array()
+            .unwrap()
+            .len();
+    assert_eq!(
+        registry_schema["$defs"]["applicationProblemCodeArray"]["maxItems"].as_u64(),
+        u64::try_from(application_problem_code_count).ok()
+    );
     assert_eq!(
         definitions
             .iter()
@@ -3636,9 +3775,12 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
         "proof.input.limit_exceeded",
         "proof.input.schema_mismatch",
         "proof.input.unsupported_version",
+        "proof.intent.slot_mismatch",
         "proof.policy.denied",
         "proof.resource.not_found",
+        "proof.schema.not_found",
         "proof.state.conflict",
+        "proof.state.object_exists",
         "proof.state.source_conflict",
         "proof.state.target_conflict",
         "proof.validation.repair_evidence_invalid",
@@ -3831,11 +3973,11 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             none_human_effect.clone(),
         ),
         (
-            "proof.dev/operation/content-resource-intent.issue/v1",
+            "proof.dev/operation/content-resource-intent.issue/v2",
             effect_digest_rule(
                 "proof:content-resource-intent:v1",
-                "content-resource-intent-v1-artifact",
-                "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contentResourceIntentV1",
+                "content-resource-intent-v2-artifact",
+                "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/contentResourceIntentV2",
             ),
         ),
         (
@@ -3915,6 +4057,10 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             none_human_effect.clone(),
         ),
         (
+            "proof.dev/operation/object.list/v1",
+            none_human_effect.clone(),
+        ),
+        (
             "proof.dev/operation/oidc-binding.issue/v1",
             effect_digest_rule(
                 "proof:remote-authority-record:v1",
@@ -3946,7 +4092,15 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             "proof.dev/operation/release.get/v2",
             none_human_effect.clone(),
         ),
-        ("proof.dev/operation/release.verify/v2", none_human_effect),
+        (
+            "proof.dev/operation/release.verify/v2",
+            none_human_effect.clone(),
+        ),
+        (
+            "proof.dev/operation/schema.get/v1",
+            none_human_effect.clone(),
+        ),
+        ("proof.dev/operation/schema.list/v1", none_human_effect),
         (
             "proof.dev/operation/workspace-role.assign/v1",
             effect_digest_rule(
@@ -3964,7 +4118,7 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             ),
         ),
     ]);
-    assert_eq!(expected_human_effect_rules.len(), 26);
+    assert_eq!(expected_human_effect_rules.len(), 29);
     for (route_index, route) in routes.iter().enumerate() {
         if route_index == 6 {
             continue;
@@ -4369,6 +4523,22 @@ fn http_registry_is_exact_resolvable_and_bound_to_the_accepted_agent_registry() 
             profile["authenticated_error_codes"],
             json!(capability.authenticated_error_codes),
             "{version} authenticated error set drifted"
+        );
+        let authenticated = profile["authenticated_error_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|code| code.as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        let application_problems = row["application_problem_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|code| code.as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            application_problems.is_subset(&authenticated),
+            "{version} post-Allow Problems are absent from its authenticated source profile"
         );
         let unreachable = profile["unreachable_error_codes"]
             .as_array()
@@ -8425,7 +8595,7 @@ fn rejection_requirements_are_unique_layered_and_problem_consistent() {
             .iter()
             .map(|case| { case["applicability"]["bindings"].as_array().unwrap().len() })
             .sum::<usize>(),
-        276
+        282
     );
 
     let routes = registry["routes"]
@@ -8434,6 +8604,31 @@ fn rejection_requirements_are_unique_layered_and_problem_consistent() {
         .iter()
         .map(|route| (route["route_id"].as_str().unwrap(), route))
         .collect::<BTreeMap<_, _>>();
+    let expected_human_bindings = routes["human-operations"]["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            json!({
+                "route_id": "human-operations",
+                "operation": row["operation"].clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    for id in [
+        "body-workspace-substitution",
+        "oidc-group-authority-substitution",
+    ] {
+        let case = http_cases
+            .iter()
+            .find(|case| case["id"] == id)
+            .unwrap_or_else(|| panic!("missing broad Human rejection requirement {id}"));
+        assert_eq!(
+            case["applicability"]["bindings"],
+            json!(expected_human_bindings),
+            "{id} must bind every Human operation in exact registry order"
+        );
+    }
     for case in &http_cases {
         let public_code = case["public_code"]
             .as_str()

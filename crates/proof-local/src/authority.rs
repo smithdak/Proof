@@ -13,9 +13,10 @@ use base64::{
 };
 use proof_application::authority as contract;
 use proof_application::{
-    ArtifactKind, BuildContextPackCommand, ContentResourceIntent, ContextPackId, ContextPackLimits,
-    DelegatedAction, EnvironmentId, LocaleId, ObjectId, PrincipalId, ReleasedLocaleTarget,
-    ReleasedObjectQuery, SchemaId, Timestamp, WorkspaceId,
+    ArtifactKind, BuildContextPackCommand, CONTENT_RESOURCE_INTENT_API_VERSION_V2,
+    ContentResourceIntent, ContextPackId, ContextPackLimits, DelegatedAction, EnvironmentId,
+    LocaleId, ObjectId, PrincipalId, ReleasedLocaleTarget, ReleasedObjectQuery, SchemaId,
+    Timestamp, WorkspaceId,
 };
 use proof_attestation::{
     Ed25519SigningProvider, ProofSigningProvider as _,
@@ -5948,8 +5949,36 @@ pub(super) fn project_localized_intent_closure_v1(
             })
         })
         .collect::<Vec<_>>();
-    let expected_manifest = canonicalize(&json!({
-        "api_version": proof_application::CONTENT_RESOURCE_INTENT_API_VERSION,
+    let stored_api_version = manifest_value
+        .get("api_version")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            contract::AuthorityError::AuthorityIntegrity(
+                "localized resource-intent artifact is unreadable".to_owned(),
+            )
+        })?;
+    let (expected_api_version, expected_creations) =
+        if stored_api_version == CONTENT_RESOURCE_INTENT_API_VERSION_V2 {
+            let expected_creations = intent
+                .creations
+                .iter()
+                .map(|slot| {
+                    json!({
+                        "locales": slot.locales.iter().map(LocaleId::as_str).collect::<Vec<_>>(),
+                        "object_id": slot.object_id.to_string(),
+                        "schema_id": slot.schema_id.as_str(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            (CONTENT_RESOURCE_INTENT_API_VERSION_V2, expected_creations)
+        } else {
+            (
+                proof_application::CONTENT_RESOURCE_INTENT_API_VERSION,
+                Vec::new(),
+            )
+        };
+    let mut expected_manifest_json = json!({
+        "api_version": expected_api_version,
         "base": {
             "edition": {
                 "api_version": intent.base.edition.api_version,
@@ -5973,8 +6002,14 @@ pub(super) fn project_localized_intent_closure_v1(
         "issued_by_principal_id": intent.issued_by_principal_id.to_string(),
         "targets": expected_targets,
         "workspace_id": intent.workspace_id.to_string(),
-    }))
-    .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
+    });
+    if expected_api_version == CONTENT_RESOURCE_INTENT_API_VERSION_V2
+        && let Some(object) = expected_manifest_json.as_object_mut()
+    {
+        object.insert("creations".to_owned(), json!(expected_creations));
+    }
+    let expected_manifest = canonicalize(&expected_manifest_json)
+        .map_err(|error| contract::AuthorityError::AuthorityIntegrity(error.to_string()))?;
     if intent.workspace_id != workspace_id
         || manifest.as_str() != intent.canonical_json
         || manifest != expected_manifest
@@ -8323,11 +8358,14 @@ fn authority_from_local_port(error: LocalPortError) -> contract::AuthorityError 
         LocalPortError::Integrity(detail) => contract::AuthorityError::AuthorityIntegrity(detail),
         LocalPortError::Denied
         | LocalPortError::NotFound
+        | LocalPortError::SchemaNotFound
         | LocalPortError::UnsupportedVersion
         | LocalPortError::Invalid
         | LocalPortError::IntentMismatch
+        | LocalPortError::IntentSlotMismatch
         | LocalPortError::SourceConflict
         | LocalPortError::TargetConflict
+        | LocalPortError::ObjectExists
         | LocalPortError::DuplicateActiveTarget
         | LocalPortError::InvalidSupersession
         | LocalPortError::InvalidRepairEvidence
@@ -10080,6 +10118,7 @@ PRAGMA user_version = 11;
             environment_id: environment_id.clone(),
             base,
             targets,
+            creations: Vec::new(),
             canonical_json: manifest.as_str().to_owned(),
             intent_digest: digest(ArtifactKind::ContentResourceIntentV1, &manifest),
         };

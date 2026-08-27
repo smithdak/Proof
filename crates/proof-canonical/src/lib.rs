@@ -884,26 +884,26 @@ mod tests {
         let workspace_id = "019c0000-0000-7000-8000-000000000010"
             .parse::<WorkspaceId>()
             .unwrap();
-        let object_id = "019c0000-0000-7000-8000-000000000080"
+        let object_id = "019c0000-0000-7000-8000-000000000081"
             .parse::<ObjectId>()
             .unwrap();
         let changeset_id = "019c0000-0000-7000-8000-000000000204"
             .parse::<ChangeSetId>()
             .unwrap();
-        let edit_id = "019c0000-0000-7000-8000-000000000219"
+        let edit_id = "019c0000-0000-7000-8000-000000000214"
             .parse::<EditId>()
             .unwrap();
         let locale = LocaleId::new("fr-FR").unwrap();
         let schema_id = SchemaId::new("campaign").unwrap();
         let schema_version = SchemaVersion::new(1).unwrap();
         let source_digest =
-            "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+            "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
                 .parse::<ContentDigest>()
                 .unwrap();
         let content = json!({
             "legal": "Des conditions standard s’appliquent",
-            "slug": "summer-campaign",
-            "title": "Campagne d’été",
+            "slug": "autumn-campaign",
+            "title": "Campagne d’automne",
         });
         let (rendition, computed_rendition_digest) =
             object_locale_revision(&ObjectLocaleRevisionInput {
@@ -919,7 +919,7 @@ mod tests {
                 content: &content,
                 changeset_id,
                 edit_id,
-                authoritative_sequence: 3,
+                authoritative_sequence: 4,
             })
             .unwrap();
         let rendition_case = localized_artifact("ObjectLocaleRevisionV1");
@@ -935,41 +935,59 @@ mod tests {
         let workspace_id = "019c0000-0000-7000-8000-000000000010"
             .parse::<WorkspaceId>()
             .unwrap();
-        let object_id = "019c0000-0000-7000-8000-000000000080"
+        let existing_object_id = "019c0000-0000-7000-8000-000000000080"
+            .parse::<ObjectId>()
+            .unwrap();
+        let created_object_id = "019c0000-0000-7000-8000-000000000081"
             .parse::<ObjectId>()
             .unwrap();
         let locale = LocaleId::new("fr-FR").unwrap();
         let schema_id = SchemaId::new("campaign").unwrap();
         let schema_version = SchemaVersion::new(1).unwrap();
-        let source_digest =
-            "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+        let existing_source_digest =
+            "blake3:7dc41165d964446a7d85cf4f465efafaf9644b6b3faa413bd64f6e290aa6179f"
+                .parse::<ContentDigest>()
+                .unwrap();
+        let created_source_digest =
+            "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
                 .parse::<ContentDigest>()
                 .unwrap();
         let rendition_digest =
-            "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071"
                 .parse::<ContentDigest>()
                 .unwrap();
-        let object_reference = ObjectStateReference {
-            object_id,
+        let existing_object_reference = ObjectStateReference {
+            object_id: existing_object_id,
             revision: ObjectRevision::INITIAL,
             schema_id: schema_id.clone(),
             schema_version,
             lifecycle_state: ObjectLifecycleState::Active,
-            object_digest: source_digest,
+            object_digest: existing_source_digest,
+        };
+        let created_object_reference = ObjectStateReference {
+            object_id: created_object_id,
+            revision: ObjectRevision::INITIAL,
+            schema_id: schema_id.clone(),
+            schema_version,
+            lifecycle_state: ObjectLifecycleState::Active,
+            object_digest: created_source_digest,
         };
         let locale_reference = LocaleStateReference {
-            object_id,
+            object_id: created_object_id,
             locale,
             revision: LocaleRevision::new(1).unwrap(),
             rendition_digest,
-            source_object_digest: source_digest,
+            source_object_digest: created_source_digest,
             schema_id: schema_id.clone(),
             schema_version,
         };
         let object_set_case = localized_artifact("ObjectSetV2");
         assert_eq!(
             object_set_v2_digest(
-                std::slice::from_ref(&object_reference),
+                &[
+                    existing_object_reference.clone(),
+                    created_object_reference.clone(),
+                ],
                 std::slice::from_ref(&locale_reference),
             )
             .unwrap()
@@ -979,19 +997,19 @@ mod tests {
         let previous_state = PreviousKnownStateReference {
             api_version: "proof.dev/known-state/v1".to_owned(),
             authoritative_sequence: 2,
-            digest: "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+            digest: "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
                 .parse()
                 .unwrap(),
         };
         let schema_digest =
-            "blake3:6666666666666666666666666666666666666666666666666666666666666666"
+            "blake3:0b44166f57ab67a3ccbe3e7b55fff2ca79c4f42b22fe7c41154b7a8b82948cef"
                 .parse()
                 .unwrap();
         let state = known_state_v2_manifest(
             workspace_id,
-            3,
+            4,
             &[(schema_id, schema_version, schema_digest)],
-            &[object_reference],
+            &[existing_object_reference, created_object_reference],
             &[locale_reference],
             &previous_state,
         )
@@ -1022,6 +1040,7 @@ mod tests {
             "PolicyBundleV1" => ArtifactKind::PolicyBundleV1,
             "ContextPackV2" => ArtifactKind::ContextPackV2,
             "EditV2" => ArtifactKind::EditV2,
+            "ObjectCreateEditV2" => ArtifactKind::ObjectCreateEditV2,
             "EditBatchV2" => ArtifactKind::EditBatchV2,
             "ChangeSetV2" => ArtifactKind::ChangeSetV2,
             "ValidationResultsV2" => ArtifactKind::ValidationResultsV2,

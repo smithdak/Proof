@@ -702,6 +702,7 @@ impl LifecycleFixture {
             object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap();
         let intent = repository
             .issue_content_resource_intent(IssueContentResourceIntentCommand {
+                creations: Vec::new(),
                 intent_id: lifecycle_id(0x40).parse().unwrap(),
                 environment_id: ENVIRONMENT_ID.parse().unwrap(),
                 targets: vec![LocalizedContentTarget {

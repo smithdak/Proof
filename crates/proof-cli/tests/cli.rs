@@ -8,12 +8,13 @@ use std::{
 };
 
 use proof_application::{
-    DelegatedAction, DelegationConstraints, DelegationScope, GrantDelegationCommand, Timestamp,
-    grant_delegation,
+    DelegatedAction, DelegationConstraints, DelegationScope, GrantDelegationCommand, ObjectId,
+    SchemaId, SchemaVersion, Timestamp, grant_delegation,
 };
 use proof_attestation::{
     Ed25519SigningProvider, InTotoStatement, InTotoSubject, sign_release_statement,
 };
+use proof_canonical::object_revision_digest;
 use proof_local::LocalWorkspace;
 
 const CORRELATION_ID: &str = "019c0000-0000-7000-8000-000000000002";
@@ -438,7 +439,7 @@ fn status_verifies_an_initialized_workspace_and_known_state() {
     assert_eq!(status["data"]["principal_id"], principal_id);
     assert_eq!(status["meta"]["workspace_id"], workspace_id);
     assert_eq!(status["meta"]["principal_id"], principal_id);
-    assert_eq!(status["data"]["storage_schema_version"], 14);
+    assert_eq!(status["data"]["storage_schema_version"], 15);
     assert_eq!(status["data"]["authoritative_sequence"], 0);
     assert!(
         status["data"]["state_digest"]
@@ -1691,8 +1692,9 @@ fn localized_cli_repairs_and_releases_two_exact_locales() {
     );
     assert_eq!(
         intent["data"]["api_version"],
-        "proof.dev/content-resource-intent/v1"
+        "proof.dev/content-resource-intent/v2"
     );
+    assert_eq!(intent["data"]["creations"], serde_json::json!([]));
     let intent_id = intent["data"]["intent_id"].as_str().unwrap();
     let intent_digest = intent["data"]["intent_digest"].as_str().unwrap();
     let context_file = directory.path().join("localized-context.json");
@@ -1753,11 +1755,11 @@ fn localized_cli_repairs_and_releases_two_exact_locales() {
         &edits_file,
         format!(
             concat!(
-                "{{\"object_id\":\"{OBJECT_ID}\",\"locale\":\"es-ES\",",
+                "{{\"kind\":\"object.locale.put\",\"object_id\":\"{OBJECT_ID}\",\"locale\":\"es-ES\",",
                 "\"expected_source\":{{\"revision\":1,\"digest\":\"{source_digest}\",",
                 "\"schema_id\":\"campaign\",\"schema_version\":1}},\"content\":{{",
                 "\"legal\":\"Se aplican términos estándar\",\"title\":\"Campaña de verano\"}}}}\n",
-                "{{\"object_id\":\"{OBJECT_ID}\",\"locale\":\"fr-FR\",",
+                "{{\"kind\":\"object.locale.put\",\"object_id\":\"{OBJECT_ID}\",\"locale\":\"fr-FR\",",
                 "\"expected_source\":{{\"revision\":1,\"digest\":\"{source_digest}\",",
                 "\"schema_id\":\"campaign\",\"schema_version\":1}},\"content\":{{",
                 "\"legal\":\"Garantie absolue\",\"title\":\"Campagne d’été\"}}}}\n"
@@ -1795,7 +1797,7 @@ fn localized_cli_repairs_and_releases_two_exact_locales() {
         &repair_file,
         format!(
             concat!(
-                "{{\"object_id\":\"{OBJECT_ID}\",\"locale\":\"fr-FR\",",
+                "{{\"kind\":\"object.locale.put\",\"object_id\":\"{OBJECT_ID}\",\"locale\":\"fr-FR\",",
                 "\"expected_source\":{{\"revision\":1,\"digest\":\"{source_digest}\",",
                 "\"schema_id\":\"campaign\",\"schema_version\":1}},\"content\":{{",
                 "\"legal\":\"Des conditions standard s’appliquent\",",
@@ -1893,6 +1895,313 @@ fn localized_cli_repairs_and_releases_two_exact_locales() {
     let verified = successful_json(&directory, &["localized", "release-verify", release_id]);
     assert_eq!(verified["data"]["valid"], true);
     assert_eq!(rebuild(&directory, true)["data"]["changed"], false);
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one retained CLI run proves sorted creation slots and mixed kind-tagged Edits through commit"
+)]
+fn localized_cli_creates_an_object_from_mixed_kind_tagged_edits() {
+    let directory = TestDirectory::new();
+    successful_json(&directory, &["init"]);
+    let baseline = successful_json(
+        &directory,
+        &["changeset", "create", "--intent", "Define campaign Schema"],
+    );
+    let baseline_changeset = baseline["data"]["changeset_id"].as_str().unwrap();
+    let schema_file = directory.path().join("creation-schema.ndjson");
+    fs::write(
+        &schema_file,
+        concat!(
+            "{\"api_version\":\"proof.dev/edit/v1\",\"kind\":\"schema.create\",",
+            "\"schema_id\":\"campaign\",\"schema_version\":1,\"document\":{",
+            "\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",",
+            "\"additionalProperties\":false,\"properties\":{",
+            "\"slug\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"}},",
+            "\"required\":[\"slug\",\"title\"],\"type\":\"object\",",
+            "\"x-proof-localizable\":[\"/title\"]}}\n"
+        ),
+    )
+    .unwrap();
+    successful_json(
+        &directory,
+        &[
+            "changeset",
+            "add",
+            baseline_changeset,
+            "--file",
+            schema_file.to_str().unwrap(),
+        ],
+    );
+    for action in ["validate", "submit"] {
+        successful_json(&directory, &["changeset", action, baseline_changeset]);
+    }
+    successful_json(
+        &directory,
+        &[
+            "changeset",
+            "approve",
+            baseline_changeset,
+            "--approval",
+            "editorial",
+        ],
+    );
+    successful_json(
+        &directory,
+        &[
+            "changeset",
+            "commit",
+            baseline_changeset,
+            "--idempotency-key",
+            COMMIT_IDEMPOTENCY_KEY,
+        ],
+    );
+    let edition = successful_json(
+        &directory,
+        &[
+            "edition",
+            "create",
+            "--idempotency-key",
+            EDITION_IDEMPOTENCY_KEY,
+        ],
+    );
+    let edition_id = edition["data"]["edition_id"].as_str().unwrap();
+    successful_json(
+        &directory,
+        &[
+            "environment",
+            "create",
+            "preview",
+            "--required-approval",
+            "editorial",
+            "--idempotency-key",
+            ENVIRONMENT_IDEMPOTENCY_KEY,
+        ],
+    );
+    create_release(&directory, edition_id, RELEASE_IDEMPOTENCY_KEY);
+
+    let intent = successful_json(
+        &directory,
+        &[
+            "localized",
+            "intent-issue",
+            "--environment",
+            "preview",
+            "--target",
+            &format!("{OBJECT_ID}:campaign:fr-FR"),
+            "--target",
+            &format!("{OBJECT_ID}:campaign:en-US"),
+            "--creation",
+            &format!("{OBJECT_ID}:campaign:fr-FR,en-US"),
+        ],
+    );
+    assert_eq!(
+        intent["data"]["creations"][0]["locales"],
+        serde_json::json!(["en-US", "fr-FR"])
+    );
+    let context_file = directory.path().join("creation-context.json");
+    fs::write(
+        &context_file,
+        serde_json::to_vec(&serde_json::json!({
+            "policy_rules": [],
+            "limits": {
+                "max_objects": 1,
+                "max_edits": 3,
+                "max_validation_attempts": 2,
+                "max_bytes": 1_048_576
+            },
+            "expires_at": timestamp_after_seconds(600)
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let context = successful_json(
+        &directory,
+        &[
+            "localized",
+            "context-build",
+            "--resource-intent",
+            intent["data"]["intent_id"].as_str().unwrap(),
+            "--resource-intent-digest",
+            intent["data"]["intent_digest"].as_str().unwrap(),
+            "--file",
+            context_file.to_str().unwrap(),
+        ],
+    );
+    let changeset = successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-create",
+            "--intent",
+            "Create and localize the campaign",
+            "--resource-intent",
+            intent["data"]["intent_id"].as_str().unwrap(),
+            "--resource-intent-digest",
+            intent["data"]["intent_digest"].as_str().unwrap(),
+            "--context-pack",
+            context["data"]["context_pack_id"].as_str().unwrap(),
+            "--context-pack-digest",
+            context["data"]["context_pack_digest"].as_str().unwrap(),
+        ],
+    );
+    let changeset_id = changeset["data"]["changeset_id"].as_str().unwrap();
+    let source = serde_json::json!({"slug": "autumn", "title": "Autumn campaign"});
+    let source_digest = object_revision_digest(
+        OBJECT_ID.parse::<ObjectId>().unwrap(),
+        &SchemaId::new("campaign").unwrap(),
+        SchemaVersion::new(1).unwrap(),
+        &source,
+    )
+    .unwrap();
+    let edits_file = directory.path().join("creation-edits.ndjson");
+    fs::write(
+        &edits_file,
+        format!(
+            concat!(
+                "{{\"kind\":\"object.create\",\"object_id\":\"{OBJECT_ID}\",",
+                "\"schema_id\":\"campaign\",\"schema_version\":1,",
+                "\"content\":{{\"slug\":\"autumn\",\"title\":\"Autumn campaign\"}}}}\n",
+                "{{\"kind\":\"object.locale.put\",\"object_id\":\"{OBJECT_ID}\",",
+                "\"locale\":\"en-US\",\"expected_source\":{{\"revision\":1,",
+                "\"digest\":\"{source_digest}\",\"schema_id\":\"campaign\",",
+                "\"schema_version\":1}},\"content\":{{\"slug\":\"autumn\",",
+                "\"title\":\"Fall campaign\"}}}}\n",
+                "{{\"kind\":\"object.locale.put\",\"object_id\":\"{OBJECT_ID}\",",
+                "\"locale\":\"fr-FR\",\"expected_source\":{{\"revision\":1,",
+                "\"digest\":\"{source_digest}\",\"schema_id\":\"campaign\",",
+                "\"schema_version\":1}},\"content\":{{\"slug\":\"autumn\",",
+                "\"title\":\"Campagne d’automne\"}}}}\n"
+            ),
+            OBJECT_ID = OBJECT_ID,
+            source_digest = source_digest,
+        ),
+    )
+    .unwrap();
+    successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-add",
+            changeset_id,
+            "--file",
+            edits_file.to_str().unwrap(),
+        ],
+    );
+    let inspected = successful_json(&directory, &["localized", "changeset-get", changeset_id]);
+    assert_eq!(inspected["data"]["edits"][0]["kind"], "object.create");
+    assert_eq!(inspected["data"]["edits"][1]["kind"], "object.locale.put");
+    assert_eq!(inspected["data"]["edits"][2]["kind"], "object.locale.put");
+    assert_eq!(
+        successful_json(
+            &directory,
+            &["localized", "changeset-validate", changeset_id]
+        )["data"]["valid"],
+        true
+    );
+    successful_json(&directory, &["localized", "changeset-submit", changeset_id]);
+    successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-approve",
+            changeset_id,
+            "--approval",
+            "editorial",
+        ],
+    );
+    successful_json(
+        &directory,
+        &[
+            "localized",
+            "changeset-commit",
+            changeset_id,
+            "--idempotency-key",
+            LOCALIZED_COMMIT_IDEMPOTENCY_KEY,
+        ],
+    );
+    let objects = successful_json(
+        &directory,
+        &[
+            "object",
+            "list",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+        ],
+    );
+    assert_eq!(objects["data"]["entries"][0]["object_id"], OBJECT_ID);
+    assert_eq!(
+        objects["data"]["entries"][0]["head_renditions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        objects["data"]["entries"][0]["covered_by_current_release"],
+        false
+    );
+}
+
+#[test]
+fn localized_cli_rejects_malformed_creation_slots_and_edit_kinds() {
+    let directory = TestDirectory::new();
+    successful_json(&directory, &["init"]);
+    let malformed_slot = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "localized",
+            "intent-issue",
+            "--environment",
+            "preview",
+            "--target",
+            &format!("{OBJECT_ID}:campaign:fr-FR"),
+            "--creation",
+            "not-a-slot",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(malformed_slot.status.code(), Some(2));
+    let malformed_slot: serde_json::Value = serde_json::from_slice(&malformed_slot.stdout).unwrap();
+    assert_eq!(malformed_slot["operation"], "content-resource-intent.issue");
+    assert_eq!(malformed_slot["code"], "proof.input.schema_mismatch");
+    assert_eq!(
+        malformed_slot["detail"],
+        "creation must use OBJECT_ID:SCHEMA_ID:LOCALE[,LOCALE...]"
+    );
+
+    let edits_file = directory.path().join("unknown-localized-kind.ndjson");
+    fs::write(
+        &edits_file,
+        format!("{{\"kind\":\"object.rename\",\"object_id\":\"{OBJECT_ID}\"}}\n"),
+    )
+    .unwrap();
+    let unknown_kind = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "localized",
+            "changeset-add",
+            UNKNOWN_CHANGESET_ID,
+            "--file",
+            edits_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(unknown_kind.status.code(), Some(2));
+    let unknown_kind: serde_json::Value = serde_json::from_slice(&unknown_kind.stdout).unwrap();
+    assert_eq!(unknown_kind["operation"], "changeset.add");
+    assert_eq!(unknown_kind["code"], "proof.input.schema_mismatch");
+    assert!(
+        unknown_kind["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("invalid NDJSON record 1:")
+    );
 }
 
 #[test]
@@ -2030,6 +2339,126 @@ fn status_rejects_partial_workspace_state() {
     let problem: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(problem["code"], "proof.evidence.incomplete");
     assert_eq!(problem["operation"], "status");
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn schema_and_object_register_reads_return_exact_committed_state() {
+    let directory = TestDirectory::new();
+    let edition_id = create_committed_edition_with_object(&directory);
+
+    let schema = successful_json(&directory, &["schema", "get", "article", "1"]);
+    assert_eq!(schema["operation"], "schema.get");
+    assert_eq!(schema["data"]["schema_id"], "article");
+    assert_eq!(schema["data"]["schema_version"], 1);
+    assert_eq!(schema["data"]["document"]["type"], "object");
+    assert!(
+        schema["data"]["document_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("blake3:")
+    );
+    assert_eq!(schema["data"]["provenance"]["authoritative_sequence"], 1);
+    assert!(schema["data"]["provenance"]["changeset_id"].is_string());
+    assert!(schema["data"]["provenance"]["edit_id"].is_string());
+
+    let schemas = successful_json(
+        &directory,
+        &[
+            "schema",
+            "list",
+            "--schema-id",
+            "article",
+            "--page-size",
+            "1",
+        ],
+    );
+    assert_eq!(schemas["operation"], "schema.list");
+    assert_eq!(schemas["data"]["entries"].as_array().unwrap().len(), 1);
+    assert!(schemas["data"]["entries"][0].get("document").is_none());
+
+    let missing = proof_command(directory.path())
+        .args(["--output", "json", "schema", "get", "missing", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(6));
+    let missing: serde_json::Value = serde_json::from_slice(&missing.stdout).unwrap();
+    assert_eq!(missing["code"], "proof.schema.not_found");
+
+    assert!(
+        proof_command(directory.path())
+            .args([
+                "environment",
+                "create",
+                "preview",
+                "--required-approval",
+                "editorial",
+                "--idempotency-key",
+                ENVIRONMENT_IDEMPOTENCY_KEY,
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    create_release(&directory, &edition_id, RELEASE_IDEMPOTENCY_KEY);
+
+    let objects = successful_json(
+        &directory,
+        &[
+            "object",
+            "list",
+            "--environment",
+            "preview",
+            "--object-id",
+            OBJECT_ID,
+        ],
+    );
+    assert_eq!(objects["operation"], "object.list");
+    assert_eq!(
+        objects["data"]["state_scope"],
+        "committed-workspace-state-not-necessarily-released"
+    );
+    assert_eq!(objects["data"]["entries"][0]["object_id"], OBJECT_ID);
+    assert_eq!(objects["data"]["entries"][0]["released_revision"], 1);
+    assert_eq!(
+        objects["data"]["entries"][0]["covered_by_current_release"],
+        true
+    );
+    assert_eq!(
+        objects["data"]["entries"][0]["head_renditions"],
+        serde_json::json!([])
+    );
+
+    let unbounded = proof_command(directory.path())
+        .args([
+            "--output",
+            "json",
+            "object",
+            "list",
+            "--environment",
+            "preview",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(unbounded.status.code(), Some(2));
+    let unbounded: serde_json::Value = serde_json::from_slice(&unbounded.stdout).unwrap();
+    assert_eq!(unbounded["code"], "proof.input.schema_mismatch");
+
+    let bounded = successful_json(
+        &directory,
+        &[
+            "object",
+            "list",
+            "--environment",
+            "preview",
+            "--cursor",
+            "0",
+            "--page-size",
+            "1",
+        ],
+    );
+    assert_eq!(bounded["data"]["entries"].as_array().unwrap().len(), 1);
 }
 
 #[test]

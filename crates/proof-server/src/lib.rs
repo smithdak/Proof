@@ -226,6 +226,12 @@ pub struct ServerConfig {
     pub rate_limit_budget: RateLimitBudget,
     /// PostgreSQL connection string (DSN) for the authority store.
     pub dsn: String,
+    /// Release signer supplied by trusted deployment wiring. Its secret key is
+    /// never request-selectable or persisted in PostgreSQL.
+    pub release_signer: Option<Arc<proof_attestation::Ed25519SigningProvider>>,
+    /// Workspace authority signer supplied by trusted deployment wiring. It
+    /// signs portable remote authority records for native operations.
+    pub authority_signer: Option<Arc<proof_attestation::Ed25519SigningProvider>>,
 }
 
 impl ServerConfig {
@@ -250,7 +256,31 @@ impl ServerConfig {
             deadline: APPLICATION_DEADLINE,
             rate_limit_budget: RateLimitBudget::development_default(),
             dsn: dsn.into(),
+            release_signer: None,
+            authority_signer: None,
         }
+    }
+
+    /// Attaches the trusted Workspace authority signer used to retain native
+    /// decision and consequence records as a portable signed chain.
+    #[must_use]
+    pub fn with_authority_signer(
+        mut self,
+        signer: proof_attestation::Ed25519SigningProvider,
+    ) -> Self {
+        self.authority_signer = Some(Arc::new(signer));
+        self
+    }
+
+    /// Attaches the trusted Release signer used by native
+    /// `release.create/v2` execution.
+    #[must_use]
+    pub fn with_release_signer(
+        mut self,
+        signer: proof_attestation::Ed25519SigningProvider,
+    ) -> Self {
+        self.release_signer = Some(Arc::new(signer));
+        self
     }
 
     /// The exact workspace audience URI for actor contexts
@@ -357,6 +387,8 @@ fn bring_migration_head_to_current(
     for script in [
         proof_pg::migration::session_boundary_migration_v2(),
         proof_pg::migration::delivery_state_migration_v3(),
+        proof_pg::migration::application_idempotency_migration_v4(),
+        proof_pg::migration::workspace_global_idempotency_migration_v5(),
     ] {
         if script.version > current {
             proof_pg::migration::run_expand_backfill_verify_cutover(runtime.client_mut(), &script)
@@ -391,6 +423,9 @@ pub enum ServerError {
     /// Route-qualified registry dispatch failed.
     #[error("dispatch failed: {0}")]
     Dispatch(String),
+    /// A registered application Problem was selected after authorization.
+    #[error("application problem: {0}")]
+    ApplicationProblem(String),
     /// The PostgreSQL authority store failed.
     #[error("storage failed: {0}")]
     Storage(#[from] proof_pg::PgError),

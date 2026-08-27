@@ -53,8 +53,14 @@ use proof_canonical::canonicalize;
 use proof_domain::{ContentDigest, Timestamp};
 use proof_pg::{
     PgError,
-    idempotency::{IdempotencyOutcome, IdempotencyTupleV1, SavepointGuard, replay_or_conflict},
-    transaction::{UnitOfWorkHooks, UnitOfWorkOutcome, WorkspaceHeadSnapshot, run_unit_of_work},
+    idempotency::{
+        IdempotencyOutcome, IdempotencyTupleV1, SavepointGuard, persist_success_in_transaction,
+        read_stored_in_transaction, record_replay_in_transaction, replay_or_conflict,
+    },
+    transaction::{
+        CausalSequencePolicy, RetryPolicy, UnitOfWorkHooks, UnitOfWorkOutcome,
+        WorkspaceHeadSnapshot, run_unit_of_work_with_retry_and_sequence_policy,
+    },
 };
 use proof_remote::{
     AUTHENTICATED_ACTOR_CONTEXT_EVIDENCE_DIGEST_CONTEXT, AuthorityHeadV1, BUNDLE_DESCRIPTOR_PATH,
@@ -925,30 +931,6 @@ macro_rules! persist_consequence_in_tx {
     }};
 }
 
-macro_rules! persist_idempotency_in_tx {
-    ($tx:expr, $candidate:expr, $key_kind:expr, $result_digest:expr) => {{
-        $tx.execute(
-            "INSERT INTO idempotency_keys (
-                 workspace_id, operation, operation_version, normalized_input_digest,
-                 requesting_principal, operating_principal, delegation_id, key_kind,
-                 result_digest, replay_count, committed_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, now())",
-            &[
-                &$candidate.workspace_id.to_string(),
-                &$candidate.operation.name,
-                &$candidate.operation.version,
-                &$candidate.normalized_input_digest.to_string(),
-                &$candidate.requesting_principal.to_string(),
-                &$candidate.operating_principal.to_string(),
-                &$candidate.delegation.map(|d| d.to_string()),
-                &key_kind_label($key_kind),
-                &$result_digest.to_string(),
-            ],
-        )
-        .map_err(|e| proof_pg::transaction::transaction_error(&e))?;
-    }};
-}
-
 macro_rules! advance_authority_head_in_tx {
     ($tx:expr, $digest:expr, $auth_seq:expr) => {{
         let seq = i64::try_from($auth_seq)
@@ -1004,12 +986,12 @@ macro_rules! read_status_in_tx {
 macro_rules! commit_export_failure_in_tx {
     ($tx:expr, $decision:expr, $operation:expr, $problem_code:expr, $auth_seq:expr, $built:expr) => {{
         let failure = failure_consequence($decision, $operation, $problem_code, $auth_seq)
-            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+            .map_err(|error| PgError::Integrity(error.to_string()))?;
         persist_decision_in_tx!($tx, $decision);
         persist_consequence_in_tx!($tx, &failure, $auth_seq);
         advance_authority_head_in_tx!($tx, &consequence_digest(&failure), $auth_seq);
         *$built.borrow_mut() = Some(failure);
-        return Err(PgError::Idempotency($problem_code.to_owned()));
+        return Err(PgError::ApplicationFailure($problem_code.to_owned()));
     }};
 }
 
@@ -1080,63 +1062,13 @@ fn lock_pg(
 fn runtime_mut<'a>(
     guard: &'a mut std::sync::MutexGuard<'_, Option<proof_pg::wiring::PgRuntime>>,
 ) -> Result<&'a mut proof_pg::wiring::PgRuntime, ServerError> {
-    guard.as_mut().ok_or_else(|| {
+    let runtime = guard.as_mut().ok_or_else(|| {
         ServerError::Storage(PgError::Connect(
             "PostgreSQL runtime is not connected".to_owned(),
         ))
-    })
-}
-
-fn read_idempotency_prior(
-    runtime: &mut proof_pg::wiring::PgRuntime,
-    candidate: &IdempotencyTupleV1,
-) -> Result<(Option<IdempotencyTupleV1>, Option<ContentDigest>), ServerError> {
-    let row = runtime
-        .client_mut()
-        .query_opt(
-            "SELECT normalized_input_digest, delegation_id, result_digest
-             FROM idempotency_keys
-             WHERE workspace_id = $1 AND operation = $2 AND operation_version = $3
-               AND requesting_principal = $4 AND operating_principal = $5
-             ORDER BY committed_at DESC
-             LIMIT 1",
-            &[
-                &candidate.workspace_id.to_string(),
-                &candidate.operation.name,
-                &candidate.operation.version,
-                &candidate.requesting_principal.to_string(),
-                &candidate.operating_principal.to_string(),
-            ],
-        )
-        .map_err(|error| {
-            ServerError::Storage(PgError::Idempotency(format!(
-                "idempotency lookup failed: {error}"
-            )))
-        })?;
-    let Some(row) = row else {
-        return Ok((None, None));
-    };
-    let normalized_input_digest: String = row.get(0);
-    let delegation: Option<String> = row.get(1);
-    let result_digest: String = row.get(2);
-    let prior = IdempotencyTupleV1 {
-        workspace_id: candidate.workspace_id,
-        operation: candidate.operation.clone(),
-        normalized_input_digest: normalized_input_digest.parse().map_err(|error| {
-            ServerError::Internal(format!("invalid stored input digest: {error}"))
-        })?,
-        requesting_principal: candidate.requesting_principal,
-        operating_principal: candidate.operating_principal,
-        delegation: delegation
-            .as_deref()
-            .map(str::parse)
-            .transpose()
-            .map_err(|_| ServerError::Internal("invalid stored Delegation identity".to_owned()))?,
-    };
-    let prior_result_digest = result_digest
-        .parse()
-        .map_err(|error| ServerError::Internal(format!("invalid stored result digest: {error}")))?;
-    Ok((Some(prior), Some(prior_result_digest)))
+    })?;
+    runtime.ensure_connected().map_err(ServerError::Storage)?;
+    Ok(runtime)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1238,13 +1170,14 @@ fn replay_consequence(
     decision: RemoteAuthorizationDecisionV1,
     operation: &RemoteOperationV1,
     prior_result_digest: Option<ContentDigest>,
+    application_key: String,
 ) -> RemoteApplicationConsequenceV1 {
     build_consequence(
         &decision,
         operation,
         ApplicationConsequenceOutcome::IdempotentReplay,
-        ApplicationKeyKind::None,
-        None,
+        ApplicationKeyKind::RequiredUuidV7,
+        Some(application_key),
         prior_result_digest,
         prior_result_digest,
         None,
@@ -1259,14 +1192,18 @@ fn conflict_consequence(
     decision: RemoteAuthorizationDecisionV1,
     operation: &RemoteOperationV1,
     prior_result_digest: Option<ContentDigest>,
+    application_key: String,
 ) -> RemoteApplicationConsequenceV1 {
+    let problem_digest =
+        application_problem_digest_preimage("proof.idempotency.key_reused", operation)
+            .expect("idempotency conflict is a frozen operation Problem");
     build_consequence(
         &decision,
         operation,
         ApplicationConsequenceOutcome::IdempotencyConflict,
-        ApplicationKeyKind::None,
-        None,
-        prior_result_digest,
+        ApplicationKeyKind::RequiredUuidV7,
+        Some(application_key),
+        Some(problem_digest),
         prior_result_digest,
         None,
         None,
@@ -1392,17 +1329,6 @@ fn companion_len(bytes: &[u8]) -> Result<u64, ServerError> {
         .map_err(|_| ServerError::Internal("companion byte length exceeds u64".to_owned()))
 }
 
-fn read_result_preimage(
-    runtime: &mut proof_pg::wiring::PgRuntime,
-    idempotency_key: &str,
-) -> Result<Option<Vec<u8>>, ServerError> {
-    read_fact(
-        runtime,
-        &format!("evidence_export_result/{idempotency_key}"),
-        RESULT_FACT_KIND,
-    )
-}
-
 fn read_status(
     runtime: &mut proof_pg::wiring::PgRuntime,
     export_id: &str,
@@ -1519,8 +1445,6 @@ fn execute_export_create(
             .transpose()
             .map_err(|_| ServerError::Authorization("invalid Delegation identity".to_owned()))?,
     };
-    let (prior, prior_result_digest) = read_idempotency_prior(runtime, &candidate)?;
-
     let decision_owned = decision.clone();
     let operation_owned = operation.clone();
     let idempotency_key_owned = idempotency_key.clone();
@@ -1533,13 +1457,15 @@ fn execute_export_create(
     let built_consequence: Rc<RefCell<Option<RemoteApplicationConsequenceV1>>> =
         Rc::new(RefCell::new(None));
     let built_for_hook = Rc::clone(&built_consequence);
+    let application_problem: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let problem_for_hook = Rc::clone(&application_problem);
     let decision_for_hook = decision_owned.clone();
 
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
         evaluate_authorization: {
             let expected_head = decision_owned.evaluated_authority_head;
-            Box::new(move |head: &WorkspaceHeadSnapshot| {
+            Box::new(move |_tx, head: &WorkspaceHeadSnapshot| {
                 if head.authority_head == Some(expected_head) {
                     *head_for_hook.borrow_mut() = Some(head.clone());
                     Ok(())
@@ -1550,18 +1476,86 @@ fn execute_export_create(
                 }
             })
         },
-        replay_or_conflict: {
-            let candidate_for_hook = candidate.clone();
-            let prior_for_hook = prior.clone();
-            Box::new(move |_head| {
-                Ok(replay_or_conflict(
-                    &candidate_for_hook,
-                    prior_for_hook.as_ref(),
-                ))
-            })
-        },
+        replay_or_conflict: Box::new(|_tx, _head| Ok(IdempotencyOutcome::Fresh)),
         apply_consequence: Box::new(move |tx| {
             let auth_seq = read_auth_sequence_in_tx!(tx)?;
+            if let Some(stored) =
+                read_stored_in_transaction(tx, candidate.workspace_id, &idempotency_key_owned)?
+            {
+                match replay_or_conflict(&candidate, Some(&stored.tuple)) {
+                    IdempotencyOutcome::Replayed => {
+                        let result_body = stored.result_body.as_deref().ok_or_else(|| {
+                            PgError::Integrity(
+                                "stored idempotency result bytes are absent".to_owned(),
+                            )
+                        })?;
+                        let result: EvidenceExportResultV2 = serde_json::from_slice(result_body)
+                            .map_err(|error| {
+                                PgError::Integrity(format!(
+                                    "invalid stored evidence-export result: {error}"
+                                ))
+                            })?;
+                        let result_value = serde_json::to_value(&result)
+                            .map_err(|error| PgError::Integrity(error.to_string()))?;
+                        if operation_effect_digest(&result_value)
+                            .map_err(|error| PgError::Integrity(error.to_string()))?
+                            != stored.result_digest
+                        {
+                            return Err(PgError::Integrity(
+                                "stored evidence-export result does not match its digest"
+                                    .to_owned(),
+                            ));
+                        }
+                        let consequence = replay_consequence(
+                            decision_for_hook.clone(),
+                            &operation_owned,
+                            Some(stored.result_digest),
+                            idempotency_key_owned.clone(),
+                        );
+                        persist_decision_in_tx!(tx, &decision_for_hook);
+                        persist_consequence_in_tx!(tx, &consequence, auth_seq);
+                        advance_authority_head_in_tx!(
+                            tx,
+                            &consequence_digest(&consequence),
+                            auth_seq
+                        );
+                        record_replay_in_transaction(
+                            tx,
+                            candidate.workspace_id,
+                            &idempotency_key_owned,
+                        )?;
+                        *built_result_for_hook.borrow_mut() = Some(result);
+                        *built_for_hook.borrow_mut() = Some(consequence);
+                        return Ok(());
+                    }
+                    IdempotencyOutcome::Conflict => {
+                        let consequence = conflict_consequence(
+                            decision_for_hook.clone(),
+                            &operation_owned,
+                            Some(stored.result_digest),
+                            idempotency_key_owned.clone(),
+                        );
+                        persist_decision_in_tx!(tx, &decision_for_hook);
+                        persist_consequence_in_tx!(tx, &consequence, auth_seq);
+                        advance_authority_head_in_tx!(
+                            tx,
+                            &consequence_digest(&consequence),
+                            auth_seq
+                        );
+                        *built_for_hook.borrow_mut() = Some(consequence);
+                        *problem_for_hook.borrow_mut() =
+                            Some("proof.idempotency.key_reused".to_owned());
+                        return Err(PgError::ApplicationFailure(
+                            "proof.idempotency.key_reused".to_owned(),
+                        ));
+                    }
+                    IdempotencyOutcome::Fresh => {
+                        return Err(PgError::Integrity(
+                            "stored application key produced a fresh outcome".to_owned(),
+                        ));
+                    }
+                }
+            }
             let head = head_snapshot.borrow().clone().ok_or_else(|| {
                 PgError::Integrity("locked head snapshot was not captured".to_owned())
             })?;
@@ -1615,7 +1609,7 @@ fn execute_export_create(
                 Some(capture_digest),
                 auth_seq,
             )
-            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+            .map_err(|error| PgError::Integrity(error.to_string()))?;
 
             let workspace_id = capture.workspace_id.clone();
             let result_digest = consequence
@@ -1645,12 +1639,14 @@ fn execute_export_create(
                     result_bytes
                 );
                 persist_consequence_in_tx!(sp, &consequence, auth_seq);
-                persist_idempotency_in_tx!(
+                persist_success_in_transaction(
                     sp,
                     &candidate,
-                    ApplicationKeyKind::RequiredUuidV7,
-                    &result_digest
-                );
+                    &idempotency_key_owned,
+                    key_kind_label(ApplicationKeyKind::RequiredUuidV7),
+                    result_digest,
+                    &result_bytes,
+                )?;
                 advance_authority_head_in_tx!(sp, &consequence_digest(&consequence), auth_seq);
             }
             savepoint.release()?;
@@ -1660,11 +1656,16 @@ fn execute_export_create(
         }),
     };
 
-    let outcome =
-        run_unit_of_work(runtime.client_mut(), &mut hooks).map_err(ServerError::Storage)?;
+    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+        runtime.client_mut(),
+        &mut hooks,
+        RetryPolicy::default(),
+        CausalSequencePolicy::AuthorityOnly,
+    )
+    .map_err(ServerError::Storage)?;
 
     match outcome {
-        UnitOfWorkOutcome::Committed | UnitOfWorkOutcome::ApplicationFailureCommitted => {
+        UnitOfWorkOutcome::Committed => {
             let consequence = built_consequence
                 .borrow_mut()
                 .take()
@@ -1674,22 +1675,14 @@ fn execute_export_create(
             })?;
             Ok((result, consequence))
         }
-        UnitOfWorkOutcome::Replayed => {
-            let result_bytes =
-                read_result_preimage(runtime, &idempotency_key)?.ok_or_else(|| {
-                    ServerError::Internal("create-result preimage is absent".to_owned())
-                })?;
-            let result: EvidenceExportResultV2 =
-                serde_json::from_slice(&result_bytes).map_err(|error| {
-                    ServerError::Internal(format!("invalid stored result: {error}"))
-                })?;
-            let consequence = replay_consequence(decision_owned, operation, prior_result_digest);
-            Ok((result, consequence))
-        }
-        UnitOfWorkOutcome::ConflictCommitted => {
-            let _consequence = conflict_consequence(decision_owned, operation, prior_result_digest);
-            Err(ServerError::Dispatch(
-                "idempotency key reused with changed input".to_owned(),
+        UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
+            application_problem.borrow_mut().take().ok_or_else(|| {
+                ServerError::Internal("export application Problem was not produced".to_owned())
+            })?,
+        )),
+        UnitOfWorkOutcome::Replayed | UnitOfWorkOutcome::ConflictCommitted => {
+            Err(ServerError::Internal(
+                "export idempotency escaped the locked consequence hook".to_owned(),
             ))
         }
     }
@@ -1732,6 +1725,26 @@ pub fn evidence_export_v2_execute(
         .map(|(_result, consequence)| consequence)
 }
 
+/// Dispatch entrypoint that preserves the exact typed create result while the
+/// signed consequence remains the committed response anchor.
+pub(crate) fn evidence_export_v2_for_dispatch(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<crate::operations::HumanOperationExecution, ServerError> {
+    execute_export_create(state, operation, normalized_input, actor_context, decision).and_then(
+        |(result, consequence)| {
+            Ok(crate::operations::HumanOperationExecution {
+                consequence,
+                result: serde_json::to_value(result)
+                    .map_err(|error| ServerError::Internal(error.to_string()))?,
+            })
+        },
+    )
+}
+
 /// Commits a signed denial decision alone (mirrors `crate::operations`).
 fn commit_denial(
     state: &AppState,
@@ -1745,7 +1758,7 @@ fn commit_denial(
         verify_authentication: Box::new(|| Ok(())),
         evaluate_authorization: {
             let expected_head = decision.evaluated_authority_head;
-            Box::new(move |head: &WorkspaceHeadSnapshot| {
+            Box::new(move |_tx, head: &WorkspaceHeadSnapshot| {
                 if head.authority_head == Some(expected_head) {
                     Ok(())
                 } else {
@@ -1755,7 +1768,7 @@ fn commit_denial(
                 }
             })
         },
-        replay_or_conflict: Box::new(|_head| Ok(IdempotencyOutcome::Fresh)),
+        replay_or_conflict: Box::new(|_tx, _head| Ok(IdempotencyOutcome::Fresh)),
         apply_consequence: Box::new(move |tx| {
             let auth_seq = read_auth_sequence_in_tx!(tx)?;
             persist_decision_in_tx!(tx, &decision);
@@ -1764,7 +1777,13 @@ fn commit_denial(
         }),
     };
 
-    run_unit_of_work(runtime.client_mut(), &mut hooks).map_err(ServerError::Storage)?;
+    run_unit_of_work_with_retry_and_sequence_policy(
+        runtime.client_mut(),
+        &mut hooks,
+        RetryPolicy::default(),
+        CausalSequencePolicy::AuthorityOnly,
+    )
+    .map_err(ServerError::Storage)?;
     Ok(())
 }
 
@@ -1803,7 +1822,7 @@ fn execute_export_get(
         verify_authentication: Box::new(|| Ok(())),
         evaluate_authorization: {
             let expected_head = decision_owned.evaluated_authority_head;
-            Box::new(move |head: &WorkspaceHeadSnapshot| {
+            Box::new(move |_tx, head: &WorkspaceHeadSnapshot| {
                 if head.authority_head == Some(expected_head) {
                     Ok(())
                 } else {
@@ -1813,7 +1832,7 @@ fn execute_export_get(
                 }
             })
         },
-        replay_or_conflict: Box::new(|_head| Ok(IdempotencyOutcome::Fresh)),
+        replay_or_conflict: Box::new(|_tx, _head| Ok(IdempotencyOutcome::Fresh)),
         apply_consequence: Box::new(move |tx| {
             let auth_seq = read_auth_sequence_in_tx!(tx)?;
             let Some(status) = read_status_in_tx!(tx, export_id_owned) else {
@@ -1837,7 +1856,7 @@ fn execute_export_get(
                 None,
                 auth_seq,
             )
-            .map_err(|error| PgError::Idempotency(error.to_string()))?;
+            .map_err(|error| PgError::Integrity(error.to_string()))?;
 
             persist_decision_in_tx!(tx, &decision_for_hook);
             let mut savepoint = SavepointGuard::establish(tx)?;
@@ -1852,8 +1871,13 @@ fn execute_export_get(
         }),
     };
 
-    let outcome =
-        run_unit_of_work(runtime.client_mut(), &mut hooks).map_err(ServerError::Storage)?;
+    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+        runtime.client_mut(),
+        &mut hooks,
+        RetryPolicy::default(),
+        CausalSequencePolicy::AuthorityOnly,
+    )
+    .map_err(ServerError::Storage)?;
 
     match outcome {
         UnitOfWorkOutcome::Committed | UnitOfWorkOutcome::ApplicationFailureCommitted => {

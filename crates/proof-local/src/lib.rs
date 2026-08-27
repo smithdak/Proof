@@ -72,7 +72,7 @@ const RUNTIME_DIRECTORY: &str = ".proof";
 const DATABASE_RELATIVE_PATH: &str = ".proof/state/proof.db";
 const ARTIFACTS_RELATIVE_PATH: &str = ".proof/artifacts";
 const RELEASE_SIGNING_KEY_RELATIVE_PATH: &str = ".proof/state/release-signing.ed25519";
-const LATEST_DATABASE_SCHEMA_VERSION: u32 = 14;
+const LATEST_DATABASE_SCHEMA_VERSION: u32 = 15;
 const OBJECT_VALIDATOR: &str = "proof/object-create/draft-2020-12/1+jsonschema/0.49.3";
 const LOCAL_RELEASE_TARGET: &str = "proof.local/released-state/v1";
 const LOCAL_RELEASE_POLICY: &str = "proof.local/release-policy/v1";
@@ -3156,6 +3156,7 @@ fn initialize_database(
     authority::migrate_schema_v12(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::migrate_schema_v13(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::migrate_schema_v14(&transaction).map_err(WorkspaceInitializationError::Storage)?;
+    localized::migrate_schema_v15(&transaction).map_err(WorkspaceInitializationError::Storage)?;
     authority::bootstrap_authority(
         &transaction,
         workspace_id
@@ -4288,6 +4289,10 @@ fn ensure_latest_schema(
     if version == 13 {
         authority::migrate_schema_v14(transaction).map_err(LatestSchemaError::Storage)?;
         version = 14;
+    }
+    if version == 14 {
+        localized::migrate_schema_v15(transaction).map_err(LatestSchemaError::Storage)?;
+        version = 15;
     }
     if version == LATEST_DATABASE_SCHEMA_VERSION {
         Ok(())
@@ -6416,10 +6421,13 @@ enum LocalPortError {
     UnsupportedVersion,
     Denied,
     NotFound,
+    SchemaNotFound,
     Invalid,
     IntentMismatch,
+    IntentSlotMismatch,
     SourceConflict,
     TargetConflict,
+    ObjectExists,
     DuplicateActiveTarget,
     InvalidSupersession,
     InvalidRepairEvidence,
@@ -10548,8 +10556,11 @@ fn release_from_local_port(error: LocalPortError) -> ReleaseError {
         LocalPortError::Storage(detail) => ReleaseError::Storage(detail),
         LocalPortError::Invalid
         | LocalPortError::IntentMismatch
+        | LocalPortError::IntentSlotMismatch
+        | LocalPortError::SchemaNotFound
         | LocalPortError::SourceConflict
         | LocalPortError::TargetConflict
+        | LocalPortError::ObjectExists
         | LocalPortError::DuplicateActiveTarget
         | LocalPortError::InvalidSupersession
         | LocalPortError::InvalidRepairEvidence
@@ -11178,6 +11189,7 @@ fn reproduce_projections_from_facts(
         None
     };
     let (
+        objects,
         localized_renditions,
         known_state_api_version,
         known_state_manifest_json,
@@ -11186,6 +11198,7 @@ fn reproduce_projections_from_facts(
     ) = localized.map_or_else(
         || {
             (
+                facts.objects.clone(),
                 Vec::new(),
                 KNOWN_STATE_V1_API_VERSION.to_owned(),
                 None,
@@ -11195,6 +11208,7 @@ fn reproduce_projections_from_facts(
         },
         |localized| {
             (
+                localized.objects,
                 localized.renditions,
                 KNOWN_STATE_V2_API_VERSION.to_owned(),
                 Some(localized.state_manifest_json),
@@ -11205,7 +11219,7 @@ fn reproduce_projections_from_facts(
     );
     Ok(ReproducedProjections {
         schemas: facts.schemas,
-        objects: facts.objects,
+        objects,
         changesets: facts.changesets,
         localized_renditions,
         known_state_api_version,

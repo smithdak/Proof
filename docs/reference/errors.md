@@ -85,7 +85,7 @@ global tuple registry does not make it reachable from every route or row.
 
 ### P-0008 HTTP Problem registry
 
-The collaboration-server registry contains exactly the following 41
+The collaboration-server registry contains exactly the following 44
 `(code, status, type, title, retryable)` tuples. This table mirrors the
 normative
 [`http-operation-registry.valid.json`](../../conformance/v1/collaboration-server/vectors/http-operation-registry.valid.json)
@@ -122,6 +122,7 @@ or retry flag.
 | `proof.input.too_large` | 413 | `urn:proof:problem:input-too-large` | Input too large | false |
 | `proof.input.unsupported_media_type` | 415 | `urn:proof:problem:unsupported-media-type` | Unsupported media type | false |
 | `proof.input.unsupported_version` | 400 | `urn:proof:problem:unsupported-version` | Unsupported version | false |
+| `proof.intent.slot_mismatch` | 409 | `urn:proof:problem:intent-slot-mismatch` | Resource intent creation slot mismatch | false |
 | `proof.integrity.failure` | 500 | `urn:proof:problem:integrity-failure` | Integrity failure | false |
 | `proof.internal` | 500 | `urn:proof:problem:internal` | Internal error | false |
 | `proof.operation.timeout` | 504 | `urn:proof:problem:operation-timeout` | Operation timed out | true |
@@ -129,7 +130,9 @@ or retry flag.
 | `proof.policy.denied` | 403 | `urn:proof:problem:policy-denied` | Policy denied | false |
 | `proof.rate_limit.exceeded` | 429 | `urn:proof:problem:rate-limit-exceeded` | Rate limit exceeded | true |
 | `proof.resource.not_found` | 404 | `urn:proof:problem:resource-not-found` | Resource not found | false |
+| `proof.schema.not_found` | 404 | `urn:proof:problem:schema-not-found` | Schema not found | false |
 | `proof.state.conflict` | 409 | `urn:proof:problem:state-conflict` | State conflict | false |
+| `proof.state.object_exists` | 409 | `urn:proof:problem:object-exists` | Object already exists | false |
 | `proof.state.source_conflict` | 409 | `urn:proof:problem:source-state-conflict` | Source state conflict | false |
 | `proof.state.target_conflict` | 409 | `urn:proof:problem:target-state-conflict` | Target state conflict | false |
 | `proof.storage.conflict` | 503 | `urn:proof:problem:storage-conflict` | Storage conflict | true |
@@ -147,7 +150,7 @@ retryable; application state and reused idempotency keys are not.
 
 Every Agent row separately lists the errors that may be committed as an
 `application-failure` after an Allow. All 11 localized v2 rows use the exact
-17-code `LocalizedOperationFailureV1` set. The retained
+20-code `LocalizedOperationFailureV1` set. The retained
 `object.query_released/v1` row uses `proof.input.unsupported_version` and
 `proof.resource.not_found`; `context.build/v1` uses `proof.auth.denied`,
 `proof.delegation.expired`, `proof.input.too_large`, and

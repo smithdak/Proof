@@ -2,7 +2,6 @@
   "api_version": "proof.dev/localized-content-golden-v1",
   "cases": [
     {
-      "artifact_kind": "ContentResourceIntentV1",
       "artifact": {
         "api_version": "proof.dev/content-resource-intent/v1",
         "base": {
@@ -14,7 +13,7 @@
           "known_state": {
             "api_version": "proof.dev/known-state/v1",
             "authoritative_sequence": 2,
-            "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+            "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
           },
           "release": {
             "api_version": "proof.dev/release/v1",
@@ -35,24 +34,77 @@
         ],
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:77af41be20404fcc7b90b0b230197f6a3a8ae1610dd8299fc776d58fb5593a6c"
+      "artifact_kind": "ContentResourceIntentV1",
+      "case_id": "content-resource-intent-v1",
+      "derive_key_context": "proof:content-resource-intent:v1",
+      "expected_digest": "blake3:2d81c4ed7fcbc62b3c051aa912ef147c8cdce71e2ae774a06f43f7f35e61b94f"
     },
     {
-      "artifact_kind": "PolicyBundleV1",
+      "artifact": {
+        "api_version": "proof.dev/content-resource-intent/v2",
+        "base": {
+          "edition": {
+            "api_version": "proof.dev/edition/v1",
+            "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+            "edition_id": "019c0000-0000-7000-8000-000000000060"
+          },
+          "known_state": {
+            "api_version": "proof.dev/known-state/v1",
+            "authoritative_sequence": 2,
+            "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
+          },
+          "release": {
+            "api_version": "proof.dev/release/v1",
+            "digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+            "release_id": "019c0000-0000-7000-8000-0000000000c0"
+          }
+        },
+        "creations": [
+          {
+            "locales": [
+              "fr-FR"
+            ],
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "schema_id": "campaign"
+          }
+        ],
+        "environment_id": "preview",
+        "intent_id": "019c0000-0000-7000-8000-000000000201",
+        "issued_at": "2026-08-17T16:06:30Z",
+        "issued_by_principal_id": "019c0000-0000-7000-8000-000000000020",
+        "targets": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "schema_id": "campaign"
+          }
+        ],
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "artifact_kind": "ContentResourceIntentV1",
+      "case_id": "content-resource-intent-v2",
+      "derive_key_context": "proof:content-resource-intent:v1",
+      "expected_digest": "blake3:4709ce9a3620f92ed6d9a293e1da1e7bfa795cfcabd722a3b045f963a2e0f8ba"
+    },
+    {
       "artifact": {
         "api_version": "proof.dev/localized-content-policy/v1",
         "rules": [
           {
-            "disallowed_values": ["Garantie absolue"],
+            "disallowed_values": [
+              "Garantie absolue"
+            ],
             "locale": "fr-FR",
             "pointer": "/legal"
           }
         ]
       },
+      "artifact_kind": "PolicyBundleV1",
+      "case_id": "localized-content-policy-v1",
+      "derive_key_context": "proof:policy-bundle:v1",
       "expected_digest": "blake3:048bbbdd221157876a9a512b4826eac8ee9d89c120ba2e1297f79edc3e21b812"
     },
     {
-      "artifact_kind": "ContextPackV2",
       "artifact": {
         "allowed_operations": [
           "proof.dev/operation/changeset.create/v2",
@@ -69,6 +121,7 @@
         "api_version": "proof.dev/context-pack/v2",
         "context_pack_id": "019c0000-0000-7000-8000-000000000202",
         "created_at": "2026-08-17T16:07:00Z",
+        "expires_at": "2026-08-18T16:07:00Z",
         "explicit_exclusions": [
           "agent-authority",
           "campaign-expansion",
@@ -78,7 +131,6 @@
           "relationship-mutation",
           "schema-mutation"
         ],
-        "expires_at": "2026-08-18T16:07:00Z",
         "limits": {
           "max_bytes": 1048576,
           "max_edits": 10,
@@ -89,13 +141,15 @@
           "api_version": "proof.dev/localized-content-policy/v1",
           "rules": [
             {
-              "disallowed_values": ["Garantie absolue"],
+              "disallowed_values": [
+                "Garantie absolue"
+              ],
               "locale": "fr-FR",
               "pointer": "/legal"
             }
           ]
         },
-        "policy_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+        "policy_digest": "blake3:048bbbdd221157876a9a512b4826eac8ee9d89c120ba2e1297f79edc3e21b812",
         "principal_id": "019c0000-0000-7000-8000-000000000020",
         "resource_intent": {
           "api_version": "proof.dev/content-resource-intent/v1",
@@ -108,7 +162,7 @@
             "known_state": {
               "api_version": "proof.dev/known-state/v1",
               "authoritative_sequence": 2,
-              "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+              "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
             },
             "release": {
               "api_version": "proof.dev/release/v1",
@@ -129,7 +183,7 @@
           ],
           "workspace_id": "019c0000-0000-7000-8000-000000000010"
         },
-        "resource_intent_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+        "resource_intent_digest": "blake3:2d81c4ed7fcbc62b3c051aa912ef147c8cdce71e2ae774a06f43f7f35e61b94f",
         "resources": [
           {
             "locale": "fr-FR",
@@ -139,16 +193,32 @@
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "additionalProperties": false,
                 "properties": {
-                  "legal": { "type": "string" },
-                  "slug": { "type": "string" },
-                  "title": { "type": "string" }
+                  "legal": {
+                    "type": "string"
+                  },
+                  "slug": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
                 },
-                "required": ["legal", "slug", "title"],
+                "required": [
+                  "legal",
+                  "slug",
+                  "title"
+                ],
                 "type": "object",
-                "x-proof-localizable": ["/legal", "/title"]
+                "x-proof-localizable": [
+                  "/legal",
+                  "/title"
+                ]
               },
-              "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
-              "localizable_pointers": ["/legal", "/title"],
+              "document_digest": "blake3:0b44166f57ab67a3ccbe3e7b55fff2ca79c4f42b22fe7c41154b7a8b82948cef",
+              "localizable_pointers": [
+                "/legal",
+                "/title"
+              ],
               "schema_id": "campaign",
               "schema_version": 1
             },
@@ -159,7 +229,7 @@
                 "slug": "summer-campaign",
                 "title": "Summer campaign"
               },
-              "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+              "digest": "blake3:7dc41165d964446a7d85cf4f465efafaf9644b6b3faa413bd64f6e290aa6179f",
               "revision": 1
             },
             "target": {
@@ -173,20 +243,172 @@
         "validator": "proof/localized-content/1",
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:b1e223666200760fe60eb28128ba79a5989132e9d47c0209961feb6cf1dbad17"
+      "artifact_kind": "ContextPackV2",
+      "case_id": "context-pack-v2-existing-source",
+      "derive_key_context": "proof:context-pack:v2",
+      "expected_digest": "blake3:8227cb7d683f80b08551a0966507a30cb543332ab7305cd5cf485ad85fdebadf"
     },
     {
-      "artifact_kind": "EditV2",
+      "artifact": {
+        "allowed_operations": [
+          "proof.dev/operation/changeset.create/v2",
+          "proof.dev/operation/changeset.add/v2",
+          "proof.dev/operation/changeset.get/v2",
+          "proof.dev/operation/changeset.diff/v2",
+          "proof.dev/operation/changeset.validate/v2",
+          "proof.dev/operation/changeset.submit/v2",
+          "proof.dev/operation/changeset.commit/v2",
+          "proof.dev/operation/edition.create/v2",
+          "proof.dev/operation/release.create/v2",
+          "proof.dev/operation/object.query_released/v2"
+        ],
+        "api_version": "proof.dev/context-pack/v2",
+        "context_pack_id": "019c0000-0000-7000-8000-000000000203",
+        "created_at": "2026-08-17T16:07:30Z",
+        "expires_at": "2026-08-18T16:07:30Z",
+        "explicit_exclusions": [
+          "agent-authority",
+          "campaign-expansion",
+          "deletion",
+          "fallback",
+          "generic-object-replacement",
+          "relationship-mutation",
+          "schema-mutation"
+        ],
+        "limits": {
+          "max_bytes": 1048576,
+          "max_edits": 10,
+          "max_objects": 1,
+          "max_validation_attempts": 5
+        },
+        "policy": {
+          "api_version": "proof.dev/localized-content-policy/v1",
+          "rules": [
+            {
+              "disallowed_values": [
+                "Garantie absolue"
+              ],
+              "locale": "fr-FR",
+              "pointer": "/legal"
+            }
+          ]
+        },
+        "policy_digest": "blake3:048bbbdd221157876a9a512b4826eac8ee9d89c120ba2e1297f79edc3e21b812",
+        "principal_id": "019c0000-0000-7000-8000-000000000020",
+        "resource_intent": {
+          "api_version": "proof.dev/content-resource-intent/v2",
+          "base": {
+            "edition": {
+              "api_version": "proof.dev/edition/v1",
+              "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+              "edition_id": "019c0000-0000-7000-8000-000000000060"
+            },
+            "known_state": {
+              "api_version": "proof.dev/known-state/v1",
+              "authoritative_sequence": 2,
+              "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
+            },
+            "release": {
+              "api_version": "proof.dev/release/v1",
+              "digest": "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+              "release_id": "019c0000-0000-7000-8000-0000000000c0"
+            }
+          },
+          "creations": [
+            {
+              "locales": [
+                "fr-FR"
+              ],
+              "object_id": "019c0000-0000-7000-8000-000000000081",
+              "schema_id": "campaign"
+            }
+          ],
+          "environment_id": "preview",
+          "intent_id": "019c0000-0000-7000-8000-000000000201",
+          "issued_at": "2026-08-17T16:06:30Z",
+          "issued_by_principal_id": "019c0000-0000-7000-8000-000000000020",
+          "targets": [
+            {
+              "locale": "fr-FR",
+              "object_id": "019c0000-0000-7000-8000-000000000081",
+              "schema_id": "campaign"
+            }
+          ],
+          "workspace_id": "019c0000-0000-7000-8000-000000000010"
+        },
+        "resource_intent_digest": "blake3:4709ce9a3620f92ed6d9a293e1da1e7bfa795cfcabd722a3b045f963a2e0f8ba",
+        "resources": [
+          {
+            "locale": "fr-FR",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "schema_candidates": [
+              {
+                "document": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "additionalProperties": false,
+                  "properties": {
+                    "legal": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "legal",
+                    "slug",
+                    "title"
+                  ],
+                  "type": "object",
+                  "x-proof-localizable": [
+                    "/legal",
+                    "/title"
+                  ]
+                },
+                "document_digest": "blake3:0b44166f57ab67a3ccbe3e7b55fff2ca79c4f42b22fe7c41154b7a8b82948cef",
+                "localizable_pointers": [
+                  "/legal",
+                  "/title"
+                ],
+                "schema_id": "campaign",
+                "schema_version": 1
+              }
+            ],
+            "source": {
+              "absent": true,
+              "api_version": "proof.dev/object-revision-absence/v1",
+              "authoritative_sequence": 2
+            },
+            "target": {
+              "absent": true,
+              "api_version": "proof.dev/object-locale-absence/v1",
+              "authoritative_sequence": 2
+            }
+          }
+        ],
+        "target_ordering": "object_id,schema_id,locale:utf8-ascending",
+        "validator": "proof/localized-content/1",
+        "workspace_id": "019c0000-0000-7000-8000-000000000010"
+      },
+      "artifact_kind": "ContextPackV2",
+      "case_id": "context-pack-v2-creation",
+      "derive_key_context": "proof:context-pack:v2",
+      "expected_digest": "blake3:09d21249024a728c664f840f32ce318505bfc219a70ebe15d67bcf3cc56c6c04"
+    },
+    {
       "artifact": {
         "api_version": "proof.dev/edit/v2",
         "content": {
-          "legal": "Garantie absolue",
-          "slug": "summer-campaign",
-          "title": "Campagne d’été"
+          "legal": "Des conditions standard s’appliquent",
+          "slug": "autumn-campaign",
+          "title": "Campagne d’automne"
         },
         "edit_id": "019c0000-0000-7000-8000-000000000214",
         "expected_source": {
-          "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
           "revision": 1,
           "schema_id": "campaign",
           "schema_version": 1
@@ -194,27 +416,65 @@
         "expected_target": null,
         "kind": "object.locale.put",
         "locale": "fr-FR",
-        "object_id": "019c0000-0000-7000-8000-000000000080",
+        "object_id": "019c0000-0000-7000-8000-000000000081",
         "repair_of_validation_result_digest": null,
         "supersedes_edit_id": null
       },
-      "expected_digest": "blake3:9704874cf53605356343835655bcd68f35ea502d05931c8f9fb943eb50b26c9a"
+      "artifact_kind": "EditV2",
+      "case_id": "edit-v2-locale-put",
+      "derive_key_context": "proof:edit:v2",
+      "expected_digest": "blake3:7d9b4c2e786b23156362a50db1a1b9469015e48b4d5c02940f8a388a789e8137"
     },
     {
-      "artifact_kind": "EditBatchV2",
+      "artifact": {
+        "api_version": "proof.dev/edit/v2",
+        "content": {
+          "legal": "Standard terms apply",
+          "slug": "autumn-campaign",
+          "title": "Autumn campaign"
+        },
+        "edit_id": "019c0000-0000-7000-8000-000000000213",
+        "kind": "object.create",
+        "object_id": "019c0000-0000-7000-8000-000000000081",
+        "repair_of_validation_result_digest": null,
+        "schema_id": "campaign",
+        "schema_version": 1,
+        "supersedes_edit_id": null
+      },
+      "artifact_kind": "ObjectCreateEditV2",
+      "case_id": "edit-v2-object-create",
+      "derive_key_context": "proof:object-create-edit:v2",
+      "expected_digest": "blake3:0d4641a8e88c09407e7f01cdbb874931afb5034c47b45aae0813ecdb0ade2bfe"
+    },
+    {
       "artifact": {
         "api_version": "proof.dev/edit-batch/v2",
         "edits": [
           {
             "api_version": "proof.dev/edit/v2",
             "content": {
-              "legal": "Garantie absolue",
-              "slug": "summer-campaign",
-              "title": "Campagne d’été"
+              "legal": "Standard terms apply",
+              "slug": "autumn-campaign",
+              "title": "Autumn campaign"
+            },
+            "edit_id": "019c0000-0000-7000-8000-000000000213",
+            "kind": "object.create",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "repair_of_validation_result_digest": null,
+            "schema_id": "campaign",
+            "schema_version": 1,
+            "supersedes_edit_id": null
+          },
+          {
+            "api_version": "proof.dev/edit/v2",
+            "content": {
+              "legal": "Des conditions standard s’appliquent",
+              "slug": "autumn-campaign",
+              "title": "Campagne d’automne"
             },
             "edit_id": "019c0000-0000-7000-8000-000000000214",
             "expected_source": {
-              "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+              "digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
               "revision": 1,
               "schema_id": "campaign",
               "schema_version": 1
@@ -222,38 +482,55 @@
             "expected_target": null,
             "kind": "object.locale.put",
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
             "repair_of_validation_result_digest": null,
             "supersedes_edit_id": null
           }
         ]
       },
-      "expected_digest": "blake3:23b627fc1d93121f393f6902626e71f0269bf5c6692928cf442d42be554b1203"
+      "artifact_kind": "EditBatchV2",
+      "case_id": "edit-batch-v2-create-put",
+      "derive_key_context": "proof:edit-batch:v2",
+      "expected_digest": "blake3:872ee30b5153e0417db4cda222c8a522eab7d9a4a4b98eecf653fa4f297e180d"
     },
     {
-      "artifact_kind": "ChangeSetV2",
       "artifact": {
         "api_version": "proof.dev/changeset/v2",
         "base_state": {
           "api_version": "proof.dev/known-state/v1",
           "authoritative_sequence": 2,
-          "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+          "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
         },
         "changeset_id": "019c0000-0000-7000-8000-000000000204",
-        "context_pack_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
-        "context_pack_id": "019c0000-0000-7000-8000-000000000202",
+        "context_pack_digest": "blake3:09d21249024a728c664f840f32ce318505bfc219a70ebe15d67bcf3cc56c6c04",
+        "context_pack_id": "019c0000-0000-7000-8000-000000000203",
         "created_at": "2026-08-17T16:08:00Z",
         "edits": [
           {
             "api_version": "proof.dev/edit/v2",
             "content": {
-              "legal": "Garantie absolue",
-              "slug": "summer-campaign",
-              "title": "Campagne d’été"
+              "legal": "Standard terms apply",
+              "slug": "autumn-campaign",
+              "title": "Autumn campaign"
+            },
+            "edit_id": "019c0000-0000-7000-8000-000000000213",
+            "kind": "object.create",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "repair_of_validation_result_digest": null,
+            "schema_id": "campaign",
+            "schema_version": 1,
+            "supersedes_edit_id": null
+          },
+          {
+            "api_version": "proof.dev/edit/v2",
+            "content": {
+              "legal": "Des conditions standard s’appliquent",
+              "slug": "autumn-campaign",
+              "title": "Campagne d’automne"
             },
             "edit_id": "019c0000-0000-7000-8000-000000000214",
             "expected_source": {
-              "digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+              "digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
               "revision": 1,
               "schema_id": "campaign",
               "schema_version": 1
@@ -261,96 +538,104 @@
             "expected_target": null,
             "kind": "object.locale.put",
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
             "repair_of_validation_result_digest": null,
             "supersedes_edit_id": null
           }
         ],
-        "effective_leaf_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+        "effective_leaf_digest": "blake3:872ee30b5153e0417db4cda222c8a522eab7d9a4a4b98eecf653fa4f297e180d",
         "effective_leaves": [
           {
-            "edit_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "edit_digest": "blake3:0d4641a8e88c09407e7f01cdbb874931afb5034c47b45aae0813ecdb0ade2bfe",
+            "edit_id": "019c0000-0000-7000-8000-000000000213",
+            "object_id": "019c0000-0000-7000-8000-000000000081"
+          },
+          {
+            "edit_digest": "blake3:7d9b4c2e786b23156362a50db1a1b9469015e48b4d5c02940f8a388a789e8137",
             "edit_id": "019c0000-0000-7000-8000-000000000214",
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080"
+            "object_id": "019c0000-0000-7000-8000-000000000081"
           }
         ],
-        "intent": "Translate one exact campaign rendition",
+        "intent": "Create and localize one campaign",
         "principal_id": "019c0000-0000-7000-8000-000000000020",
-        "resource_intent_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
-        "resource_intent_id": "019c0000-0000-7000-8000-000000000200",
+        "resource_intent_digest": "blake3:4709ce9a3620f92ed6d9a293e1da1e7bfa795cfcabd722a3b045f963a2e0f8ba",
+        "resource_intent_id": "019c0000-0000-7000-8000-000000000201",
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:1a0e8a2c33f382c0bec575052f2ee56826d36daa72929261e0d2bb3f781deb91"
+      "artifact_kind": "ChangeSetV2",
+      "case_id": "changeset-v2-create-put",
+      "derive_key_context": "proof:changeset:v2",
+      "expected_digest": "blake3:bf26b33104f35786dbec2c12b0ce9bbe50f7db6210117e290fd95b79308a4dcd"
     },
     {
-      "artifact_kind": "ValidationResultsV2",
       "artifact": {
         "api_version": "proof.dev/validation-results/v2",
         "attempt": 1,
         "changeset_id": "019c0000-0000-7000-8000-000000000204",
-        "context_pack_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
-        "effective_leaf_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
-        "findings": [
-          {
-            "code": "proof.validation.prohibited_legal_claim",
-            "edit_id": "019c0000-0000-7000-8000-000000000214",
-            "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080",
-            "pointer": "/legal",
-            "policy_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
-            "severity": "error",
-            "validator": "proof/localized-content/1"
-          }
-        ],
-        "policy_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+        "context_pack_digest": "blake3:09d21249024a728c664f840f32ce318505bfc219a70ebe15d67bcf3cc56c6c04",
+        "effective_leaf_digest": "blake3:872ee30b5153e0417db4cda222c8a522eab7d9a4a4b98eecf653fa4f297e180d",
+        "findings": [],
+        "policy_digest": "blake3:048bbbdd221157876a9a512b4826eac8ee9d89c120ba2e1297f79edc3e21b812",
         "previous_validation_result_digest": null,
-        "proposal_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "proposal_digest": "blake3:bf26b33104f35786dbec2c12b0ce9bbe50f7db6210117e290fd95b79308a4dcd",
         "schema_digests": [
           {
-            "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+            "document_digest": "blake3:0b44166f57ab67a3ccbe3e7b55fff2ca79c4f42b22fe7c41154b7a8b82948cef",
             "schema_id": "campaign",
             "schema_version": 1
           }
         ],
-        "valid": false,
+        "valid": true,
         "validator": "proof/localized-content/1"
       },
-      "expected_digest": "blake3:1ce591d36859c933fd65708875ec37553a94c3232dc9df7fb01363c44faa0378"
+      "artifact_kind": "ValidationResultsV2",
+      "case_id": "validation-results-v2",
+      "derive_key_context": "proof:validation-results:v2",
+      "expected_digest": "blake3:8bb5caa69160c243b3cba74d313ad2a52decb52760a29ec2a0a2979c9a5bfa28"
     },
     {
-      "artifact_kind": "ObjectLocaleRevisionV1",
       "artifact": {
         "api_version": "proof.dev/object-locale-revision/v1",
-        "authoritative_sequence": 3,
+        "authoritative_sequence": 4,
         "changeset_id": "019c0000-0000-7000-8000-000000000204",
         "content": {
           "legal": "Des conditions standard s’appliquent",
-          "slug": "summer-campaign",
-          "title": "Campagne d’été"
+          "slug": "autumn-campaign",
+          "title": "Campagne d’automne"
         },
-        "edit_id": "019c0000-0000-7000-8000-000000000219",
+        "edit_id": "019c0000-0000-7000-8000-000000000214",
         "locale": "fr-FR",
-        "object_id": "019c0000-0000-7000-8000-000000000080",
+        "object_id": "019c0000-0000-7000-8000-000000000081",
         "previous_revision_digest": null,
         "revision": 1,
         "schema_id": "campaign",
         "schema_version": 1,
-        "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+        "source_object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
         "source_object_revision": 1,
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:292bab632a1a7215ff0ca5e4423dbe39b00032af3e3edfd9dc8b7a8cd2eee449"
+      "artifact_kind": "ObjectLocaleRevisionV1",
+      "case_id": "object-locale-revision-v1",
+      "derive_key_context": "proof:object-locale-revision:v1",
+      "expected_digest": "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071"
     },
     {
-      "artifact_kind": "ObjectSetV2",
       "artifact": {
         "api_version": "proof.dev/object-set/v2",
         "objects": [
           {
             "lifecycle_state": "active",
-            "object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+            "object_digest": "blake3:7dc41165d964446a7d85cf4f465efafaf9644b6b3faa413bd64f6e290aa6179f",
             "object_id": "019c0000-0000-7000-8000-000000000080",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1
+          },
+          {
+            "lifecycle_state": "active",
+            "object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
             "revision": 1,
             "schema_id": "campaign",
             "schema_version": 1
@@ -359,27 +644,37 @@
         "renditions": [
           {
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080",
-            "rendition_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "rendition_digest": "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071",
             "revision": 1,
             "schema_id": "campaign",
             "schema_version": 1,
-            "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+            "source_object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
           }
         ]
       },
-      "expected_digest": "blake3:7af57fbd475ec2c401055e1d9d182c46d76ecc5aa091d423199ce4af70f92cd9"
+      "artifact_kind": "ObjectSetV2",
+      "case_id": "object-set-v2",
+      "derive_key_context": "proof:object-set:v2",
+      "expected_digest": "blake3:2320face7bf928e523071e523f245766c85ee46a127e06ec4d684ffa0818a7ac"
     },
     {
-      "artifact_kind": "KnownStateV2",
       "artifact": {
         "api_version": "proof.dev/known-state/v2",
-        "authoritative_sequence": 3,
+        "authoritative_sequence": 4,
         "objects": [
           {
             "lifecycle_state": "active",
-            "object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+            "object_digest": "blake3:7dc41165d964446a7d85cf4f465efafaf9644b6b3faa413bd64f6e290aa6179f",
             "object_id": "019c0000-0000-7000-8000-000000000080",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1
+          },
+          {
+            "lifecycle_state": "active",
+            "object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
             "revision": 1,
             "schema_id": "campaign",
             "schema_version": 1
@@ -388,35 +683,37 @@
         "previous_state": {
           "api_version": "proof.dev/known-state/v1",
           "authoritative_sequence": 2,
-          "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+          "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
         },
         "renditions": [
           {
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080",
-            "rendition_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "rendition_digest": "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071",
             "revision": 1,
             "schema_id": "campaign",
             "schema_version": 1,
-            "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+            "source_object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
           }
         ],
         "schemas": [
           {
-            "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+            "document_digest": "blake3:0b44166f57ab67a3ccbe3e7b55fff2ca79c4f42b22fe7c41154b7a8b82948cef",
             "schema_id": "campaign",
             "schema_version": 1
           }
         ],
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:818fe03b3a279e17f798c3c3fcdaf1a30a96c7a3b3128a17187feec3c6f253ee"
+      "artifact_kind": "KnownStateV2",
+      "case_id": "known-state-v2",
+      "derive_key_context": "proof:known-state:v2",
+      "expected_digest": "blake3:5bd4ab8f94dfcadc4b99c3fad78014ebda017a877843b986c47afb094950b6bd"
     },
     {
-      "artifact_kind": "EditionV2",
       "artifact": {
         "api_version": "proof.dev/edition/v2",
-        "authoritative_sequence": 3,
+        "authoritative_sequence": 4,
         "base_edition": {
           "api_version": "proof.dev/edition/v1",
           "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
@@ -424,21 +721,29 @@
         },
         "changeset": {
           "changeset_id": "019c0000-0000-7000-8000-000000000204",
-          "context_pack_digest": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
-          "effective_leaf_digest": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
-          "proposal_digest": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "resource_intent_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
-          "sealed_changeset_digest": "blake3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-          "validation_results_digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          "context_pack_digest": "blake3:09d21249024a728c664f840f32ce318505bfc219a70ebe15d67bcf3cc56c6c04",
+          "effective_leaf_digest": "blake3:872ee30b5153e0417db4cda222c8a522eab7d9a4a4b98eecf653fa4f297e180d",
+          "proposal_digest": "blake3:bf26b33104f35786dbec2c12b0ce9bbe50f7db6210117e290fd95b79308a4dcd",
+          "resource_intent_digest": "blake3:4709ce9a3620f92ed6d9a293e1da1e7bfa795cfcabd722a3b045f963a2e0f8ba",
+          "sealed_changeset_digest": "blake3:45dcf75467a8cdca5345015e463962e70388d7f4d06e0c49da97fbb40eeab5d9",
+          "validation_results_digest": "blake3:8bb5caa69160c243b3cba74d313ad2a52decb52760a29ec2a0a2979c9a5bfa28"
         },
         "created_at": "2026-08-17T16:12:00Z",
         "edition_id": "019c0000-0000-7000-8000-000000000260",
-        "object_set_digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "object_set_digest": "blake3:2320face7bf928e523071e523f245766c85ee46a127e06ec4d684ffa0818a7ac",
         "objects": [
           {
             "lifecycle_state": "active",
-            "object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+            "object_digest": "blake3:7dc41165d964446a7d85cf4f465efafaf9644b6b3faa413bd64f6e290aa6179f",
             "object_id": "019c0000-0000-7000-8000-000000000080",
+            "revision": 1,
+            "schema_id": "campaign",
+            "schema_version": 1
+          },
+          {
+            "lifecycle_state": "active",
+            "object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
             "revision": 1,
             "schema_id": "campaign",
             "schema_version": 1
@@ -448,33 +753,35 @@
         "renditions": [
           {
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080",
-            "rendition_digest": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "object_id": "019c0000-0000-7000-8000-000000000081",
+            "rendition_digest": "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071",
             "revision": 1,
             "schema_id": "campaign",
             "schema_version": 1,
-            "source_object_digest": "blake3:7777777777777777777777777777777777777777777777777777777777777777"
+            "source_object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
           }
         ],
-        "schema_set_digest": "blake3:abababababababababababababababababababababababababababababababab",
+        "schema_set_digest": "blake3:5daa6b11dd35fbde38f529fa118bb791c0e3386c2502ccfc83cf5d1ea176109f",
         "schemas": [
           {
-            "document_digest": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+            "document_digest": "blake3:0b44166f57ab67a3ccbe3e7b55fff2ca79c4f42b22fe7c41154b7a8b82948cef",
             "schema_id": "campaign",
             "schema_version": 1
           }
         ],
         "state": {
           "api_version": "proof.dev/known-state/v2",
-          "authoritative_sequence": 3,
-          "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+          "authoritative_sequence": 4,
+          "digest": "blake3:5bd4ab8f94dfcadc4b99c3fad78014ebda017a877843b986c47afb094950b6bd"
         },
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:cdd3346f8697a380554ab4bf37fb6969cf24bd9effd9df6c94c144d527736a47"
+      "artifact_kind": "EditionV2",
+      "case_id": "edition-v2",
+      "derive_key_context": "proof:edition:v2",
+      "expected_digest": "blake3:48e51fdb1ab909fe8644d03881e021c5ff9d32d91dab5312fa128bc9e8ef2788"
     },
     {
-      "artifact_kind": "ReleaseV2",
       "artifact": {
         "api_version": "proof.dev/release/v2",
         "authorization_decision_digest": "blake3:1313131313131313131313131313131313131313131313131313131313131313",
@@ -486,13 +793,13 @@
         "changeset_id": "019c0000-0000-7000-8000-000000000204",
         "edition": {
           "api_version": "proof.dev/edition/v2",
-          "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+          "digest": "blake3:48e51fdb1ab909fe8644d03881e021c5ff9d32d91dab5312fa128bc9e8ef2788",
           "edition_id": "019c0000-0000-7000-8000-000000000260"
         },
         "environment_config_digest": "blake3:1515151515151515151515151515151515151515151515151515151515151515",
         "environment_config_version": 1,
         "environment_id": "preview",
-        "exact_delta_digest": "blake3:1616161616161616161616161616161616161616161616161616161616161616",
+        "exact_delta_digest": "blake3:7a7b113ed7a9c21c4606cea79bec561b4869edb298b75a74ef9408f72a86b745",
         "key_id": "local-ed25519:17171717171717171717171717171717",
         "kind": "promotion",
         "principal_id": "019c0000-0000-7000-8000-000000000020",
@@ -500,11 +807,14 @@
         "release_id": "019c0000-0000-7000-8000-0000000002c0",
         "release_sequence": 2,
         "released_at": "2026-08-17T16:13:00Z",
-        "resource_intent_id": "019c0000-0000-7000-8000-000000000200",
+        "resource_intent_id": "019c0000-0000-7000-8000-000000000201",
         "rollback_target_release_id": null,
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
       },
-      "expected_digest": "blake3:80dde63545c7185a6243f9d531025f2186d326e44d5a47b4735841b8ae96713c"
+      "artifact_kind": "ReleaseV2",
+      "case_id": "release-v2",
+      "derive_key_context": "proof:release:v2",
+      "expected_digest": "blake3:b91045d422e1182f972f774ee1ba5a80706a18c60c9f50dcb2bb95006c3db930"
     }
   ]
 }

@@ -32,7 +32,7 @@ impl<'a> WorkspaceTransaction<'a> {
             .isolation_level(IsolationLevel::Serializable)
             .read_only(false)
             .start()
-            .map_err(|error| PgError::Transaction(error.to_string()))?;
+            .map_err(|error| transaction_error(&error))?;
         Ok(Self { transaction })
     }
 
@@ -112,17 +112,38 @@ pub struct AllocatedSequences {
     pub release: u64,
 }
 
+/// Selects which causal streams one authoritative transaction advances.
+/// Authority-only reads and control evidence must not create gaps in the
+/// independently verified content and Release chains.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CausalSequencePolicy {
+    /// Advance every causal stream for legacy governed mutations.
+    #[default]
+    All,
+    /// Advance only the Workspace transaction and authority streams.
+    AuthorityOnly,
+}
+
 /// Allocates the next sequences from the locked head row only. PostgreSQL
 /// sequences, `SERIAL`, and `BIGSERIAL` are forbidden for causal order because
 /// their increments do not roll back (contract §"PostgreSQL authoritative unit
 /// of work", step 3).
 #[must_use]
 pub fn allocate_sequences_from_head(head: &WorkspaceHeadSnapshot) -> AllocatedSequences {
+    allocate_sequences_with_policy(head, CausalSequencePolicy::All)
+}
+
+/// Allocates causal sequences according to an explicit operation policy.
+#[must_use]
+pub fn allocate_sequences_with_policy(
+    head: &WorkspaceHeadSnapshot,
+    policy: CausalSequencePolicy,
+) -> AllocatedSequences {
     AllocatedSequences {
         transaction: head.transaction_sequence + 1,
         authority: head.authority_sequence + 1,
-        content: head.content_sequence + 1,
-        release: head.release_sequence + 1,
+        content: head.content_sequence + u64::from(matches!(policy, CausalSequencePolicy::All)),
+        release: head.release_sequence + u64::from(matches!(policy, CausalSequencePolicy::All)),
     }
 }
 
@@ -259,12 +280,30 @@ pub enum UnitOfWorkOutcome {
     ApplicationFailureCommitted,
 }
 
+/// Testable observation of whether the caller received acknowledgement after
+/// PostgreSQL committed an authoritative attempt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommitAcknowledgement {
+    /// The successful commit acknowledgement reached the caller.
+    Received,
+    /// The commit applied, but its acknowledgement was lost; the outcome must
+    /// be reported as unknown and must never be retried internally.
+    Lost,
+}
+
 /// Step 5 hook: evaluates current authorization at the locked head.
-pub type AuthorizationHook<'a> = Box<dyn FnMut(&WorkspaceHeadSnapshot) -> Result<(), PgError> + 'a>;
+pub type AuthorizationHook<'a> = Box<
+    dyn FnMut(&mut postgres::Transaction<'_>, &WorkspaceHeadSnapshot) -> Result<(), PgError> + 'a,
+>;
 /// Step 6 hook: keyed replay/conflict evaluation returning the
 /// [`IdempotencyOutcome`].
-pub type ReplayOrConflictHook<'a> =
-    Box<dyn FnMut(&WorkspaceHeadSnapshot) -> Result<IdempotencyOutcome, PgError> + 'a>;
+pub type ReplayOrConflictHook<'a> = Box<
+    dyn FnMut(
+            &mut postgres::Transaction<'_>,
+            &WorkspaceHeadSnapshot,
+        ) -> Result<IdempotencyOutcome, PgError>
+        + 'a,
+>;
 /// Step 9 hook: the governed application consequence, bounded by a savepoint.
 pub type ConsequenceHook<'a> =
     Box<dyn FnMut(&mut postgres::Transaction<'_>) -> Result<(), PgError> + 'a>;
@@ -313,10 +352,26 @@ pub fn run_unit_of_work(
     client: &mut Client,
     hooks: &mut UnitOfWorkHooks<'_>,
 ) -> Result<UnitOfWorkOutcome, PgError> {
-    match run_unit_of_work_attempt(client, hooks) {
+    run_unit_of_work_with_sequence_policy(client, hooks, CausalSequencePolicy::All)
+}
+
+/// Runs one authoritative unit of work under an explicit causal-stream
+/// allocation policy.
+///
+/// # Errors
+///
+/// Returns the terminal transaction error or a commit-outcome error from the
+/// authoritative attempt.
+pub fn run_unit_of_work_with_sequence_policy(
+    client: &mut Client,
+    hooks: &mut UnitOfWorkHooks<'_>,
+    sequence_policy: CausalSequencePolicy,
+) -> Result<UnitOfWorkOutcome, PgError> {
+    let mut acknowledgement = |_| CommitAcknowledgement::Received;
+    match run_unit_of_work_attempt(client, hooks, sequence_policy, None, &mut acknowledgement) {
         Ok(outcome) => Ok(outcome),
         Err(AttemptFailure::Terminal(error)) => Err(error),
-        Err(AttemptFailure::CommitFailed(error)) => Err(PgError::Transaction(error.to_string())),
+        Err(failure) => Err(failure.into_pg_error()),
     }
 }
 
@@ -332,6 +387,78 @@ pub fn run_unit_of_work_with_retry(
     hooks: &mut UnitOfWorkHooks<'_>,
     policy: RetryPolicy,
 ) -> Result<UnitOfWorkOutcome, PgError> {
+    run_unit_of_work_with_retry_and_sequence_policy(
+        client,
+        hooks,
+        policy,
+        CausalSequencePolicy::All,
+    )
+}
+
+/// Runs one authoritative unit of work under both an explicit causal-stream
+/// policy and the bounded full-transaction retry policy.
+///
+/// # Errors
+///
+/// Returns the terminal body error, [`PgError::AmbiguousCommit`] when commit
+/// acknowledgement is lost, or [`PgError::Transaction`] when retryable
+/// conflicts exhaust the attempt/deadline budget.
+pub fn run_unit_of_work_with_retry_and_sequence_policy(
+    client: &mut Client,
+    hooks: &mut UnitOfWorkHooks<'_>,
+    policy: RetryPolicy,
+    sequence_policy: CausalSequencePolicy,
+) -> Result<UnitOfWorkOutcome, PgError> {
+    let mut acknowledgement = |_| CommitAcknowledgement::Received;
+    run_unit_of_work_with_retry_and_sequence_policy_impl(
+        client,
+        hooks,
+        policy,
+        sequence_policy,
+        &mut acknowledgement,
+    )
+}
+
+/// Runs the bounded authoritative transaction while exposing a deterministic
+/// post-commit acknowledgement seam. This is used to qualify the otherwise
+/// nondeterministic case where PostgreSQL commits but the response is lost.
+/// Returning [`CommitAcknowledgement::Lost`] reports
+/// [`PgError::AmbiguousCommit`] after the real commit and never retries it.
+///
+/// # Errors
+///
+/// Returns the same failures as
+/// [`run_unit_of_work_with_retry_and_sequence_policy`], plus the injected
+/// unknown outcome when `acknowledgement` reports loss.
+pub fn run_unit_of_work_with_retry_and_sequence_policy_and_acknowledgement<F>(
+    client: &mut Client,
+    hooks: &mut UnitOfWorkHooks<'_>,
+    policy: RetryPolicy,
+    sequence_policy: CausalSequencePolicy,
+    acknowledgement: &mut F,
+) -> Result<UnitOfWorkOutcome, PgError>
+where
+    F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
+{
+    run_unit_of_work_with_retry_and_sequence_policy_impl(
+        client,
+        hooks,
+        policy,
+        sequence_policy,
+        acknowledgement,
+    )
+}
+
+fn run_unit_of_work_with_retry_and_sequence_policy_impl<F>(
+    client: &mut Client,
+    hooks: &mut UnitOfWorkHooks<'_>,
+    policy: RetryPolicy,
+    sequence_policy: CausalSequencePolicy,
+    acknowledgement: &mut F,
+) -> Result<UnitOfWorkOutcome, PgError>
+where
+    F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
+{
     let started = Instant::now();
     let mut last_error = None;
 
@@ -342,7 +469,14 @@ pub fn run_unit_of_work_with_retry(
             ));
         }
 
-        match run_unit_of_work_attempt(client, hooks) {
+        let remaining = policy.deadline.saturating_sub(started.elapsed());
+        match run_unit_of_work_attempt(
+            client,
+            hooks,
+            sequence_policy,
+            Some(remaining),
+            acknowledgement,
+        ) {
             Ok(outcome) => return Ok(outcome),
             Err(failure) => {
                 let retryable = failure.is_retryable();
@@ -367,11 +501,14 @@ pub fn run_unit_of_work_with_retry(
 /// is retried rather than treated as an infrastructure failure.
 #[must_use]
 pub fn transaction_error(error: &postgres::Error) -> PgError {
+    let detail = error
+        .as_db_error()
+        .map_or_else(|| error.to_string(), ToString::to_string);
     match error.code().map(postgres::error::SqlState::code) {
         Some(state) => {
-            PgError::Transaction(format!("proof.pg.transient sqlstate={state}: {error}"))
+            PgError::Transaction(format!("proof.pg.transient sqlstate={state}: {detail}"))
         }
-        None => PgError::Transaction(error.to_string()),
+        None => PgError::Transaction(detail),
     }
 }
 
@@ -399,6 +536,9 @@ impl AttemptFailure {
     fn into_pg_error(self) -> PgError {
         match self {
             Self::Terminal(error) => error,
+            Self::CommitFailed(error) if error.code().is_none() => {
+                PgError::AmbiguousCommit(error.to_string())
+            }
             Self::CommitFailed(error) => PgError::Transaction(error.to_string()),
         }
     }
@@ -406,16 +546,26 @@ impl AttemptFailure {
 
 /// Runs one full twelve-step attempt, returning the raw commit error so the
 /// caller can classify retryable SQLSTATEs.
-fn run_unit_of_work_attempt(
+fn run_unit_of_work_attempt<F>(
     client: &mut Client,
     hooks: &mut UnitOfWorkHooks<'_>,
-) -> Result<UnitOfWorkOutcome, AttemptFailure> {
+    sequence_policy: CausalSequencePolicy,
+    attempt_timeout: Option<Duration>,
+    acknowledgement: &mut F,
+) -> Result<UnitOfWorkOutcome, AttemptFailure>
+where
+    F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
+{
     let mut transaction = client
         .build_transaction()
         .isolation_level(IsolationLevel::Serializable)
         .read_only(false)
         .start()
-        .map_err(|error| AttemptFailure::Terminal(PgError::Transaction(error.to_string())))?;
+        .map_err(|error| AttemptFailure::Terminal(transaction_error(&error)))?;
+
+    if let Some(timeout) = attempt_timeout {
+        configure_attempt_timeout(&mut transaction, timeout).map_err(AttemptFailure::Terminal)?;
+    }
 
     // Step 1: select the deployment Workspace and verify the compatible
     // migration version.
@@ -427,7 +577,7 @@ fn run_unit_of_work_attempt(
     // Step 3: derive and advance the causal sequences from the locked row only.
     // The write-back is an ordinary logged UPDATE, so it rolls back with the
     // transaction on infrastructure failure; no PostgreSQL sequence is used.
-    let allocated = allocate_sequences_from_head(&head);
+    let allocated = allocate_sequences_with_policy(&head, sequence_policy);
     write_back_advanced_head(&mut transaction, &allocated).map_err(AttemptFailure::Terminal)?;
 
     // Step 4: verify authentication before idempotency lookup or disclosure.
@@ -437,20 +587,22 @@ fn run_unit_of_work_attempt(
     }
 
     // Step 5: evaluate current authorization at the locked head.
-    if let Err(error) = (hooks.evaluate_authorization)(&head) {
+    if let Err(error) = (hooks.evaluate_authorization)(&mut transaction, &head) {
         let _ = transaction.rollback();
         return Err(AttemptFailure::Terminal(error));
     }
 
     // Step 6: keyed replay/conflict or a fresh attempt.
-    match (hooks.replay_or_conflict)(&head) {
+    match (hooks.replay_or_conflict)(&mut transaction, &head) {
         Ok(IdempotencyOutcome::Replayed) => {
-            commit_transaction(transaction)?;
-            return Ok(UnitOfWorkOutcome::Replayed);
+            return commit_transaction(transaction, UnitOfWorkOutcome::Replayed, acknowledgement);
         }
         Ok(IdempotencyOutcome::Conflict) => {
-            commit_transaction(transaction)?;
-            return Ok(UnitOfWorkOutcome::ConflictCommitted);
+            return commit_transaction(
+                transaction,
+                UnitOfWorkOutcome::ConflictCommitted,
+                acknowledgement,
+            );
         }
         Ok(IdempotencyOutcome::Fresh) => {}
         Err(error) => {
@@ -479,20 +631,52 @@ fn run_unit_of_work_attempt(
             // Step 10: an ordinary authorized application failure commits only
             // presentation consumption, decision, and failure-consequence
             // bodies (persisted by the hook outside its savepoint).
-            commit_transaction(transaction)?;
-            return Ok(UnitOfWorkOutcome::ApplicationFailureCommitted);
+            return commit_transaction(
+                transaction,
+                UnitOfWorkOutcome::ApplicationFailureCommitted,
+                acknowledgement,
+            );
         }
     }
 
     // Step 12: nothing returns before commit success.
-    commit_transaction(transaction)?;
-    Ok(UnitOfWorkOutcome::Committed)
+    commit_transaction(transaction, UnitOfWorkOutcome::Committed, acknowledgement)
+}
+
+fn configure_attempt_timeout(
+    transaction: &mut postgres::Transaction<'_>,
+    timeout: Duration,
+) -> Result<(), PgError> {
+    let milliseconds = timeout.as_millis().clamp(1, i32::MAX as u128);
+    let value = format!("{milliseconds}ms");
+    transaction
+        .query_one(
+            "SELECT set_config('statement_timeout', $1, true),
+                    set_config('lock_timeout', $1, true)",
+            &[&value],
+        )
+        .map_err(|error| transaction_error(&error))?;
+    Ok(())
 }
 
 /// Commits one attempt, preserving the raw commit error for SQLSTATE
 /// classification.
-fn commit_transaction(transaction: postgres::Transaction<'_>) -> Result<(), AttemptFailure> {
-    transaction.commit().map_err(AttemptFailure::CommitFailed)
+fn commit_transaction<F>(
+    transaction: postgres::Transaction<'_>,
+    outcome: UnitOfWorkOutcome,
+    acknowledgement: &mut F,
+) -> Result<UnitOfWorkOutcome, AttemptFailure>
+where
+    F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
+{
+    transaction.commit().map_err(AttemptFailure::CommitFailed)?;
+    if acknowledgement(outcome) == CommitAcknowledgement::Lost {
+        Err(AttemptFailure::Terminal(PgError::AmbiguousCommit(
+            "commit applied but its acknowledgement was lost".to_owned(),
+        )))
+    } else {
+        Ok(outcome)
+    }
 }
 
 /// Returns `true` when a commit failure is a transient SQLSTATE that the
@@ -530,11 +714,12 @@ fn is_retryable_transient(error: &PgError) -> bool {
 }
 
 /// Returns `true` when the error is an infrastructure/signing/artifact/storage/
-/// integrity failure (contract step 11). Only [`PgError::Idempotency`] signals
-/// an ordinary authorized application failure (step 10); every other variant
-/// fails closed and rolls back the entire transaction.
+/// integrity failure (contract step 11). Only
+/// [`PgError::ApplicationFailure`] signals an ordinary authorized application
+/// failure (step 10); every other variant fails closed and rolls back the
+/// entire transaction.
 fn is_infrastructure_failure(error: &PgError) -> bool {
-    !matches!(error, PgError::Idempotency(_))
+    !matches!(error, PgError::ApplicationFailure(_))
 }
 
 /// Verifies the singleton migration head is present and in the `verified`
@@ -546,7 +731,7 @@ fn verify_migration_compatible(transaction: &mut postgres::Transaction<'_>) -> R
             "SELECT version, phase FROM migration_head WHERE singleton = 1",
             &[],
         )
-        .map_err(|error| PgError::Migration(error.to_string()))?;
+        .map_err(|error| transaction_error(&error))?;
     let Some(migration) = migration else {
         return Err(PgError::Migration(
             "the migration head singleton is absent".to_owned(),
@@ -565,7 +750,7 @@ fn verify_migration_compatible(transaction: &mut postgres::Transaction<'_>) -> R
             "SELECT migration_version FROM workspace_write_head WHERE singleton = 1",
             &[],
         )
-        .map_err(|error| PgError::Transaction(error.to_string()))?;
+        .map_err(|error| transaction_error(&error))?;
     let Some(head) = head else {
         return Err(PgError::Transaction(
             "the Workspace write head singleton is absent".to_owned(),
@@ -596,7 +781,7 @@ fn lock_head_for_update(
              FOR UPDATE",
             &[],
         )
-        .map_err(|error| PgError::Transaction(error.to_string()))?;
+        .map_err(|error| transaction_error(&error))?;
     let Some(row) = row else {
         return Err(PgError::Transaction(
             "the Workspace write head singleton is absent".to_owned(),
@@ -662,7 +847,7 @@ fn write_back_advanced_head(
                 &release_sequence,
             ],
         )
-        .map_err(|error| PgError::Transaction(error.to_string()))?;
+        .map_err(|error| transaction_error(&error))?;
     Ok(())
 }
 

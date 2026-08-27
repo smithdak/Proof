@@ -1215,6 +1215,7 @@ impl Fixture {
         let baseline = prepare_source_release(&repository, &spec);
         let intent = repository
             .issue_content_resource_intent(IssueContentResourceIntentCommand {
+                creations: Vec::new(),
                 intent_id: spec.resource_intent_id,
                 environment_id: ENVIRONMENT_ID.parse().unwrap(),
                 targets: vec![

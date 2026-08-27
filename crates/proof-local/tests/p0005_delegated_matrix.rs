@@ -541,6 +541,7 @@ mod retained {
             let intent = fixture
                 .repository
                 .issue_content_resource_intent(IssueContentResourceIntentCommand {
+                    creations: Vec::new(),
                     intent_id: lifecycle_id(0x6b0).parse().unwrap(),
                     environment_id: ENVIRONMENT_ID.parse().unwrap(),
                     targets: vec![
@@ -987,20 +988,22 @@ mod retained {
                 .repository
                 .add_localized_edits(AddLocalizedEditsCommand {
                     changeset_id,
-                    edits: vec![ObjectLocalePutInput {
-                        object_id,
-                        locale: LOCALE.parse().unwrap(),
-                        expected_source: ExpectedLocalizedSource {
-                            revision: ObjectRevision::new(1).unwrap(),
-                            digest: fixture.source_digest,
-                            schema_id,
-                            schema_version,
+                    edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                        ObjectLocalePutInput {
+                            object_id,
+                            locale: LOCALE.parse().unwrap(),
+                            expected_source: ExpectedLocalizedSource {
+                                revision: ObjectRevision::new(1).unwrap(),
+                                digest: fixture.source_digest,
+                                schema_id,
+                                schema_version,
+                            },
+                            expected_target: None,
+                            canonical_content: canonical.as_str().to_owned(),
+                            supersedes_edit_id: None,
+                            repair_of_validation_result_digest: None,
                         },
-                        expected_target: None,
-                        canonical_content: canonical.as_str().to_owned(),
-                        supersedes_edit_id: None,
-                        repair_of_validation_result_digest: None,
-                    }],
+                    )],
                     assigned_edit_ids: vec![lifecycle_id(0x6c3).parse().unwrap()],
                     idempotency_key: key(0x6c4),
                 })

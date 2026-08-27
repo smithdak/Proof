@@ -15,20 +15,23 @@ use proof_application::{
     CreateEditionCommand, CreateEnvironmentCommand, EditId, EnvironmentId, IdempotencyKey,
     InitializeWorkspaceCommand, IssueContentResourceIntentCommand, LocaleId,
     LocalizedContentRepository, LocalizedContentTarget, LocalizedContextLimits,
-    LocalizedPolicyRule, ObjectCreateEdit, ObjectId, PromoteReleaseCommand, ProofId, ReleaseId,
-    SchemaCreateEdit, SchemaId, SchemaVersion, SubmitChangeSetCommand, Timestamp,
-    add_changeset_edits, approve_changeset, commit_changeset, create_changeset, create_edition,
-    create_environment, initialize_workspace, promote_release, submit_changeset,
-    validate_changeset,
+    LocalizedCreationSlot, LocalizedPolicyRule, ObjectCreateEdit, ObjectId, ObjectListCommand,
+    PromoteReleaseCommand, ProofId, ReleaseId, SchemaCreateEdit, SchemaGetCommand, SchemaId,
+    SchemaListCommand, SchemaVersion, SubmitChangeSetCommand, Timestamp, add_changeset_edits,
+    approve_changeset, commit_changeset, create_changeset, create_edition, create_environment,
+    initialize_workspace, promote_release, submit_changeset, validate_changeset,
 };
 use proof_canonical::{canonicalize, digest as digest_canonical, object_revision_digest};
 use proof_domain::{ArtifactKind, ContentDigest, WorkspaceId};
 use proof_local::{DeterministicLocalAuthorityAdapter, LocalWorkspace};
 use proof_pg::{
-    PgConfig,
+    PgConfig, PgError,
     parity::{
-        ParityOperation, ParityRunner, ParityScenario, PostgresBackend, prepare_parity_backend,
+        ParityOperation, ParityRunner, ParityScenario, PostgresBackend,
+        derive_validation_application_key_in_transaction, execute_operation_in_transaction,
+        prepare_parity_backend,
     },
+    projection,
     wiring::PgRuntime,
 };
 use proof_remote::identity::{
@@ -36,7 +39,8 @@ use proof_remote::identity::{
     OidcAuthenticatedSubjectApiVersion, OidcHumanAuthenticationProfile,
 };
 use proof_remote::{
-    AuthenticatedActorContextV2, AuthorityHeadV1, RemoteOperationV1, SqliteReferenceBackend,
+    AuthenticatedActorContextV2, AuthorityHeadV1, RemoteError, RemoteOperationV1,
+    SqliteReferenceBackend, StorageBackend,
 };
 use serde_json::{Value, json};
 
@@ -62,6 +66,17 @@ const ENVIRONMENT_KEY: &str = "019d1000-0000-7000-8000-000000000024";
 const RELEASE_KEY: &str = "019d1000-0000-7000-8000-000000000025";
 const INTENT_KEY: &str = "019d1000-0000-7000-8000-000000000026";
 const CONTEXT_KEY: &str = "019d1000-0000-7000-8000-000000000027";
+const CREATION_OBJECT_ID: &str = "019d1000-0000-7000-8000-000000000028";
+const CREATION_INTENT_ID: &str = "019d1000-0000-7000-8000-000000000029";
+const CREATION_CONTEXT_ID: &str = "019d1000-0000-7000-8000-00000000002a";
+const CREATION_INTENT_KEY: &str = "019d1000-0000-7000-8000-00000000002b";
+const CREATION_CONTEXT_KEY: &str = "019d1000-0000-7000-8000-00000000002c";
+const CREATION_CHANGESET_ID: &str = "019d1000-0000-7000-8000-00000000002d";
+const CREATION_DRAFT_KEY: &str = "019d1000-0000-7000-8000-00000000002e";
+const CREATION_ADD_KEY: &str = "019d1000-0000-7000-8000-00000000002f";
+const CREATION_COMMIT_KEY: &str = "019d1000-0000-7000-8000-000000000030";
+const CREATION_CREATE_EDIT_ID: &str = "019d1000-0000-7000-8000-000000000031";
+const CREATION_PUT_EDIT_ID: &str = "019d1000-0000-7000-8000-000000000032";
 const AUTHENTICATED_AT: &str = "2026-08-20T12:00:00Z";
 const DETERMINISTIC_UID: u64 = 1_001;
 const DETERMINISTIC_SUBJECT_BLIND: [u8; 32] = [0x24; 32];
@@ -181,7 +196,7 @@ fn object_edit(edit_id: &str, object_id: &str, schema_id: &str, content: &Value)
     clippy::too_many_lines,
     reason = "the fixture makes the released baseline, resource intent, and ContextPack explicit"
 )]
-fn north_star_workspace(root: &Path) -> (LocalWorkspace, ContentDigest) {
+fn north_star_workspace(root: &Path) -> (LocalWorkspace, ContentDigest, ContentDigest) {
     let workspace = LocalWorkspace::with_deterministic_authority_adapter(
         root,
         DeterministicLocalAuthorityAdapter::new(
@@ -304,6 +319,7 @@ fn north_star_workspace(root: &Path) -> (LocalWorkspace, ContentDigest) {
     let schema_id = SchemaId::new(SCHEMA_ID).unwrap();
     let intent = workspace
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            creations: Vec::new(),
             intent_id: INTENT_ID.parse().unwrap(),
             environment_id: ENVIRONMENT_ID.parse::<EnvironmentId>().unwrap(),
             targets: vec![LocalizedContentTarget {
@@ -338,7 +354,31 @@ fn north_star_workspace(root: &Path) -> (LocalWorkspace, ContentDigest) {
         })
         .unwrap();
 
-    (workspace, intent.intent_digest)
+    let creation_object_id = CREATION_OBJECT_ID.parse::<ObjectId>().unwrap();
+    let creation_intent = workspace
+        .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            intent_id: CREATION_INTENT_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            targets: vec![LocalizedContentTarget {
+                object_id: creation_object_id,
+                schema_id: schema_id.clone(),
+                locale: LOCALE.parse().unwrap(),
+            }],
+            creations: vec![LocalizedCreationSlot {
+                object_id: creation_object_id,
+                schema_id,
+                locales: vec![LOCALE.parse().unwrap()],
+            }],
+            idempotency_key: CREATION_INTENT_KEY.parse().unwrap(),
+            issued_at: "2026-08-21T12:10:08Z".parse().unwrap(),
+        })
+        .unwrap();
+
+    (
+        workspace,
+        intent.intent_digest,
+        creation_intent.intent_digest,
+    )
 }
 
 fn context_build_input(intent_digest: ContentDigest) -> Value {
@@ -364,11 +404,62 @@ fn context_build_input(intent_digest: ContentDigest) -> Value {
     })
 }
 
+fn creation_context_build_input(intent_digest: ContentDigest) -> Value {
+    json!({
+        "api_version": "proof.dev/operation/context.build/v2",
+        "context_pack_id": CREATION_CONTEXT_ID,
+        "created_at": "2026-08-21T12:10:10Z",
+        "expires_at": "2026-08-21T13:10:10Z",
+        "idempotency_key": CREATION_CONTEXT_KEY,
+        "limits": {
+            "max_bytes": 65_536,
+            "max_edits": 2,
+            "max_objects": 1,
+            "max_validation_attempts": 2,
+        },
+        "policy_rules": [{
+            "disallowed_values": ["Forbidden terms"],
+            "locale": LOCALE,
+            "pointer": "/legal",
+        }],
+        "resource_intent_digest": intent_digest.to_string(),
+        "resource_intent_id": CREATION_INTENT_ID,
+    })
+}
+
+fn seed_creation_context(
+    workspace: &LocalWorkspace,
+    intent_digest: ContentDigest,
+) -> proof_application::LocalizedContextPack {
+    workspace
+        .build_localized_context(BuildLocalizedContextCommand {
+            context_pack_id: CREATION_CONTEXT_ID.parse().unwrap(),
+            resource_intent_id: CREATION_INTENT_ID.parse().unwrap(),
+            resource_intent_digest: intent_digest,
+            policy_rules: vec![LocalizedPolicyRule {
+                locale: LOCALE.parse().unwrap(),
+                pointer: "/legal".to_owned(),
+                disallowed_values: vec!["Forbidden terms".to_owned()],
+            }],
+            limits: LocalizedContextLimits {
+                max_objects: 1,
+                max_edits: 2,
+                max_validation_attempts: 2,
+                max_bytes: 65_536,
+            },
+            idempotency_key: CREATION_CONTEXT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T12:10:10Z".parse().unwrap(),
+            expires_at: "2026-08-21T13:10:10Z".parse().unwrap(),
+        })
+        .expect("creation ContextPack builds")
+}
+
 /// An isolated parity fixture: a deterministic `SQLite` Workspace plus a
 /// dedicated `PostgreSQL` schema populated by the verified parity import.
 struct ParityFixture {
     workspace: LocalWorkspace,
     intent_digest: ContentDigest,
+    creation_intent_digest: ContentDigest,
     runtime: PgRuntime,
     schema: String,
     root: PathBuf,
@@ -377,8 +468,61 @@ struct ParityFixture {
 impl ParityFixture {
     fn new() -> Self {
         let root = fresh_dir();
-        let (workspace, intent_digest) = north_star_workspace(&root);
+        let (workspace, intent_digest, creation_intent_digest) = north_star_workspace(&root);
 
+        Self::from_workspace(root, workspace, intent_digest, creation_intent_digest)
+    }
+
+    fn creation_authoring(
+        changeset_id: &str,
+        draft_key: &str,
+        policy_rules: Vec<LocalizedPolicyRule>,
+        max_edits: u32,
+        max_validation_attempts: u32,
+    ) -> Self {
+        use proof_application::CreateLocalizedChangeSetCommand;
+
+        let root = fresh_dir();
+        let (workspace, intent_digest, creation_intent_digest) = north_star_workspace(&root);
+        let context = workspace
+            .build_localized_context(BuildLocalizedContextCommand {
+                context_pack_id: CREATION_CONTEXT_ID.parse().unwrap(),
+                resource_intent_id: CREATION_INTENT_ID.parse().unwrap(),
+                resource_intent_digest: creation_intent_digest,
+                policy_rules,
+                limits: LocalizedContextLimits {
+                    max_objects: 1,
+                    max_edits,
+                    max_validation_attempts,
+                    max_bytes: 65_536,
+                },
+                idempotency_key: CREATION_CONTEXT_KEY.parse().unwrap(),
+                created_at: "2026-08-21T12:10:10Z".parse().unwrap(),
+                expires_at: "2026-08-21T13:10:10Z".parse().unwrap(),
+            })
+            .expect("creation ContextPack builds");
+        workspace
+            .create_localized_changeset(CreateLocalizedChangeSetCommand {
+                changeset_id: changeset_id.parse().unwrap(),
+                intent: ChangeSetIntent::new("Create and localize the campaign").unwrap(),
+                resource_intent_id: CREATION_INTENT_ID.parse().unwrap(),
+                resource_intent_digest: creation_intent_digest,
+                context_pack_id: context.context_pack_id,
+                context_pack_digest: context.context_pack_digest,
+                idempotency_key: draft_key.parse().unwrap(),
+                created_at: "2026-08-21T12:11:00Z".parse().unwrap(),
+            })
+            .expect("creation ChangeSet creates");
+
+        Self::from_workspace(root, workspace, intent_digest, creation_intent_digest)
+    }
+
+    fn from_workspace(
+        root: PathBuf,
+        workspace: LocalWorkspace,
+        intent_digest: ContentDigest,
+        creation_intent_digest: ContentDigest,
+    ) -> Self {
         let runtime = PgRuntime::connect(PgConfig::new(
             dsn(),
             WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
@@ -395,6 +539,7 @@ impl ParityFixture {
         let mut fixture = Self {
             workspace,
             intent_digest,
+            creation_intent_digest,
             runtime,
             schema,
             root,
@@ -427,6 +572,54 @@ impl Drop for ParityFixture {
     }
 }
 
+#[test]
+fn transactional_parity_storage_failures_never_become_stable_problems() {
+    let mut fixture = ParityFixture::new();
+    let workspace_id = fixture.runtime.config().workspace_id;
+    fixture
+        .runtime
+        .client_mut()
+        .batch_execute("ALTER TABLE facts RENAME TO unavailable_facts")
+        .unwrap();
+
+    let get_input = json!({
+        "api_version": "proof.dev/operation/changeset.get/v2",
+        "changeset_id": CHANGESET_ID,
+    });
+    let get_actor = actor_context("changeset.get", "proof.dev/operation/changeset.get/v2");
+    let mut transaction = fixture.runtime.client_mut().transaction().unwrap();
+    let error = execute_operation_in_transaction(
+        &mut transaction,
+        workspace_id,
+        None,
+        &get_input,
+        &get_actor,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, PgError::Transaction(message) if message.contains("sqlstate=42P01")),
+        "missing table must remain a structured transaction failure: {error}"
+    );
+    transaction.rollback().unwrap();
+
+    let validate_input = json!({
+        "api_version": "proof.dev/operation/changeset.validate/v2",
+        "changeset_id": CHANGESET_ID,
+    });
+    let mut transaction = fixture.runtime.client_mut().transaction().unwrap();
+    let error = derive_validation_application_key_in_transaction(
+        &mut transaction,
+        workspace_id,
+        &validate_input,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, PgError::Transaction(message) if message.contains("sqlstate=42P01")),
+        "validation-key lookup must not swallow storage failure: {error}"
+    );
+    transaction.rollback().unwrap();
+}
+
 fn workspace_status_scenario() -> ParityScenario {
     ParityScenario {
         name: "workspace.status/v1 accepted".to_owned(),
@@ -452,6 +645,17 @@ fn context_build_scenario(intent_digest: ContentDigest) -> ParityScenario {
     }
 }
 
+fn creation_context_build_scenario(intent_digest: ContentDigest) -> ParityScenario {
+    ParityScenario {
+        name: "context.build/v2 creation target".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: creation_context_build_input(intent_digest),
+            actor_context: actor_context("context.build", "proof.dev/operation/context.build/v2"),
+        }],
+        expected_trace_digests: Vec::new(),
+    }
+}
+
 fn rejected_input_scenario() -> ParityScenario {
     ParityScenario {
         name: "changeset.get/v2 rejected input".to_owned(),
@@ -464,6 +668,54 @@ fn rejected_input_scenario() -> ParityScenario {
         }],
         expected_trace_digests: Vec::new(),
     }
+}
+
+#[test]
+fn active_generation_content_reads_match_sqlite_exactly() {
+    let mut fixture = ParityFixture::new();
+    let workspace_id = WORKSPACE_ID.parse::<WorkspaceId>().unwrap();
+
+    let get_command = SchemaGetCommand {
+        schema_id: SchemaId::new(SCHEMA_ID).unwrap(),
+        schema_version: SchemaVersion::new(1).unwrap(),
+    };
+    let local_schema = fixture.workspace.get_schema(get_command.clone()).unwrap();
+    let pg_schema =
+        projection::get_schema(fixture.runtime.client_mut(), workspace_id, &get_command).unwrap();
+    assert_eq!(pg_schema, local_schema);
+
+    let list_command = SchemaListCommand {
+        schema_id: Some(SchemaId::new(SCHEMA_ID).unwrap()),
+        cursor: None,
+        page_size: Some(1),
+    };
+    let local_schemas = fixture
+        .workspace
+        .list_schemas(list_command.clone())
+        .unwrap();
+    let pg_schemas =
+        projection::list_schemas(fixture.runtime.client_mut(), workspace_id, &list_command)
+            .unwrap();
+    assert_eq!(pg_schemas, local_schemas);
+
+    let object_command = ObjectListCommand {
+        environment_id: EnvironmentId::new(ENVIRONMENT_ID).unwrap(),
+        schema_id: None,
+        locale: None,
+        object_ids: Some(vec![OBJECT_ID.parse().unwrap()]),
+        cursor: None,
+        page_size: Some(1),
+    };
+    let local_objects = fixture
+        .workspace
+        .list_objects(object_command.clone())
+        .unwrap();
+    let pg_objects =
+        projection::list_objects(fixture.runtime.client_mut(), workspace_id, &object_command)
+            .unwrap();
+    assert_eq!(pg_objects, local_objects);
+    assert!(pg_objects.entries[0].covered_by_current_release);
+    assert_eq!(pg_objects.entries[0].released_revision.unwrap().get(), 1);
 }
 
 #[test]
@@ -506,6 +758,1111 @@ fn localized_context_build_replay_trace_is_byte_identical() {
     runner
         .assert_identical(&sqlite_traces, &postgres_traces)
         .unwrap();
+}
+
+#[test]
+fn creation_context_build_trace_is_byte_identical() {
+    let mut fixture = ParityFixture::new();
+    let runner = ParityRunner::new();
+    let scenario = creation_context_build_scenario(fixture.creation_intent_digest);
+
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .unwrap();
+}
+
+#[test]
+fn intent_v2_omitted_creations_match_an_explicit_empty_set() {
+    use proof_remote::OracleOutcome;
+
+    const OMITTED_INTENT_ID: &str = "019d1000-0000-7000-8000-000000000088";
+    const OMITTED_INTENT_KEY: &str = "019d1000-0000-7000-8000-000000000089";
+
+    let mut fixture = ParityFixture::new();
+    let local = fixture
+        .workspace
+        .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            intent_id: OMITTED_INTENT_ID.parse().unwrap(),
+            environment_id: ENVIRONMENT_ID.parse().unwrap(),
+            targets: vec![LocalizedContentTarget {
+                object_id: OBJECT_ID.parse().unwrap(),
+                schema_id: SchemaId::new(SCHEMA_ID).unwrap(),
+                locale: LOCALE.parse().unwrap(),
+            }],
+            creations: Vec::new(),
+            idempotency_key: OMITTED_INTENT_KEY.parse().unwrap(),
+            issued_at: "2026-08-21T12:20:00Z".parse().unwrap(),
+        })
+        .expect("SQLite accepts an explicit empty creation set");
+    let mut actor = actor_context(
+        "content-resource-intent.issue",
+        "proof.dev/operation/content-resource-intent.issue/v2",
+    );
+    let AuthenticatedActorContextV2::Human(context) = &mut actor else {
+        unreachable!("the test actor is Human")
+    };
+    context.requesting_principal_id = PRINCIPAL_ID.to_owned();
+    let input = json!({
+        "api_version": "proof.dev/operation/content-resource-intent.issue/v2",
+        "environment_id": ENVIRONMENT_ID,
+        "idempotency_key": OMITTED_INTENT_KEY,
+        "intent_id": OMITTED_INTENT_ID,
+        "issued_at": "2026-08-21T12:20:00Z",
+        "targets": [{
+            "locale": LOCALE,
+            "object_id": OBJECT_ID,
+            "schema_id": SCHEMA_ID,
+        }],
+    });
+    let trace = {
+        let mut transaction = fixture.runtime.client_mut().transaction().unwrap();
+        let trace = proof_pg::parity::issue_resource_intent_in_transaction(
+            &mut transaction,
+            WORKSPACE_ID.parse().unwrap(),
+            &input,
+            &actor,
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+        trace
+    };
+    let expected: Value = serde_json::from_str(&local.canonical_json).unwrap();
+    match trace.outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result, expected);
+            assert_eq!(result["creations"], json!([]));
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("omitted creations were rejected: {other:?}")
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn creation_add_and_validate_traces_are_byte_identical() {
+    use proof_application::CreateLocalizedChangeSetCommand;
+    use proof_remote::OracleOutcome;
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest, creation_intent_digest) = north_star_workspace(&root);
+    let context = seed_creation_context(&workspace, creation_intent_digest);
+    workspace
+        .create_localized_changeset(CreateLocalizedChangeSetCommand {
+            changeset_id: CREATION_CHANGESET_ID.parse().unwrap(),
+            intent: ChangeSetIntent::new("Create and localize the campaign").unwrap(),
+            resource_intent_id: CREATION_INTENT_ID.parse().unwrap(),
+            resource_intent_digest: creation_intent_digest,
+            context_pack_id: context.context_pack_id,
+            context_pack_digest: context.context_pack_digest,
+            idempotency_key: CREATION_DRAFT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T12:11:00Z".parse().unwrap(),
+        })
+        .expect("creation ChangeSet creates");
+
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_creation_add_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let source = json!({
+        "legal": "Standard terms apply",
+        "slug": "created-campaign",
+        "title": "Created campaign",
+    });
+    let source_digest = object_revision_digest(
+        CREATION_OBJECT_ID.parse().unwrap(),
+        &SchemaId::new(SCHEMA_ID).unwrap(),
+        SchemaVersion::new(1).unwrap(),
+        &source,
+    )
+    .unwrap();
+    let add_input = json!({
+        "api_version": "proof.dev/operation/changeset.add/v2",
+        "changeset_id": CREATION_CHANGESET_ID,
+        "edits": [
+            {
+                "api_version": "proof.dev/edit/v2",
+                "content": source,
+                "kind": "object.create",
+                "object_id": CREATION_OBJECT_ID,
+                "repair_of_validation_result_digest": null,
+                "schema_id": SCHEMA_ID,
+                "schema_version": 1,
+                "supersedes_edit_id": null,
+            },
+            {
+                "api_version": "proof.dev/edit/v2",
+                "content": {
+                    "legal": "Standard terms apply",
+                    "slug": "created-campaign",
+                    "title": "Campagne créée",
+                },
+                "expected_source": {
+                    "digest": source_digest.to_string(),
+                    "revision": 1,
+                    "schema_id": SCHEMA_ID,
+                    "schema_version": 1,
+                },
+                "expected_target": null,
+                "kind": "object.locale.put",
+                "locale": LOCALE,
+                "object_id": CREATION_OBJECT_ID,
+                "repair_of_validation_result_digest": null,
+                "supersedes_edit_id": null,
+            }
+        ],
+        "idempotency_key": CREATION_ADD_KEY,
+    });
+    let scenario = ParityScenario {
+        name: "creation add then validate".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: add_input,
+                actor_context: actor_context(
+                    "changeset.add",
+                    "proof.dev/operation/changeset.add/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.validate/v2",
+                    "changeset_id": CREATION_CHANGESET_ID,
+                }),
+                actor_context: actor_context(
+                    "changeset.validate",
+                    "proof.dev/operation/changeset.validate/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+    let runner = ParityRunner::new();
+    let mut sqlite = SqliteReferenceBackend::new(&workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+
+    let head_before: (i64, Option<String>) = runtime
+        .client_mut()
+        .query_one(
+            "SELECT content_sequence, content_head_digest
+             FROM workspace_write_head WHERE singleton = 1",
+            &[],
+        )
+        .map(|row| (row.get(0), row.get(1)))
+        .unwrap();
+    runtime
+        .client_mut()
+        .batch_execute(
+            "CREATE FUNCTION reject_late_creation_commit() RETURNS trigger AS $$
+             BEGIN
+                 RAISE EXCEPTION 'retained late commit failure';
+             END;
+             $$ LANGUAGE plpgsql;
+             CREATE TRIGGER reject_late_creation_commit
+             BEFORE INSERT ON facts
+             FOR EACH ROW
+             WHEN (NEW.fact_id LIKE 'op_changeset_add/%')
+             EXECUTE FUNCTION reject_late_creation_commit();",
+        )
+        .unwrap();
+    let error = {
+        let mut postgres = PostgresBackend::new(&mut runtime);
+        postgres
+            .run(
+                &scenario.operations[0].normalized_input,
+                &scenario.operations[0].actor_context,
+            )
+            .unwrap_err()
+    };
+    runtime
+        .client_mut()
+        .batch_execute(
+            "DROP TRIGGER reject_late_creation_commit ON facts;
+             DROP FUNCTION reject_late_creation_commit();",
+        )
+        .unwrap();
+    assert!(
+        matches!(
+            &error,
+            RemoteError::Oracle(message)
+                if message.contains("transaction failed:")
+                    && message.contains("sqlstate=P0001")
+        ),
+        "unexpected late-failure error: {error}"
+    );
+    let head_after: (i64, Option<String>) = runtime
+        .client_mut()
+        .query_one(
+            "SELECT content_sequence, content_head_digest
+             FROM workspace_write_head WHERE singleton = 1",
+            &[],
+        )
+        .map(|row| (row.get(0), row.get(1)))
+        .unwrap();
+    assert_eq!(
+        head_after, head_before,
+        "late failure restores the content head"
+    );
+    let leaked: i64 = runtime
+        .client_mut()
+        .query_one(
+            "SELECT COUNT(*) FROM facts
+             WHERE fact_id = $1
+                OR fact_id LIKE $2
+                OR fact_id LIKE 'op_changeset_commit/%'",
+            &[
+                &format!("object/{CREATION_OBJECT_ID}/1"),
+                &format!("rendition/{CREATION_OBJECT_ID}/{LOCALE}/%"),
+            ],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        leaked, 0,
+        "late failure leaks no semantic or key marker facts"
+    );
+
+    let mut postgres = PostgresBackend::new(&mut runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("creation traces must be byte-identical");
+    match &postgres_traces[1].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["valid"], true);
+            assert_eq!(result["status"], "ready");
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("expected valid creation evidence, got {other:?}")
+        }
+    }
+
+    let _ = runtime
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn put_before_create_validation_trace_is_byte_identical() {
+    use proof_remote::OracleOutcome;
+
+    const CHANGESET: &str = "019d1000-0000-7000-8000-000000000080";
+    const DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000081";
+    const ADD_KEY: &str = "019d1000-0000-7000-8000-000000000082";
+
+    let mut fixture = ParityFixture::creation_authoring(
+        CHANGESET,
+        DRAFT_KEY,
+        vec![LocalizedPolicyRule {
+            locale: LOCALE.parse().unwrap(),
+            pointer: "/legal".to_owned(),
+            disallowed_values: vec!["Forbidden terms".to_owned()],
+        }],
+        2,
+        2,
+    );
+    let source = json!({
+        "legal": "Standard terms apply",
+        "slug": "causal-campaign",
+        "title": "Causal campaign",
+    });
+    let source_digest = object_revision_digest(
+        CREATION_OBJECT_ID.parse().unwrap(),
+        &SchemaId::new(SCHEMA_ID).unwrap(),
+        SchemaVersion::new(1).unwrap(),
+        &source,
+    )
+    .unwrap();
+    let scenario = ParityScenario {
+        name: "put before create validates as an ordinal finding".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.add/v2",
+                    "changeset_id": CHANGESET,
+                    "edits": [
+                        {
+                            "api_version": "proof.dev/edit/v2",
+                            "content": {
+                                "legal": "Standard terms apply",
+                                "slug": "causal-campaign",
+                                "title": "Campagne causale",
+                            },
+                            "expected_source": {
+                                "digest": source_digest.to_string(),
+                                "revision": 1,
+                                "schema_id": SCHEMA_ID,
+                                "schema_version": 1,
+                            },
+                            "expected_target": null,
+                            "kind": "object.locale.put",
+                            "locale": LOCALE,
+                            "object_id": CREATION_OBJECT_ID,
+                            "repair_of_validation_result_digest": null,
+                            "supersedes_edit_id": null,
+                        },
+                        {
+                            "api_version": "proof.dev/edit/v2",
+                            "content": source,
+                            "kind": "object.create",
+                            "object_id": CREATION_OBJECT_ID,
+                            "repair_of_validation_result_digest": null,
+                            "schema_id": SCHEMA_ID,
+                            "schema_version": 1,
+                            "supersedes_edit_id": null,
+                        }
+                    ],
+                    "idempotency_key": ADD_KEY,
+                }),
+                actor_context: actor_context(
+                    "changeset.add",
+                    "proof.dev/operation/changeset.add/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.validate/v2",
+                    "changeset_id": CHANGESET,
+                }),
+                actor_context: actor_context(
+                    "changeset.validate",
+                    "proof.dev/operation/changeset.validate/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.submit/v2",
+                    "changeset_id": CHANGESET,
+                    "submitted_at": "2026-08-21T12:20:00Z",
+                }),
+                actor_context: actor_context(
+                    "changeset.submit",
+                    "proof.dev/operation/changeset.submit/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+    let runner = ParityRunner::new();
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("causal-order traces must be byte-identical");
+
+    let put_edit_id = match &postgres_traces[0].outcome {
+        OracleOutcome::TypedResult(result) => result["edit_ids"][0]
+            .as_str()
+            .expect("add result has a put Edit identity"),
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("put-before-create add unexpectedly failed: {other:?}")
+        }
+    };
+    match &postgres_traces[1].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["valid"], false);
+            assert_eq!(result["status"], "draft");
+            assert!(result["sealed_changeset_digest"].is_null());
+            assert_eq!(result["findings"].as_array().map(Vec::len), Some(1));
+            assert_eq!(
+                result["findings"][0]["code"],
+                proof_application::LOCALIZED_SOURCE_CONFLICT_CODE
+            );
+            assert_eq!(result["findings"][0]["edit_id"], put_edit_id);
+            assert!(result["findings"][0]["pointer"].is_null());
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("put-before-create validation did not run: {other:?}")
+        }
+    }
+    assert!(matches!(
+        &postgres_traces[2].outcome,
+        OracleOutcome::StableProblem(problem) if problem.code == "proof.changeset.not_ready"
+    ));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn creation_repair_revalidation_trace_is_byte_identical() {
+    use proof_remote::OracleOutcome;
+
+    const CHANGESET: &str = "019d1000-0000-7000-8000-000000000083";
+    const DRAFT_KEY: &str = "019d1000-0000-7000-8000-000000000084";
+    const INITIAL_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000085";
+    const CREATE_REPAIR_KEY: &str = "019d1000-0000-7000-8000-000000000086";
+    const PUT_REPAIR_KEY: &str = "019d1000-0000-7000-8000-000000000087";
+
+    let mut fixture = ParityFixture::creation_authoring(
+        CHANGESET,
+        DRAFT_KEY,
+        vec![LocalizedPolicyRule {
+            locale: LOCALE.parse().unwrap(),
+            pointer: "/title".to_owned(),
+            disallowed_values: vec!["Initial title".to_owned()],
+        }],
+        4,
+        3,
+    );
+    let initial_source = json!({
+        "legal": "Standard terms apply",
+        "slug": "repair-campaign",
+        "title": "Initial title",
+    });
+    let initial_source_digest = object_revision_digest(
+        CREATION_OBJECT_ID.parse().unwrap(),
+        &SchemaId::new(SCHEMA_ID).unwrap(),
+        SchemaVersion::new(1).unwrap(),
+        &initial_source,
+    )
+    .unwrap();
+    let initial = ParityScenario {
+        name: "invalid creation policy validation".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.add/v2",
+                    "changeset_id": CHANGESET,
+                    "edits": [
+                        {
+                            "api_version": "proof.dev/edit/v2",
+                            "content": initial_source,
+                            "kind": "object.create",
+                            "object_id": CREATION_OBJECT_ID,
+                            "repair_of_validation_result_digest": null,
+                            "schema_id": SCHEMA_ID,
+                            "schema_version": 1,
+                            "supersedes_edit_id": null,
+                        },
+                        {
+                            "api_version": "proof.dev/edit/v2",
+                            "content": {
+                                "legal": "Standard terms apply",
+                                "slug": "repair-campaign",
+                                "title": "Titre initial",
+                            },
+                            "expected_source": {
+                                "digest": initial_source_digest.to_string(),
+                                "revision": 1,
+                                "schema_id": SCHEMA_ID,
+                                "schema_version": 1,
+                            },
+                            "expected_target": null,
+                            "kind": "object.locale.put",
+                            "locale": LOCALE,
+                            "object_id": CREATION_OBJECT_ID,
+                            "repair_of_validation_result_digest": null,
+                            "supersedes_edit_id": null,
+                        }
+                    ],
+                    "idempotency_key": INITIAL_ADD_KEY,
+                }),
+                actor_context: actor_context(
+                    "changeset.add",
+                    "proof.dev/operation/changeset.add/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.validate/v2",
+                    "changeset_id": CHANGESET,
+                }),
+                actor_context: actor_context(
+                    "changeset.validate",
+                    "proof.dev/operation/changeset.validate/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+    let runner = ParityRunner::new();
+    let mut sqlite = SqliteReferenceBackend::new(&fixture.workspace);
+    let mut postgres = PostgresBackend::new(&mut fixture.runtime);
+    let sqlite_initial = runner.run_sqlite(&initial, &mut sqlite).unwrap();
+    let postgres_initial = runner.run_postgres(&initial, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_initial, &postgres_initial)
+        .expect("initial invalid creation traces must be byte-identical");
+    let (initial_create_id, initial_put_id) = match &postgres_initial[0].outcome {
+        OracleOutcome::TypedResult(result) => (
+            result["edit_ids"][0].as_str().unwrap().to_owned(),
+            result["edit_ids"][1].as_str().unwrap().to_owned(),
+        ),
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("initial creation add unexpectedly failed: {other:?}")
+        }
+    };
+    let initial_validation_digest = match &postgres_initial[1].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["valid"], false);
+            assert_eq!(result["findings"].as_array().map(Vec::len), Some(1));
+            assert_eq!(
+                result["findings"][0]["code"],
+                proof_application::PROHIBITED_LEGAL_CLAIM_CODE
+            );
+            assert_eq!(result["findings"][0]["edit_id"], initial_create_id);
+            result["validation_results_digest"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("initial creation validation did not run: {other:?}")
+        }
+    };
+
+    let repaired_source = json!({
+        "legal": "Standard terms apply",
+        "slug": "repair-campaign",
+        "title": "Repaired title",
+    });
+    let repaired_source_digest = object_revision_digest(
+        CREATION_OBJECT_ID.parse().unwrap(),
+        &SchemaId::new(SCHEMA_ID).unwrap(),
+        SchemaVersion::new(1).unwrap(),
+        &repaired_source,
+    )
+    .unwrap();
+    let create_repair = ParityScenario {
+        name: "creation repair exposes stale put source".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.add/v2",
+                    "changeset_id": CHANGESET,
+                    "edits": [{
+                        "api_version": "proof.dev/edit/v2",
+                        "content": repaired_source,
+                        "kind": "object.create",
+                        "object_id": CREATION_OBJECT_ID,
+                        "repair_of_validation_result_digest": initial_validation_digest,
+                        "schema_id": SCHEMA_ID,
+                        "schema_version": 1,
+                        "supersedes_edit_id": initial_create_id,
+                    }],
+                    "idempotency_key": CREATE_REPAIR_KEY,
+                }),
+                actor_context: actor_context(
+                    "changeset.add",
+                    "proof.dev/operation/changeset.add/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.validate/v2",
+                    "changeset_id": CHANGESET,
+                }),
+                actor_context: actor_context(
+                    "changeset.validate",
+                    "proof.dev/operation/changeset.validate/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+    let sqlite_create_repair = runner.run_sqlite(&create_repair, &mut sqlite).unwrap();
+    let postgres_create_repair = runner.run_postgres(&create_repair, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_create_repair, &postgres_create_repair)
+        .expect("creation repair traces must be byte-identical");
+    let repaired_create_id = match &postgres_create_repair[0].outcome {
+        OracleOutcome::TypedResult(result) => result["edit_ids"][0].as_str().unwrap().to_owned(),
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("creation repair unexpectedly failed: {other:?}")
+        }
+    };
+    let source_validation_digest = match &postgres_create_repair[1].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["valid"], false);
+            assert_eq!(result["findings"].as_array().map(Vec::len), Some(1));
+            assert_eq!(
+                result["findings"][0]["code"],
+                proof_application::LOCALIZED_SOURCE_CONFLICT_CODE
+            );
+            assert_eq!(result["findings"][0]["edit_id"], initial_put_id);
+            result["validation_results_digest"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("source revalidation did not run: {other:?}")
+        }
+    };
+
+    let put_repair = ParityScenario {
+        name: "put repair revalidates with one effective leaf per kind".to_owned(),
+        operations: vec![
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.add/v2",
+                    "changeset_id": CHANGESET,
+                    "edits": [{
+                        "api_version": "proof.dev/edit/v2",
+                        "content": {
+                            "legal": "Standard terms apply",
+                            "slug": "repair-campaign",
+                            "title": "Titre réparé",
+                        },
+                        "expected_source": {
+                            "digest": repaired_source_digest.to_string(),
+                            "revision": 1,
+                            "schema_id": SCHEMA_ID,
+                            "schema_version": 1,
+                        },
+                        "expected_target": null,
+                        "kind": "object.locale.put",
+                        "locale": LOCALE,
+                        "object_id": CREATION_OBJECT_ID,
+                        "repair_of_validation_result_digest": source_validation_digest,
+                        "supersedes_edit_id": initial_put_id,
+                    }],
+                    "idempotency_key": PUT_REPAIR_KEY,
+                }),
+                actor_context: actor_context(
+                    "changeset.add",
+                    "proof.dev/operation/changeset.add/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.validate/v2",
+                    "changeset_id": CHANGESET,
+                }),
+                actor_context: actor_context(
+                    "changeset.validate",
+                    "proof.dev/operation/changeset.validate/v2",
+                ),
+            },
+            ParityOperation {
+                normalized_input: json!({
+                    "api_version": "proof.dev/operation/changeset.diff/v2",
+                    "changeset_id": CHANGESET,
+                }),
+                actor_context: actor_context(
+                    "changeset.diff",
+                    "proof.dev/operation/changeset.diff/v2",
+                ),
+            },
+        ],
+        expected_trace_digests: Vec::new(),
+    };
+    let sqlite_put_repair = runner.run_sqlite(&put_repair, &mut sqlite).unwrap();
+    let postgres_put_repair = runner.run_postgres(&put_repair, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_put_repair, &postgres_put_repair)
+        .expect("repaired validation traces must be byte-identical");
+    let repaired_put_id = match &postgres_put_repair[0].outcome {
+        OracleOutcome::TypedResult(result) => result["edit_ids"][0].as_str().unwrap().to_owned(),
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("put repair unexpectedly failed: {other:?}")
+        }
+    };
+    match &postgres_put_repair[1].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["attempt"], 3);
+            assert_eq!(
+                result["previous_validation_result_digest"],
+                source_validation_digest
+            );
+            assert_eq!(result["valid"], true);
+            assert_eq!(result["status"], "ready");
+            assert_eq!(result["findings"], json!([]));
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("repaired ChangeSet did not validate: {other:?}")
+        }
+    }
+    match &postgres_put_repair[2].outcome {
+        OracleOutcome::TypedResult(result) => {
+            let effective_ids = result["effective_edits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|edit| edit["edit_id"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                effective_ids,
+                vec![repaired_create_id.as_str(), repaired_put_id.as_str()]
+            );
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("repaired ChangeSet diff failed: {other:?}")
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn creation_commit_trace_is_byte_identical() {
+    use proof_application::{
+        AddLocalizedEditsCommand, CreateLocalizedChangeSetCommand, ExpectedLocalizedSource,
+        ObjectCreateInput, ObjectLocalePutInput, ObjectRevision,
+    };
+    use proof_remote::OracleOutcome;
+
+    const CREATION_EDITION_ID: &str = "019d1000-0000-7000-8000-000000000070";
+    const CREATION_EDITION_KEY: &str = "019d1000-0000-7000-8000-000000000071";
+    const CREATION_RELEASE_ID: &str = "019d1000-0000-7000-8000-000000000072";
+    const CREATION_PROOF_ID: &str = "019d1000-0000-7000-8000-000000000073";
+    const CREATION_RELEASE_KEY: &str = "019d1000-0000-7000-8000-000000000074";
+
+    let root = fresh_dir();
+    let (workspace, _intent_digest, creation_intent_digest) = north_star_workspace(&root);
+    let context = seed_creation_context(&workspace, creation_intent_digest);
+    workspace
+        .create_localized_changeset(CreateLocalizedChangeSetCommand {
+            changeset_id: CREATION_CHANGESET_ID.parse().unwrap(),
+            intent: ChangeSetIntent::new("Create and localize the campaign").unwrap(),
+            resource_intent_id: CREATION_INTENT_ID.parse().unwrap(),
+            resource_intent_digest: creation_intent_digest,
+            context_pack_id: context.context_pack_id,
+            context_pack_digest: context.context_pack_digest,
+            idempotency_key: CREATION_DRAFT_KEY.parse().unwrap(),
+            created_at: "2026-08-21T12:11:00Z".parse().unwrap(),
+        })
+        .expect("creation ChangeSet creates");
+    let object_id = CREATION_OBJECT_ID.parse().unwrap();
+    let schema_id = SchemaId::new(SCHEMA_ID).unwrap();
+    let schema_version = SchemaVersion::new(1).unwrap();
+    let source = json!({
+        "legal": "Standard terms apply",
+        "slug": "created-campaign",
+        "title": "Created campaign",
+    });
+    let source_content = canonicalize(&source).unwrap();
+    let source_digest =
+        object_revision_digest(object_id, &schema_id, schema_version, &source).unwrap();
+    let localized_content = canonicalize(&json!({
+        "legal": "Standard terms apply",
+        "slug": "created-campaign",
+        "title": "Campagne créée",
+    }))
+    .unwrap();
+    workspace
+        .add_localized_edits(AddLocalizedEditsCommand {
+            changeset_id: CREATION_CHANGESET_ID.parse().unwrap(),
+            edits: vec![
+                proof_application::LocalizedEditAttempt::ObjectCreate(ObjectCreateInput {
+                    object_id,
+                    schema_id: schema_id.clone(),
+                    schema_version,
+                    canonical_content: source_content.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                }),
+                proof_application::LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
+                    object_id,
+                    locale: LOCALE.parse().unwrap(),
+                    expected_source: ExpectedLocalizedSource {
+                        revision: ObjectRevision::INITIAL,
+                        digest: source_digest,
+                        schema_id,
+                        schema_version,
+                    },
+                    expected_target: None,
+                    canonical_content: localized_content.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                }),
+            ],
+            assigned_edit_ids: vec![
+                CREATION_CREATE_EDIT_ID.parse().unwrap(),
+                CREATION_PUT_EDIT_ID.parse().unwrap(),
+            ],
+            idempotency_key: CREATION_ADD_KEY.parse().unwrap(),
+        })
+        .expect("creation Edits append");
+    let validation = workspace
+        .validate_localized_changeset(CREATION_CHANGESET_ID.parse().unwrap())
+        .expect("creation validation runs");
+    assert!(validation.valid);
+    workspace
+        .submit_localized_changeset(
+            CREATION_CHANGESET_ID.parse().unwrap(),
+            "2026-08-21T12:20:00Z".parse().unwrap(),
+        )
+        .expect("creation ChangeSet submits");
+    workspace
+        .approve_localized_changeset(
+            CREATION_CHANGESET_ID.parse().unwrap(),
+            ApprovalName::new("editorial").unwrap(),
+            "2026-08-21T12:30:00Z".parse().unwrap(),
+        )
+        .expect("creation ChangeSet approves");
+
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .expect("connect to PostgreSQL; run scripts/dev-pg.sh or set PROOF_PG_DSN");
+    let schema = format!(
+        "p0015_creation_commit_{}_{}",
+        std::process::id(),
+        SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    {
+        let client = runtime.client_mut();
+        client
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .expect("create isolated schema");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema}\""))
+            .expect("set search path");
+    }
+    prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+    let validation_key = {
+        let mut transaction = runtime.client_mut().transaction().unwrap();
+        let key = proof_pg::parity::derive_validation_application_key_in_transaction(
+            &mut transaction,
+            WORKSPACE_ID.parse().unwrap(),
+            &json!({
+                "api_version": "proof.dev/operation/changeset.validate/v2",
+                "changeset_id": CREATION_CHANGESET_ID,
+            }),
+        )
+        .unwrap()
+        .expect("validated ChangeSet has a derived key");
+        transaction.rollback().unwrap();
+        key
+    };
+    let expected_validation_key = digest_canonical(
+        ArtifactKind::OperationEffectV1,
+        &canonicalize(&json!({
+            "api_version": "proof.dev/application-idempotency-key/v1",
+            "changeset_id": CREATION_CHANGESET_ID,
+            "operation": "changeset.validate/v2",
+            "policy_digest": context.policy_digest.to_string(),
+            "proposal_digest": validation.proposal_digest.to_string(),
+            "validator": proof_application::LOCALIZED_CONTENT_VALIDATOR,
+            "workspace_id": WORKSPACE_ID,
+        }))
+        .unwrap(),
+    );
+    assert_eq!(validation_key, expected_validation_key.to_string());
+    let commit_input = json!({
+        "api_version": "proof.dev/operation/changeset.commit/v2",
+        "changeset_id": CREATION_CHANGESET_ID,
+        "committed_at": "2026-08-21T13:00:00Z",
+        "idempotency_key": CREATION_COMMIT_KEY,
+    });
+    let scenario = ParityScenario {
+        name: "creation changeset commit".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: commit_input,
+            actor_context: actor_context(
+                "changeset.commit",
+                "proof.dev/operation/changeset.commit/v2",
+            ),
+        }],
+        expected_trace_digests: Vec::new(),
+    };
+    let runner = ParityRunner::new();
+    let mut sqlite = SqliteReferenceBackend::new(&workspace);
+    let sqlite_traces = runner.run_sqlite(&scenario, &mut sqlite).unwrap();
+    let mut postgres = PostgresBackend::new(&mut runtime);
+    let postgres_traces = runner.run_postgres(&scenario, &mut postgres).unwrap();
+    runner
+        .assert_identical(&sqlite_traces, &postgres_traces)
+        .expect("creation commit traces must be byte-identical");
+    match &postgres_traces[0].outcome {
+        OracleOutcome::TypedResult(result) => {
+            assert_eq!(result["status"], "committed");
+            assert_eq!(result["renditions"].as_array().map(Vec::len), Some(1));
+            assert_eq!(result["resulting_state"]["authoritative_sequence"], 4);
+        }
+        other @ OracleOutcome::StableProblem(_) => {
+            panic!("expected committed creation evidence, got {other:?}")
+        }
+    }
+
+    let resulting_state_digest = match &postgres_traces[0].outcome {
+        OracleOutcome::TypedResult(result) => result["resulting_state"]["digest"]
+            .as_str()
+            .unwrap()
+            .to_owned(),
+        OracleOutcome::StableProblem(problem) => {
+            panic!("creation commit unexpectedly failed: {}", problem.code)
+        }
+    };
+    let edition_scenario = ParityScenario {
+        name: "creation edition".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: json!({
+                "api_version": "proof.dev/operation/edition.create/v2",
+                "changeset_id": CREATION_CHANGESET_ID,
+                "created_at": "2026-08-21T13:30:00Z",
+                "edition_id": CREATION_EDITION_ID,
+                "idempotency_key": CREATION_EDITION_KEY,
+                "resulting_state_digest": resulting_state_digest,
+            }),
+            actor_context: actor_context("edition.create", "proof.dev/operation/edition.create/v2"),
+        }],
+        expected_trace_digests: Vec::new(),
+    };
+    let sqlite_edition = runner.run_sqlite(&edition_scenario, &mut sqlite).unwrap();
+    let postgres_edition = {
+        let mut backend = PostgresBackend::new(&mut runtime);
+        runner
+            .run_postgres(&edition_scenario, &mut backend)
+            .unwrap()
+    };
+    runner
+        .assert_identical(&sqlite_edition, &postgres_edition)
+        .expect("creation Edition remains byte-identical");
+
+    let release_scenario = ParityScenario {
+        name: "creation promotion".to_owned(),
+        operations: vec![ParityOperation {
+            normalized_input: json!({
+                "api_version": "proof.dev/operation/release.create/v2",
+                "edition_id": CREATION_EDITION_ID,
+                "environment_id": ENVIRONMENT_ID,
+                "expected_base_release_id": RELEASE_ID,
+                "idempotency_key": CREATION_RELEASE_KEY,
+                "proof_id": CREATION_PROOF_ID,
+                "release_id": CREATION_RELEASE_ID,
+                "released_at": "2026-08-21T14:00:00Z",
+            }),
+            actor_context: actor_context("release.create", "proof.dev/operation/release.create/v2"),
+        }],
+        expected_trace_digests: Vec::new(),
+    };
+    let sqlite_release = runner.run_sqlite(&release_scenario, &mut sqlite).unwrap();
+    let release_secret = workspace.release_signing_secret().unwrap();
+    let postgres_release = {
+        let mut backend = PostgresBackend::with_release_signer(
+            &mut runtime,
+            proof_attestation::Ed25519SigningProvider::from_secret_bytes(&release_secret),
+        );
+        runner
+            .run_postgres(&release_scenario, &mut backend)
+            .unwrap()
+    };
+    runner
+        .assert_identical(&sqlite_release, &postgres_release)
+        .expect("creation addition promotes through Edition and Release");
+    assert!(matches!(
+        postgres_release[0].outcome,
+        OracleOutcome::TypedResult(_)
+    ));
+
+    let canonical_counts = runtime
+        .client_mut()
+        .query_one(
+            "SELECT
+                 COUNT(*) FILTER (WHERE fact_id = $1 AND fact_kind = 'object'),
+                 COUNT(*) FILTER (WHERE fact_id LIKE $2 AND fact_kind = 'rendition')
+             FROM facts",
+            &[
+                &format!("object/{CREATION_OBJECT_ID}/1"),
+                &format!("rendition/{CREATION_OBJECT_ID}/{LOCALE}/%"),
+            ],
+        )
+        .unwrap();
+    assert_eq!(canonical_counts.get::<_, i64>(0), 1);
+    assert_eq!(canonical_counts.get::<_, i64>(1), 1);
+
+    let generation = proof_pg::projection::rebuild_into_new_generation(runtime.client_mut())
+        .expect("canonical creation facts rebuild");
+    proof_pg::projection::atomic_swap_active_generation(runtime.client_mut(), &generation)
+        .expect("creation projection activates");
+    let listed = proof_pg::projection::list_objects(
+        runtime.client_mut(),
+        WORKSPACE_ID.parse().unwrap(),
+        &proof_application::ObjectListCommand {
+            environment_id: proof_application::EnvironmentId::new(ENVIRONMENT_ID).unwrap(),
+            schema_id: Some(SchemaId::new(SCHEMA_ID).unwrap()),
+            locale: Some(LOCALE.parse().unwrap()),
+            object_ids: Some(vec![object_id]),
+            cursor: None,
+            page_size: Some(10),
+        },
+    )
+    .expect("object.list reads rebuilt creation");
+    assert_eq!(listed.entries.len(), 1);
+    assert_eq!(listed.entries[0].object_id, object_id);
+    assert!(listed.entries[0].covered_by_current_release);
+    assert_eq!(listed.entries[0].head_renditions.len(), 1);
+
+    let content_release_before: (i64, i64) = runtime
+        .client_mut()
+        .query_one(
+            "SELECT content_sequence, release_sequence
+             FROM workspace_write_head WHERE singleton = 1",
+            &[],
+        )
+        .map(|row| (row.get(0), row.get(1)))
+        .unwrap();
+    runtime
+        .client_mut()
+        .execute(
+            "INSERT INTO migration_head (
+                 singleton, version, name, script_digest, phase,
+                 actor, tool_version, started_at, verified_at
+             ) VALUES (1, 1, 'parity-test', $1, 'verified', 'test', 'test', now(), now())
+             ON CONFLICT (singleton) DO NOTHING",
+            &[&ContentDigest::blake3([0x91; 32]).to_string()],
+        )
+        .unwrap();
+    let mut read_hooks = proof_pg::transaction::UnitOfWorkHooks {
+        verify_authentication: Box::new(|| Ok(())),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(|_, _| Ok(proof_pg::idempotency::IdempotencyOutcome::Fresh)),
+        apply_consequence: Box::new(|_| Ok(())),
+    };
+    proof_pg::transaction::run_unit_of_work_with_sequence_policy(
+        runtime.client_mut(),
+        &mut read_hooks,
+        proof_pg::transaction::CausalSequencePolicy::AuthorityOnly,
+    )
+    .expect("Human read UOW commits authority evidence");
+    let content_release_after: (i64, i64) = runtime
+        .client_mut()
+        .query_one(
+            "SELECT content_sequence, release_sequence
+             FROM workspace_write_head WHERE singleton = 1",
+            &[],
+        )
+        .map(|row| (row.get(0), row.get(1)))
+        .unwrap();
+    assert_eq!(content_release_after, content_release_before);
+    let mut projection_tx = runtime.client_mut().transaction().unwrap();
+    proof_pg::projection::rebuild_content_and_swap_in_transaction(&mut projection_tx)
+        .expect("projection remains rebuildable after a Human read");
+    projection_tx.commit().unwrap();
+
+    let _ = runtime
+        .client_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE"));
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -590,6 +1947,7 @@ fn seed_localized_intent_and_context(
     let fr = LocaleId::new("fr-FR").unwrap();
     let intent = repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            creations: Vec::new(),
             intent_id: L_INTENT_ID.parse::<ContentResourceIntentId>().unwrap(),
             environment_id: ENVIRONMENT_ID.parse().unwrap(),
             targets: vec![
@@ -710,7 +2068,10 @@ fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeS
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: changeset.changeset_id,
-            edits: vec![es_edit, fr_edit],
+            edits: vec![
+                proof_application::LocalizedEditAttempt::LocalePut(es_edit),
+                proof_application::LocalizedEditAttempt::LocalePut(fr_edit),
+            ],
             assigned_edit_ids: vec![
                 L_ES_EDIT.parse::<EditId>().unwrap(),
                 L_FR_EDIT.parse().unwrap(),
@@ -729,7 +2090,7 @@ fn seed_localized_flow(workspace: &LocalWorkspace) -> proof_application::ChangeS
 #[allow(clippy::too_many_lines)]
 fn localized_change_set_artifacts_import_with_verified_digests() {
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let _changeset_id = seed_localized_flow(&workspace);
 
     let mut runtime = PgRuntime::connect(PgConfig::new(
@@ -845,7 +2206,7 @@ fn changeset_get_traces_are_byte_identical() {
     use proof_remote::OracleOutcome;
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let changeset_id = seed_localized_flow(&workspace);
 
     let mut runtime = PgRuntime::connect(PgConfig::new(
@@ -941,7 +2302,7 @@ fn changeset_create_traces_are_byte_identical() {
     use proof_remote::OracleOutcome;
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
 
@@ -1046,7 +2407,7 @@ fn changeset_add_traces_are_byte_identical() {
     const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let _changeset = workspace
@@ -1191,7 +2552,7 @@ fn changeset_validate_traces_are_byte_identical() {
     const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let _changeset = workspace
@@ -1340,7 +2701,7 @@ fn changeset_submit_traces_are_byte_identical() {
     const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let _changeset = workspace
@@ -1536,7 +2897,7 @@ fn changeset_commit_traces_are_byte_identical() {
     const L_COMMIT_KEY: &str = "019d1000-0000-7000-8000-000000000045";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let object_id = OBJECT_ID.parse().unwrap();
@@ -1586,16 +2947,16 @@ fn changeset_commit_traces_are_byte_identical() {
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: L_CHANGESET_ID.parse().unwrap(),
             edits: vec![
-                edit_input(
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("es-ES").unwrap(),
                     "Condiciones estándar",
                     "Campaña de verano",
-                ),
-                edit_input(
+                )),
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("fr-FR").unwrap(),
                     "Conditions standards",
                     "Campagne d’été",
-                ),
+                )),
             ],
             assigned_edit_ids: vec![
                 "019d1000-0000-7000-8000-000000000051"
@@ -1721,7 +3082,7 @@ fn edition_create_traces_are_byte_identical() {
     const L_EDITION_KEY: &str = "019d1000-0000-7000-8000-000000000046";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let object_id = OBJECT_ID.parse().unwrap();
@@ -1771,16 +3132,16 @@ fn edition_create_traces_are_byte_identical() {
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: L_CHANGESET_ID.parse().unwrap(),
             edits: vec![
-                edit_input(
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("es-ES").unwrap(),
                     "Condiciones estándar",
                     "Campaña de verano",
-                ),
-                edit_input(
+                )),
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("fr-FR").unwrap(),
                     "Conditions standards",
                     "Campagne d’été",
-                ),
+                )),
             ],
             assigned_edit_ids: vec![
                 "019d1000-0000-7000-8000-000000000051"
@@ -1837,6 +3198,38 @@ fn edition_create_traces_are_byte_identical() {
             .expect("set search path");
     }
     prepare_parity_backend(&workspace, &mut runtime).expect("parity import");
+
+    let object_list = ObjectListCommand {
+        environment_id: EnvironmentId::new(ENVIRONMENT_ID).unwrap(),
+        schema_id: None,
+        locale: None,
+        object_ids: Some(vec![object_id]),
+        cursor: None,
+        page_size: Some(1),
+    };
+    let local_objects = workspace.list_objects(object_list.clone()).unwrap();
+    let pg_objects = projection::list_objects(
+        runtime.client_mut(),
+        WORKSPACE_ID.parse().unwrap(),
+        &object_list,
+    )
+    .unwrap();
+    assert_eq!(pg_objects, local_objects);
+    assert_eq!(pg_objects.entries[0].head_renditions.len(), 2);
+
+    let locale_list = ObjectListCommand {
+        locale: Some(LocaleId::new("fr-FR").unwrap()),
+        ..object_list
+    };
+    let local_locale = workspace.list_objects(locale_list.clone()).unwrap();
+    let pg_locale = projection::list_objects(
+        runtime.client_mut(),
+        WORKSPACE_ID.parse().unwrap(),
+        &locale_list,
+    )
+    .unwrap();
+    assert_eq!(pg_locale, local_locale);
+    assert_eq!(pg_locale.entries[0].head_renditions.len(), 1);
 
     let edition_input = serde_json::json!({
         "api_version": "proof.dev/operation/edition.create/v2",
@@ -1911,7 +3304,7 @@ fn changeset_diff_traces_are_byte_identical() {
     const L_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000044";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let object_id = OBJECT_ID.parse().unwrap();
@@ -1961,16 +3354,16 @@ fn changeset_diff_traces_are_byte_identical() {
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: L_CHANGESET_ID.parse().unwrap(),
             edits: vec![
-                edit_input(
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("es-ES").unwrap(),
                     "Condiciones estándar",
                     "Campaña de verano",
-                ),
-                edit_input(
+                )),
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("fr-FR").unwrap(),
                     "Conditions standards",
                     "Campagne d’été",
-                ),
+                )),
             ],
             assigned_edit_ids: vec![
                 "019d1000-0000-7000-8000-000000000051"
@@ -2051,7 +3444,7 @@ fn query_released_rejection_traces_are_byte_identical() {
     use proof_remote::OracleOutcome;
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let mut runtime = PgRuntime::connect(PgConfig::new(
         dsn(),
         WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
@@ -2129,7 +3522,7 @@ fn context_build_traces_are_byte_identical() {
     const L_BUILD_KEY: &str = "019d1000-0000-7000-8000-000000000047";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, _pack_id, _pack_digest) =
         seed_localized_intent_and_context(&workspace);
 
@@ -2263,7 +3656,7 @@ fn release_create_traces_are_byte_identical() {
     const L_RELEASE_KEY: &str = "019d1000-0000-7000-8000-00000000004c";
 
     let root = fresh_dir();
-    let (workspace, _intent_digest) = north_star_workspace(&root);
+    let (workspace, _intent_digest, _creation_intent_digest) = north_star_workspace(&root);
     let (intent_id, intent_digest, context_pack_id, context_pack_digest) =
         seed_localized_intent_and_context(&workspace);
     let object_id = OBJECT_ID.parse().unwrap();
@@ -2313,16 +3706,16 @@ fn release_create_traces_are_byte_identical() {
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: L_CHANGESET_ID.parse().unwrap(),
             edits: vec![
-                edit_input(
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("es-ES").unwrap(),
                     "Condiciones estándar",
                     "Campaña de verano",
-                ),
-                edit_input(
+                )),
+                proof_application::LocalizedEditAttempt::LocalePut(edit_input(
                     LocaleId::new("fr-FR").unwrap(),
                     "Conditions standards",
                     "Campagne d’été",
-                ),
+                )),
             ],
             assigned_edit_ids: vec![
                 "019d1000-0000-7000-8000-000000000061"

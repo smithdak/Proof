@@ -29,7 +29,7 @@ pub const PROBLEM_API_VERSION: &str = "proof.dev/http-problem/v1";
 /// One frozen RFC 9457 Problem registry tuple `(code, status, type, title,
 /// retryable)` (contract §"Envelopes, Problems, and HTTP semantics").
 ///
-/// The exact 41-tuple set mirrors the normative
+/// The exact 44-tuple set mirrors the normative
 /// `http-operation-registry.valid.json` machine vector; no adapter may
 /// substitute a different title, status, type, or retry flag.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,9 +66,9 @@ impl ProblemTuple {
     }
 }
 
-/// The exact 41-tuple HTTP Problem registry (contract §"Envelopes, Problems,
+/// The exact 44-tuple HTTP Problem registry (contract §"Envelopes, Problems,
 /// and HTTP semantics").
-pub const PROBLEM_REGISTRY: [ProblemTuple; 41] = [
+pub const PROBLEM_REGISTRY: [ProblemTuple; 44] = [
     ProblemTuple::new(
         "proof.auth.csrf_denied",
         403,
@@ -266,6 +266,13 @@ pub const PROBLEM_REGISTRY: [ProblemTuple; 41] = [
         false,
     ),
     ProblemTuple::new(
+        "proof.intent.slot_mismatch",
+        409,
+        "urn:proof:problem:intent-slot-mismatch",
+        "Resource intent creation slot mismatch",
+        false,
+    ),
+    ProblemTuple::new(
         "proof.integrity.failure",
         500,
         "urn:proof:problem:integrity-failure",
@@ -315,10 +322,24 @@ pub const PROBLEM_REGISTRY: [ProblemTuple; 41] = [
         false,
     ),
     ProblemTuple::new(
+        "proof.schema.not_found",
+        404,
+        "urn:proof:problem:schema-not-found",
+        "Schema not found",
+        false,
+    ),
+    ProblemTuple::new(
         "proof.state.conflict",
         409,
         "urn:proof:problem:state-conflict",
         "State conflict",
+        false,
+    ),
+    ProblemTuple::new(
+        "proof.state.object_exists",
+        409,
+        "urn:proof:problem:object-exists",
+        "Object already exists",
         false,
     ),
     ProblemTuple::new(
@@ -581,6 +602,9 @@ pub struct DispatchRequest {
     pub normalized_input: Value,
     /// Adapter-derived protected actor context.
     pub actor_context: AuthenticatedActorContextV2,
+    /// Verified Agent evidence awaiting atomic persistence. Human requests do
+    /// not carry this field.
+    pub agent_attempt: Option<crate::authz::PreparedAgentAttempt>,
     /// Optional validated caller UUIDv7 correlation identifier.
     pub correlation_id: Option<String>,
 }
@@ -615,11 +639,17 @@ pub fn dispatch(
     if let Err(error) = validate_correlation_id(request.correlation_id.as_deref()) {
         return Err(map_server_error(&error, Some(operation), operation_id));
     }
+    let correlation_id = request.correlation_id.clone();
 
     // 3. Path/body/invocation/capability cross-check before any application
     // execution; a mismatch fails closed.
     if let Err(error) = cross_check_dispatch_request(&request) {
-        return Err(map_server_error(&error, Some(operation), operation_id));
+        return Err(map_server_error_with_correlation(
+            &error,
+            Some(operation),
+            operation_id,
+            correlation_id,
+        ));
     }
 
     // 4. Evaluate authorization at the exact locked authority head.
@@ -628,52 +658,76 @@ pub fn dispatch(
         &request.actor_context,
         &request.normalized_input,
     )
-    .map_err(|error| map_server_error(&error, Some(operation.clone()), operation_id.clone()))?;
+    .map_err(|error| {
+        map_server_error_with_correlation(
+            &error,
+            Some(operation.clone()),
+            operation_id.clone(),
+            correlation_id.clone(),
+        )
+    })?;
 
     // 5. Execute the operation through the P-0010 unit of work.
-    let consequence = match request.route {
-        HttpRouteV1::HumanOperations => crate::operations::HumanOperationExecutor::execute(
-            state,
-            &operation,
-            &request.normalized_input,
-            &request.actor_context,
-            &decision,
-        ),
-        HttpRouteV1::AgentOperations => crate::operations::AgentOperationExecutor::execute(
-            state,
-            &operation,
-            &request.normalized_input,
-            &request.actor_context,
-            &decision,
-        ),
+    let execution = match request.route {
+        HttpRouteV1::HumanOperations => {
+            crate::operations::HumanOperationExecutor::execute_for_dispatch(
+                state,
+                &operation,
+                &request.normalized_input,
+                &request.actor_context,
+                &decision,
+            )
+        }
+        HttpRouteV1::AgentOperations => {
+            crate::operations::AgentOperationExecutor::execute_for_dispatch_with_attempt_and_correlation(
+                state,
+                &operation,
+                &request.normalized_input,
+                &request.actor_context,
+                &decision,
+                request.agent_attempt.as_ref(),
+                request.correlation_id.as_deref(),
+            )
+        }
         route => {
-            return Err(map_server_error(
+            return Err(map_server_error_with_correlation(
                 &ServerError::Dispatch(format!(
                     "route `{}` carries no operation executor",
                     route.path()
                 )),
                 Some(operation),
                 operation_id,
+                correlation_id,
             ));
         }
     }
-    .map_err(|error| map_server_error(&error, Some(operation.clone()), operation_id.clone()))?;
+    .map_err(|error| {
+        map_server_error_with_correlation(
+            &error,
+            Some(operation.clone()),
+            operation_id.clone(),
+            correlation_id.clone(),
+        )
+    })?;
 
     // 6. Bind the committed head/result-digest anchor and the unchanged typed
     // application result.
-    let result_digest = consequence.result_digest.as_ref().map(ToString::to_string);
+    let result_digest = execution
+        .consequence
+        .result_digest
+        .as_ref()
+        .map(ToString::to_string);
     let anchor = committed_anchor(
-        &consequence.evaluated_authority_head,
+        &execution.consequence.evaluated_authority_head,
         result_digest.as_deref(),
     );
-    let result = serde_json::to_value(&consequence).unwrap_or(Value::Null);
 
     Ok(SuccessEnvelope::new(
         operation,
         operation_id,
         request.correlation_id,
         anchor,
-        result,
+        execution.result,
     ))
 }
 
@@ -718,9 +772,24 @@ pub fn map_server_error(
     operation: Option<RemoteOperationV1>,
     operation_id: String,
 ) -> ProblemResponse {
+    map_server_error_with_correlation(error, operation, operation_id, None)
+}
+
+fn map_server_error_with_correlation(
+    error: &ServerError,
+    operation: Option<RemoteOperationV1>,
+    operation_id: String,
+    correlation_id: Option<String>,
+) -> ProblemResponse {
     let code = match error {
         ServerError::RateLimited => "proof.rate_limit.exceeded",
-        ServerError::DeadlineExceeded => "proof.operation.unknown_outcome",
+        ServerError::DeadlineExceeded
+        | ServerError::Storage(proof_pg::PgError::AmbiguousCommit(_)) => {
+            "proof.operation.unknown_outcome"
+        }
+        ServerError::Storage(
+            proof_pg::PgError::Integrity(_) | proof_pg::PgError::Projection(_),
+        ) => "proof.integrity.failure",
         ServerError::Storage(_) => "proof.storage.conflict",
         ServerError::Config(_) | ServerError::Internal(_) => "proof.internal",
         ServerError::Oidc(_) | ServerError::Session(_) | ServerError::Authentication(_) => {
@@ -729,9 +798,16 @@ pub fn map_server_error(
         ServerError::Csrf(_) => "proof.auth.csrf_denied",
         ServerError::Authorization(_) => "proof.authorization.denied",
         ServerError::Dispatch(_) => "proof.input.schema_mismatch",
+        ServerError::ApplicationProblem(code) => {
+            if problem_tuple(code).is_some() {
+                code
+            } else {
+                "proof.internal"
+            }
+        }
     };
     let tuple = problem_tuple(code).expect("mapped code is a frozen registry tuple");
-    ProblemResponse::new(tuple, operation, operation_id, None)
+    ProblemResponse::new(tuple, operation, operation_id, correlation_id)
 }
 
 /// Derives a UUIDv7 operation identifier for an execution (contract §"HTTP

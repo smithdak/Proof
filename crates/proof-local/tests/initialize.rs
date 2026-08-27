@@ -245,7 +245,7 @@ fn initialization_creates_config_private_layout_and_sqlite_metadata() {
     assert_eq!(enabled, 1);
     assert_eq!(foreign_keys, 1);
     assert_eq!(journal_mode, "wal");
-    assert_eq!(schema_version, 14);
+    assert_eq!(schema_version, 15);
     assert_eq!(migration_name, "initialize-local-workspace");
     assert_eq!(authoritative_sequence, 0);
     assert_eq!(
@@ -385,7 +385,7 @@ fn status_distinguishes_uninitialized_and_verified_workspaces() {
     };
     assert_eq!(status.workspace_id.to_string(), WORKSPACE_ID);
     assert_eq!(status.principal_id.to_string(), PRINCIPAL_ID);
-    assert_eq!(status.storage_schema_version, 14);
+    assert_eq!(status.storage_schema_version, 15);
     assert_eq!(status.authoritative_sequence, 0);
     assert_eq!(
         status.state_digest,
@@ -2197,7 +2197,7 @@ fn delayed_changeset_retries_return_original_results_after_commit() {
     reason = "the same exact lifecycle proves first-write chronology and replay ordering across supported v9 through v14 storage"
 )]
 fn lifecycle_chronology_rejects_invalid_first_writes_but_replays_original_results() {
-    for schema_version in [9, 10, 11, 12, 13, 14] {
+    for schema_version in [9, 10, 11, 12, 13, 14, 15] {
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         match schema_version {
@@ -2206,7 +2206,8 @@ fn lifecycle_chronology_rejects_invalid_first_writes_but_replays_original_result
             11 => downgrade_database_to_v11(&repository),
             12 => downgrade_database_to_v12(&repository),
             13 => downgrade_database_to_v13(&repository),
-            14 => {}
+            14 => downgrade_database_to_v14(&repository),
+            15 => {}
             _ => unreachable!(),
         }
         assert_storage_version(&repository, schema_version);
@@ -4613,12 +4614,12 @@ fn p0004_each_v1_to_v11_v12_failure_rolls_back_exactly_and_retry_is_stable() {
             .unwrap();
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
         assert_foreign_keys_clean(&repository.open_database().unwrap());
         let after_retry = storage_fingerprint(&repository);
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
         assert_eq!(
             storage_fingerprint(&repository),
             after_retry,
@@ -4664,13 +4665,13 @@ fn p0005_each_v1_to_v12_v13_failure_rolls_back_exactly_and_retry_is_stable() {
             .unwrap();
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
         assert_foreign_keys_clean(&repository.open_database().unwrap());
         assert_no_v13_authenticated_rows(&repository);
         let after_retry = storage_fingerprint(&repository);
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
         assert_eq!(
             storage_fingerprint(&repository),
             after_retry,
@@ -4716,7 +4717,7 @@ fn p0006_each_v1_to_v13_v14_failure_rolls_back_exactly_and_retry_is_stable() {
             .unwrap();
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
         let connection = repository.open_database().unwrap();
         assert_foreign_keys_clean(&connection);
         let (presentation_count, cutover, expected_cutover): (u32, i64, i64) = connection
@@ -4739,7 +4740,7 @@ fn p0006_each_v1_to_v13_v14_failure_rolls_back_exactly_and_retry_is_stable() {
         let after_retry = storage_fingerprint(&repository);
 
         rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
         assert_eq!(
             storage_fingerprint(&repository),
             after_retry,
@@ -4786,7 +4787,7 @@ fn p0005_v13_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
         release_proof_artifact_bytes(directory.path(), baseline_release.proof_id);
 
     rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-    assert_storage_version(&repository, 14);
+    assert_storage_version(&repository, 15);
     assert_eq!(
         legacy_v1_release_byte_snapshot(&repository, FIRST_RELEASE_ID),
         baseline_v10_bytes,
@@ -4818,15 +4819,17 @@ fn p0005_v13_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: changeset.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id,
-                locale,
-                expected_source,
-                expected_target: None,
-                canonical_content: localized_content.as_str().to_owned(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id,
+                    locale,
+                    expected_source,
+                    expected_target: None,
+                    canonical_content: localized_content.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            )],
             assigned_edit_ids: vec![LOCALIZED_EDIT_ID.parse().unwrap()],
             idempotency_key: LOCALIZED_ADD_KEY.parse().unwrap(),
         })
@@ -4934,7 +4937,7 @@ fn p0005_v13_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
         .unwrap();
 
     rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-    assert_storage_version(&repository, 14);
+    assert_storage_version(&repository, 15);
     assert_eq!(release_history_byte_snapshot(&repository), history_before);
     assert_eq!(
         release_proof_artifact_snapshot(directory.path()),
@@ -4985,7 +4988,7 @@ fn p0005_v13_migration_preserves_v10_v1_and_v11_mixed_release_history_bytes() {
         .unwrap();
 
     rebuild_projections(&repository, RebuildProjectionsCommand { dry_run: true }).unwrap();
-    assert_storage_version(&repository, 14);
+    assert_storage_version(&repository, 15);
     assert_eq!(
         release_history_byte_snapshot(&repository),
         v12_history_before
@@ -5663,7 +5666,7 @@ fn legacy_projection_rebuild_migrates_v8_then_repairs_schema_and_known_state() {
     assert_eq!(dry_run.schema_count, 1);
     assert_eq!(dry_run.object_count, 0);
     assert_eq!(dry_run.environment_pointer_count, 0);
-    assert_storage_version(&repository, 14);
+    assert_storage_version(&repository, 15);
     assert_operation_effect_columns(&repository);
     assert_legacy_effect_digests(&repository, 8);
     let after_dry_run = legacy_evidence_snapshot(&repository, 8);
@@ -5755,7 +5758,7 @@ fn legacy_projection_rebuild_migrates_v9_then_repairs_object_and_known_state() {
     assert_eq!(dry_run.schema_count, 1);
     assert_eq!(dry_run.object_count, 1);
     assert_eq!(dry_run.environment_pointer_count, 0);
-    assert_storage_version(&repository, 14);
+    assert_storage_version(&repository, 15);
     assert_operation_effect_columns(&repository);
     assert_legacy_effect_digests(&repository, 9);
     let after_dry_run = legacy_evidence_snapshot(&repository, 9);
@@ -5820,7 +5823,7 @@ fn projection_rebuild_rejects_lifecycle_effect_tamper_without_repairing_projecti
         let directory = TestDirectory::new();
         let repository = initialized_repository(&directory);
         prepare_first_mixed_release(&repository);
-        assert_storage_version(&repository, 14);
+        assert_storage_version(&repository, 15);
 
         let connection = repository.open_database().unwrap();
         let effect_query = format!(
@@ -7161,7 +7164,7 @@ fn agent_and_delegation_authority_is_exact_expiring_and_revocable() {
     .unwrap();
     assert_eq!(status.principal_id.to_string(), AGENT_PRINCIPAL_ID);
     assert_eq!(status.delegation_id.to_string(), DELEGATION_ID);
-    assert_eq!(status.storage_schema_version, 14);
+    assert_eq!(status.storage_schema_version, 15);
     assert_eq!(
         status.authorization_decision_digest,
         verify_delegation(&repository, valid_status.clone())
@@ -9415,7 +9418,28 @@ fn downgrade_database_to_v12(repository: &LocalWorkspace) {
         .unwrap();
 }
 
+fn downgrade_database_to_v14(repository: &LocalWorkspace) {
+    let connection = repository.open_database().unwrap();
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    if version == 14 {
+        return;
+    }
+    assert_eq!(version, 15);
+    connection
+        .execute_batch(
+            "ALTER TABLE localized_edits DROP COLUMN edit_kind;
+             ALTER TABLE content_resource_intents DROP COLUMN creations_json;
+             DELETE FROM schema_migrations WHERE version = 15;
+             UPDATE workspace_metadata SET schema_version = 14 WHERE singleton = 1;
+             PRAGMA user_version = 14;",
+        )
+        .unwrap();
+}
+
 fn downgrade_database_to_v13(repository: &LocalWorkspace) {
+    downgrade_database_to_v14(repository);
     let connection = repository.open_database().unwrap();
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -10293,7 +10317,46 @@ fn release_history_byte_snapshot(repository: &LocalWorkspace) -> TableRowSnapsho
                 && !V14_TABLES.contains(&name.as_str())
         })
         .collect::<Vec<_>>();
-    let mut snapshot = table_row_snapshot(&connection, &names);
+    let mut snapshot: TableRowSnapshot = Vec::new();
+    for name in &names {
+        let excluded: &[&str] = match name.as_str() {
+            "localized_edits" => &["edit_kind"],
+            "content_resource_intents" => &["creations_json"],
+            _ => &[],
+        };
+        if excluded.is_empty() {
+            snapshot.push((
+                name.clone(),
+                snapshot_rows(
+                    &connection,
+                    &format!("SELECT * FROM \"{name}\" ORDER BY rowid"),
+                ),
+            ));
+        } else {
+            let mut statement = connection
+                .prepare(&format!("PRAGMA table_info(\"{name}\")"))
+                .unwrap();
+            let mut columns = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect::<Vec<_>>();
+            drop(statement);
+            columns.retain(|column| !excluded.contains(&column.as_str()));
+            let projection = columns
+                .iter()
+                .map(|column| format!("\"{column}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            snapshot.push((
+                name.clone(),
+                snapshot_rows(
+                    &connection,
+                    &format!("SELECT {projection} FROM \"{name}\" ORDER BY rowid"),
+                ),
+            ));
+        }
+    }
     snapshot.push((
         "schema_migrations_before_v12".to_owned(),
         snapshot_rows(
@@ -10724,7 +10787,7 @@ fn assert_latest_schema_and_foreign_keys(repository: &LocalWorkspace) {
         .unwrap();
     assert_eq!(
         (metadata_version, migration_version, pragma_version),
-        (14, 14, 14)
+        (15, 15, 15)
     );
     let v10_table_count: i64 = connection
         .query_row(
@@ -11569,6 +11632,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
     ];
     let intent = repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            creations: Vec::new(),
             intent_id: INTENT_ID.parse::<ContentResourceIntentId>().unwrap(),
             environment_id: ENVIRONMENT_ID.parse().unwrap(),
             targets,
@@ -11630,7 +11694,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: changeset.changeset_id,
             edits: vec![
-                ObjectLocalePutInput {
+                proof_application::LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
                     object_id,
                     locale: es.clone(),
                     expected_source: expected_source.clone(),
@@ -11638,8 +11702,8 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
                     canonical_content: es_content.as_str().to_owned(),
                     supersedes_edit_id: None,
                     repair_of_validation_result_digest: None,
-                },
-                ObjectLocalePutInput {
+                }),
+                proof_application::LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
                     object_id,
                     locale: fr.clone(),
                     expected_source: expected_source.clone(),
@@ -11647,7 +11711,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
                     canonical_content: invalid_fr_content.as_str().to_owned(),
                     supersedes_edit_id: None,
                     repair_of_validation_result_digest: None,
-                },
+                }),
             ],
             assigned_edit_ids: vec![ES_EDIT_ID.parse().unwrap(), FR_EDIT_ID.parse().unwrap()],
             idempotency_key: ADD_KEY.parse().unwrap(),
@@ -11670,15 +11734,17 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: changeset.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id,
-                locale: fr.clone(),
-                expected_source,
-                expected_target: None,
-                canonical_content: repaired_fr_content.as_str().to_owned(),
-                supersedes_edit_id: Some(FR_EDIT_ID.parse().unwrap()),
-                repair_of_validation_result_digest: Some(invalid.validation_results_digest),
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id,
+                    locale: fr.clone(),
+                    expected_source,
+                    expected_target: None,
+                    canonical_content: repaired_fr_content.as_str().to_owned(),
+                    supersedes_edit_id: Some(FR_EDIT_ID.parse().unwrap()),
+                    repair_of_validation_result_digest: Some(invalid.validation_results_digest),
+                },
+            )],
             assigned_edit_ids: vec![FR_REPAIR_EDIT_ID.parse().unwrap()],
             idempotency_key: REPAIR_KEY.parse().unwrap(),
         })
@@ -11786,6 +11852,7 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
         .clone();
     let replacement_intent = repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            creations: Vec::new(),
             intent_id: REPLACEMENT_INTENT_ID.parse().unwrap(),
             environment_id: ENVIRONMENT_ID.parse().unwrap(),
             targets: vec![LocalizedContentTarget {
@@ -11842,23 +11909,25 @@ fn localized_human_path_repairs_and_releases_two_exact_locales() {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: replacement_changeset.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id,
-                locale: fr.clone(),
-                expected_source: ExpectedLocalizedSource {
-                    revision: ObjectRevision::INITIAL,
-                    digest: source_digest,
-                    schema_id: schema_id.clone(),
-                    schema_version,
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id,
+                    locale: fr.clone(),
+                    expected_source: ExpectedLocalizedSource {
+                        revision: ObjectRevision::INITIAL,
+                        digest: source_digest,
+                        schema_id: schema_id.clone(),
+                        schema_version,
+                    },
+                    expected_target: Some(ExpectedLocalizedTarget {
+                        revision: first_fr.revision,
+                        digest: first_fr.rendition_digest,
+                    }),
+                    canonical_content: revised_content.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
                 },
-                expected_target: Some(ExpectedLocalizedTarget {
-                    revision: first_fr.revision,
-                    digest: first_fr.rendition_digest,
-                }),
-                canonical_content: revised_content.as_str().to_owned(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            )],
             assigned_edit_ids: vec![REPLACEMENT_EDIT_ID.parse().unwrap()],
             idempotency_key: REPLACEMENT_ADD_KEY.parse().unwrap(),
         })
@@ -12386,6 +12455,7 @@ fn localized_intent_command(
     issued_at: &str,
 ) -> IssueContentResourceIntentCommand {
     IssueContentResourceIntentCommand {
+        creations: Vec::new(),
         intent_id: intent_id.parse().unwrap(),
         environment_id: ENVIRONMENT_ID.parse().unwrap(),
         targets: vec![LocalizedContentTarget {
@@ -12519,15 +12589,17 @@ fn localized_mixed_release_chain_fixture() -> (LocalizedDraftFixture, ReleaseId,
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id: fixture.object_id,
-                locale: fixture.locale.clone(),
-                expected_source: fixture.expected_source.clone(),
-                expected_target: None,
-                canonical_content: canonical_content.as_str().to_owned(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id: fixture.object_id,
+                    locale: fixture.locale.clone(),
+                    expected_source: fixture.expected_source.clone(),
+                    expected_target: None,
+                    canonical_content: canonical_content.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            )],
             assigned_edit_ids: vec![EDIT_ID.parse().unwrap()],
             idempotency_key: ADD_KEY.parse().unwrap(),
         })
@@ -13209,15 +13281,17 @@ fn localized_changeset_create_replay_returns_original_draft_after_commit() {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id: fixture.object_id,
-                locale: fixture.locale.clone(),
-                expected_source: fixture.expected_source,
-                expected_target: None,
-                canonical_content: canonical_content.as_str().to_owned(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id: fixture.object_id,
+                    locale: fixture.locale.clone(),
+                    expected_source: fixture.expected_source,
+                    expected_target: None,
+                    canonical_content: canonical_content.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            )],
             assigned_edit_ids: vec![EDIT_ID.parse().unwrap()],
             idempotency_key: ADD_KEY.parse().unwrap(),
         })
@@ -13335,7 +13409,9 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![wrong_target],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    wrong_target
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000210".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000220".parse().unwrap(),
             })
@@ -13350,15 +13426,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: stale_source,
-                    expected_target: None,
-                    canonical_content: translated.as_str().to_owned(),
-                    supersedes_edit_id: None,
-                    repair_of_validation_result_digest: None,
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: stale_source,
+                        expected_target: None,
+                        canonical_content: translated.as_str().to_owned(),
+                        supersedes_edit_id: None,
+                        repair_of_validation_result_digest: None,
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000211".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000221".parse().unwrap(),
             })
@@ -13371,18 +13449,20 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: Some(ExpectedLocalizedTarget {
-                        revision: LocaleRevision::new(1).unwrap(),
-                        digest: test_digest('b'),
-                    }),
-                    canonical_content: translated.as_str().to_owned(),
-                    supersedes_edit_id: None,
-                    repair_of_validation_result_digest: None,
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: Some(ExpectedLocalizedTarget {
+                            revision: LocaleRevision::new(1).unwrap(),
+                            digest: test_digest('b'),
+                        }),
+                        canonical_content: translated.as_str().to_owned(),
+                        supersedes_edit_id: None,
+                        repair_of_validation_result_digest: None,
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000212".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000222".parse().unwrap(),
             })
@@ -13401,15 +13481,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: None,
-                    canonical_content: non_localizable_change.as_str().to_owned(),
-                    supersedes_edit_id: None,
-                    repair_of_validation_result_digest: None,
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: None,
+                        canonical_content: non_localizable_change.as_str().to_owned(),
+                        supersedes_edit_id: None,
+                        repair_of_validation_result_digest: None,
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000213".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000223".parse().unwrap(),
             })
@@ -13424,15 +13506,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id: fixture.object_id,
-                locale: fixture.locale.clone(),
-                expected_source: fixture.expected_source.clone(),
-                expected_target: None,
-                canonical_content: translated.as_str().to_owned(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id: fixture.object_id,
+                    locale: fixture.locale.clone(),
+                    expected_source: fixture.expected_source.clone(),
+                    expected_target: None,
+                    canonical_content: translated.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            )],
             assigned_edit_ids: vec![first_edit_id],
             idempotency_key: "019c0000-0000-7000-8000-000000000224".parse().unwrap(),
         })
@@ -13442,15 +13526,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: None,
-                    canonical_content: translated.as_str().to_owned(),
-                    supersedes_edit_id: None,
-                    repair_of_validation_result_digest: None,
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: None,
+                        canonical_content: translated.as_str().to_owned(),
+                        supersedes_edit_id: None,
+                        repair_of_validation_result_digest: None,
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000215".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000225".parse().unwrap(),
             })
@@ -13463,15 +13549,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: None,
-                    canonical_content: translated.as_str().to_owned(),
-                    supersedes_edit_id: Some(OTHER_EDIT_ID.parse().unwrap()),
-                    repair_of_validation_result_digest: Some(test_digest('c')),
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: None,
+                        canonical_content: translated.as_str().to_owned(),
+                        supersedes_edit_id: Some(OTHER_EDIT_ID.parse().unwrap()),
+                        repair_of_validation_result_digest: Some(test_digest('c')),
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000216".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000226".parse().unwrap(),
             })
@@ -13484,15 +13572,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: None,
-                    canonical_content: translated.as_str().to_owned(),
-                    supersedes_edit_id: Some(first_edit_id),
-                    repair_of_validation_result_digest: None,
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: None,
+                        canonical_content: translated.as_str().to_owned(),
+                        supersedes_edit_id: Some(first_edit_id),
+                        repair_of_validation_result_digest: None,
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000217".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000227".parse().unwrap(),
             })
@@ -13509,15 +13599,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: None,
-                    canonical_content: translated.as_str().to_owned(),
-                    supersedes_edit_id: Some(first_edit_id),
-                    repair_of_validation_result_digest: Some(test_digest('d')),
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: None,
+                        canonical_content: translated.as_str().to_owned(),
+                        supersedes_edit_id: Some(first_edit_id),
+                        repair_of_validation_result_digest: Some(test_digest('d')),
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-000000000218".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-000000000228".parse().unwrap(),
             })
@@ -13538,15 +13630,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id: fixture.object_id,
-                locale: fixture.locale.clone(),
-                expected_source: fixture.expected_source.clone(),
-                expected_target: None,
-                canonical_content: repaired.as_str().to_owned(),
-                supersedes_edit_id: Some(first_edit_id),
-                repair_of_validation_result_digest: Some(invalid.validation_results_digest),
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id: fixture.object_id,
+                    locale: fixture.locale.clone(),
+                    expected_source: fixture.expected_source.clone(),
+                    expected_target: None,
+                    canonical_content: repaired.as_str().to_owned(),
+                    supersedes_edit_id: Some(first_edit_id),
+                    repair_of_validation_result_digest: Some(invalid.validation_results_digest),
+                },
+            )],
             assigned_edit_ids: vec![repair_edit_id],
             idempotency_key: "019c0000-0000-7000-8000-000000000229".parse().unwrap(),
         })
@@ -13557,15 +13651,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale.clone(),
-                    expected_source: fixture.expected_source.clone(),
-                    expected_target: None,
-                    canonical_content: repaired.as_str().to_owned(),
-                    supersedes_edit_id: Some(first_edit_id),
-                    repair_of_validation_result_digest: Some(invalid.validation_results_digest),
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale.clone(),
+                        expected_source: fixture.expected_source.clone(),
+                        expected_target: None,
+                        canonical_content: repaired.as_str().to_owned(),
+                        supersedes_edit_id: Some(first_edit_id),
+                        repair_of_validation_result_digest: Some(invalid.validation_results_digest),
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-00000000021a".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-00000000022a".parse().unwrap(),
             })
@@ -13584,15 +13680,17 @@ fn localized_edit_denials_are_specific_and_atomic() {
         repository
             .add_localized_edits(AddLocalizedEditsCommand {
                 changeset_id: fixture.changeset_id,
-                edits: vec![ObjectLocalePutInput {
-                    object_id: fixture.object_id,
-                    locale: fixture.locale,
-                    expected_source: fixture.expected_source,
-                    expected_target: None,
-                    canonical_content: repaired.as_str().to_owned(),
-                    supersedes_edit_id: Some(repair_edit_id),
-                    repair_of_validation_result_digest: Some(invalid.validation_results_digest),
-                }],
+                edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                    ObjectLocalePutInput {
+                        object_id: fixture.object_id,
+                        locale: fixture.locale,
+                        expected_source: fixture.expected_source,
+                        expected_target: None,
+                        canonical_content: repaired.as_str().to_owned(),
+                        supersedes_edit_id: Some(repair_edit_id),
+                        repair_of_validation_result_digest: Some(invalid.validation_results_digest),
+                    }
+                )],
                 assigned_edit_ids: vec!["019c0000-0000-7000-8000-00000000021b".parse().unwrap()],
                 idempotency_key: "019c0000-0000-7000-8000-00000000022b".parse().unwrap(),
             })
@@ -13645,7 +13743,7 @@ fn localized_conformance_schemas_and_golden_artifacts_are_closed() {
     ))
     .unwrap();
     let cases = corpus["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 12);
+    assert_eq!(cases.len(), 15);
     for case in cases {
         let artifact = &case["artifact"];
         let errors = validator

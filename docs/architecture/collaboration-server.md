@@ -501,9 +501,10 @@ invalidates both session and synchronizer and expires the cookie. These four
 transport routes plus the five registered application or data routes above are
 the exact nine-route first-profile HTTP surface.
 
-The Human RPC route contains exactly 23 ordered operation rows, including the
-no-key `evidence.export.get/v1` lifecycle read. Together with the public and
-Agent/data rows, the complete registry contains exactly 40 operation rows; the
+The Human RPC route contains exactly 26 ordered operation rows, including the
+no-key `evidence.export.get/v1`, `object.list/v1`, `schema.get/v1`, and
+`schema.list/v1` reads. Together with the public and Agent/data rows, the
+complete registry contains exactly 43 operation rows; the
 HTTP surface remains nine routes.
 
 Agent operations with an evidence-write consequence remain POST even when they
@@ -521,7 +522,7 @@ or closes a known evidence boundary.
 | `capabilities.discover/v1` | Successor | public | none | one committed capability-registry digest |
 | `agent-binding.issue/v1` | Reused artifact, remote decision successor | `authority.admin` | required UUIDv7 | exact authority head and enrollment closure |
 | `agent-binding.revoke/v1` | Reused artifact, remote decision successor | `authority.admin` | required UUIDv7 | exact active binding and authority head |
-| `content-resource-intent.issue/v1` | Reused | `content.requester` | required UUIDv7 | exact baseline Release/Edition/Known State |
+| `content-resource-intent.issue/v2` | Successor | `content.requester` | required UUIDv7 | exact authority head and non-existing creation slots |
 | `context.build/v2` | Reused | `content.requester` for first build | required UUIDv7 | exact intent/base/config digests |
 | `changeset.get/v2` | Reused | `content.requester`, `content.reviewer`, or `content.publisher` under the contextual closure-read rule | none | complete current ChangeSet digest |
 | `changeset.diff/v2` | Reused | `content.requester`, `content.reviewer`, or `content.publisher` under the contextual closure-read rule | none | complete proposal/lineage digest |
@@ -535,11 +536,14 @@ or closes a known evidence boundary.
 | `environment-config.activate/v2` | Successor | distinct `environment.activator` | required UUIDv7 | exact proposal and current predecessor |
 | `evidence.export/v2` | Successor | `content.publisher` or `evidence.auditor` | required UUIDv7 | exact Release and immutable pre-attempt capture metadata; that metadata is not part of the verified inner claim |
 | `evidence.export.get/v1` | Successor lifecycle projection | `content.publisher` or `evidence.auditor` | none | exact export identity and current pending/ready producer state |
+| `object.list/v1` | Successor bounded projection | `content.requester`, `content.reviewer`, `content.publisher`, or `evidence.auditor` | none | authoritative sequence, filters, and authenticated cursor |
 | `oidc-binding.issue/v1` | Successor | `identity.admin` | required UUIDv7 | exact subject, Principal, issuer config, and authority head |
 | `oidc-binding.revoke/v1` | Successor | `identity.admin` | required UUIDv7 | exact active binding and authority head |
 | `principal.status.set/v2` | Successor remote authority fact | `identity.admin` | required UUIDv7 | exact Principal status and authority head |
 | `release.get/v2` | Successor transport projection | `content.requester`, `content.reviewer`, `content.publisher`, or `evidence.auditor` | none | immutable Release digest |
 | `release.verify/v2` | Successor remote evidence | `content.requester`, `content.reviewer`, `content.publisher`, or `evidence.auditor` | none | immutable Release/Proof digest |
+| `schema.get/v1` | Successor exact projection | `content.requester`, `content.reviewer`, `content.publisher`, or `evidence.auditor` | none | exact Schema version |
+| `schema.list/v1` | Successor bounded projection | `content.requester`, `content.reviewer`, `content.publisher`, or `evidence.auditor` | none | authoritative sequence, filters, and authenticated cursor |
 | `workspace-role.assign/v1` | Successor | `identity.admin` | required UUIDv7 | exact Principal, role state, and authority head |
 | `workspace-role.revoke/v1` | Successor | `identity.admin` | required UUIDv7 | exact active assignment and authority head |
 
@@ -555,7 +559,7 @@ the same current authority head as the operation.
 
 The machine registry closes those rules rather than treating their identifiers
 as prose aliases. Its non-circular `authorization_registry_sha256` is
-`e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b`,
+`d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171`,
 the SHA-256 over RFC 8785 of exactly the resource projection, closed rule
 definitions, Human operation-to-action/rule/sorted-role projection, and Agent
 operation-to-accepted-direct-policy projection. Every rule lists its exact
@@ -603,7 +607,7 @@ RFC 9457 presentation fields and private diagnostics are excluded. The exact
 registry row selects whether success must bind a remote authority payload,
 content-intent, evidence-capture, delivery-management fact, localized effect,
 or no application effect; a generic consequence label cannot substitute for
-that row-specific digest rule. All 40 rows carry the closed rule, including
+that row-specific digest rule. All 43 rows carry the closed rule, including
 `none` for routes that never produce a signed consequence; the rule does not
 itself confer consequence eligibility. When a successful Human mutation's
 effect is itself a remote authority record, the decision extends the locked
@@ -635,7 +639,7 @@ three v1 rows remain compatibility capabilities.
 
 Each Agent row also freezes the exact codes that may be committed after Allow
 as an application failure. The 11 localized v2 rows use the complete accepted
-`LocalizedOperationFailureV1` set; the retained v1 rows preserve their own
+20-code `LocalizedOperationFailureV1` set; the retained v1 rows preserve their own
 distinct source sets. In particular, `context.build/v1` retains the legacy
 post-Allow `proof.auth.denied` and `proof.delegation.expired` outcomes. A code
 prefix does not override that source-contract classification. Authorization-
@@ -719,8 +723,8 @@ result Schema freezes the accepted commitment. No additional registry route,
 deployment file path, Workspace/resource inventory, or implicit lookup is
 required. Unsupported versions fail explicitly.
 
-Exact closure reads are not paginated. A future registered list operation uses
-a server-authenticated opaque cursor bound to one snapshot and filter, stable
+Exact closure reads are not paginated. Registered list operations use a
+server-authenticated opaque cursor bound to one snapshot and filter, stable
 sort, default 50 and maximum 100 rows, and no offset pagination or UI-only SQL.
 
 The initial limits are:
@@ -1190,7 +1194,7 @@ following classification controls later Milestone 3 evidence:
 | Historical direct-Human v2 evidence is Incomplete without the Agent companion | Required closure for new remote Human north-star actions through versioned Human evidence/consequence; historical bundles remain Incomplete. |
 | Missing/pre-v14 artifacts and some malformed idempotency reconstructions remain conservatively Incomplete | Retained historical behavior. New server writes retain complete preimages; exhaustive legacy Invalid classification is not claimed. |
 | Same-UID TOCTOU and hostile-process isolation | Retained local nonclaim/later protected-broker or workload-identity work. A server does not retroactively change local containment. |
-| Verifier registry has 158 codes: 30 direct behavioral and 128 structural source/registry guards | Later release-hardening work. Structural equality is not relabeled branch-level behavior. |
+| Verifier registry has 163 codes: 30 direct behavioral and 133 structural source/registry guards | Later release-hardening work. Structural equality is not relabeled branch-level behavior. |
 | Redundant `EditBatchV1` is not independently replayed | Retained compatibility nonclaim/later cleanup; it remains non-authoritative. |
 | Windows runtime/containment is unqualified | Later fog. |
 | No server parity, deployment, production, public release, or live remote verification | P-0008 closes only a decision contract. Each runtime/operational claim requires a later implementation or qualification item. |

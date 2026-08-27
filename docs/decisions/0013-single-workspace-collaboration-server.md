@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Constitutional:** No
 **Date:** 2026-08-23
-**Last revised:** 2026-08-23 — accepted by project owner `smithdak` at `2026-08-23T17:48:11.461Z`; first successor promoted
+**Last revised:** 2026-08-26 — P-0021 extended the frozen registry with the ratified bounded reads and intent v2; originally accepted by project owner `smithdak` at `2026-08-23T17:48:11.461Z`
 
 ## Context
 
@@ -173,8 +173,9 @@ profiles as the Milestone 3 server boundary.
   `GET /api/v1/evidence-exports/{export_id}/artifacts/{artifact_kind}/{digest}`,
   and
   `GET /preview/{environment}/releases/{release_id}/objects/{object_id}/locales/{locale}`.
-- Freeze 23 ordered Human RPC rows, including keyed `evidence.export/v2` and
-  no-key `evidence.export.get/v1`, and 40 operation rows in total. These rows do
+- Freeze 26 ordered Human RPC rows, including keyed `evidence.export/v2` and
+  no-key `evidence.export.get/v1`, `object.list/v1`, `schema.get/v1`, and
+  `schema.list/v1`, and 43 operation rows in total. These rows do
   not add routes; the HTTP surface remains exactly nine routes.
 - Expose Human commands at
   `POST /api/v1/human/operations/{name}/{major}` and Agent commands at

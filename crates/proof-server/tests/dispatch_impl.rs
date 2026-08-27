@@ -1,5 +1,5 @@
 //! Integration tests for the route-qualified dispatch surface: the exact
-//! 41-tuple Problem registry, the RFC 9457 Problem projection, the success
+//! 44-tuple Problem registry, the RFC 9457 Problem projection, the success
 //! envelope, cross-check disagreement, status mapping, and the token-bucket
 //! rate limiter (contract §"Envelopes, Problems, and HTTP semantics",
 //! §"HTTP boundary").
@@ -100,6 +100,7 @@ fn valid_request(correlation_id: Option<String>) -> DispatchRequest {
         normalized_input: json!({}),
         actor_context: human_context(&op),
         correlation_id,
+        agent_attempt: None,
     }
 }
 
@@ -131,12 +132,12 @@ async fn problem_body_json(problem: ProblemResponse) -> (StatusCode, Value) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. The exact 41-tuple Problem registry
+// 1. The exact 44-tuple Problem registry
 // ---------------------------------------------------------------------------
 
 #[test]
-fn problem_registry_is_exactly_41_frozen_tuples() {
-    let expected: [(&str, u16, &str, &str, bool); 41] = [
+fn problem_registry_is_exactly_44_frozen_tuples() {
+    let expected: [(&str, u16, &str, &str, bool); 44] = [
         (
             "proof.auth.csrf_denied",
             403,
@@ -334,6 +335,13 @@ fn problem_registry_is_exactly_41_frozen_tuples() {
             false,
         ),
         (
+            "proof.intent.slot_mismatch",
+            409,
+            "urn:proof:problem:intent-slot-mismatch",
+            "Resource intent creation slot mismatch",
+            false,
+        ),
+        (
             "proof.integrity.failure",
             500,
             "urn:proof:problem:integrity-failure",
@@ -383,10 +391,24 @@ fn problem_registry_is_exactly_41_frozen_tuples() {
             false,
         ),
         (
+            "proof.schema.not_found",
+            404,
+            "urn:proof:problem:schema-not-found",
+            "Schema not found",
+            false,
+        ),
+        (
             "proof.state.conflict",
             409,
             "urn:proof:problem:state-conflict",
             "State conflict",
+            false,
+        ),
+        (
+            "proof.state.object_exists",
+            409,
+            "urn:proof:problem:object-exists",
+            "Object already exists",
             false,
         ),
         (
@@ -426,7 +448,7 @@ fn problem_registry_is_exactly_41_frozen_tuples() {
         ),
     ];
 
-    assert_eq!(PROBLEM_REGISTRY.len(), 41);
+    assert_eq!(PROBLEM_REGISTRY.len(), 44);
     for (index, tuple) in PROBLEM_REGISTRY.iter().enumerate() {
         let (code, status, type_uri, title, retryable) = expected[index];
         assert_eq!(tuple.code, code, "tuple {index} code");
@@ -440,7 +462,7 @@ fn problem_registry_is_exactly_41_frozen_tuples() {
     let mut codes: Vec<&str> = PROBLEM_REGISTRY.iter().map(|t| t.code).collect();
     codes.sort_unstable();
     codes.dedup();
-    assert_eq!(codes.len(), 41, "registry codes must be unique");
+    assert_eq!(codes.len(), 44, "registry codes must be unique");
     for tuple in &PROBLEM_REGISTRY {
         assert_eq!(problem_tuple(tuple.code), Some(*tuple));
     }
@@ -737,6 +759,18 @@ fn map_server_error_projects_the_contract_table() {
             "proof.storage.conflict",
             503,
             true,
+        ),
+        (
+            ServerError::Storage(proof_pg::PgError::Integrity("x".to_owned())),
+            "proof.integrity.failure",
+            500,
+            false,
+        ),
+        (
+            ServerError::Storage(proof_pg::PgError::Projection("x".to_owned())),
+            "proof.integrity.failure",
+            500,
+            false,
         ),
         (
             ServerError::Config("x".to_owned()),

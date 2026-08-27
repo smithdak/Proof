@@ -307,9 +307,9 @@
         "registry_canonicalization": { "const": "RFC8785" },
         "registry_digest_algorithm": { "const": "sha-256" },
         "registry_schema": { "const": "https://proof.dev/schema/collaboration-server/http-operation-registry/v1" },
-        "registry_sha256": { "const": "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf" },
+        "registry_sha256": { "const": "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca" },
         "route_count": { "const": 9 },
-        "human_operation_count": { "const": 23 },
+        "human_operation_count": { "const": 26 },
         "agent_operation_count": { "const": 14 }
       }
     },
@@ -1114,7 +1114,7 @@
         "verdict": { "enum": ["Complete", "Incomplete", "Invalid"] },
         "finding_codes": {
           "type": "array",
-          "maxItems": 158,
+          "maxItems": 161,
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^proof\\.verify\\.[a-z0-9_.-]+$" }
         }

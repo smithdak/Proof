@@ -18,9 +18,13 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use proof_application::authority::{
     AgentPrincipalType, AuthenticatedCommandApiVersion, AuthenticatedCommandEnvelopeJson,
     AuthenticatedCommandKeyUsage, AuthenticatedCommandV1, AuthenticatedInvocationApiVersion,
-    AuthenticatedInvocationV1, AuthorityAudience, AuthorityOperation, AuthoritySequence,
-    CommandInputApiVersion, CommandInputV1, Ed25519Algorithm, Ed25519KeyId, Ed25519PublicKey,
-    LocalEd25519AuthenticatedSubjectV1, PrincipalBindingApiVersion, PrincipalBindingV1,
+    AuthenticatedInvocationV1, AuthorityAction, AuthorityAudience, AuthorityOperation,
+    AuthoritySequence, CommandInputApiVersion, CommandInputV1, DelegationActionsV2,
+    DelegationApiVersion, DelegationConstraintsV2, DelegationEnvironmentIdsV2, DelegationLocalesV2,
+    DelegationObjectIdsV2, DelegationSchemaIdsV2, DelegationScopeV2, DelegationV2,
+    DirectAuthorityProfileV1, Ed25519Algorithm, Ed25519KeyId, Ed25519PublicKey,
+    LocalEd25519AuthenticatedSubjectV1, MaxContextBytes, MaxEditsPerChangeSet, MaxObjects,
+    PrincipalBindingApiVersion, PrincipalBindingV1, SubdelegationDisabled,
 };
 use proof_attestation::authority::{AuthorityPayloadProfile, sign_authority_payload};
 use proof_attestation::{Ed25519SigningProvider, ProofSigningProvider};
@@ -307,12 +311,17 @@ fn seed_human_binding(db: &TestDb) {
     );
 }
 
-fn seed_principal_status(db: &TestDb, principal_id: &str, enabled: bool) {
+fn seed_principal_status(
+    db: &TestDb,
+    principal_id: &str,
+    principal_type: RemotePrincipalType,
+    enabled: bool,
+) {
     let status = RemotePrincipalStatusV2 {
         api_version: RemotePrincipalStatusApiVersion::V1,
         workspace_id: WS_ID.to_owned(),
         principal_id: principal_id.to_owned(),
-        principal_type: RemotePrincipalType::Human,
+        principal_type,
         enabled,
         reason: "test".to_owned(),
         recorded_by_principal_id: REQUESTER.to_owned(),
@@ -407,6 +416,44 @@ fn seed_agent_binding(db: &TestDb) -> Ed25519SigningProvider {
     provider
 }
 
+fn seed_delegation(db: &TestDb) {
+    let issued_at = timestamp_offset(-60);
+    let delegation = DelegationV2 {
+        api_version: DelegationApiVersion::V1,
+        authority_sequence: AuthoritySequence::new(6).unwrap(),
+        previous_authority_record_digest: Some(deterministic_digest(0x01)),
+        delegation_id: DELEGATION_ID.parse().unwrap(),
+        workspace_id: WS_ID.parse().unwrap(),
+        delegation_profile: DirectAuthorityProfileV1::Direct,
+        issuer_principal_id: REQUESTER.parse().unwrap(),
+        recipient_principal_id: OPERATOR.parse().unwrap(),
+        actions: DelegationActionsV2::new(vec![AuthorityAction::WorkspaceStatus]).unwrap(),
+        scope: DelegationScopeV2 {
+            environment_ids: DelegationEnvironmentIdsV2::new(Vec::new()).unwrap(),
+            object_ids: DelegationObjectIdsV2::new(Vec::new()).unwrap(),
+            schema_ids: DelegationSchemaIdsV2::new(Vec::new()).unwrap(),
+            locales: DelegationLocalesV2::new(Vec::new()).unwrap(),
+        },
+        constraints: DelegationConstraintsV2 {
+            max_objects: MaxObjects::new(1).unwrap(),
+            max_context_bytes: MaxContextBytes::new(1).unwrap(),
+            max_edits_per_changeset: MaxEditsPerChangeSet::new(1).unwrap(),
+            allow_subdelegation: SubdelegationDisabled,
+        },
+        not_before: issued_at,
+        expires_at: timestamp_offset(3600),
+        issued_at,
+    };
+    let body = canonicalize(&serde_json::to_value(&delegation).unwrap()).unwrap();
+    db.seed_fact(
+        &format!("delegation/{DELEGATION_ID}"),
+        "delegation",
+        &RemoteAuthorityRecordV1::delegation_issue(delegation).digest(),
+        body.as_bytes(),
+        6,
+    );
+}
+
 fn build_invocation(provider: &Ed25519SigningProvider) -> AuthenticatedInvocationV1 {
     let command_input = CommandInputV1 {
         api_version: CommandInputApiVersion::V1,
@@ -498,7 +545,8 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
     // within an async runtime.
     let db = TestDb::new();
     seed_human_binding(&db);
-    seed_principal_status(&db, REQUESTER, true);
+    seed_principal_status(&db, REQUESTER, RemotePrincipalType::Human, true);
+    seed_principal_status(&db, OPERATOR, RemotePrincipalType::Agent, true);
     seed_role_assignment(
         &db,
         REQUESTER,
@@ -509,6 +557,7 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
         "ed25519:1111111111111111111111111111111111111111111111111111111111111111",
     );
     let provider = seed_agent_binding(&db);
+    seed_delegation(&db);
 
     let app = router(db.state.clone());
     // Capture the in-process issuer and a signed Agent invocation now so the

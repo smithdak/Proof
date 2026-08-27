@@ -137,7 +137,10 @@ fn ts_input_types_stay_field_set_exact_against_rust_inputs() {
             "LocalizedExpectedTargetInput",
             "LocalizedExpectedTargetInputV2",
         ),
-        ("LocalizedSemanticEditInput", "LocalizedSemanticEditInputV2"),
+        (
+            "LocalizedSemanticEditInput",
+            "LocalizedObjectLocalePutEditInputV2",
+        ),
         (
             "LocalizedChangeSetAddInputV2",
             "LocalizedChangeSetAddInputV2",

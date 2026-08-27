@@ -129,11 +129,13 @@ pub const IDEMPOTENCY_KEYS_DDL: &str = r"CREATE TABLE idempotency_keys (
     requesting_principal TEXT NOT NULL,
     operating_principal TEXT NOT NULL,
     delegation_id TEXT,
+    application_key TEXT NOT NULL,
     key_kind TEXT NOT NULL,
     result_digest TEXT NOT NULL,
+    result_body BYTEA NOT NULL,
     replay_count BIGINT NOT NULL DEFAULT 0,
     committed_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (workspace_id, operation, operation_version, normalized_input_digest, requesting_principal, operating_principal)
+    PRIMARY KEY (workspace_id, application_key)
 );";
 
 /// The artifact catalog: identity plus storage location (contract §"Immutable

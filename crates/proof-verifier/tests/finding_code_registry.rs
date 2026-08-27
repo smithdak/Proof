@@ -3,6 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Deserialize;
 
 const REGISTRY_JSON: &str = include_str!("../../../conformance/v1/verifier-finding-codes.json");
+const APPLICATION_SCHEMA_JSON: &str = include_str!(
+    "../../../conformance/v1/collaboration-server/schemas/application-operations-v1.schema.json"
+);
+const HTTP_REGISTRY_JSON: &str = include_str!(
+    "../../../conformance/v1/collaboration-server/vectors/http-operation-registry.valid.json"
+);
 const REPORT_SOURCES: &[(&str, &str)] = &[
     ("container.rs", include_str!("../src/container.rs")),
     ("crypto.rs", include_str!("../src/crypto.rs")),
@@ -136,6 +142,41 @@ fn public_finding_code_registry_matches_every_emitted_literal() {
     assert_eq!(
         registered_cli, emitted_cli,
         "CLI diagnostic-code drift: update verifier code and the conformance registry together"
+    );
+}
+
+#[test]
+fn release_verify_limits_match_the_closed_report_finding_count() {
+    let registry: Registry =
+        serde_json::from_str(REGISTRY_JSON).expect("finding-code registry must be valid JSON");
+    let application_schema: serde_json::Value = serde_json::from_str(APPLICATION_SCHEMA_JSON)
+        .expect("application operation Schema must be valid JSON");
+    let http_registry: serde_json::Value = serde_json::from_str(HTTP_REGISTRY_JSON)
+        .expect("HTTP operation registry must be valid JSON");
+    let finding_count = registry.report_findings.code_count;
+
+    assert_eq!(
+        application_schema["$defs"]["releaseVerifyResultV2"]["properties"]["finding_codes"]
+            ["maxItems"]
+            .as_u64(),
+        u64::try_from(finding_count).ok()
+    );
+    let release_verify = http_registry["routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|route| route["operations"].as_array().into_iter().flatten())
+        .find(|row| row["operation"]["version"] == "proof.dev/operation/release.verify/v2")
+        .expect("release.verify/v2 must have one frozen Human row");
+    assert_eq!(release_verify["result_limits"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        release_verify["result_limits"][0],
+        serde_json::json!({
+            "dimension": "findings",
+            "maximum": finding_count,
+            "measure": "array-length",
+            "schema_path": "/finding_codes",
+        })
     );
 }
 

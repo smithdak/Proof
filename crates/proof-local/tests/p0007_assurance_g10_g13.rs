@@ -37,15 +37,17 @@ fn assurance_approved_fixture() -> (LocalizedDraftFixture, String) {
         .repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id: fixture.changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id: fixture.object_id,
-                locale: fixture.locale.clone(),
-                expected_source: fixture.expected_source.clone(),
-                expected_target: None,
-                canonical_content: canonical_content.clone(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id: fixture.object_id,
+                    locale: fixture.locale.clone(),
+                    expected_source: fixture.expected_source.clone(),
+                    expected_target: None,
+                    canonical_content: canonical_content.clone(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            )],
             assigned_edit_ids: vec![ASSURANCE_EDIT_ID.parse().unwrap()],
             idempotency_key: ASSURANCE_ADD_KEY.parse().unwrap(),
         })

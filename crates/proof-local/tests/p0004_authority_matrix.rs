@@ -1300,6 +1300,7 @@ fn prepare_localized_release(repository: &LocalWorkspace) {
     };
     let intent = repository
         .issue_content_resource_intent(IssueContentResourceIntentCommand {
+            creations: Vec::new(),
             intent_id: matrix_id(0x40).parse().unwrap(),
             environment_id: ENVIRONMENT_ID.parse().unwrap(),
             targets: vec![LocalizedContentTarget {
@@ -1354,15 +1355,17 @@ fn prepare_localized_release(repository: &LocalWorkspace) {
     repository
         .add_localized_edits(AddLocalizedEditsCommand {
             changeset_id,
-            edits: vec![ObjectLocalePutInput {
-                object_id,
-                locale,
-                expected_source,
-                expected_target: None,
-                canonical_content: localized.as_str().to_owned(),
-                supersedes_edit_id: None,
-                repair_of_validation_result_digest: None,
-            }],
+            edits: vec![proof_application::LocalizedEditAttempt::LocalePut(
+                ObjectLocalePutInput {
+                    object_id,
+                    locale,
+                    expected_source,
+                    expected_target: None,
+                    canonical_content: localized.as_str().to_owned(),
+                    supersedes_edit_id: None,
+                    repair_of_validation_result_digest: None,
+                },
+            )],
             assigned_edit_ids: vec![matrix_id(0x46).parse().unwrap()],
             idempotency_key: matrix_id(0x47).parse().unwrap(),
         })

@@ -242,6 +242,7 @@ fn idempotency_candidate() -> IdempotencyTupleV1 {
 
 /// Persists one complete governed success consequence inside the transaction
 /// (decision, consequence, fact, idempotency key, and one outbox enqueue).
+#[allow(clippy::too_many_lines)]
 fn persist_governed_success(tx: &mut postgres::Transaction<'_>) -> Result<(), PgError> {
     let row = tx
         .query_one(
@@ -298,9 +299,9 @@ fn persist_governed_success(tx: &mut postgres::Transaction<'_>) -> Result<(), Pg
     tx.execute(
         "INSERT INTO idempotency_keys (
              workspace_id, operation, operation_version, normalized_input_digest,
-             requesting_principal, operating_principal, delegation_id, key_kind,
-             result_digest, replay_count, committed_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'required', $8, 0, now())",
+             requesting_principal, operating_principal, delegation_id, application_key,
+             key_kind, result_digest, result_body, replay_count, committed_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'required', $9, $10, 0, now())",
         &[
             &WS_ID,
             &"release.create",
@@ -309,7 +310,9 @@ fn persist_governed_success(tx: &mut postgres::Transaction<'_>) -> Result<(), Pg
             &REQUESTER,
             &OPERATOR,
             &DELEGATION,
+            &"019c0000-0000-7000-8000-0000000000f1",
             &digest(0x50).to_string(),
+            &body,
         ],
     )
     .map_err(|error| PgError::Transaction(error.to_string()))?;
@@ -422,8 +425,8 @@ fn authoritative_transaction_boundary_infrastructure_failure_rolls_back_everythi
 
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(|_| Ok(IdempotencyOutcome::Fresh)),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(|_, _| Ok(IdempotencyOutcome::Fresh)),
         apply_consequence: Box::new(|tx| {
             persist_governed_success(tx)?;
             Err(PgError::Transaction(
@@ -489,8 +492,8 @@ fn authoritative_transaction_boundary_replay_does_not_duplicate() {
     let candidate_for_hook = candidate.clone();
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(move |_| {
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(move |_, _| {
             let prior = if db_seen_once() {
                 Some(candidate_for_hook.clone())
             } else {
@@ -510,8 +513,10 @@ fn authoritative_transaction_boundary_replay_does_not_duplicate() {
     let candidate = idempotency_candidate();
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(move |_| Ok(replay_or_conflict(&candidate, Some(&candidate)))),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(move |_, _| {
+            Ok(replay_or_conflict(&candidate, Some(&candidate)))
+        }),
         apply_consequence: Box::new(persist_governed_success),
     };
     let outcome = run_unit_of_work(&mut db.client, &mut hooks).unwrap();

@@ -25,12 +25,12 @@ use super::{
     CommittedLocalizedChangeSet, ContextPack, CreateLocalizedChangeSetCommand,
     CreateLocalizedEditionCommand, ExpectedLocalizedSource, ExpectedLocalizedTarget,
     LocalizedChangeSet, LocalizedChangeSetDiff, LocalizedContentError, LocalizedContextLimits,
-    LocalizedContextPack, LocalizedEdit, LocalizedEdition, LocalizedFinding, LocalizedPolicyRule,
-    LocalizedRelease, LocalizedValidation, MAX_CONTEXT_TASK_ID_BYTES, MAX_DELEGATION_OBJECTS,
-    MAX_LOCALIZED_CONTEXT_BYTES, MAX_LOCALIZED_EDITS, MAX_LOCALIZED_TARGETS,
-    MAX_LOCALIZED_VALIDATION_ATTEMPTS, ObjectLocalePutInput, PromoteLocalizedReleaseCommand,
-    QueryReleasedRenditionsCommand, ReleasedLocaleTarget, ReleasedObjectQuery,
-    ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
+    LocalizedContextPack, LocalizedEdit, LocalizedEditAttempt, LocalizedEdition, LocalizedFinding,
+    LocalizedPolicyRule, LocalizedRelease, LocalizedValidation, MAX_CONTEXT_TASK_ID_BYTES,
+    MAX_DELEGATION_OBJECTS, MAX_LOCALIZED_CONTEXT_BYTES, MAX_LOCALIZED_EDITS,
+    MAX_LOCALIZED_TARGETS, MAX_LOCALIZED_VALIDATION_ATTEMPTS, ObjectCreateInput,
+    ObjectLocalePutInput, PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand,
+    ReleasedLocaleTarget, ReleasedObjectQuery, ReleasedRenditionQuery, SubmittedLocalizedChangeSet,
 };
 
 /// Ratified direct Human-to-Agent policy profile.
@@ -1925,23 +1925,53 @@ pub struct LocalizedExpectedTargetInputV2 {
     pub revision: u32,
 }
 
-/// Sole semantic Edit kind admitted by the localized v2 profile.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+/// Semantic Edit kinds admitted by the localized v2 profile.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LocalizedEditKindV2 {
     #[default]
-    #[serde(rename = "object.locale.put")]
     ObjectLocalePut,
+    ObjectCreate,
 }
 
-/// One strict semantic Edit before Proof assigns its trusted `edit_id`.
+impl LocalizedEditKindV2 {
+    /// Returns the stable wire discriminator for this Edit kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ObjectLocalePut => "object.locale.put",
+            Self::ObjectCreate => "object.create",
+        }
+    }
+}
+
+impl Serialize for LocalizedEditKindV2 {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for LocalizedEditKindV2 {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = <&'de str>::deserialize(deserializer)?;
+        match value {
+            "object.locale.put" => Ok(Self::ObjectLocalePut),
+            "object.create" => Ok(Self::ObjectCreate),
+            _ => Err(serde::de::Error::unknown_variant(
+                value,
+                &["object.locale.put", "object.create"],
+            )),
+        }
+    }
+}
+
+/// One strict `object.locale.put` semantic Edit before Proof assigns its trusted `edit_id`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct LocalizedSemanticEditInputV2 {
+pub struct LocalizedObjectLocalePutEditInputV2 {
     pub api_version: LocalizedEditInputApiVersion,
     pub content: Map<String, Value>,
     pub expected_source: LocalizedExpectedSourceInputV2,
     pub expected_target: Option<LocalizedExpectedTargetInputV2>,
-    pub kind: LocalizedEditKindV2,
     #[serde(with = "display_string")]
     pub locale: LocaleId,
     #[serde(with = "display_string")]
@@ -1952,67 +1982,135 @@ pub struct LocalizedSemanticEditInputV2 {
     pub supersedes_edit_id: Option<EditId>,
 }
 
-impl LocalizedSemanticEditInputV2 {
-    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
-        if self.expected_source.revision == 0
-            || self.expected_source.schema_version == 0
-            || self
-                .expected_target
-                .as_ref()
-                .is_some_and(|target| target.revision == 0)
-            || self.supersedes_edit_id.is_some()
-                != self.repair_of_validation_result_digest.is_some()
-        {
-            return Err(AuthorityContractError::InvalidValue(
-                "localized semantic Edit",
-            ));
-        }
-        Ok(())
-    }
+/// One strict `object.create` semantic Edit before Proof assigns its trusted `edit_id`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedObjectCreateEditInputV2 {
+    pub api_version: LocalizedEditInputApiVersion,
+    pub content: Map<String, Value>,
+    #[serde(with = "display_string")]
+    pub object_id: ObjectId,
+    #[serde(with = "optional_display_string")]
+    pub repair_of_validation_result_digest: Option<ContentDigest>,
+    #[serde(with = "display_string")]
+    pub schema_id: SchemaId,
+    pub schema_version: u32,
+    #[serde(with = "optional_display_string")]
+    pub supersedes_edit_id: Option<EditId>,
+}
 
+/// One strict semantic Edit discriminated by its `kind` tag.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind")]
+pub enum LocalizedSemanticEditInputV2 {
+    #[serde(rename = "object.locale.put")]
+    ObjectLocalePut(LocalizedObjectLocalePutEditInputV2),
+    #[serde(rename = "object.create")]
+    ObjectCreate(LocalizedObjectCreateEditInputV2),
+}
+
+impl LocalizedSemanticEditInputV2 {
     /// Returns the semantic JSON content that Local canonicalizes through RFC 8785.
     #[must_use]
     pub const fn content(&self) -> &Map<String, Value> {
-        &self.content
+        match self {
+            Self::ObjectLocalePut(input) => &input.content,
+            Self::ObjectCreate(input) => &input.content,
+        }
+    }
+
+    fn normalize(&mut self) -> Result<(), AuthorityContractError> {
+        match self {
+            Self::ObjectLocalePut(input) => {
+                if input.expected_source.revision == 0
+                    || input.expected_source.schema_version == 0
+                    || input
+                        .expected_target
+                        .as_ref()
+                        .is_some_and(|target| target.revision == 0)
+                    || input.supersedes_edit_id.is_some()
+                        != input.repair_of_validation_result_digest.is_some()
+                {
+                    return Err(AuthorityContractError::InvalidValue(
+                        "localized semantic Edit",
+                    ));
+                }
+                Ok(())
+            }
+            Self::ObjectCreate(input) => {
+                if input.schema_version == 0
+                    || input.supersedes_edit_id.is_some()
+                        != input.repair_of_validation_result_digest.is_some()
+                {
+                    return Err(AuthorityContractError::InvalidValue(
+                        "localized semantic Edit",
+                    ));
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Converts the semantic input after Local supplies its verified RFC 8785 bytes.
     pub fn into_application_input(
         self,
         canonical_content: String,
-    ) -> Result<ObjectLocalePutInput, AuthorityContractError> {
-        let parsed: Value = serde_json::from_str(&canonical_content)
-            .map_err(|_| AuthorityContractError::InvalidValue("localized Edit content"))?;
-        if parsed != Value::Object(self.content) {
-            return Err(AuthorityContractError::InvalidValue(
-                "localized Edit canonical content",
-            ));
+    ) -> Result<LocalizedEditAttempt, AuthorityContractError> {
+        match self {
+            Self::ObjectLocalePut(input) => {
+                let parsed: Value = serde_json::from_str(&canonical_content)
+                    .map_err(|_| AuthorityContractError::InvalidValue("localized Edit content"))?;
+                if parsed != Value::Object(input.content) {
+                    return Err(AuthorityContractError::InvalidValue(
+                        "localized Edit canonical content",
+                    ));
+                }
+                Ok(LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
+                    object_id: input.object_id,
+                    locale: input.locale,
+                    expected_source: ExpectedLocalizedSource {
+                        revision: ObjectRevision::new(input.expected_source.revision)
+                            .map_err(|_| AuthorityContractError::InvalidValue("source revision"))?,
+                        digest: input.expected_source.digest,
+                        schema_id: input.expected_source.schema_id,
+                        schema_version: SchemaVersion::new(input.expected_source.schema_version)
+                            .map_err(|_| AuthorityContractError::InvalidValue("Schema version"))?,
+                    },
+                    expected_target: input
+                        .expected_target
+                        .map(|target| {
+                            Ok(ExpectedLocalizedTarget {
+                                revision: LocaleRevision::new(target.revision).map_err(|_| {
+                                    AuthorityContractError::InvalidValue("target revision")
+                                })?,
+                                digest: target.digest,
+                            })
+                        })
+                        .transpose()?,
+                    canonical_content,
+                    supersedes_edit_id: input.supersedes_edit_id,
+                    repair_of_validation_result_digest: input.repair_of_validation_result_digest,
+                }))
+            }
+            Self::ObjectCreate(input) => {
+                let parsed: Value = serde_json::from_str(&canonical_content)
+                    .map_err(|_| AuthorityContractError::InvalidValue("localized Edit content"))?;
+                if parsed != Value::Object(input.content) {
+                    return Err(AuthorityContractError::InvalidValue(
+                        "localized Edit canonical content",
+                    ));
+                }
+                Ok(LocalizedEditAttempt::ObjectCreate(ObjectCreateInput {
+                    object_id: input.object_id,
+                    schema_id: input.schema_id,
+                    schema_version: SchemaVersion::new(input.schema_version)
+                        .map_err(|_| AuthorityContractError::InvalidValue("Schema version"))?,
+                    canonical_content,
+                    supersedes_edit_id: input.supersedes_edit_id,
+                    repair_of_validation_result_digest: input.repair_of_validation_result_digest,
+                }))
+            }
         }
-        Ok(ObjectLocalePutInput {
-            object_id: self.object_id,
-            locale: self.locale,
-            expected_source: ExpectedLocalizedSource {
-                revision: ObjectRevision::new(self.expected_source.revision)
-                    .map_err(|_| AuthorityContractError::InvalidValue("source revision"))?,
-                digest: self.expected_source.digest,
-                schema_id: self.expected_source.schema_id,
-                schema_version: SchemaVersion::new(self.expected_source.schema_version)
-                    .map_err(|_| AuthorityContractError::InvalidValue("Schema version"))?,
-            },
-            expected_target: self
-                .expected_target
-                .map(|target| {
-                    Ok(ExpectedLocalizedTarget {
-                        revision: LocaleRevision::new(target.revision)
-                            .map_err(|_| AuthorityContractError::InvalidValue("target revision"))?,
-                        digest: target.digest,
-                    })
-                })
-                .transpose()?,
-            canonical_content,
-            supersedes_edit_id: self.supersedes_edit_id,
-            repair_of_validation_result_digest: self.repair_of_validation_result_digest,
-        })
     }
 }
 
@@ -4225,28 +4323,28 @@ impl LocalizedOperationSuccessV1 {
                         .ok()
                         .and_then(|count| {
                             result
-                                .previous_state
+                                .resulting_state
                                 .authoritative_sequence
-                                .checked_add(count)
+                                .checked_sub(count)
                         })
-                        == Some(result.resulting_state.authoritative_sequence)
-                    && result
-                        .renditions
-                        .iter()
-                        .enumerate()
-                        .all(|(index, rendition)| {
-                            let expected_sequence = u64::try_from(index)
-                                .ok()
-                                .and_then(|offset| offset.checked_add(1))
-                                .and_then(|offset| {
-                                    result
-                                        .previous_state
-                                        .authoritative_sequence
-                                        .checked_add(offset)
-                                });
-                            rendition.workspace_id == workspace_id
-                                && rendition.changeset_id == input.changeset_id
-                                && expected_sequence == Some(rendition.authoritative_sequence)
+                        .is_some_and(|rendition_predecessor| {
+                            rendition_predecessor >= result.previous_state.authoritative_sequence
+                                && result
+                                    .renditions
+                                    .iter()
+                                    .enumerate()
+                                    .all(|(index, rendition)| {
+                                        let expected_sequence = u64::try_from(index)
+                                            .ok()
+                                            .and_then(|offset| offset.checked_add(1))
+                                            .and_then(|offset| {
+                                                rendition_predecessor.checked_add(offset)
+                                            });
+                                        rendition.workspace_id == workspace_id
+                                            && rendition.changeset_id == input.changeset_id
+                                            && expected_sequence
+                                                == Some(rendition.authoritative_sequence)
+                                    })
                         })
             }
             (
@@ -4368,26 +4466,60 @@ fn edition_reference_value(value: &super::EditionArtifactReference) -> Value {
 }
 
 fn localized_edit_value(edit: &LocalizedEdit) -> Result<Value, AuthorityContractError> {
-    Ok(json!({
-        "api_version": "proof.dev/edit/v2",
-        "content": parsed_result_object(&edit.input.canonical_content)?,
-        "edit_id": edit.edit_id.to_string(),
-        "expected_source": {
-            "digest": edit.input.expected_source.digest.to_string(),
-            "revision": edit.input.expected_source.revision.get(),
-            "schema_id": edit.input.expected_source.schema_id.to_string(),
-            "schema_version": edit.input.expected_source.schema_version.get(),
-        },
-        "expected_target": edit.input.expected_target.as_ref().map(|target| json!({
-            "digest": target.digest.to_string(),
-            "revision": target.revision.get(),
-        })),
-        "kind": "object.locale.put",
-        "locale": edit.input.locale.to_string(),
-        "object_id": edit.input.object_id.to_string(),
-        "repair_of_validation_result_digest": edit.input.repair_of_validation_result_digest.map(|value| value.to_string()),
-        "supersedes_edit_id": edit.input.supersedes_edit_id.map(|value| value.to_string()),
-    }))
+    let content = parsed_result_object(match &edit.input {
+        LocalizedEditAttempt::LocalePut(input) => &input.canonical_content,
+        LocalizedEditAttempt::ObjectCreate(input) => &input.canonical_content,
+    })?;
+    let edit_id = edit.edit_id.to_string();
+    let repair = match &edit.input {
+        LocalizedEditAttempt::LocalePut(input) => input
+            .repair_of_validation_result_digest
+            .map(|value| value.to_string()),
+        LocalizedEditAttempt::ObjectCreate(input) => input
+            .repair_of_validation_result_digest
+            .map(|value| value.to_string()),
+    };
+    let supersedes = match &edit.input {
+        LocalizedEditAttempt::LocalePut(input) => {
+            input.supersedes_edit_id.map(|value| value.to_string())
+        }
+        LocalizedEditAttempt::ObjectCreate(input) => {
+            input.supersedes_edit_id.map(|value| value.to_string())
+        }
+    };
+    Ok(match &edit.input {
+        LocalizedEditAttempt::LocalePut(input) => json!({
+            "api_version": "proof.dev/edit/v2",
+            "content": content,
+            "edit_id": edit_id,
+            "expected_source": {
+                "digest": input.expected_source.digest.to_string(),
+                "revision": input.expected_source.revision.get(),
+                "schema_id": input.expected_source.schema_id.to_string(),
+                "schema_version": input.expected_source.schema_version.get(),
+            },
+            "expected_target": input.expected_target.as_ref().map(|target| json!({
+                "digest": target.digest.to_string(),
+                "revision": target.revision.get(),
+            })),
+            "kind": "object.locale.put",
+            "locale": input.locale.to_string(),
+            "object_id": input.object_id.to_string(),
+            "repair_of_validation_result_digest": repair,
+            "supersedes_edit_id": supersedes,
+        }),
+        LocalizedEditAttempt::ObjectCreate(input) => json!({
+            "api_version": "proof.dev/edit/v2",
+            "content": content,
+            "edit_id": edit_id,
+            "kind": "object.create",
+            "object_id": input.object_id.to_string(),
+            "repair_of_validation_result_digest": repair,
+            "schema_id": input.schema_id.to_string(),
+            "schema_version": input.schema_version.get(),
+            "supersedes_edit_id": supersedes,
+        }),
+    })
 }
 
 fn localized_finding_value(finding: &LocalizedFinding) -> Value {
@@ -4431,12 +4563,19 @@ fn localized_changeset_read_value(
         "created_at": changeset.created_at.to_string(),
         "edits": changeset.edits.iter().map(localized_edit_value).collect::<Result<Vec<_>, _>>()?,
         "effective_leaf_digest": result.effective_leaf_digest.to_string(),
-        "effective_leaves": effective.iter().map(|edit| json!({
-            "edit_digest": edit.edit_digest.to_string(),
-            "edit_id": edit.edit_id.to_string(),
-            "locale": edit.input.locale.to_string(),
-            "object_id": edit.input.object_id.to_string(),
-        })).collect::<Vec<_>>(),
+        "effective_leaves": effective.iter().map(|edit| {
+            let mut leaf = serde_json::Map::new();
+            leaf.insert("edit_digest".to_owned(), json!(edit.edit_digest.to_string()));
+            leaf.insert("edit_id".to_owned(), json!(edit.edit_id.to_string()));
+            if let Some(locale) = edit.input.locale() {
+                leaf.insert("locale".to_owned(), json!(locale.to_string()));
+            }
+            leaf.insert(
+                "object_id".to_owned(),
+                json!(edit.input.object_id().to_string()),
+            );
+            Value::Object(leaf)
+        }).collect::<Vec<_>>(),
         "intent": changeset.intent.to_string(),
         "principal_id": changeset.principal_id.to_string(),
         "resource_intent_digest": changeset.resource_intent_digest.to_string(),
@@ -4458,12 +4597,15 @@ fn release_manifest_principal(result: &LocalizedRelease) -> Option<PrincipalId> 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LocalizedOperationFailureKindV1 {
     NotFound,
+    SchemaNotFound,
     UnsupportedVersion,
     InvalidInput,
     IntentMismatch,
+    IntentSlotMismatch,
     SourceConflict,
     TargetConflict,
     StateConflict,
+    ObjectExists,
     DuplicateActiveTarget,
     InvalidSupersession,
     InvalidRepairEvidence,
@@ -4482,12 +4624,15 @@ impl LocalizedOperationFailureKindV1 {
     pub const fn from_application_error(error: &LocalizedContentError) -> Option<Self> {
         match error {
             LocalizedContentError::NotFound => Some(Self::NotFound),
+            LocalizedContentError::SchemaNotFound => Some(Self::SchemaNotFound),
             LocalizedContentError::UnsupportedVersion => Some(Self::UnsupportedVersion),
             LocalizedContentError::InvalidInput => Some(Self::InvalidInput),
             LocalizedContentError::IntentMismatch => Some(Self::IntentMismatch),
+            LocalizedContentError::IntentSlotMismatch => Some(Self::IntentSlotMismatch),
             LocalizedContentError::SourceConflict => Some(Self::SourceConflict),
             LocalizedContentError::TargetConflict => Some(Self::TargetConflict),
             LocalizedContentError::StateConflict => Some(Self::StateConflict),
+            LocalizedContentError::ObjectExists => Some(Self::ObjectExists),
             LocalizedContentError::DuplicateActiveTarget => Some(Self::DuplicateActiveTarget),
             LocalizedContentError::InvalidSupersession => Some(Self::InvalidSupersession),
             LocalizedContentError::InvalidRepairEvidence => Some(Self::InvalidRepairEvidence),
@@ -4511,12 +4656,15 @@ impl LocalizedOperationFailureKindV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::NotFound => "proof.resource.not_found",
+            Self::SchemaNotFound => "proof.schema.not_found",
             Self::UnsupportedVersion => "proof.input.unsupported_version",
             Self::InvalidInput => "proof.input.schema_mismatch",
             Self::IntentMismatch => "proof.input.intent_mismatch",
+            Self::IntentSlotMismatch => "proof.intent.slot_mismatch",
             Self::SourceConflict => "proof.state.source_conflict",
             Self::TargetConflict => "proof.state.target_conflict",
             Self::StateConflict => "proof.state.conflict",
+            Self::ObjectExists => "proof.state.object_exists",
             Self::DuplicateActiveTarget => "proof.changeset.duplicate_target",
             Self::InvalidSupersession => "proof.changeset.invalid_supersession",
             Self::InvalidRepairEvidence => "proof.validation.repair_evidence_invalid",
@@ -4538,6 +4686,7 @@ impl LocalizedOperationFailureKindV1 {
                 "urn:proof:problem:resource-not-found",
                 "The exact localized-content resource was not found",
             ),
+            Self::SchemaNotFound => ("urn:proof:problem:schema-not-found", "Schema not found"),
             Self::UnsupportedVersion => (
                 "urn:proof:problem:unsupported-version",
                 "The operation is unsupported for the current artifact version",
@@ -4549,6 +4698,10 @@ impl LocalizedOperationFailureKindV1 {
             Self::IntentMismatch => (
                 "urn:proof:problem:intent-mismatch",
                 "The operation differs from the immutable resource intent",
+            ),
+            Self::IntentSlotMismatch => (
+                "urn:proof:problem:intent-slot-mismatch",
+                "Resource intent creation slot mismatch",
             ),
             Self::SourceConflict => (
                 "urn:proof:problem:state-conflict",
@@ -4562,6 +4715,7 @@ impl LocalizedOperationFailureKindV1 {
                 "urn:proof:problem:state-conflict",
                 "The localized-content baseline changed concurrently",
             ),
+            Self::ObjectExists => ("urn:proof:problem:object-exists", "Object already exists"),
             Self::DuplicateActiveTarget => (
                 "urn:proof:problem:state-conflict",
                 "The ChangeSet already has an active Edit for this target",
@@ -5928,7 +6082,68 @@ mod tests {
         }))
         .unwrap();
         edit_batch.normalize().unwrap();
-        assert_eq!(edit_batch.edits[0].expected_source.revision, 7);
+        let LocalizedSemanticEditInputV2::ObjectLocalePut(put_edit) = &edit_batch.edits[0] else {
+            panic!("locale put batch element must deserialize as its kind variant")
+        };
+        assert_eq!(put_edit.expected_source.revision, 7);
+
+        let mut create_batch: LocalizedChangeSetAddInputV2 = serde_json::from_value(json!({
+            "api_version": "proof.dev/operation/changeset.add/v2",
+            "changeset_id": "019c0000-0000-7000-8000-000000000013",
+            "edits": [{
+                "api_version": "proof.dev/edit/v2",
+                "content": { "title": "Bonjour" },
+                "kind": "object.create",
+                "object_id": "019c0000-0000-7000-8000-000000000014",
+                "repair_of_validation_result_digest": null,
+                "schema_id": "article",
+                "schema_version": 3,
+                "supersedes_edit_id": null
+            }],
+            "idempotency_key": "019c0000-0000-7000-8000-000000000015"
+        }))
+        .unwrap();
+        create_batch.normalize().unwrap();
+        let LocalizedSemanticEditInputV2::ObjectCreate(create_edit) = &create_batch.edits[0] else {
+            panic!("object.create batch element must deserialize as its kind variant")
+        };
+        assert_eq!(create_edit.schema_version, 3);
+        let mut repaired_create_batch = create_batch.clone();
+        let LocalizedSemanticEditInputV2::ObjectCreate(repaired_create) =
+            &mut repaired_create_batch.edits[0]
+        else {
+            unreachable!("the cloned creation batch retains its variant")
+        };
+        repaired_create.supersedes_edit_id =
+            Some("019c0000-0000-7000-8000-000000000016".parse().unwrap());
+        repaired_create.repair_of_validation_result_digest =
+            Some(format!("blake3:{}", "3".repeat(64)).parse().unwrap());
+        repaired_create_batch.normalize().unwrap();
+        let mut unpaired_create_batch = repaired_create_batch;
+        let LocalizedSemanticEditInputV2::ObjectCreate(unpaired_create) =
+            &mut unpaired_create_batch.edits[0]
+        else {
+            unreachable!("the cloned creation batch retains its variant")
+        };
+        unpaired_create.repair_of_validation_result_digest = None;
+        assert!(unpaired_create_batch.normalize().is_err());
+        assert!(
+            serde_json::from_value::<LocalizedChangeSetAddInputV2>(json!({
+                "api_version": "proof.dev/operation/changeset.add/v2",
+                "changeset_id": "019c0000-0000-7000-8000-000000000013",
+                "edits": [{
+                    "api_version": "proof.dev/edit/v2",
+                    "content": { "title": "Bonjour" },
+                    "kind": "object.create",
+                    "locale": "fr-FR",
+                    "object_id": "019c0000-0000-7000-8000-000000000014",
+                    "schema_id": "article",
+                    "schema_version": 3
+                }],
+                "idempotency_key": "019c0000-0000-7000-8000-000000000015"
+            }))
+            .is_err()
+        );
 
         let mut released_query: CommandInputV1 = serde_json::from_str(include_str!(
             "../../../conformance/v1/authority/vectors/semantic-command.valid.json"
@@ -6099,7 +6314,7 @@ mod tests {
     }
 
     #[test]
-    fn localized_commit_cross_link_accepts_contiguous_multi_rendition_sequences_only() {
+    fn localized_commit_cross_link_accepts_creation_facts_before_contiguous_renditions() {
         let workspace_id = "019c0000-0000-7000-8000-000000000001"
             .parse::<WorkspaceId>()
             .unwrap();
@@ -6185,10 +6400,13 @@ mod tests {
         assert!(matches(&committed));
 
         committed.resulting_state.authoritative_sequence = 13;
-        assert!(!matches(&committed));
-        committed.resulting_state.authoritative_sequence = 12;
+        committed.renditions[0].authoritative_sequence = 12;
         committed.renditions[1].authoritative_sequence = 13;
+        assert!(matches(&committed));
+
+        committed.renditions[0].authoritative_sequence = 11;
         assert!(!matches(&committed));
+        committed.renditions[0].authoritative_sequence = 12;
         committed.renditions[1].authoritative_sequence = 12;
         committed.renditions.swap(0, 1);
         assert!(!matches(&committed));
@@ -6260,7 +6478,7 @@ mod tests {
         let edit = LocalizedEdit {
             ordinal: 1,
             edit_id: "019c0000-0000-7000-8000-000000000023".parse().unwrap(),
-            input: ObjectLocalePutInput {
+            input: LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
                 object_id: "019c0000-0000-7000-8000-000000000024".parse().unwrap(),
                 locale: "fr-FR".parse().unwrap(),
                 expected_source: ExpectedLocalizedSource {
@@ -6273,7 +6491,7 @@ mod tests {
                 canonical_content: "{}".to_owned(),
                 supersedes_edit_id: None,
                 repair_of_validation_result_digest: None,
-            },
+            }),
             effective: true,
             canonical_json: "{}".to_owned(),
             edit_digest: format!("blake3:{}", "8".repeat(64)).parse().unwrap(),
@@ -6361,6 +6579,32 @@ mod tests {
         )
         .unwrap();
         assert!(commitment.matches_result(&result));
+    }
+
+    #[test]
+    fn creation_failures_have_exact_caller_safe_problem_codes() {
+        for (error, expected_kind, expected_code) in [
+            (
+                LocalizedContentError::IntentSlotMismatch,
+                LocalizedOperationFailureKindV1::IntentSlotMismatch,
+                "proof.intent.slot_mismatch",
+            ),
+            (
+                LocalizedContentError::SchemaNotFound,
+                LocalizedOperationFailureKindV1::SchemaNotFound,
+                "proof.schema.not_found",
+            ),
+            (
+                LocalizedContentError::ObjectExists,
+                LocalizedOperationFailureKindV1::ObjectExists,
+                "proof.state.object_exists",
+            ),
+        ] {
+            let kind = LocalizedOperationFailureKindV1::from_application_error(&error).unwrap();
+            assert_eq!(kind, expected_kind);
+            assert_eq!(kind.code(), expected_code);
+            assert_eq!(kind.public_problem().code, expected_code);
+        }
     }
 
     #[test]

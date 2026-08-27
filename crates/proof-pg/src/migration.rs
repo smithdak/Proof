@@ -317,8 +317,25 @@ fn apply_script(client: &mut Client, script: &MigrationScriptV1) -> Result<(), P
         .map_err(|error| PgError::Migration(format!("cannot record migration start: {error}")))?;
 
         tx.batch_execute(&script.sql).map_err(|error| {
+            let detail = error.as_db_error().map_or_else(
+                || error.to_string(),
+                |database| database.message().to_owned(),
+            );
             PgError::Migration(format!(
-                "migration script for version {} failed: {error}",
+                "migration script for version {} failed: {detail}",
+                script.version
+            ))
+        })?;
+
+        tx.execute(
+            "UPDATE workspace_write_head
+             SET migration_version = $1
+             WHERE migration_version < $1",
+            &[&version],
+        )
+        .map_err(|error| {
+            PgError::Migration(format!(
+                "cannot advance the Workspace migration version to {}: {error}",
                 script.version
             ))
         })?;
@@ -577,5 +594,105 @@ pub fn delivery_state_migration_v3() -> MigrationScriptV1 {
         DELIVERY_STATE_MIGRATION_VERSION,
         DELIVERY_STATE_MIGRATION_NAME,
         DELIVERY_STATE_V3_DDL,
+    )
+}
+
+/// The additive migration that keys idempotency lookup by the exact
+/// application-provided UUIDv7 key.
+pub const APPLICATION_IDEMPOTENCY_MIGRATION_VERSION: u32 = 4;
+
+/// Stable migration name for application-key idempotency.
+pub const APPLICATION_IDEMPOTENCY_MIGRATION_NAME: &str = "application-key-idempotency";
+
+/// Adds the nullable key used only by keyed operations and its scoped
+/// uniqueness boundary. PostgreSQL permits multiple `NULL` values, so no-key
+/// operations remain outside stored-result lookup.
+pub const APPLICATION_IDEMPOTENCY_V4_DDL: &str = r"ALTER TABLE idempotency_keys
+    ADD COLUMN IF NOT EXISTS application_key TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idempotency_application_key_unique
+    ON idempotency_keys (
+        workspace_id,
+        operation,
+        operation_version,
+        requesting_principal,
+        operating_principal,
+        application_key
+    );";
+
+/// Constructs the additive v4 application-key idempotency migration.
+#[must_use]
+pub fn application_idempotency_migration_v4() -> MigrationScriptV1 {
+    MigrationScriptV1::new(
+        APPLICATION_IDEMPOTENCY_MIGRATION_VERSION,
+        APPLICATION_IDEMPOTENCY_MIGRATION_NAME,
+        APPLICATION_IDEMPOTENCY_V4_DDL,
+    )
+}
+
+/// The cutover that makes an application key immutable across the complete
+/// Workspace rather than within one operation/actor tuple.
+pub const WORKSPACE_GLOBAL_IDEMPOTENCY_MIGRATION_VERSION: u32 = 5;
+
+/// Stable migration name for Workspace-global application keys.
+pub const WORKSPACE_GLOBAL_IDEMPOTENCY_MIGRATION_NAME: &str =
+    "workspace-global-application-idempotency";
+
+/// Adds retained result bytes and cuts identity over to
+/// `(workspace_id, application_key)`. Pre-v4 rows had no application key, so
+/// the backfill assigns a reserved, unreachable `legacy:` key while retaining
+/// their immutable semantic tuple and digest.
+pub const WORKSPACE_GLOBAL_IDEMPOTENCY_V5_DDL: &str = r"ALTER TABLE idempotency_keys
+    ADD COLUMN IF NOT EXISTS result_body BYTEA;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM idempotency_keys
+        WHERE application_key IS NOT NULL AND result_body IS NULL
+    ) THEN
+        RAISE EXCEPTION 'Workspace-global idempotency cutover requires retained result bytes for every existing application key';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM idempotency_keys
+        WHERE application_key IS NOT NULL
+        GROUP BY workspace_id, application_key
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'Workspace-global idempotency cutover found duplicate application keys';
+    END IF;
+END $$;
+
+UPDATE idempotency_keys
+SET application_key = 'legacy:' || operation || ':' || operation_version || ':' ||
+    normalized_input_digest || ':' || requesting_principal || ':' || operating_principal || ':' ||
+    COALESCE(delegation_id, 'none')
+WHERE application_key IS NULL;
+
+ALTER TABLE idempotency_keys
+    ADD CONSTRAINT idempotency_result_body_present
+    CHECK (result_body IS NOT NULL OR application_key LIKE 'legacy:%');
+
+ALTER TABLE idempotency_keys
+    ALTER COLUMN application_key SET NOT NULL;
+
+DROP INDEX IF EXISTS idempotency_application_key_unique;
+
+ALTER TABLE idempotency_keys
+    DROP CONSTRAINT IF EXISTS idempotency_keys_pkey;
+
+ALTER TABLE idempotency_keys
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (workspace_id, application_key);";
+
+/// Constructs the immutable v5 Workspace-global idempotency migration.
+#[must_use]
+pub fn workspace_global_idempotency_migration_v5() -> MigrationScriptV1 {
+    MigrationScriptV1::new(
+        WORKSPACE_GLOBAL_IDEMPOTENCY_MIGRATION_VERSION,
+        WORKSPACE_GLOBAL_IDEMPOTENCY_MIGRATION_NAME,
+        WORKSPACE_GLOBAL_IDEMPOTENCY_V5_DDL,
     )
 }

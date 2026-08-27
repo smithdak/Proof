@@ -29,8 +29,8 @@ use serde_json::{Value, json};
 use crate::{
     AppState, CANONICAL_REQUEST_LIMIT_BYTES, RAW_BODY_LIMIT_BYTES, ServerError,
     authz::{
-        authenticate_agent_presentation, authenticate_human_session,
-        guard_request_carried_identity, resolve_oidc_binding_by_subject,
+        authenticate_human_session, guard_request_carried_identity, prepare_agent_attempt,
+        resolve_oidc_binding_by_subject,
     },
     dispatch::{
         DispatchRequest, ProblemResponse, dispatch, map_server_error, new_operation_id,
@@ -451,7 +451,7 @@ pub async fn capabilities(State(_state): State<AppState>) -> Result<Response, Pr
         "registry_schema": "https://proof.dev/schema/collaboration-server/http-operation-registry/v1",
         "registry_sha256": COMPLETE_HTTP_OPERATION_REGISTRY_SHA256,
         "route_count": 9,
-        "human_operation_count": 23,
+        "human_operation_count": 26,
         "agent_operation_count": 14,
     });
     Ok((StatusCode::OK, Json(result)).into_response())
@@ -531,6 +531,7 @@ pub async fn human_operations(
                 operation,
                 normalized_input,
                 actor_context,
+                agent_attempt: None,
                 correlation_id,
             },
         )?;
@@ -584,10 +585,11 @@ pub async fn agent_operations(
                 map_server_error(&error, Some(operation.clone()), new_operation_id())
             })?;
 
-        let actor_context = authenticate_agent_presentation(&state, &session, &invocation)
-            .map_err(|error| {
+        let agent_attempt =
+            prepare_agent_attempt(&state, &session, &invocation).map_err(|error| {
                 map_server_error(&error, Some(operation.clone()), new_operation_id())
             })?;
+        let actor_context = agent_attempt.actor_context.clone();
 
         let envelope = dispatch(
             &state,
@@ -598,6 +600,7 @@ pub async fn agent_operations(
                 operation,
                 normalized_input,
                 actor_context,
+                agent_attempt: Some(agent_attempt),
                 correlation_id,
             },
         )?;

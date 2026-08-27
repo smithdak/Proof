@@ -7,19 +7,19 @@
   "authority_key_id": "ed25519:34b4d9043156cb6dcf0beb0a2949b7559c940d2bcb6dbe8c53a9b30278e3a746",
   "authority_sequence": 72,
   "consequence_id": "019e0000-0000-7000-8000-000000000073",
-  "decision_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+  "decision_digest": "blake3:b361e9492e6c03a0e561b6e8a6ea67595e05c652d87527930edab76fc42d45f7",
   "decision_id": "019e0000-0000-7000-8000-000000000071",
   "evaluated_authority_head": {
-    "record_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+    "record_digest": "blake3:b361e9492e6c03a0e561b6e8a6ea67595e05c652d87527930edab76fc42d45f7",
     "sequence": 71
   },
   "operation": {
     "name": "release.create",
     "version": "proof.dev/operation/release.create/v2"
   },
-  "operation_registry_sha256": "e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf",
+  "operation_registry_sha256": "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca",
   "outcome": "success",
-  "previous_authority_record_digest": "blake3:72388b45610cdee98f362b58ba7ffcee0b5f2c93278b0b39841fb6c92c10d2b1",
+  "previous_authority_record_digest": "blake3:b361e9492e6c03a0e561b6e8a6ea67595e05c652d87527930edab76fc42d45f7",
   "prior_result_digest": null,
   "problem_code": null,
   "public_input_projection_digest": "blake3:6ffc28e381aee7dad6de55504453bedf5c5412b08af383f3517c92fcbf5fb184",

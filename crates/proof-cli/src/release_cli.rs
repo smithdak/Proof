@@ -3,9 +3,10 @@ use std::{env, path::PathBuf};
 use clap::Subcommand;
 use proof_application::{
     ApprovalName, CreateEnvironmentCommand, Environment, EnvironmentError, IdempotencyKey,
-    PrincipalId, Problem, ProjectionRebuild, QueryReleasedObjectsCommand,
-    QueryReleasedObjectsError, RebuildProjectionsCommand, RebuildProjectionsError, Release,
-    ReleaseError, ReleaseVerification, ResultEnvelope, RollbackReleaseCommand,
+    LocalizedContentError, LocalizedContentRepository, ObjectListCommand, PrincipalId, Problem,
+    ProjectionRebuild, QueryReleasedObjectsCommand, QueryReleasedObjectsError,
+    RebuildProjectionsCommand, RebuildProjectionsError, Release, ReleaseError, ReleaseVerification,
+    ResultEnvelope, RollbackReleaseCommand, SchemaGetCommand, SchemaListCommand,
     VerifyReleaseCommand, create_environment, get_environment, get_release, promote_release,
     query_released_objects, rebuild_projections, rollback_release, verify_release,
 };
@@ -92,6 +93,50 @@ pub(super) enum ObjectAction {
         /// Exact Object `UUIDv7`; repeat for multiple Objects.
         #[arg(long)]
         object_id: Vec<String>,
+    },
+    /// List committed base Objects and exact-locale rendition heads.
+    List {
+        /// Environment whose current Release defines release coverage.
+        #[arg(long)]
+        environment: String,
+        /// Optional exact Schema identity.
+        #[arg(long)]
+        schema_id: Option<String>,
+        /// Optional exact locale.
+        #[arg(long)]
+        locale: Option<String>,
+        /// Exact Object `UUIDv7`; repeat for a bounded explicit set.
+        #[arg(long)]
+        object_id: Vec<String>,
+        /// Exclusive decimal authoritative-sequence cursor.
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Number of entries to return, from 1 through 100.
+        #[arg(long)]
+        page_size: Option<u32>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(super) enum SchemaAction {
+    /// Get one exact committed Schema version.
+    Get {
+        /// Exact Schema identity.
+        schema_id: String,
+        /// Exact immutable Schema version.
+        schema_version: u32,
+    },
+    /// List committed Schema versions without document bodies.
+    List {
+        /// Optional exact Schema identity.
+        #[arg(long)]
+        schema_id: Option<String>,
+        /// Exclusive decimal authoritative-sequence cursor.
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Number of entries to return, from 1 through 100.
+        #[arg(long)]
+        page_size: Option<u32>,
     },
 }
 
@@ -248,6 +293,90 @@ pub(super) fn run_release(
     Ok(ExitCode::Success)
 }
 
+pub(super) fn run_schema(
+    action: SchemaAction,
+    output: OutputFormat,
+    context: ExecutionContext,
+    selected_workspace: Option<String>,
+) -> Result<ExitCode, Box<Problem>> {
+    let operation = match action {
+        SchemaAction::Get { .. } => "schema.get",
+        SchemaAction::List { .. } => "schema.list",
+    };
+    let repository = local_workspace(selected_workspace, operation, context)?;
+    match action {
+        SchemaAction::Get {
+            schema_id,
+            schema_version,
+        } => {
+            let result = repository
+                .get_schema(SchemaGetCommand {
+                    schema_id: parse(&schema_id, "schema-id", operation, context)?,
+                    schema_version: proof_application::SchemaVersion::new(schema_version)
+                        .map_err(|error| input_problem(operation, context, error.to_string()))?,
+                })
+                .map_err(|error| content_read_problem(&error, operation, context))?;
+            let data = json!({
+                "document": result.document,
+                "document_digest": result.document_digest.to_string(),
+                "provenance": schema_provenance_value(result.provenance),
+                "schema_id": result.schema_id.as_str(),
+                "schema_version": result.schema_version.get(),
+            });
+            render_value(output, context, operation, data, |data| {
+                println!("Schema {}@{}", data["schema_id"], data["schema_version"]);
+                println!("digest: {}", data["document_digest"]);
+                println!(
+                    "authoritative sequence: {}",
+                    data["provenance"]["authoritative_sequence"]
+                );
+                println!("{}", data["document"]);
+            });
+        }
+        SchemaAction::List {
+            schema_id,
+            cursor,
+            page_size,
+        } => {
+            let result = repository
+                .list_schemas(SchemaListCommand {
+                    schema_id: schema_id
+                        .map(|value| parse(&value, "schema-id", operation, context))
+                        .transpose()?,
+                    cursor,
+                    page_size,
+                })
+                .map_err(|error| content_read_problem(&error, operation, context))?;
+            let mut data = json!({
+                "entries": result.entries.iter().map(|entry| json!({
+                    "document_digest": entry.document_digest.to_string(),
+                    "provenance": schema_provenance_value(entry.provenance),
+                    "schema_id": entry.schema_id.as_str(),
+                    "schema_version": entry.schema_version.get(),
+                })).collect::<Vec<_>>(),
+            });
+            if let Some(cursor) = result.next_cursor {
+                data.as_object_mut()
+                    .expect("Schema list data is an object")
+                    .insert("next_cursor".to_owned(), Value::String(cursor));
+            }
+            render_value(output, context, operation, data, |data| {
+                for entry in data["entries"].as_array().into_iter().flatten() {
+                    println!(
+                        "{}@{} {}",
+                        entry["schema_id"], entry["schema_version"], entry["document_digest"]
+                    );
+                }
+                if let Some(cursor) = data.get("next_cursor") {
+                    println!("next cursor: {cursor}");
+                }
+            });
+        }
+    }
+    Ok(ExitCode::Success)
+}
+
+#[allow(clippy::too_many_lines)]
 pub(super) fn run_object(
     action: ObjectAction,
     output: OutputFormat,
@@ -315,6 +444,90 @@ pub(super) fn run_object(
                 }
             });
         }
+        ObjectAction::List {
+            environment,
+            schema_id,
+            locale,
+            object_id,
+            cursor,
+            page_size,
+        } => {
+            let operation = "object.list";
+            if authority.is_explicit() {
+                return Err(mapped_problem(
+                    "urn:proof:problem:authority-denied",
+                    "The committed Object register is Human-only",
+                    "proof.auth.denied",
+                    operation,
+                    context,
+                    false,
+                ));
+            }
+            let repository = local_workspace(selected_workspace, operation, context)?;
+            let object_ids = if object_id.is_empty() {
+                None
+            } else {
+                let mut parsed = parse_many(&object_id, "object-id", operation, context)?;
+                parsed.sort_unstable();
+                if parsed.windows(2).any(|pair| pair[0] == pair[1]) {
+                    return Err(input_problem(
+                        operation,
+                        context,
+                        "object-id values must be unique".to_owned(),
+                    ));
+                }
+                Some(parsed)
+            };
+            let result = repository
+                .list_objects(ObjectListCommand {
+                    environment_id: parse(&environment, "environment", operation, context)?,
+                    schema_id: schema_id
+                        .map(|value| parse(&value, "schema-id", operation, context))
+                        .transpose()?,
+                    locale: locale
+                        .map(|value| parse(&value, "locale", operation, context))
+                        .transpose()?,
+                    object_ids,
+                    cursor,
+                    page_size,
+                })
+                .map_err(|error| content_read_problem(&error, operation, context))?;
+            let mut data = json!({
+                "entries": result.entries.iter().map(|entry| json!({
+                    "covered_by_current_release": entry.covered_by_current_release,
+                    "head_renditions": entry.head_renditions.iter().map(|rendition| json!({
+                        "locale": rendition.locale.as_str(),
+                        "rendition_digest": rendition.rendition_digest.to_string(),
+                        "revision": rendition.revision.get(),
+                    })).collect::<Vec<_>>(),
+                    "object_id": entry.object_id.to_string(),
+                    "released_revision": entry.released_revision.map(proof_application::ObjectRevision::get),
+                    "schema_id": entry.schema_id.as_str(),
+                    "schema_version": entry.schema_version.get(),
+                })).collect::<Vec<_>>(),
+                "state_scope": result.state_scope,
+            });
+            if let Some(cursor) = result.next_cursor {
+                data.as_object_mut()
+                    .expect("Object list data is an object")
+                    .insert("next_cursor".to_owned(), Value::String(cursor));
+            }
+            render_value(output, context, operation, data, |data| {
+                println!("state scope: {}", data["state_scope"]);
+                for entry in data["entries"].as_array().into_iter().flatten() {
+                    println!(
+                        "{} {}@{} released revision {}",
+                        entry["object_id"],
+                        entry["schema_id"],
+                        entry["schema_version"],
+                        entry["released_revision"]
+                    );
+                }
+                if let Some(cursor) = data.get("next_cursor") {
+                    println!("next cursor: {cursor}");
+                }
+            });
+        }
     }
     Ok(ExitCode::Success)
 }
@@ -335,6 +548,14 @@ pub(super) fn run_projection(
         }
     }
     Ok(ExitCode::Success)
+}
+
+fn schema_provenance_value(provenance: proof_application::SchemaReadProvenance) -> Value {
+    json!({
+        "authoritative_sequence": provenance.authoritative_sequence,
+        "changeset_id": provenance.changeset_id.to_string(),
+        "edit_id": provenance.edit_id.to_string(),
+    })
 }
 
 fn render_environment(
@@ -680,6 +901,39 @@ fn query_problem(
         QueryReleasedObjectsError::Storage(_) => storage_mapping("released Object"),
     };
     mapped_problem(problem_type, title, code, operation, context, retryable)
+}
+
+fn content_read_problem(
+    error: &LocalizedContentError,
+    operation: &str,
+    context: ExecutionContext,
+) -> Box<Problem> {
+    let mapping = match error {
+        LocalizedContentError::Unauthenticated => auth_mapping(),
+        LocalizedContentError::UnsupportedVersion => unsupported_version_mapping(),
+        LocalizedContentError::NotFound if operation == "schema.get" => (
+            "urn:proof:problem:schema-not-found",
+            "The exact Schema version was not found",
+            "proof.schema.not_found",
+            false,
+        ),
+        LocalizedContentError::SchemaNotFound => (
+            "urn:proof:problem:schema-not-found",
+            "Schema not found",
+            "proof.schema.not_found",
+            false,
+        ),
+        LocalizedContentError::NotFound => not_found_mapping("Environment or released Object"),
+        LocalizedContentError::InvalidInput | LocalizedContentError::LimitExceeded => {
+            return input_problem(operation, context, error.to_string());
+        }
+        LocalizedContentError::Integrity(_) => integrity_mapping("content register"),
+        LocalizedContentError::Storage(_) => storage_mapping("content register"),
+        _ => return internal_problem(operation, context),
+    };
+    mapped_problem(
+        mapping.0, mapping.1, mapping.2, operation, context, mapping.3,
+    )
 }
 
 fn rebuild_problem(

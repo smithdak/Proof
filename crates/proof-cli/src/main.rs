@@ -44,7 +44,7 @@ use auth_cli::AuthAction;
 use authority_cli::{CapabilityAction, ContextAction, DelegationAction, PrincipalAction};
 use evidence_cli::EvidenceAction;
 use localized_cli::LocalizedAction;
-use release_cli::{EnvironmentAction, ObjectAction, ProjectionAction, ReleaseAction};
+use release_cli::{EnvironmentAction, ObjectAction, ProjectionAction, ReleaseAction, SchemaAction};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -152,6 +152,11 @@ enum Command {
     Release {
         #[command(subcommand)]
         action: ReleaseAction,
+    },
+    /// Read exact committed Schema versions.
+    Schema {
+        #[command(subcommand)]
+        action: SchemaAction,
     },
     /// Export portable Release and authority-evidence closures.
     Evidence {
@@ -261,6 +266,7 @@ enum EditionAction {
 }
 
 impl Command {
+    #[allow(clippy::too_many_lines)]
     const fn operation(&self) -> &'static str {
         match self {
             Self::Init => "init",
@@ -349,6 +355,15 @@ impl Command {
             Self::Object {
                 action: ObjectAction::Query { .. },
             } => "object.query_released",
+            Self::Object {
+                action: ObjectAction::List { .. },
+            } => "object.list",
+            Self::Schema {
+                action: SchemaAction::Get { .. },
+            } => "schema.get",
+            Self::Schema {
+                action: SchemaAction::List { .. },
+            } => "schema.list",
             Self::Projection {
                 action: ProjectionAction::Rebuild { .. },
             } => "projection.rebuild",
@@ -360,7 +375,11 @@ impl Command {
     const fn accepts_explicit_authority(&self) -> bool {
         matches!(
             self,
-            Self::Status | Self::Context { .. } | Self::Object { .. }
+            Self::Status
+                | Self::Context { .. }
+                | Self::Object {
+                    action: ObjectAction::Query { .. },
+                }
         )
     }
 }
@@ -560,6 +579,7 @@ fn run_command(
         Command::Release { action } => {
             release_cli::run_release(action, output, context, workspace)?
         }
+        Command::Schema { action } => release_cli::run_schema(action, output, context, workspace)?,
         Command::Evidence { action } => {
             evidence_cli::run_evidence(action, output, context, workspace)?
         }

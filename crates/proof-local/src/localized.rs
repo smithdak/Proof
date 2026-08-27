@@ -11,14 +11,17 @@ use proof_application::{
     KNOWN_STATE_V1_API_VERSION, KNOWN_STATE_V2_API_VERSION, KnownStateArtifactReference,
     LOCALIZED_CONTEXT_API_VERSION, LOCALIZED_EDITION_API_VERSION, LOCALIZED_RELEASE_API_VERSION,
     LocalizedChangeSet, LocalizedChangeSetDiff, LocalizedContentBaseline, LocalizedContentError,
-    LocalizedContentRepository, LocalizedContextLimits, LocalizedContextPack, LocalizedEdition,
-    LocalizedPolicyRule, LocalizedRelease, LocalizedReleaseVerification,
-    MAX_LOCALIZED_CONTEXT_BYTES, MAX_LOCALIZED_EDITS, MAX_LOCALIZED_TARGETS,
-    MAX_LOCALIZED_VALIDATION_ATTEMPTS, ObjectId, ObjectLocalePutInput, ObjectLocaleRevision,
-    PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand, RELEASE_V1_API_VERSION,
-    ReleaseArtifactReference, ReleaseId, ReleasedRendition, ReleasedRenditionQuery,
-    RollbackLocalizedReleaseCommand, SchemaId, SubmittedLocalizedChangeSet, Timestamp,
-    VerifyLocalizedReleaseCommand,
+    LocalizedContentRepository, LocalizedContextLimits, LocalizedContextPack,
+    LocalizedCreationSlot, LocalizedEditAttempt, LocalizedEdition, LocalizedPolicyRule,
+    LocalizedRelease, LocalizedReleaseVerification, MAX_LOCALIZED_CONTEXT_BYTES,
+    MAX_LOCALIZED_EDITS, MAX_LOCALIZED_TARGETS, MAX_LOCALIZED_VALIDATION_ATTEMPTS,
+    OBJECT_LIST_STATE_SCOPE, ObjectCreateInput, ObjectId, ObjectListCommand, ObjectListEntry,
+    ObjectListResult, ObjectLocalePutInput, ObjectLocaleRevision, ObjectRenditionHead,
+    ObjectRevision, PromoteLocalizedReleaseCommand, QueryReleasedRenditionsCommand,
+    RELEASE_V1_API_VERSION, ReleaseArtifactReference, ReleaseId, ReleasedRendition,
+    ReleasedRenditionQuery, RollbackLocalizedReleaseCommand, SchemaGetCommand, SchemaGetResult,
+    SchemaId, SchemaListCommand, SchemaListEntry, SchemaListResult, SchemaReadProvenance,
+    SubmittedLocalizedChangeSet, Timestamp, VerifyLocalizedReleaseCommand,
 };
 use proof_canonical::{canonicalize, digest, object_revision_digest, parse_strict};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -317,7 +320,113 @@ pub(super) fn migrate_schema_v11(transaction: &Transaction<'_>) -> Result<(), St
     Ok(())
 }
 
+const V15_DATABASE_MIGRATION: &str = r"
+ALTER TABLE localized_edits ADD COLUMN edit_kind TEXT NOT NULL
+    DEFAULT 'object.locale.put' CHECK (
+        edit_kind IN ('object.locale.put', 'object.create')
+    );
+ALTER TABLE content_resource_intents ADD COLUMN creations_json
+    TEXT NOT NULL DEFAULT '[]';
+
+PRAGMA defer_foreign_keys = ON;
+DROP INDEX object_locale_heads;
+ALTER TABLE object_locale_revisions RENAME TO object_locale_revisions_v14;
+ALTER TABLE object_revisions RENAME TO object_revisions_v14;
+
+CREATE TABLE object_revisions (
+    object_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision = 1),
+    schema_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+    lifecycle_state TEXT NOT NULL CHECK (lifecycle_state = 'active'),
+    content_json TEXT NOT NULL,
+    object_digest TEXT NOT NULL,
+    changeset_id TEXT NOT NULL,
+    edit_id TEXT NOT NULL UNIQUE,
+    authoritative_sequence INTEGER NOT NULL UNIQUE CHECK (authoritative_sequence > 0),
+    PRIMARY KEY (object_id, revision),
+    FOREIGN KEY (schema_id, schema_version)
+        REFERENCES schema_versions(schema_id, schema_version)
+) STRICT;
+INSERT INTO object_revisions
+SELECT * FROM object_revisions_v14;
+
+CREATE TABLE object_locale_revisions (
+    workspace_id TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    locale TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    previous_revision_digest TEXT,
+    source_object_revision INTEGER NOT NULL CHECK (source_object_revision = 1),
+    source_object_digest TEXT NOT NULL,
+    schema_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+    content_json TEXT NOT NULL,
+    changeset_id TEXT NOT NULL REFERENCES localized_changesets(changeset_id),
+    edit_id TEXT NOT NULL UNIQUE REFERENCES localized_edits(edit_id),
+    authoritative_sequence INTEGER NOT NULL UNIQUE CHECK (authoritative_sequence > 0),
+    manifest_json TEXT NOT NULL,
+    rendition_digest TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (object_id, locale, revision),
+    FOREIGN KEY (object_id, source_object_revision)
+        REFERENCES object_revisions(object_id, revision),
+    FOREIGN KEY (schema_id, schema_version)
+        REFERENCES schema_versions(schema_id, schema_version)
+) STRICT;
+INSERT INTO object_locale_revisions
+SELECT * FROM object_locale_revisions_v14;
+
+DROP TABLE object_locale_revisions_v14;
+DROP TABLE object_revisions_v14;
+CREATE INDEX object_locale_heads
+    ON object_locale_revisions(object_id, locale, revision DESC);
+
+INSERT INTO schema_migrations (version, name)
+VALUES (15, 'localized-object-creations');
+UPDATE workspace_metadata SET schema_version = 15 WHERE singleton = 1;
+PRAGMA user_version = 15;
+";
+
+pub(super) fn migrate_schema_v15(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(V15_DATABASE_MIGRATION)
+        .map_err(|error| error.to_string())
+}
+
 impl LocalizedContentRepository for LocalWorkspace {
+    fn get_schema(
+        &self,
+        command: SchemaGetCommand,
+    ) -> Result<SchemaGetResult, LocalizedContentError> {
+        self.with_latest_transaction(|transaction, _workspace_id, principal_id| {
+            require_human_principal(transaction, principal_id)?;
+            get_schema(transaction, &command)
+        })
+        .map_err(localized_from_local_port)
+    }
+
+    fn list_schemas(
+        &self,
+        command: SchemaListCommand,
+    ) -> Result<SchemaListResult, LocalizedContentError> {
+        self.with_latest_transaction(|transaction, _workspace_id, principal_id| {
+            require_human_principal(transaction, principal_id)?;
+            list_schemas(transaction, &command)
+        })
+        .map_err(localized_from_local_port)
+    }
+
+    fn list_objects(
+        &self,
+        command: ObjectListCommand,
+    ) -> Result<ObjectListResult, LocalizedContentError> {
+        self.with_latest_transaction(|transaction, workspace_id, principal_id| {
+            require_human_principal(transaction, principal_id)?;
+            list_objects(transaction, workspace_id, &command)
+        })
+        .map_err(localized_from_local_port)
+    }
+
     fn issue_content_resource_intent(
         &self,
         command: IssueContentResourceIntentCommand,
@@ -553,6 +662,484 @@ impl LocalizedContentRepository for LocalWorkspace {
     }
 }
 
+type StoredSchemaRow = (String, i64, String, String, String, String, i64);
+
+fn get_schema(
+    transaction: &Connection,
+    command: &SchemaGetCommand,
+) -> Result<SchemaGetResult, LocalPortError> {
+    let row = transaction
+        .query_row(
+            "SELECT schema_id, schema_version, document_json, document_digest,
+                    changeset_id, edit_id, authoritative_sequence
+             FROM schema_versions WHERE schema_id = ?1 AND schema_version = ?2",
+            (
+                command.schema_id.as_str(),
+                i64::from(command.schema_version.get()),
+            ),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?
+        .ok_or(LocalPortError::SchemaNotFound)?;
+    let (entry, document) = verified_schema_row(row)?;
+    Ok(SchemaGetResult {
+        schema_id: entry.schema_id,
+        schema_version: entry.schema_version,
+        document,
+        document_digest: entry.document_digest,
+        provenance: entry.provenance,
+    })
+}
+
+fn list_schemas(
+    transaction: &Connection,
+    command: &SchemaListCommand,
+) -> Result<SchemaListResult, LocalPortError> {
+    let (cursor, page_size) = command
+        .validated_bounds()
+        .map_err(|_| LocalPortError::Invalid)?;
+    let cursor = i64::try_from(cursor).map_err(|_| LocalPortError::Invalid)?;
+    let limit = i64::from(page_size) + 1;
+    let schema_filter = command.schema_id.as_ref().map(SchemaId::as_str);
+    let mut statement = transaction
+        .prepare(
+            "SELECT schema_id, schema_version, document_json, document_digest,
+                    changeset_id, edit_id, authoritative_sequence
+             FROM schema_versions
+             WHERE authoritative_sequence > ?1
+               AND (?2 IS NULL OR schema_id = ?2)
+             ORDER BY authoritative_sequence ASC
+             LIMIT ?3",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map(params![cursor, schema_filter, limit], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let mut entries = rows
+        .map(|row| {
+            let (entry, _) = verified_schema_row(
+                row.map_err(|error| LocalPortError::Storage(error.to_string()))?,
+            )?;
+            Ok(entry)
+        })
+        .collect::<Result<Vec<_>, LocalPortError>>()?;
+    let has_more = entries.len() > usize::try_from(page_size).unwrap_or(usize::MAX);
+    if has_more {
+        entries.pop();
+    }
+    let next_cursor = has_more.then(|| {
+        entries
+            .last()
+            .expect("a page with an extra row has a returned row")
+            .provenance
+            .authoritative_sequence
+            .to_string()
+    });
+    Ok(SchemaListResult {
+        entries,
+        next_cursor,
+    })
+}
+
+fn verified_schema_row(row: StoredSchemaRow) -> Result<(SchemaListEntry, Value), LocalPortError> {
+    let schema_id =
+        SchemaId::new(row.0).map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let schema_version = proof_application::SchemaVersion::new(
+        u32::try_from(row.1)
+            .map_err(|_| LocalPortError::Integrity("invalid Schema version".to_owned()))?,
+    )
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let canonical = strict_canonical(&row.2, "Schema")?;
+    let document = parse_strict(row.2.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if !document.is_object() {
+        return Err(LocalPortError::Integrity(
+            "Schema document is not an object".to_owned(),
+        ));
+    }
+    let document_digest = row
+        .3
+        .parse::<ContentDigest>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if digest(proof_application::ArtifactKind::SchemaVersionV1, &canonical) != document_digest {
+        return Err(LocalPortError::Integrity(
+            "Schema digest does not reproduce".to_owned(),
+        ));
+    }
+    let provenance = SchemaReadProvenance {
+        changeset_id: row
+            .4
+            .parse()
+            .map_err(|error: proof_application::IdentifierError| {
+                LocalPortError::Integrity(error.to_string())
+            })?,
+        edit_id: row
+            .5
+            .parse()
+            .map_err(|error: proof_application::IdentifierError| {
+                LocalPortError::Integrity(error.to_string())
+            })?,
+        authoritative_sequence: u64::try_from(row.6)
+            .map_err(|_| LocalPortError::Integrity("invalid Schema sequence".to_owned()))?,
+    };
+    Ok((
+        SchemaListEntry {
+            schema_id,
+            schema_version,
+            document_digest,
+            provenance,
+        },
+        document,
+    ))
+}
+
+#[derive(Clone)]
+struct StoredObjectHead {
+    object_id: ObjectId,
+    revision: ObjectRevision,
+    schema_id: SchemaId,
+    schema_version: proof_application::SchemaVersion,
+    authoritative_sequence: u64,
+}
+
+fn list_objects(
+    transaction: &Connection,
+    workspace_id: proof_application::WorkspaceId,
+    command: &ObjectListCommand,
+) -> Result<ObjectListResult, LocalPortError> {
+    let (cursor, page_size) = command
+        .validated_bounds()
+        .map_err(|_| LocalPortError::Invalid)?;
+    let release_sequence =
+        current_release_state_sequence(transaction, workspace_id, &command.environment_id)?;
+    let mut objects = if let Some(object_ids) = &command.object_ids {
+        let mut objects = Vec::with_capacity(object_ids.len());
+        for object_id in object_ids {
+            if let Some(object) = query_object_head(
+                transaction,
+                cursor,
+                command.schema_id.as_ref(),
+                command.locale.as_ref(),
+                Some(*object_id),
+                1,
+            )?
+            .pop()
+            {
+                objects.push(object);
+            }
+        }
+        objects.sort_by_key(|object| object.authoritative_sequence);
+        objects
+    } else {
+        query_object_head(
+            transaction,
+            cursor,
+            command.schema_id.as_ref(),
+            command.locale.as_ref(),
+            None,
+            page_size + 1,
+        )?
+    };
+    let returned_size = usize::try_from(page_size).unwrap_or(usize::MAX);
+    let has_more = objects.len() > returned_size;
+    objects.truncate(returned_size);
+    let next_cursor = has_more.then(|| {
+        objects
+            .last()
+            .expect("a page with an extra row has a returned row")
+            .authoritative_sequence
+            .to_string()
+    });
+    let entries = objects
+        .into_iter()
+        .map(|object| {
+            let released_revision =
+                released_object_revision(transaction, object.object_id, release_sequence)?;
+            let head_renditions =
+                object_rendition_heads(transaction, object.object_id, command.locale.as_ref())?;
+            Ok(ObjectListEntry {
+                object_id: object.object_id,
+                schema_id: object.schema_id,
+                schema_version: object.schema_version,
+                covered_by_current_release: released_revision == Some(object.revision),
+                released_revision,
+                head_renditions,
+            })
+        })
+        .collect::<Result<Vec<_>, LocalPortError>>()?;
+    Ok(ObjectListResult {
+        state_scope: OBJECT_LIST_STATE_SCOPE.to_owned(),
+        entries,
+        next_cursor,
+    })
+}
+
+fn current_release_state_sequence(
+    transaction: &Connection,
+    workspace_id: proof_application::WorkspaceId,
+    environment_id: &proof_application::EnvironmentId,
+) -> Result<u64, LocalPortError> {
+    let release_id = transaction
+        .query_row(
+            "SELECT current.release_id
+             FROM environment_current_releases AS current
+             JOIN environments AS environment
+               ON environment.environment_id = current.environment_id
+             WHERE current.environment_id = ?1 AND environment.workspace_id = ?2",
+            (environment_id.as_str(), workspace_id.to_string()),
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?
+        .ok_or(LocalPortError::NotFound)?
+        .parse::<ReleaseId>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let selection = load_release_selection(transaction, workspace_id, release_id)?;
+    if selection.environment_id != *environment_id {
+        return Err(LocalPortError::Integrity(
+            "Environment current Release selects another Environment".to_owned(),
+        ));
+    }
+    let view =
+        load_versioned_edition_view(transaction, workspace_id, selection.edition.edition_id)?;
+    if view.reference != selection.edition {
+        return Err(LocalPortError::Integrity(
+            "Release Edition reference does not reproduce".to_owned(),
+        ));
+    }
+    Ok(view.state.authoritative_sequence)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn query_object_head(
+    transaction: &Connection,
+    cursor: u64,
+    schema_id: Option<&SchemaId>,
+    locale: Option<&proof_application::LocaleId>,
+    object_id: Option<ObjectId>,
+    limit: u32,
+) -> Result<Vec<StoredObjectHead>, LocalPortError> {
+    let cursor = i64::try_from(cursor).map_err(|_| LocalPortError::Invalid)?;
+    let schema_filter = schema_id.map(SchemaId::as_str);
+    let locale_filter = locale.map(proof_application::LocaleId::as_str);
+    let object_filter = object_id.map(|value| value.to_string());
+    let mut statement = transaction
+        .prepare(
+            "SELECT object.object_id, object.revision, object.schema_id,
+                    object.schema_version, object.lifecycle_state, object.content_json,
+                    object.object_digest, object.authoritative_sequence
+             FROM object_revisions AS object
+             WHERE object.authoritative_sequence > ?1
+               AND object.revision = (
+                   SELECT MAX(inner_object.revision) FROM object_revisions AS inner_object
+                   WHERE inner_object.object_id = object.object_id
+               )
+               AND (?2 IS NULL OR object.schema_id = ?2)
+               AND (?3 IS NULL OR EXISTS (
+                   SELECT 1 FROM object_locale_revisions AS rendition
+                   WHERE rendition.object_id = object.object_id
+                     AND rendition.locale = ?3
+                     AND rendition.revision = (
+                         SELECT MAX(inner_rendition.revision)
+                         FROM object_locale_revisions AS inner_rendition
+                         WHERE inner_rendition.object_id = rendition.object_id
+                           AND inner_rendition.locale = rendition.locale
+                     )
+               ))
+               AND (?4 IS NULL OR object.object_id = ?4)
+             ORDER BY object.authoritative_sequence ASC
+             LIMIT ?5",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map(
+            params![
+                cursor,
+                schema_filter,
+                locale_filter,
+                object_filter,
+                i64::from(limit)
+            ],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            },
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    rows.map(|row| {
+        verified_object_head(row.map_err(|error| LocalPortError::Storage(error.to_string()))?)
+    })
+    .collect::<Result<Vec<_>, _>>()
+}
+
+fn verified_object_head(
+    row: (String, i64, String, i64, String, String, String, i64),
+) -> Result<StoredObjectHead, LocalPortError> {
+    let object_id =
+        row.0
+            .parse::<ObjectId>()
+            .map_err(|error: proof_application::IdentifierError| {
+                LocalPortError::Integrity(error.to_string())
+            })?;
+    let revision = ObjectRevision::new(
+        u32::try_from(row.1)
+            .map_err(|_| LocalPortError::Integrity("invalid Object revision".to_owned()))?,
+    )
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let schema_id =
+        SchemaId::new(row.2).map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let schema_version = proof_application::SchemaVersion::new(
+        u32::try_from(row.3)
+            .map_err(|_| LocalPortError::Integrity("invalid Schema version".to_owned()))?,
+    )
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if row.4 != "active" {
+        return Err(LocalPortError::Integrity(
+            "Object lifecycle state is unsupported".to_owned(),
+        ));
+    }
+    let content = parse_strict(row.5.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let object_digest = row
+        .6
+        .parse::<ContentDigest>()
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let reproduced = object_revision_digest(object_id, &schema_id, schema_version, &content)
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if reproduced != object_digest {
+        return Err(LocalPortError::Integrity(
+            "Object digest does not reproduce".to_owned(),
+        ));
+    }
+    Ok(StoredObjectHead {
+        object_id,
+        revision,
+        schema_id,
+        schema_version,
+        authoritative_sequence: u64::try_from(row.7)
+            .map_err(|_| LocalPortError::Integrity("invalid Object sequence".to_owned()))?,
+    })
+}
+
+fn released_object_revision(
+    transaction: &Connection,
+    object_id: ObjectId,
+    release_sequence: u64,
+) -> Result<Option<ObjectRevision>, LocalPortError> {
+    let release_sequence = i64::try_from(release_sequence)
+        .map_err(|_| LocalPortError::Integrity("release state sequence is invalid".to_owned()))?;
+    let revision = transaction
+        .query_row(
+            "SELECT revision FROM object_revisions
+             WHERE object_id = ?1 AND authoritative_sequence <= ?2
+             ORDER BY revision DESC LIMIT 1",
+            (object_id.to_string(), release_sequence),
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    revision
+        .map(|revision| {
+            ObjectRevision::new(u32::try_from(revision).map_err(|_| {
+                LocalPortError::Integrity("invalid released Object revision".to_owned())
+            })?)
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))
+        })
+        .transpose()
+}
+
+fn object_rendition_heads(
+    transaction: &Connection,
+    object_id: ObjectId,
+    locale: Option<&proof_application::LocaleId>,
+) -> Result<Vec<ObjectRenditionHead>, LocalPortError> {
+    let locale_filter = locale.map(proof_application::LocaleId::as_str);
+    let mut statement = transaction
+        .prepare(
+            "SELECT rendition.locale, rendition.revision, rendition.rendition_digest,
+                    rendition.manifest_json
+             FROM object_locale_revisions AS rendition
+             WHERE rendition.object_id = ?1
+               AND (?2 IS NULL OR rendition.locale = ?2)
+               AND rendition.revision = (
+                   SELECT MAX(inner_rendition.revision)
+                   FROM object_locale_revisions AS inner_rendition
+                   WHERE inner_rendition.object_id = rendition.object_id
+                     AND inner_rendition.locale = rendition.locale
+               )
+             ORDER BY rendition.locale ASC",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map(params![object_id.to_string(), locale_filter], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    rows.map(|row| {
+        let (locale, revision, raw_digest, manifest) =
+            row.map_err(|error| LocalPortError::Storage(error.to_string()))?;
+        let canonical = strict_canonical(&manifest, "locale rendition")?;
+        let rendition_digest = raw_digest
+            .parse::<ContentDigest>()
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+        if digest(
+            proof_application::ArtifactKind::ObjectLocaleRevisionV1,
+            &canonical,
+        ) != rendition_digest
+        {
+            return Err(LocalPortError::Integrity(
+                "locale rendition digest does not reproduce".to_owned(),
+            ));
+        }
+        Ok(ObjectRenditionHead {
+            locale: proof_application::LocaleId::new(locale)
+                .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+            revision: proof_application::LocaleRevision::new(
+                u32::try_from(revision).map_err(|_| {
+                    LocalPortError::Integrity("invalid rendition revision".to_owned())
+                })?,
+            )
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+            rendition_digest,
+        })
+    })
+    .collect::<Result<Vec<_>, _>>()
+}
+
 fn require_human_principal(
     transaction: &Transaction<'_>,
     principal_id: proof_application::PrincipalId,
@@ -613,12 +1200,15 @@ pub(super) fn localized_from_local_port(error: LocalPortError) -> LocalizedConte
         LocalPortError::Unauthenticated => LocalizedContentError::Unauthenticated,
         LocalPortError::UnsupportedVersion => LocalizedContentError::UnsupportedVersion,
         LocalPortError::NotFound => LocalizedContentError::NotFound,
+        LocalPortError::SchemaNotFound => LocalizedContentError::SchemaNotFound,
         LocalPortError::Invalid | LocalPortError::InvalidRollbackTarget => {
             LocalizedContentError::InvalidInput
         }
         LocalPortError::IntentMismatch => LocalizedContentError::IntentMismatch,
+        LocalPortError::IntentSlotMismatch => LocalizedContentError::IntentSlotMismatch,
         LocalPortError::SourceConflict => LocalizedContentError::SourceConflict,
         LocalPortError::TargetConflict => LocalizedContentError::TargetConflict,
+        LocalPortError::ObjectExists => LocalizedContentError::ObjectExists,
         LocalPortError::DuplicateActiveTarget => LocalizedContentError::DuplicateActiveTarget,
         LocalPortError::InvalidSupersession => LocalizedContentError::InvalidSupersession,
         LocalPortError::InvalidRepairEvidence => LocalizedContentError::InvalidRepairEvidence,
@@ -650,6 +1240,10 @@ fn issue_resource_intent(
     command: &IssueContentResourceIntentCommand,
 ) -> Result<ContentResourceIntent, LocalPortError> {
     let targets = normalized_targets(&command.targets);
+    let creations = match &targets {
+        Ok(targets) => normalized_creations(&command.creations, targets),
+        Err(error) => Err(error.clone()),
+    };
     let persisted = transaction
         .query_row(
             "SELECT request_digest, intent_id FROM content_resource_intent_operations
@@ -669,12 +1263,21 @@ fn issue_resource_intent(
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
         let intent = load_resource_intent(transaction, workspace_id, intent_id)?;
         let targets = targets.map_err(|_| LocalPortError::IdempotencyKeyReused)?;
+        let creations = creations.map_err(|_| LocalPortError::IdempotencyKeyReused)?;
+        let intent_api_version = resource_intent_api_version(&intent.canonical_json)?;
+        if intent_api_version == proof_application::CONTENT_RESOURCE_INTENT_API_VERSION
+            && !creations.is_empty()
+        {
+            return Err(LocalPortError::IdempotencyKeyReused);
+        }
         let request_digest = content_intent_request_digest(
+            &intent_api_version,
             &command.environment_id,
             command.idempotency_key,
             command.intent_id,
             command.issued_at,
             &targets,
+            &creations,
         )?;
         if persisted_request != request_digest.to_string() {
             return Err(LocalPortError::IdempotencyKeyReused);
@@ -682,19 +1285,23 @@ fn issue_resource_intent(
         return Ok(intent);
     }
     let targets = targets?;
+    let creations = creations?;
     let request_digest = content_intent_request_digest(
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2,
         &command.environment_id,
         command.idempotency_key,
         command.intent_id,
         command.issued_at,
         &targets,
+        &creations,
     )?;
     let (baseline, released_at) =
         current_baseline(transaction, workspace_id, &command.environment_id)?;
     if command.issued_at < released_at {
         return Err(LocalPortError::Invalid);
     }
-    verify_targets_at_baseline(transaction, &baseline, &targets)?;
+    verify_targets_at_baseline(transaction, &baseline, &targets, &creations)?;
+    verify_creations_at_baseline(transaction, &baseline, &creations)?;
     let candidate_exists: bool = transaction
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM content_resource_intents WHERE intent_id = ?1)",
@@ -708,6 +1315,7 @@ fn issue_resource_intent(
         ));
     }
     let manifest = content_intent_manifest(
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2,
         command.intent_id,
         workspace_id,
         principal_id,
@@ -715,12 +1323,15 @@ fn issue_resource_intent(
         &command.environment_id,
         &baseline,
         &targets,
+        &creations,
     )?;
     let intent_digest = digest(
         proof_application::ArtifactKind::ContentResourceIntentV1,
         &manifest,
     );
     let targets_json = canonicalize(&Value::Array(targets_value(&targets)))
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let creations_json = canonicalize(&Value::Array(creations_value(&creations)))
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     transaction
         .execute(
@@ -729,9 +1340,9 @@ fn issue_resource_intent(
                  base_release_api_version, base_release_id, base_release_digest,
                  base_edition_api_version, base_edition_id, base_edition_digest,
                  base_state_api_version, base_authoritative_sequence, base_state_digest,
-                 targets_json, manifest_json, intent_digest
+                 targets_json, creations_json, manifest_json, intent_digest
              ) VALUES (
-                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
              )",
             params![
                 command.intent_id.to_string(),
@@ -751,13 +1362,18 @@ fn issue_resource_intent(
                 })?,
                 baseline.known_state.digest.to_string(),
                 targets_json.as_str(),
+                creations_json.as_str(),
                 manifest.as_str(),
                 intent_digest.to_string(),
             ],
         )
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
-    let effect_digest =
-        content_intent_effect_digest(request_digest, command.intent_id, intent_digest)?;
+    let effect_digest = content_intent_effect_digest(
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2,
+        request_digest,
+        command.intent_id,
+        intent_digest,
+    )?;
     transaction
         .execute(
             "INSERT INTO content_resource_intent_operations (
@@ -777,7 +1393,33 @@ fn issue_resource_intent(
     load_resource_intent(transaction, workspace_id, command.intent_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn content_intent_manifest(
+    api_version: &str,
+    intent_id: ContentResourceIntentId,
+    workspace_id: proof_application::WorkspaceId,
+    principal_id: proof_application::PrincipalId,
+    issued_at: Timestamp,
+    environment_id: &proof_application::EnvironmentId,
+    baseline: &LocalizedContentBaseline,
+    targets: &[proof_application::LocalizedContentTarget],
+    creations: &[LocalizedCreationSlot],
+) -> Result<proof_canonical::CanonicalJson, LocalPortError> {
+    canonicalize(&json!({
+        "api_version": api_version,
+        "base": baseline_value(baseline),
+        "creations": creations_value(creations),
+        "environment_id": environment_id.as_str(),
+        "intent_id": intent_id.to_string(),
+        "issued_at": issued_at.to_string(),
+        "issued_by_principal_id": principal_id.to_string(),
+        "targets": targets_value(targets),
+        "workspace_id": workspace_id.to_string(),
+    }))
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))
+}
+
+fn legacy_content_intent_manifest(
     intent_id: ContentResourceIntentId,
     workspace_id: proof_application::WorkspaceId,
     principal_id: proof_application::PrincipalId,
@@ -800,21 +1442,43 @@ fn content_intent_manifest(
 }
 
 fn content_intent_request_digest(
+    intent_api_version: &str,
     environment_id: &proof_application::EnvironmentId,
     idempotency_key: proof_application::IdempotencyKey,
     intent_id: ContentResourceIntentId,
     issued_at: Timestamp,
     targets: &[proof_application::LocalizedContentTarget],
+    creations: &[LocalizedCreationSlot],
 ) -> Result<ContentDigest, LocalPortError> {
-    let request = canonicalize(&json!({
-        "api_version": "proof.dev/operation/content-intent.issue/v1",
-        "environment_id": environment_id.as_str(),
-        "idempotency_key": idempotency_key.to_string(),
-        "intent_id": intent_id.to_string(),
-        "issued_at": issued_at.to_string(),
-        "targets": targets_value(targets),
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let request = match intent_api_version {
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION if creations.is_empty() => {
+            canonicalize(&json!({
+                "api_version": "proof.dev/operation/content-intent.issue/v1",
+                "environment_id": environment_id.as_str(),
+                "idempotency_key": idempotency_key.to_string(),
+                "intent_id": intent_id.to_string(),
+                "issued_at": issued_at.to_string(),
+                "targets": targets_value(targets),
+            }))
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?
+        }
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2 => canonicalize(&json!({
+            "api_version": "proof.dev/operation/content-intent.issue/v2",
+            "creations": creations_value(creations),
+            "environment_id": environment_id.as_str(),
+            "idempotency_key": idempotency_key.to_string(),
+            "intent_id": intent_id.to_string(),
+            "issued_at": issued_at.to_string(),
+            "targets": targets_value(targets),
+        }))
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION => {
+            return Err(LocalPortError::Integrity(
+                "v1 resource-intent operation carries creation slots".to_owned(),
+            ));
+        }
+        _ => return Err(LocalPortError::UnsupportedVersion),
+    };
     Ok(digest(
         proof_application::ArtifactKind::OperationEffectV1,
         &request,
@@ -822,13 +1486,19 @@ fn content_intent_request_digest(
 }
 
 fn content_intent_effect_digest(
+    intent_api_version: &str,
     request_digest: ContentDigest,
     intent_id: ContentResourceIntentId,
     intent_digest: ContentDigest,
 ) -> Result<ContentDigest, LocalPortError> {
+    let operation_kind = match intent_api_version {
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION => "content-intent.issue/v1",
+        proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2 => "content-intent.issue/v2",
+        _ => return Err(LocalPortError::UnsupportedVersion),
+    };
     let effect = canonicalize(&json!({
         "api_version": "proof.dev/operation-effect/v1",
-        "operation_kind": "content-intent.issue/v1",
+        "operation_kind": operation_kind,
         "request_digest": request_digest.to_string(),
         "result": {
             "intent_digest": intent_digest.to_string(),
@@ -854,6 +1524,138 @@ fn normalized_targets(
         return Err(LocalPortError::Invalid);
     }
     Ok(normalized)
+}
+
+fn normalized_creations(
+    creations: &[LocalizedCreationSlot],
+    targets: &[proof_application::LocalizedContentTarget],
+) -> Result<Vec<LocalizedCreationSlot>, LocalPortError> {
+    if creations
+        .len()
+        .checked_add(targets.len())
+        .is_none_or(|count| count > MAX_LOCALIZED_TARGETS)
+        || creations
+            .iter()
+            .any(|slot| slot.locales.len() > MAX_LOCALIZED_TARGETS)
+    {
+        return Err(LocalPortError::LimitExceeded);
+    }
+    if creations.iter().any(|slot| slot.locales.is_empty()) {
+        return Err(LocalPortError::Invalid);
+    }
+    let mut normalized = creations.to_vec();
+    for slot in &mut normalized {
+        slot.locales.sort();
+        if slot.locales.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(LocalPortError::Invalid);
+        }
+    }
+    normalized.sort();
+    if normalized
+        .windows(2)
+        .any(|pair| pair[0].object_id == pair[1].object_id)
+    {
+        return Err(LocalPortError::Invalid);
+    }
+    for slot in &normalized {
+        let expected_targets = slot
+            .locales
+            .iter()
+            .map(|locale| proof_application::LocalizedContentTarget {
+                object_id: slot.object_id,
+                schema_id: slot.schema_id.clone(),
+                locale: locale.clone(),
+            })
+            .collect::<Vec<_>>();
+        let actual_targets = targets
+            .iter()
+            .filter(|target| target.object_id == slot.object_id)
+            .collect::<Vec<_>>();
+        if actual_targets.len() != expected_targets.len()
+            || actual_targets
+                .iter()
+                .zip(&expected_targets)
+                .any(|(actual, expected)| *actual != expected)
+        {
+            return Err(LocalPortError::Invalid);
+        }
+    }
+    Ok(normalized)
+}
+
+fn creations_value(creations: &[LocalizedCreationSlot]) -> Vec<Value> {
+    creations
+        .iter()
+        .map(|slot| {
+            json!({
+                "locales": slot
+                    .locales
+                    .iter()
+                    .map(proof_application::LocaleId::as_str)
+                    .collect::<Vec<_>>(),
+                "object_id": slot.object_id.to_string(),
+                "schema_id": slot.schema_id.as_str(),
+            })
+        })
+        .collect()
+}
+
+fn parse_creations(text: &str) -> Result<Vec<LocalizedCreationSlot>, LocalPortError> {
+    let value = parse_strict(text.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let canonical =
+        canonicalize(&value).map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if canonical.as_str() != text {
+        return Err(LocalPortError::Integrity(
+            "resource-intent creations are not canonical".to_owned(),
+        ));
+    }
+    let array = value.as_array().ok_or_else(|| {
+        LocalPortError::Integrity("resource-intent creations are not an array".to_owned())
+    })?;
+    let mut creations = Vec::with_capacity(array.len());
+    for item in array {
+        let object = item.as_object().ok_or_else(|| {
+            LocalPortError::Integrity("resource-intent creation is not an object".to_owned())
+        })?;
+        if object.len() != 3 {
+            return Err(LocalPortError::Integrity(
+                "resource-intent creation has unknown members".to_owned(),
+            ));
+        }
+        let locales = required_strings(object, "locales")?;
+        creations.push(LocalizedCreationSlot {
+            object_id: required_string(object, "object_id")?.parse().map_err(
+                |error: proof_application::IdentifierError| {
+                    LocalPortError::Integrity(error.to_string())
+                },
+            )?,
+            schema_id: SchemaId::new(required_string(object, "schema_id")?)
+                .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+            locales: locales
+                .into_iter()
+                .map(|locale| {
+                    proof_application::LocaleId::new(locale)
+                        .map_err(|error| LocalPortError::Integrity(error.to_string()))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        });
+    }
+    Ok(creations)
+}
+
+fn resource_intent_api_version(canonical_json: &str) -> Result<String, LocalPortError> {
+    parse_strict(canonical_json.as_bytes())
+        .ok()
+        .and_then(|value| {
+            value
+                .get("api_version")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .ok_or_else(|| {
+            LocalPortError::Integrity("resource-intent artifact is unreadable".to_owned())
+        })
 }
 
 fn targets_value(targets: &[proof_application::LocalizedContentTarget]) -> Vec<Value> {
@@ -1097,12 +1899,56 @@ fn verify_targets_at_baseline(
     transaction: &Transaction<'_>,
     baseline: &LocalizedContentBaseline,
     targets: &[proof_application::LocalizedContentTarget],
+    creations: &[LocalizedCreationSlot],
 ) -> Result<(), LocalPortError> {
     let edition_objects = edition_object_ids(transaction, &baseline.edition)?;
     for target in targets {
+        if creations
+            .iter()
+            .any(|slot| slot.object_id == target.object_id)
+        {
+            continue;
+        }
         let source = load_source_object(transaction, target.object_id)?;
         if source.schema_id != target.schema_id || !edition_objects.contains(&target.object_id) {
             return Err(LocalPortError::Invalid);
+        }
+    }
+    Ok(())
+}
+
+fn verify_creations_at_baseline(
+    transaction: &Transaction<'_>,
+    baseline: &LocalizedContentBaseline,
+    creations: &[LocalizedCreationSlot],
+) -> Result<(), LocalPortError> {
+    let baseline_sequence =
+        i64::try_from(baseline.known_state.authoritative_sequence).map_err(|_| {
+            LocalPortError::Integrity("Known State sequence exceeds SQLite range".to_owned())
+        })?;
+    for slot in creations {
+        let object_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM object_revisions WHERE object_id = ?1)",
+                [slot.object_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+        if object_exists {
+            return Err(LocalPortError::ObjectExists);
+        }
+        let schema_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM schema_versions
+                     WHERE schema_id = ?1 AND authoritative_sequence <= ?2
+                 )",
+                (slot.schema_id.as_str(), baseline_sequence),
+                |row| row.get(0),
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+        if !schema_exists {
+            return Err(LocalPortError::SchemaNotFound);
         }
     }
     Ok(())
@@ -1285,6 +2131,13 @@ pub(super) fn load_resource_intent(
     if row.10 != workspace_id.to_string() {
         return Err(LocalPortError::NotFound);
     }
+    let creations_json: String = transaction
+        .query_row(
+            "SELECT creations_json FROM content_resource_intents WHERE intent_id = ?1",
+            [intent_id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
     let principal_id = row
         .0
         .parse()
@@ -1334,16 +2187,50 @@ pub(super) fn load_resource_intent(
                     .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
             },
         };
+    let stored_api_version = resource_intent_api_version(&row.14)?;
     let targets = parse_targets(&row.13)?;
-    let manifest = content_intent_manifest(
-        intent_id,
-        workspace_id,
-        principal_id,
-        issued_at,
-        &environment_id,
-        &baseline,
-        &targets,
-    )?;
+    let (manifest, creations) =
+        if stored_api_version == proof_application::CONTENT_RESOURCE_INTENT_API_VERSION_V2 {
+            let creations = parse_creations(&creations_json)?;
+            let normalized = normalized_creations(&creations, &targets).map_err(|_| {
+                LocalPortError::Integrity("resource-intent creation closure is invalid".to_owned())
+            })?;
+            if normalized != creations {
+                return Err(LocalPortError::Integrity(
+                    "resource-intent creations are not in canonical order".to_owned(),
+                ));
+            }
+            let manifest = content_intent_manifest(
+                &stored_api_version,
+                intent_id,
+                workspace_id,
+                principal_id,
+                issued_at,
+                &environment_id,
+                &baseline,
+                &targets,
+                &creations,
+            )?;
+            (manifest, creations)
+        } else if stored_api_version == proof_application::CONTENT_RESOURCE_INTENT_API_VERSION {
+            if !parse_creations(&creations_json)?.is_empty() {
+                return Err(LocalPortError::Integrity(
+                    "v1 resource-intent carries creation slots".to_owned(),
+                ));
+            }
+            let manifest = legacy_content_intent_manifest(
+                intent_id,
+                workspace_id,
+                principal_id,
+                issued_at,
+                &environment_id,
+                &baseline,
+                &targets,
+            )?;
+            (manifest, Vec::new())
+        } else {
+            return Err(LocalPortError::UnsupportedVersion);
+        };
     let intent_digest = row
         .15
         .parse::<ContentDigest>()
@@ -1366,16 +2253,18 @@ pub(super) fn load_resource_intent(
         environment_id,
         base: baseline,
         targets,
+        creations,
         canonical_json: row.14,
         intent_digest,
     };
-    verify_content_resource_intent_operation(transaction, &intent)?;
+    verify_content_resource_intent_operation(transaction, &intent, &stored_api_version)?;
     Ok(intent)
 }
 
 fn verify_content_resource_intent_operation(
     transaction: &Connection,
     intent: &ContentResourceIntent,
+    intent_api_version: &str,
 ) -> Result<(), LocalPortError> {
     let mut statement = transaction
         .prepare(
@@ -1408,14 +2297,20 @@ fn verify_content_resource_intent_operation(
         .parse::<proof_application::IdempotencyKey>()
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     let expected_request = content_intent_request_digest(
+        intent_api_version,
         &intent.environment_id,
         idempotency_key,
         intent.intent_id,
         intent.issued_at,
         &intent.targets,
+        &intent.creations,
     )?;
-    let expected_effect =
-        content_intent_effect_digest(expected_request, intent.intent_id, intent.intent_digest)?;
+    let expected_effect = content_intent_effect_digest(
+        intent_api_version,
+        expected_request,
+        intent.intent_id,
+        intent.intent_digest,
+    )?;
     if idempotency_key.to_string() != *raw_key
         || workspace_id != &intent.workspace_id.to_string()
         || principal_id != &intent.issued_by_principal_id.to_string()
@@ -1484,6 +2379,24 @@ fn required_string(
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
         .ok_or_else(|| LocalPortError::Integrity(format!("missing string field `{field}`")))
+}
+
+fn required_strings(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<Vec<String>, LocalPortError> {
+    object
+        .get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| LocalPortError::Integrity(format!("missing string array `{field}`")))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| LocalPortError::Integrity(format!("missing string in `{field}`")))
+        })
+        .collect()
 }
 
 #[expect(
@@ -1673,6 +2586,18 @@ fn verify_baseline_is_current(
     workspace_id: proof_application::WorkspaceId,
     intent: &ContentResourceIntent,
 ) -> Result<(), LocalPortError> {
+    for slot in &intent.creations {
+        let object_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM object_revisions WHERE object_id = ?1)",
+                [slot.object_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+        if object_exists {
+            return Err(LocalPortError::ObjectExists);
+        }
+    }
     let (current, _) = current_baseline(transaction, workspace_id, &intent.environment_id)?;
     if current != intent.base {
         return Err(LocalPortError::StateConflict);
@@ -1903,15 +2828,18 @@ fn validate_context_limits(
         .targets
         .iter()
         .map(|target| target.object_id)
+        .chain(intent.creations.iter().map(|slot| slot.object_id))
         .collect::<BTreeSet<_>>()
         .len();
     let object_count = u32::try_from(object_count).map_err(|_| LocalPortError::LimitExceeded)?;
     let target_count =
         u32::try_from(intent.targets.len()).map_err(|_| LocalPortError::LimitExceeded)?;
+    let edit_floor = target_count
+        + u32::try_from(intent.creations.len()).map_err(|_| LocalPortError::LimitExceeded)?;
     if limits.max_objects < object_count
         || limits.max_objects == 0
         || limits.max_objects > u32::try_from(MAX_LOCALIZED_TARGETS).unwrap_or(u32::MAX)
-        || limits.max_edits < target_count
+        || limits.max_edits < edit_floor
         || limits.max_edits > MAX_LOCALIZED_EDITS
         || limits.max_validation_attempts == 0
         || limits.max_validation_attempts > MAX_LOCALIZED_VALIDATION_ATTEMPTS
@@ -1939,6 +2867,39 @@ fn context_resources(
 ) -> Result<Vec<Value>, LocalPortError> {
     let mut resources = Vec::with_capacity(intent.targets.len());
     for target in &intent.targets {
+        if let Some(slot) = intent
+            .creations
+            .iter()
+            .find(|slot| slot.object_id == target.object_id)
+        {
+            if slot.schema_id != target.schema_id || !slot.locales.contains(&target.locale) {
+                return Err(LocalPortError::Invalid);
+            }
+            let schema_candidates = load_creation_schema_candidates(
+                transaction,
+                &slot.schema_id,
+                intent.base.known_state.authoritative_sequence,
+            )?
+            .iter()
+            .map(schema_closure_value)
+            .collect::<Result<Vec<_>, _>>()?;
+            resources.push(json!({
+                "locale": target.locale.as_str(),
+                "object_id": target.object_id.to_string(),
+                "schema_candidates": schema_candidates,
+                "source": {
+                    "absent": true,
+                    "api_version": "proof.dev/object-revision-absence/v1",
+                    "authoritative_sequence": intent.base.known_state.authoritative_sequence,
+                },
+                "target": {
+                    "absent": true,
+                    "api_version": "proof.dev/object-locale-absence/v1",
+                    "authoritative_sequence": intent.base.known_state.authoritative_sequence,
+                },
+            }));
+            continue;
+        }
         let source = load_source_object(transaction, target.object_id)?;
         if source.schema_id != target.schema_id {
             return Err(LocalPortError::Invalid);
@@ -2110,6 +3071,56 @@ struct LocalizableSchema {
     localizable_pointers: Vec<String>,
 }
 
+fn schema_closure_value(schema: &LocalizableSchema) -> Result<Value, LocalPortError> {
+    Ok(json!({
+        "document": parse_strict(schema.canonical_document.as_bytes())
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+        "document_digest": schema.document_digest.to_string(),
+        "localizable_pointers": schema.localizable_pointers,
+        "schema_id": schema.schema_id.as_str(),
+        "schema_version": schema.schema_version.get(),
+    }))
+}
+
+fn load_creation_schema_candidates(
+    transaction: &Connection,
+    schema_id: &SchemaId,
+    baseline_sequence: u64,
+) -> Result<Vec<LocalizableSchema>, LocalPortError> {
+    let baseline_sequence = i64::try_from(baseline_sequence).map_err(|_| {
+        LocalPortError::Integrity("Known State sequence exceeds SQLite range".to_owned())
+    })?;
+    let mut statement = transaction
+        .prepare(
+            "SELECT schema_version FROM schema_versions
+             WHERE schema_id = ?1 AND authoritative_sequence <= ?2
+             ORDER BY schema_version",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map((schema_id.as_str(), baseline_sequence), |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let versions = rows
+        .map(|row| row.map_err(|error| LocalPortError::Storage(error.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    if versions.is_empty() {
+        return Err(LocalPortError::SchemaNotFound);
+    }
+    versions
+        .into_iter()
+        .map(|version| {
+            let version = u32::try_from(version)
+                .map_err(|_| LocalPortError::Integrity("invalid Schema version".to_owned()))?;
+            let version = proof_application::SchemaVersion::new(version)
+                .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+            load_localizable_schema(transaction, schema_id, version)
+        })
+        .collect()
+}
+
 fn load_localizable_schema(
     transaction: &Connection,
     schema_id: &SchemaId,
@@ -2216,6 +3227,7 @@ struct RenditionAtState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ReproducedLocalizedProjections {
+    pub(super) objects: Vec<super::ExpectedObjectProjection>,
     pub(super) renditions: Vec<ObjectLocaleRevision>,
     pub(super) authoritative_sequence: u64,
     pub(super) state_digest: ContentDigest,
@@ -2315,17 +3327,20 @@ pub(super) fn reproduce_localized_projections(
             )
         })
         .collect::<Vec<_>>();
-    let object_references = objects
-        .iter()
-        .map(|object| proof_canonical::ObjectStateReference {
-            object_id: object.object_id,
-            revision: object.revision,
-            schema_id: object.schema_id.clone(),
-            schema_version: object.schema_version,
-            lifecycle_state: proof_application::ObjectLifecycleState::Active,
-            object_digest: object.object_digest,
-        })
-        .collect::<Vec<_>>();
+    let mut objects = objects.to_vec();
+    let object_references = |objects: &[super::ExpectedObjectProjection]| {
+        objects
+            .iter()
+            .map(|object| proof_canonical::ObjectStateReference {
+                object_id: object.object_id,
+                revision: object.revision,
+                schema_id: object.schema_id.clone(),
+                schema_version: object.schema_version,
+                lifecycle_state: proof_application::ObjectLifecycleState::Active,
+                object_digest: object.object_digest,
+            })
+            .collect::<Vec<_>>()
+    };
     let mut current_state = KnownStateArtifactReference {
         api_version: KNOWN_STATE_V1_API_VERSION.to_owned(),
         authoritative_sequence: predecessor_sequence,
@@ -2420,11 +3435,49 @@ pub(super) fn reproduce_localized_projections(
                 "localized commit has no effective Edits".to_owned(),
             ));
         }
+        verify_effective_intent_closure(&intent, &effective_edits).map_err(|_| {
+            LocalPortError::Integrity(
+                "localized commit does not exhaust its resource intent".to_owned(),
+            )
+        })?;
         let mut commit_renditions = Vec::with_capacity(effective_edits.len());
         let mut next_sequence = current_state.authoritative_sequence;
         for edit in &effective_edits {
-            let head = heads.get(&(edit.input.object_id, edit.input.locale.clone()));
-            verify_reproduced_edit_input(&edit.input, &intent, objects, schemas, head)?;
+            let LocalizedEditAttempt::LocalePut(input) = &edit.input else {
+                let LocalizedEditAttempt::ObjectCreate(create_input) = &edit.input else {
+                    unreachable!("localized Edit attempts are puts or creates");
+                };
+                verify_reproduced_create_edit_input(create_input, &intent, &objects, schemas)?;
+                next_sequence = next_sequence.checked_add(1).ok_or_else(|| {
+                    LocalPortError::Integrity("authoritative sequence overflow".to_owned())
+                })?;
+                let content = parse_strict(create_input.canonical_content.as_bytes())
+                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                let object_digest = object_revision_digest(
+                    create_input.object_id,
+                    &create_input.schema_id,
+                    create_input.schema_version,
+                    &content,
+                )
+                .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                objects.push(super::ExpectedObjectProjection {
+                    object_id: create_input.object_id,
+                    revision: proof_application::ObjectRevision::INITIAL,
+                    schema_id: create_input.schema_id.clone(),
+                    schema_version: create_input.schema_version,
+                    content_json: create_input.canonical_content.clone(),
+                    object_digest,
+                    changeset_id,
+                    edit_id: edit.edit_id,
+                    authoritative_sequence: next_sequence,
+                });
+                objects.sort_by(|left, right| {
+                    (left.object_id, left.revision).cmp(&(right.object_id, right.revision))
+                });
+                continue;
+            };
+            let head = heads.get(&(input.object_id, input.locale.clone()));
+            verify_reproduced_edit_input(input, &intent, &objects, schemas, head)?;
             next_sequence = next_sequence.checked_add(1).ok_or_else(|| {
                 LocalPortError::Integrity("authoritative sequence overflow".to_owned())
             })?;
@@ -2433,19 +3486,19 @@ pub(super) fn reproduce_localized_projections(
             )
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
             let previous_revision_digest = head.map(|rendition| rendition.rendition_digest);
-            let content = parse_strict(edit.input.canonical_content.as_bytes())
+            let content = parse_strict(input.canonical_content.as_bytes())
                 .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
             let (manifest, rendition_digest) = proof_canonical::object_locale_revision(
                 &proof_canonical::ObjectLocaleRevisionInput {
                     workspace_id,
-                    object_id: edit.input.object_id,
-                    locale: &edit.input.locale,
+                    object_id: input.object_id,
+                    locale: &input.locale,
                     revision,
                     previous_revision_digest,
-                    source_object_revision: edit.input.expected_source.revision,
-                    source_object_digest: edit.input.expected_source.digest,
-                    schema_id: &edit.input.expected_source.schema_id,
-                    schema_version: edit.input.expected_source.schema_version,
+                    source_object_revision: input.expected_source.revision,
+                    source_object_digest: input.expected_source.digest,
+                    schema_id: &input.expected_source.schema_id,
+                    schema_version: input.expected_source.schema_version,
                     content: &content,
                     changeset_id,
                     edit_id: edit.edit_id,
@@ -2455,15 +3508,15 @@ pub(super) fn reproduce_localized_projections(
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
             let rendition = ObjectLocaleRevision {
                 workspace_id,
-                object_id: edit.input.object_id,
-                locale: edit.input.locale.clone(),
+                object_id: input.object_id,
+                locale: input.locale.clone(),
                 revision,
                 previous_revision_digest,
-                source_object_revision: edit.input.expected_source.revision,
-                source_object_digest: edit.input.expected_source.digest,
-                schema_id: edit.input.expected_source.schema_id.clone(),
-                schema_version: edit.input.expected_source.schema_version,
-                canonical_content: edit.input.canonical_content.clone(),
+                source_object_revision: input.expected_source.revision,
+                source_object_digest: input.expected_source.digest,
+                schema_id: input.expected_source.schema_id.clone(),
+                schema_version: input.expected_source.schema_version,
+                canonical_content: input.canonical_content.clone(),
                 changeset_id,
                 edit_id: edit.edit_id,
                 authoritative_sequence: next_sequence,
@@ -2503,7 +3556,7 @@ pub(super) fn reproduce_localized_projections(
             workspace_id,
             next_sequence,
             &schema_references,
-            &object_references,
+            &object_references(&objects),
             &locale_references,
             &previous_reference,
         )
@@ -2592,6 +3645,7 @@ pub(super) fn reproduce_localized_projections(
         ));
     }
     Ok(Some(ReproducedLocalizedProjections {
+        objects,
         renditions,
         authoritative_sequence: current_state.authoritative_sequence,
         state_digest: current_state.digest,
@@ -2599,6 +3653,58 @@ pub(super) fn reproduce_localized_projections(
             LocalPortError::Integrity("localized commit chain lacks a final state".to_owned())
         })?,
     }))
+}
+
+fn verify_reproduced_create_edit_input(
+    input: &ObjectCreateInput,
+    intent: &ContentResourceIntent,
+    objects: &[super::ExpectedObjectProjection],
+    schemas: &[super::ExpectedSchemaProjection],
+) -> Result<(), LocalPortError> {
+    if !intent
+        .creations
+        .iter()
+        .any(|slot| slot.object_id == input.object_id && slot.schema_id == input.schema_id)
+    {
+        return Err(LocalPortError::Integrity(
+            "committed creation Edit lies outside its resource intent".to_owned(),
+        ));
+    }
+    if objects
+        .iter()
+        .any(|object| object.object_id == input.object_id)
+    {
+        return Err(LocalPortError::Integrity(
+            "committed creation Edit recreates an existing Object".to_owned(),
+        ));
+    }
+    let schema = schemas
+        .iter()
+        .find(|schema| {
+            schema.schema_id == input.schema_id && schema.schema_version == input.schema_version
+        })
+        .ok_or_else(|| {
+            LocalPortError::Integrity("committed creation Edit Schema is missing".to_owned())
+        })?;
+    let content = parse_strict(input.canonical_content.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let canonical =
+        canonicalize(&content).map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if canonical.as_str() != input.canonical_content || !content.is_object() {
+        return Err(LocalPortError::Integrity(
+            "committed creation Edit content is not one canonical Object".to_owned(),
+        ));
+    }
+    let schema_value = parse_strict(schema.document_json.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let validator = jsonschema::draft202012::new(&schema_value)
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if validator.iter_errors(&content).next().is_some() {
+        return Err(LocalPortError::Integrity(
+            "committed creation Edit content violates its exact Schema".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn verify_reproduced_edit_input(
@@ -3770,6 +4876,7 @@ fn load_edits(
         String,
         String,
         String,
+        String,
         i64,
         String,
         String,
@@ -3784,7 +4891,7 @@ fn load_edits(
     );
     let mut statement = transaction
         .prepare(
-            "SELECT ordinal, edit_id, object_id, locale, source_revision, source_digest,
+            "SELECT ordinal, edit_id, edit_kind, object_id, locale, source_revision, source_digest,
                     schema_id, schema_version, expected_target_revision,
                     expected_target_digest, content_json, supersedes_edit_id,
                     repair_validation_digest, edit_json, edit_digest
@@ -3809,6 +4916,7 @@ fn load_edits(
                 row.get(12)?,
                 row.get(13)?,
                 row.get(14)?,
+                row.get(15)?,
             ))
         })
         .map_err(|error| LocalPortError::Storage(error.to_string()))?;
@@ -3827,74 +4935,100 @@ fn load_edits(
             .parse::<proof_application::EditId>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
         let object_id = row
-            .2
+            .3
             .parse::<ObjectId>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let locale = proof_application::LocaleId::new(row.3)
-            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let source_revision = proof_application::ObjectRevision::new(
-            u32::try_from(row.4)
-                .map_err(|_| LocalPortError::Integrity("invalid source revision".to_owned()))?,
-        )
-        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let source_digest = row
-            .5
-            .parse::<ContentDigest>()
-            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
         let schema_id =
-            SchemaId::new(row.6).map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+            SchemaId::new(row.7).map_err(|error| LocalPortError::Integrity(error.to_string()))?;
         let schema_version = proof_application::SchemaVersion::new(
-            u32::try_from(row.7)
+            u32::try_from(row.8)
                 .map_err(|_| LocalPortError::Integrity("invalid Schema version".to_owned()))?,
         )
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        let expected_target = match (row.8, row.9) {
-            (None, None) => None,
-            (Some(revision), Some(raw_digest)) => {
-                Some(proof_application::ExpectedLocalizedTarget {
-                    revision: proof_application::LocaleRevision::new(
-                        u32::try_from(revision).map_err(|_| {
-                            LocalPortError::Integrity("invalid target revision".to_owned())
-                        })?,
-                    )
-                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
-                    digest: raw_digest
-                        .parse::<ContentDigest>()
-                        .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+        strict_canonical(&row.11, "localized Edit content")?;
+        let supersedes_edit_id = row
+            .12
+            .map(|value| value.parse::<proof_application::EditId>())
+            .transpose()
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+        let repair_of_validation_result_digest = parse_optional_digest(row.13.as_deref())?;
+        let input = match row.2.as_str() {
+            "object.create" => {
+                if !row.4.is_empty() || row.5 != 1 {
+                    return Err(LocalPortError::Integrity(
+                        "localized creation Edit carries rendition columns".to_owned(),
+                    ));
+                }
+                LocalizedEditAttempt::ObjectCreate(ObjectCreateInput {
+                    object_id,
+                    schema_id,
+                    schema_version,
+                    canonical_content: row.11,
+                    supersedes_edit_id,
+                    repair_of_validation_result_digest,
+                })
+            }
+            "object.locale.put" => {
+                let locale = proof_application::LocaleId::new(row.4)
+                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                let source_revision =
+                    proof_application::ObjectRevision::new(u32::try_from(row.5).map_err(|_| {
+                        LocalPortError::Integrity("invalid source revision".to_owned())
+                    })?)
+                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                let source_digest = row
+                    .6
+                    .parse::<ContentDigest>()
+                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                let expected_target = match (row.9, row.10) {
+                    (None, None) => None,
+                    (Some(revision), Some(raw_digest)) => {
+                        Some(proof_application::ExpectedLocalizedTarget {
+                            revision: proof_application::LocaleRevision::new(
+                                u32::try_from(revision).map_err(|_| {
+                                    LocalPortError::Integrity("invalid target revision".to_owned())
+                                })?,
+                            )
+                            .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+                            digest: raw_digest
+                                .parse::<ContentDigest>()
+                                .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
+                        })
+                    }
+                    _ => {
+                        return Err(LocalPortError::Integrity(
+                            "localized Edit target precondition is partial".to_owned(),
+                        ));
+                    }
+                };
+                LocalizedEditAttempt::LocalePut(ObjectLocalePutInput {
+                    object_id,
+                    locale,
+                    expected_source: proof_application::ExpectedLocalizedSource {
+                        revision: source_revision,
+                        digest: source_digest,
+                        schema_id,
+                        schema_version,
+                    },
+                    expected_target,
+                    canonical_content: row.11,
+                    supersedes_edit_id,
+                    repair_of_validation_result_digest,
                 })
             }
             _ => {
                 return Err(LocalPortError::Integrity(
-                    "localized Edit target precondition is partial".to_owned(),
+                    "localized Edit kind is unsupported".to_owned(),
                 ));
             }
         };
-        strict_canonical(&row.10, "localized Edit content")?;
-        let input = ObjectLocalePutInput {
-            object_id,
-            locale,
-            expected_source: proof_application::ExpectedLocalizedSource {
-                revision: source_revision,
-                digest: source_digest,
-                schema_id,
-                schema_version,
-            },
-            expected_target,
-            canonical_content: row.10,
-            supersedes_edit_id: row
-                .11
-                .map(|value| value.parse::<proof_application::EditId>())
-                .transpose()
-                .map_err(|error| LocalPortError::Integrity(error.to_string()))?,
-            repair_of_validation_result_digest: parse_optional_digest(row.12.as_deref())?,
-        };
         let manifest = edit_manifest(edit_id, &input)?;
         let edit_digest = row
-            .14
+            .15
             .parse::<ContentDigest>()
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        if manifest.as_str() != row.13
-            || digest(proof_application::ArtifactKind::EditV2, &manifest) != edit_digest
+        if manifest.as_str() != row.14
+            || digest(edit_artifact_kind(&input), &manifest) != edit_digest
         {
             return Err(LocalPortError::Integrity(
                 "localized Edit artifact does not reproduce".to_owned(),
@@ -3905,7 +5039,7 @@ fn load_edits(
             edit_id,
             input,
             effective: false,
-            canonical_json: row.13,
+            canonical_json: row.14,
             edit_digest,
         });
     }
@@ -3915,40 +5049,80 @@ fn load_edits(
 
 fn edit_manifest(
     edit_id: proof_application::EditId,
-    input: &ObjectLocalePutInput,
+    attempt: &LocalizedEditAttempt,
 ) -> Result<proof_canonical::CanonicalJson, LocalPortError> {
-    let content =
-        parse_strict(input.canonical_content.as_bytes()).map_err(|_| LocalPortError::Invalid)?;
-    canonicalize(&json!({
-        "api_version": proof_application::LOCALIZED_EDIT_API_VERSION,
-        "content": content,
-        "edit_id": edit_id.to_string(),
-        "expected_source": {
-            "digest": input.expected_source.digest.to_string(),
-            "revision": input.expected_source.revision.get(),
-            "schema_id": input.expected_source.schema_id.as_str(),
-            "schema_version": input.expected_source.schema_version.get(),
-        },
-        "expected_target": input.expected_target.as_ref().map(|target| json!({
-            "digest": target.digest.to_string(),
-            "revision": target.revision.get(),
-        })),
-        "kind": "object.locale.put",
-        "locale": input.locale.as_str(),
-        "object_id": input.object_id.to_string(),
-        "repair_of_validation_result_digest": input
-            .repair_of_validation_result_digest
-            .map(|value| value.to_string()),
-        "supersedes_edit_id": input.supersedes_edit_id.map(|value| value.to_string()),
-    }))
-    .map_err(|error| LocalPortError::Integrity(error.to_string()))
+    match attempt {
+        LocalizedEditAttempt::LocalePut(input) => {
+            let content = parse_strict(input.canonical_content.as_bytes())
+                .map_err(|_| LocalPortError::Invalid)?;
+            canonicalize(&json!({
+                "api_version": proof_application::LOCALIZED_EDIT_API_VERSION,
+                "content": content,
+                "edit_id": edit_id.to_string(),
+                "expected_source": {
+                    "digest": input.expected_source.digest.to_string(),
+                    "revision": input.expected_source.revision.get(),
+                    "schema_id": input.expected_source.schema_id.as_str(),
+                    "schema_version": input.expected_source.schema_version.get(),
+                },
+                "expected_target": input.expected_target.as_ref().map(|target| json!({
+                    "digest": target.digest.to_string(),
+                    "revision": target.revision.get(),
+                })),
+                "kind": "object.locale.put",
+                "locale": input.locale.as_str(),
+                "object_id": input.object_id.to_string(),
+                "repair_of_validation_result_digest": input
+                    .repair_of_validation_result_digest
+                    .map(|value| value.to_string()),
+                "supersedes_edit_id": input.supersedes_edit_id.map(|value| value.to_string()),
+            }))
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))
+        }
+        LocalizedEditAttempt::ObjectCreate(input) => {
+            let content = parse_strict(input.canonical_content.as_bytes())
+                .map_err(|_| LocalPortError::Invalid)?;
+            canonicalize(&json!({
+                "api_version": proof_application::LOCALIZED_EDIT_API_VERSION,
+                "content": content,
+                "edit_id": edit_id.to_string(),
+                "kind": "object.create",
+                "object_id": input.object_id.to_string(),
+                "repair_of_validation_result_digest": input
+                    .repair_of_validation_result_digest
+                    .map(|value| value.to_string()),
+                "schema_id": input.schema_id.as_str(),
+                "schema_version": input.schema_version.get(),
+                "supersedes_edit_id": input.supersedes_edit_id.map(|value| value.to_string()),
+            }))
+            .map_err(|error| LocalPortError::Integrity(error.to_string()))
+        }
+    }
+}
+
+fn edit_artifact_kind(attempt: &LocalizedEditAttempt) -> proof_application::ArtifactKind {
+    match attempt {
+        LocalizedEditAttempt::LocalePut(_) => proof_application::ArtifactKind::EditV2,
+        LocalizedEditAttempt::ObjectCreate(_) => {
+            proof_application::ArtifactKind::ObjectCreateEditV2
+        }
+    }
+}
+
+fn edit_digest(
+    edit_id: proof_application::EditId,
+    attempt: &LocalizedEditAttempt,
+) -> Result<ContentDigest, LocalPortError> {
+    let manifest = edit_manifest(edit_id, attempt)?;
+    Ok(digest(edit_artifact_kind(attempt), &manifest))
 }
 
 fn mark_effective_edits(
     edits: &mut [proof_application::LocalizedEdit],
 ) -> Result<(), LocalPortError> {
-    let mut active =
+    let mut active_puts =
         BTreeMap::<(ObjectId, proof_application::LocaleId), proof_application::EditId>::new();
+    let mut active_creates = BTreeMap::<ObjectId, proof_application::EditId>::new();
     let mut seen_ids = BTreeSet::new();
     for edit in edits.iter() {
         if !seen_ids.insert(edit.edit_id) {
@@ -3956,33 +5130,68 @@ fn mark_effective_edits(
                 "localized Edit identity is duplicated".to_owned(),
             ));
         }
-        let target = (edit.input.object_id, edit.input.locale.clone());
-        match active.get(&target).copied() {
-            None => {
-                if edit.input.supersedes_edit_id.is_some()
-                    || edit.input.repair_of_validation_result_digest.is_some()
-                {
-                    return Err(LocalPortError::Integrity(
-                        "first localized Edit has a supersession edge".to_owned(),
-                    ));
+        match (&edit.input, edit.input.locale().cloned()) {
+            (LocalizedEditAttempt::ObjectCreate(input), _) => {
+                match active_creates.get(&input.object_id).copied() {
+                    None => {
+                        if input.supersedes_edit_id.is_some()
+                            || input.repair_of_validation_result_digest.is_some()
+                        {
+                            return Err(LocalPortError::Integrity(
+                                "first localized Edit has a supersession edge".to_owned(),
+                            ));
+                        }
+                    }
+                    Some(active_edit_id) => {
+                        if input.supersedes_edit_id != Some(active_edit_id)
+                            || input.repair_of_validation_result_digest.is_none()
+                        {
+                            return Err(LocalPortError::Integrity(
+                                "localized Edit lineage forks or skips its active leaf".to_owned(),
+                            ));
+                        }
+                    }
                 }
+                active_creates.insert(input.object_id, edit.edit_id);
             }
-            Some(active_edit_id) => {
-                if edit.input.supersedes_edit_id != Some(active_edit_id)
-                    || edit.input.repair_of_validation_result_digest.is_none()
-                {
-                    return Err(LocalPortError::Integrity(
-                        "localized Edit lineage forks or skips its active leaf".to_owned(),
-                    ));
+            (LocalizedEditAttempt::LocalePut(_), Some(locale)) => {
+                let target = (edit.input.object_id(), locale);
+                match active_puts.get(&target).copied() {
+                    None => {
+                        if edit.input.supersedes_edit_id().is_some()
+                            || edit.input.repair_of_validation_result_digest().is_some()
+                        {
+                            return Err(LocalPortError::Integrity(
+                                "first localized Edit has a supersession edge".to_owned(),
+                            ));
+                        }
+                    }
+                    Some(active_edit_id) => {
+                        if edit.input.supersedes_edit_id() != Some(active_edit_id)
+                            || edit.input.repair_of_validation_result_digest().is_none()
+                        {
+                            return Err(LocalPortError::Integrity(
+                                "localized Edit lineage forks or skips its active leaf".to_owned(),
+                            ));
+                        }
+                    }
                 }
+                active_puts.insert(target, edit.edit_id);
             }
+            (_, None) => {}
         }
-        active.insert(target, edit.edit_id);
     }
     for edit in edits {
-        edit.effective = active
-            .get(&(edit.input.object_id, edit.input.locale.clone()))
-            .is_some_and(|edit_id| *edit_id == edit.edit_id);
+        edit.effective = match &edit.input {
+            LocalizedEditAttempt::LocalePut(_) => edit.input.locale().is_some_and(|locale| {
+                active_puts
+                    .get(&(edit.input.object_id(), locale.clone()))
+                    .is_some_and(|edit_id| *edit_id == edit.edit_id)
+            }),
+            LocalizedEditAttempt::ObjectCreate(_) => active_creates
+                .get(&edit.input.object_id())
+                .is_some_and(|edit_id| *edit_id == edit.edit_id),
+        };
     }
     Ok(())
 }
@@ -4004,8 +5213,15 @@ fn proposal(
         .cloned()
         .collect::<Vec<_>>();
     effective.sort_by(|left, right| {
-        (left.input.object_id, &left.input.locale)
-            .cmp(&(right.input.object_id, &right.input.locale))
+        let key = |edit: &proof_application::LocalizedEdit| match &edit.input {
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                (0_u8, input.object_id, None::<proof_application::LocaleId>)
+            }
+            LocalizedEditAttempt::LocalePut(input) => {
+                (1_u8, input.object_id, Some(input.locale.clone()))
+            }
+        };
+        key(left).cmp(&key(right))
     });
     let effective_values = effective
         .iter()
@@ -4040,12 +5256,19 @@ fn proposal(
         "created_at": changeset.created_at.to_string(),
         "edits": all_values,
         "effective_leaf_digest": effective_digest.to_string(),
-        "effective_leaves": effective.iter().map(|edit| json!({
-            "edit_digest": edit.edit_digest.to_string(),
-            "edit_id": edit.edit_id.to_string(),
-            "locale": edit.input.locale.as_str(),
-            "object_id": edit.input.object_id.to_string(),
-        })).collect::<Vec<_>>(),
+        "effective_leaves": effective.iter().map(|edit| {
+            let mut leaf = serde_json::Map::new();
+            leaf.insert("edit_digest".to_owned(), json!(edit.edit_digest.to_string()));
+            leaf.insert("edit_id".to_owned(), json!(edit.edit_id.to_string()));
+            if let Some(locale) = edit.input.locale() {
+                leaf.insert("locale".to_owned(), json!(locale.as_str()));
+            }
+            leaf.insert(
+                "object_id".to_owned(),
+                json!(edit.input.object_id().to_string()),
+            );
+            Value::Object(leaf)
+        }).collect::<Vec<_>>(),
         "intent": changeset.intent.as_str(),
         "principal_id": changeset.principal_id.to_string(),
         "resource_intent_digest": changeset.resource_intent_digest.to_string(),
@@ -4174,6 +5397,7 @@ pub(super) fn add_edits(
     }
     let intent = load_resource_intent(transaction, workspace_id, changeset.resource_intent_id)?;
     let context = load_context(transaction, workspace_id, changeset.context_pack_id)?;
+    let policy_rules = load_policy_rules(transaction, context.context_pack_id)?;
     verify_baseline_is_current(transaction, workspace_id, &intent)?;
     let added_count =
         u32::try_from(command.edits.len()).map_err(|_| LocalPortError::LimitExceeded)?;
@@ -4188,26 +5412,80 @@ pub(super) fn add_edits(
     let first_ordinal = existing_count
         .checked_add(1)
         .ok_or(LocalPortError::LimitExceeded)?;
+    let batch_creates = command
+        .edits
+        .iter()
+        .filter_map(|attempt| match attempt {
+            LocalizedEditAttempt::LocalePut(_) => None,
+            LocalizedEditAttempt::ObjectCreate(input) => Some(input.object_id),
+        })
+        .collect::<BTreeSet<_>>();
+    if batch_creates.len()
+        != command
+            .edits
+            .iter()
+            .filter(|attempt| matches!(attempt, LocalizedEditAttempt::ObjectCreate(_)))
+            .count()
+    {
+        return Err(LocalPortError::IntentSlotMismatch);
+    }
     let batch_targets = command
         .edits
         .iter()
-        .map(|edit| (edit.object_id, &edit.locale))
+        .filter_map(|attempt| match attempt {
+            LocalizedEditAttempt::LocalePut(input) => Some((input.object_id, input.locale.clone())),
+            LocalizedEditAttempt::ObjectCreate(_) => None,
+        })
         .collect::<BTreeSet<_>>();
-    if batch_targets.len() != command.edits.len() {
+    if batch_targets.len()
+        != command
+            .edits
+            .iter()
+            .filter(|attempt| matches!(attempt, LocalizedEditAttempt::LocalePut(_)))
+            .count()
+    {
         return Err(LocalPortError::DuplicateActiveTarget);
     }
-    let active = changeset
+    let mut consumed_slots = BTreeSet::new();
+    for edit in changeset.edits.iter().filter(|edit| edit.effective) {
+        if let LocalizedEditAttempt::ObjectCreate(input) = &edit.input {
+            consume_creation_slot(&intent, &mut consumed_slots, input)?;
+        }
+    }
+    let mut earlier_creations = collect_effective_creations(&changeset.edits)?;
+    let mut all_effective_creations = earlier_creations.clone();
+    for attempt in &command.edits {
+        if let LocalizedEditAttempt::ObjectCreate(input) = attempt {
+            let (object_id, source) = created_source(input)?;
+            all_effective_creations.insert(object_id, source);
+        }
+    }
+    let active_puts = changeset
         .edits
         .iter()
-        .filter(|edit| edit.effective)
-        .map(|edit| {
-            (
-                (edit.input.object_id, edit.input.locale.clone()),
-                edit.edit_id,
-            )
+        .filter(|edit| edit.effective && matches!(edit.input, LocalizedEditAttempt::LocalePut(_)))
+        .filter_map(|edit| {
+            let locale = edit.input.locale().cloned()?;
+            Some(((edit.input.object_id(), locale), edit.edit_id))
         })
         .collect::<BTreeMap<_, _>>();
-    for (index, (input, edit_id)) in command
+    let active_creates = changeset
+        .edits
+        .iter()
+        .filter(|edit| {
+            edit.effective && matches!(edit.input, LocalizedEditAttempt::ObjectCreate(_))
+        })
+        .map(|edit| (edit.input.object_id(), edit.edit_id))
+        .collect::<BTreeMap<_, _>>();
+    let mut created_objects = changeset
+        .edits
+        .iter()
+        .filter(|edit| {
+            edit.effective && matches!(edit.input, LocalizedEditAttempt::ObjectCreate(_))
+        })
+        .map(|edit| edit.input.object_id())
+        .collect::<BTreeSet<_>>();
+    for (index, (attempt, edit_id)) in command
         .edits
         .iter()
         .zip(&command.assigned_edit_ids)
@@ -4228,54 +5506,124 @@ pub(super) fn add_edits(
                 "Proof-assigned Edit identity already exists".to_owned(),
             ));
         }
-        verify_edit_input(transaction, &intent, input)?;
-        let target = (input.object_id, input.locale.clone());
-        match active.get(&target).copied() {
-            None => {
-                if input.supersedes_edit_id.is_some()
-                    || input.repair_of_validation_result_digest.is_some()
-                {
-                    return Err(LocalPortError::InvalidSupersession);
+        match attempt {
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                let active_edit_id = active_creates.get(&input.object_id).copied();
+                match active_edit_id {
+                    None => {
+                        if input.supersedes_edit_id.is_some()
+                            || input.repair_of_validation_result_digest.is_some()
+                        {
+                            return Err(LocalPortError::InvalidSupersession);
+                        }
+                    }
+                    Some(active_edit_id) => {
+                        if input.supersedes_edit_id.is_none() {
+                            return Err(LocalPortError::DuplicateActiveTarget);
+                        }
+                        if input.supersedes_edit_id != Some(active_edit_id) {
+                            return Err(LocalPortError::InvalidSupersession);
+                        }
+                        let Some(result_digest) = input.repair_of_validation_result_digest else {
+                            return Err(LocalPortError::InvalidRepairEvidence);
+                        };
+                        verify_repair_evidence(
+                            transaction,
+                            command.changeset_id,
+                            active_edit_id,
+                            input.object_id,
+                            None,
+                            result_digest,
+                            changeset.proposal_digest.ok_or_else(|| {
+                                LocalPortError::Integrity(
+                                    "repair target ChangeSet has no current proposal digest"
+                                        .to_owned(),
+                                )
+                            })?,
+                        )?;
+                    }
                 }
+                if active_edit_id.is_none() {
+                    consume_creation_slot(&intent, &mut consumed_slots, input)?;
+                    if created_objects.contains(&input.object_id) {
+                        return Err(LocalPortError::IntentSlotMismatch);
+                    }
+                } else {
+                    creation_slot_index(&intent, input)?;
+                }
+                verify_create_edit_input(transaction, &context, &policy_rules, input)?;
             }
-            Some(active_edit_id) => {
-                if input.supersedes_edit_id.is_none() {
-                    return Err(LocalPortError::DuplicateActiveTarget);
-                }
-                if input.supersedes_edit_id != Some(active_edit_id) {
-                    return Err(LocalPortError::InvalidSupersession);
-                }
-                let Some(result_digest) = input.repair_of_validation_result_digest else {
-                    return Err(LocalPortError::InvalidRepairEvidence);
-                };
-                verify_repair_evidence(
+            LocalizedEditAttempt::LocalePut(input) => {
+                verify_put_edit_input(
                     transaction,
-                    command.changeset_id,
-                    active_edit_id,
-                    input.object_id,
-                    &input.locale,
-                    result_digest,
-                    changeset.proposal_digest.ok_or_else(|| {
-                        LocalPortError::Integrity(
-                            "repair target ChangeSet has no current proposal digest".to_owned(),
-                        )
-                    })?,
+                    &intent,
+                    input,
+                    &earlier_creations,
+                    &all_effective_creations,
                 )?;
+                let target = (input.object_id, input.locale.clone());
+                match active_puts.get(&target).copied() {
+                    None => {
+                        if input.supersedes_edit_id.is_some()
+                            || input.repair_of_validation_result_digest.is_some()
+                        {
+                            return Err(LocalPortError::InvalidSupersession);
+                        }
+                    }
+                    Some(active_edit_id) => {
+                        if input.supersedes_edit_id.is_none() {
+                            return Err(LocalPortError::DuplicateActiveTarget);
+                        }
+                        if input.supersedes_edit_id != Some(active_edit_id) {
+                            return Err(LocalPortError::InvalidSupersession);
+                        }
+                        let Some(result_digest) = input.repair_of_validation_result_digest else {
+                            return Err(LocalPortError::InvalidRepairEvidence);
+                        };
+                        verify_repair_evidence(
+                            transaction,
+                            command.changeset_id,
+                            active_edit_id,
+                            input.object_id,
+                            Some(&input.locale),
+                            result_digest,
+                            changeset.proposal_digest.ok_or_else(|| {
+                                LocalPortError::Integrity(
+                                    "repair target ChangeSet has no current proposal digest"
+                                        .to_owned(),
+                                )
+                            })?,
+                        )?;
+                    }
+                }
             }
         }
         let ordinal = first_ordinal
             .checked_add(u32::try_from(index).map_err(|_| LocalPortError::LimitExceeded)?)
             .ok_or(LocalPortError::LimitExceeded)?;
-        persist_edit(transaction, command.changeset_id, ordinal, *edit_id, input)?;
-        let manifest = edit_manifest(*edit_id, input)?;
+        persist_edit(
+            transaction,
+            command.changeset_id,
+            ordinal,
+            *edit_id,
+            attempt,
+        )?;
         changeset.edits.push(proof_application::LocalizedEdit {
             ordinal,
             edit_id: *edit_id,
-            input: input.clone(),
+            input: attempt.clone(),
             effective: false,
-            canonical_json: manifest.as_str().to_owned(),
-            edit_digest: digest(proof_application::ArtifactKind::EditV2, &manifest),
+            canonical_json: edit_manifest(*edit_id, attempt)?.as_str().to_owned(),
+            edit_digest: edit_digest(*edit_id, attempt)?,
         });
+        match attempt {
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                let (object_id, source) = created_source(input)?;
+                created_objects.insert(object_id);
+                earlier_creations.insert(object_id, source);
+            }
+            LocalizedEditAttempt::LocalePut(_) => {}
+        }
     }
     mark_effective_edits(&mut changeset.edits)?;
     let (proposal_digest, effective_digest, _) = proposal(&changeset)?;
@@ -4327,34 +5675,58 @@ pub(super) fn add_edits(
     })
 }
 
-fn semantic_edit_value(input: &ObjectLocalePutInput) -> Result<Value, LocalPortError> {
-    let content =
-        parse_strict(input.canonical_content.as_bytes()).map_err(|_| LocalPortError::Invalid)?;
-    let canonical = canonicalize(&content).map_err(|_| LocalPortError::Invalid)?;
-    if canonical.as_str() != input.canonical_content {
-        return Err(LocalPortError::Invalid);
+fn semantic_edit_value(attempt: &LocalizedEditAttempt) -> Result<Value, LocalPortError> {
+    match attempt {
+        LocalizedEditAttempt::LocalePut(input) => {
+            let content = parse_strict(input.canonical_content.as_bytes())
+                .map_err(|_| LocalPortError::Invalid)?;
+            let canonical = canonicalize(&content).map_err(|_| LocalPortError::Invalid)?;
+            if canonical.as_str() != input.canonical_content {
+                return Err(LocalPortError::Invalid);
+            }
+            Ok(json!({
+                "api_version": proof_application::LOCALIZED_EDIT_API_VERSION,
+                "content": content,
+                "expected_source": {
+                    "digest": input.expected_source.digest.to_string(),
+                    "revision": input.expected_source.revision.get(),
+                    "schema_id": input.expected_source.schema_id.as_str(),
+                    "schema_version": input.expected_source.schema_version.get(),
+                },
+                "expected_target": input.expected_target.as_ref().map(|target| json!({
+                    "digest": target.digest.to_string(),
+                    "revision": target.revision.get(),
+                })),
+                "kind": "object.locale.put",
+                "locale": input.locale.as_str(),
+                "object_id": input.object_id.to_string(),
+                "repair_of_validation_result_digest": input
+                    .repair_of_validation_result_digest
+                    .map(|value| value.to_string()),
+                "supersedes_edit_id": input.supersedes_edit_id.map(|value| value.to_string()),
+            }))
+        }
+        LocalizedEditAttempt::ObjectCreate(input) => {
+            let content = parse_strict(input.canonical_content.as_bytes())
+                .map_err(|_| LocalPortError::Invalid)?;
+            let canonical = canonicalize(&content).map_err(|_| LocalPortError::Invalid)?;
+            if canonical.as_str() != input.canonical_content {
+                return Err(LocalPortError::Invalid);
+            }
+            Ok(json!({
+                "api_version": proof_application::LOCALIZED_EDIT_API_VERSION,
+                "content": content,
+                "kind": "object.create",
+                "object_id": input.object_id.to_string(),
+                "repair_of_validation_result_digest": input
+                    .repair_of_validation_result_digest
+                    .map(|value| value.to_string()),
+                "schema_id": input.schema_id.as_str(),
+                "schema_version": input.schema_version.get(),
+                "supersedes_edit_id": input.supersedes_edit_id.map(|value| value.to_string()),
+            }))
+        }
     }
-    Ok(json!({
-        "api_version": proof_application::LOCALIZED_EDIT_API_VERSION,
-        "content": content,
-        "expected_source": {
-            "digest": input.expected_source.digest.to_string(),
-            "revision": input.expected_source.revision.get(),
-            "schema_id": input.expected_source.schema_id.as_str(),
-            "schema_version": input.expected_source.schema_version.get(),
-        },
-        "expected_target": input.expected_target.as_ref().map(|target| json!({
-            "digest": target.digest.to_string(),
-            "revision": target.revision.get(),
-        })),
-        "kind": "object.locale.put",
-        "locale": input.locale.as_str(),
-        "object_id": input.object_id.to_string(),
-        "repair_of_validation_result_digest": input
-            .repair_of_validation_result_digest
-            .map(|value| value.to_string()),
-        "supersedes_edit_id": input.supersedes_edit_id.map(|value| value.to_string()),
-    }))
 }
 
 fn add_effect(
@@ -4510,41 +5882,94 @@ fn persist_edit(
     changeset_id: ChangeSetId,
     ordinal: u32,
     edit_id: proof_application::EditId,
-    input: &ObjectLocalePutInput,
+    attempt: &LocalizedEditAttempt,
 ) -> Result<(), LocalPortError> {
-    let manifest = edit_manifest(edit_id, input)?;
-    let edit_digest = digest(proof_application::ArtifactKind::EditV2, &manifest);
+    let manifest = edit_manifest(edit_id, attempt)?;
+    let edit_digest = digest(edit_artifact_kind(attempt), &manifest);
+    let (edit_kind, object_id, locale, source_revision, source_digest, schema_id, schema_version) =
+        match attempt {
+            LocalizedEditAttempt::LocalePut(input) => (
+                "object.locale.put",
+                input.object_id.to_string(),
+                input.locale.as_str().to_owned(),
+                i64::from(input.expected_source.revision.get()),
+                input.expected_source.digest.to_string(),
+                input.expected_source.schema_id.as_str().to_owned(),
+                i64::from(input.expected_source.schema_version.get()),
+            ),
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                let content = parse_strict(input.canonical_content.as_bytes())
+                    .map_err(|_| LocalPortError::Invalid)?;
+                (
+                    "object.create",
+                    input.object_id.to_string(),
+                    String::new(),
+                    1,
+                    object_revision_digest(
+                        input.object_id,
+                        &input.schema_id,
+                        input.schema_version,
+                        &content,
+                    )
+                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?
+                    .to_string(),
+                    input.schema_id.as_str().to_owned(),
+                    i64::from(input.schema_version.get()),
+                )
+            }
+        };
+    let (supersedes_edit_id, repair_validation_digest, canonical_content) = match attempt {
+        LocalizedEditAttempt::LocalePut(input) => (
+            input.supersedes_edit_id.map(|value| value.to_string()),
+            input
+                .repair_of_validation_result_digest
+                .map(|value| value.to_string()),
+            input.canonical_content.clone(),
+        ),
+        LocalizedEditAttempt::ObjectCreate(input) => (
+            input.supersedes_edit_id.map(|value| value.to_string()),
+            input
+                .repair_of_validation_result_digest
+                .map(|value| value.to_string()),
+            input.canonical_content.clone(),
+        ),
+    };
     transaction
         .execute(
             "INSERT INTO localized_edits (
-                 changeset_id, ordinal, edit_id, object_id, locale, source_revision,
+                 changeset_id, ordinal, edit_id, edit_kind, object_id, locale, source_revision,
                  source_digest, schema_id, schema_version, expected_target_revision,
                  expected_target_digest, content_json, supersedes_edit_id,
                  repair_validation_digest, edit_json, edit_digest
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 changeset_id.to_string(),
                 i64::from(ordinal),
                 edit_id.to_string(),
-                input.object_id.to_string(),
-                input.locale.as_str(),
-                i64::from(input.expected_source.revision.get()),
-                input.expected_source.digest.to_string(),
-                input.expected_source.schema_id.as_str(),
-                i64::from(input.expected_source.schema_version.get()),
-                input
-                    .expected_target
-                    .as_ref()
-                    .map(|target| i64::from(target.revision.get())),
-                input
-                    .expected_target
-                    .as_ref()
-                    .map(|target| target.digest.to_string()),
-                input.canonical_content.as_str(),
-                input.supersedes_edit_id.map(|value| value.to_string()),
-                input
-                    .repair_of_validation_result_digest
-                    .map(|value| value.to_string()),
+                edit_kind,
+                object_id,
+                locale,
+                source_revision,
+                source_digest,
+                schema_id,
+                schema_version,
+                match attempt {
+                    LocalizedEditAttempt::LocalePut(input) => input
+                        .expected_target
+                        .as_ref()
+                        .map(|target| i64::from(target.revision.get())),
+                    LocalizedEditAttempt::ObjectCreate(_) => None,
+                },
+                match attempt {
+                    LocalizedEditAttempt::LocalePut(input) => input
+                        .expected_target
+                        .as_ref()
+                        .map(|target| target.digest.to_string()),
+                    LocalizedEditAttempt::ObjectCreate(_) => None,
+                },
+                canonical_content,
+                supersedes_edit_id,
+                repair_validation_digest,
                 manifest.as_str(),
                 edit_digest.to_string(),
             ],
@@ -4553,10 +5978,92 @@ fn persist_edit(
     Ok(())
 }
 
-fn verify_edit_input(
+/// One Object source established by an effective creation Edit.
+#[derive(Clone)]
+struct CreatedSource {
+    schema_id: SchemaId,
+    schema_version: proof_application::SchemaVersion,
+    canonical_content: String,
+    object_digest: ContentDigest,
+}
+
+type CreatedSources = BTreeMap<ObjectId, CreatedSource>;
+
+fn created_source(input: &ObjectCreateInput) -> Result<(ObjectId, CreatedSource), LocalPortError> {
+    let content =
+        parse_strict(input.canonical_content.as_bytes()).map_err(|_| LocalPortError::Invalid)?;
+    let object_digest = object_revision_digest(
+        input.object_id,
+        &input.schema_id,
+        input.schema_version,
+        &content,
+    )
+    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    Ok((
+        input.object_id,
+        CreatedSource {
+            schema_id: input.schema_id.clone(),
+            schema_version: input.schema_version,
+            canonical_content: input.canonical_content.clone(),
+            object_digest,
+        },
+    ))
+}
+
+fn collect_effective_creations(
+    edits: &[proof_application::LocalizedEdit],
+) -> Result<CreatedSources, LocalPortError> {
+    let mut sources = CreatedSources::new();
+    for edit in edits.iter().filter(|edit| edit.effective) {
+        if let LocalizedEditAttempt::ObjectCreate(input) = &edit.input {
+            let (object_id, source) = created_source(input)?;
+            sources.insert(object_id, source);
+        }
+    }
+    Ok(sources)
+}
+
+fn verify_put_source_preconditions(
+    input: &ObjectLocalePutInput,
+    source: &CreatedSource,
+) -> Result<(), LocalPortError> {
+    if !put_source_preconditions_match(input, source) {
+        return Err(LocalPortError::SourceConflict);
+    }
+    Ok(())
+}
+
+fn put_source_preconditions_match(input: &ObjectLocalePutInput, source: &CreatedSource) -> bool {
+    input.expected_source.revision == proof_application::ObjectRevision::INITIAL
+        && input.expected_source.digest == source.object_digest
+        && input.expected_source.schema_id == source.schema_id
+        && input.expected_source.schema_version == source.schema_version
+}
+
+fn verify_put_against_created_source(
+    transaction: &Transaction<'_>,
+    input: &ObjectLocalePutInput,
+    source: &CreatedSource,
+) -> Result<(), LocalPortError> {
+    verify_put_source_preconditions(input, source)?;
+    if input.expected_target.is_some() {
+        return Err(LocalPortError::TargetConflict);
+    }
+    verify_put_content_against_schema(
+        transaction,
+        input,
+        &source.canonical_content,
+        &source.schema_id,
+        source.schema_version,
+    )
+}
+
+fn verify_put_edit_input(
     transaction: &Transaction<'_>,
     intent: &ContentResourceIntent,
     input: &ObjectLocalePutInput,
+    earlier_creations: &CreatedSources,
+    all_effective_creations: &CreatedSources,
 ) -> Result<(), LocalPortError> {
     let target = proof_application::LocalizedContentTarget {
         object_id: input.object_id,
@@ -4566,14 +6073,29 @@ fn verify_edit_input(
     if intent.targets.binary_search(&target).is_err() {
         return Err(LocalPortError::IntentMismatch);
     }
-    let source = load_source_object(transaction, input.object_id)?;
-    if input.expected_source.revision != proof_application::ObjectRevision::INITIAL
-        || input.expected_source.digest != source.object_digest
-        || input.expected_source.schema_id != source.schema_id
-        || input.expected_source.schema_version != source.schema_version
+    if let Some(created) = earlier_creations.get(&input.object_id)
+        && put_source_preconditions_match(input, created)
+    {
+        return verify_put_against_created_source(transaction, input, created);
+    }
+    if let Some(created) = all_effective_creations.get(&input.object_id) {
+        return verify_put_against_created_source(transaction, input, created);
+    }
+    if intent
+        .creations
+        .iter()
+        .any(|slot| slot.object_id == input.object_id)
     {
         return Err(LocalPortError::SourceConflict);
     }
+    let source = load_source_object(transaction, input.object_id)?;
+    let committed = CreatedSource {
+        schema_id: source.schema_id.clone(),
+        schema_version: source.schema_version,
+        canonical_content: source.canonical_content.clone(),
+        object_digest: source.object_digest,
+    };
+    verify_put_source_preconditions(input, &committed)?;
     let persisted_target = load_rendition_at(
         transaction,
         input.object_id,
@@ -4586,8 +6108,24 @@ fn verify_edit_input(
             if expected.revision.get() == actual.revision && expected.digest == actual.digest => {}
         _ => return Err(LocalPortError::TargetConflict),
     }
-    let schema = load_localizable_schema(transaction, &source.schema_id, source.schema_version)?;
-    let source_value = parse_strict(source.canonical_content.as_bytes())
+    verify_put_content_against_schema(
+        transaction,
+        input,
+        &source.canonical_content,
+        &source.schema_id,
+        source.schema_version,
+    )
+}
+
+fn verify_put_content_against_schema(
+    transaction: &Transaction<'_>,
+    input: &ObjectLocalePutInput,
+    source_content: &str,
+    schema_id: &SchemaId,
+    schema_version: proof_application::SchemaVersion,
+) -> Result<(), LocalPortError> {
+    let schema = load_localizable_schema(transaction, schema_id, schema_version)?;
+    let source_value = parse_strict(source_content.as_bytes())
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
     let target_value =
         parse_strict(input.canonical_content.as_bytes()).map_err(|_| LocalPortError::Invalid)?;
@@ -4614,6 +6152,146 @@ fn verify_edit_input(
     }
     let reconstructed = canonicalize(&reconstructed).map_err(|_| LocalPortError::Invalid)?;
     if reconstructed.as_str() != input.canonical_content {
+        return Err(LocalPortError::Invalid);
+    }
+    Ok(())
+}
+
+fn selected_creation_schema(
+    transaction: &Connection,
+    context: &LocalizedContextPack,
+    rules: &[LocalizedPolicyRule],
+    input: &ObjectCreateInput,
+) -> Result<LocalizableSchema, LocalPortError> {
+    let schema = load_localizable_schema(transaction, &input.schema_id, input.schema_version)
+        .map_err(|error| match error {
+            LocalPortError::NotFound => LocalPortError::SchemaNotFound,
+            other => other,
+        })?;
+    let expected_closure = schema_closure_value(&schema)?;
+    let manifest = parse_strict(context.manifest_json.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let resources = manifest
+        .get("resources")
+        .and_then(Value::as_array)
+        .ok_or_else(|| LocalPortError::Integrity("ContextPack resources are missing".to_owned()))?;
+    let mut selected_locales = BTreeSet::new();
+    for resource in resources.iter().filter(|resource| {
+        resource.get("object_id").and_then(Value::as_str)
+            == Some(input.object_id.to_string().as_str())
+            && resource.get("schema_candidates").is_some()
+    }) {
+        let locale = resource
+            .get("locale")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                LocalPortError::Integrity("creation resource locale is missing".to_owned())
+            })?;
+        let candidates = resource
+            .get("schema_candidates")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                LocalPortError::Integrity("creation Schema candidates are missing".to_owned())
+            })?;
+        if !candidates.contains(&expected_closure) {
+            return Err(LocalPortError::IntentSlotMismatch);
+        }
+        selected_locales.insert(locale.to_owned());
+    }
+    if selected_locales.is_empty() {
+        return Err(LocalPortError::IntentSlotMismatch);
+    }
+    if rules.iter().any(|rule| {
+        selected_locales.contains(rule.locale.as_str())
+            && !schema.localizable_pointers.contains(&rule.pointer)
+    }) {
+        return Err(LocalPortError::Invalid);
+    }
+    Ok(schema)
+}
+
+fn consume_creation_slot(
+    intent: &ContentResourceIntent,
+    consumed: &mut BTreeSet<usize>,
+    input: &ObjectCreateInput,
+) -> Result<(), LocalPortError> {
+    let slot_index = creation_slot_index(intent, input)?;
+    if !consumed.insert(slot_index) {
+        return Err(LocalPortError::IntentSlotMismatch);
+    }
+    Ok(())
+}
+
+fn creation_slot_index(
+    intent: &ContentResourceIntent,
+    input: &ObjectCreateInput,
+) -> Result<usize, LocalPortError> {
+    intent
+        .creations
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| slot.object_id == input.object_id && slot.schema_id == input.schema_id)
+        .map(|(index, _)| index)
+        .ok_or(LocalPortError::IntentSlotMismatch)
+}
+
+fn verify_effective_intent_closure(
+    intent: &ContentResourceIntent,
+    effective_edits: &[proof_application::LocalizedEdit],
+) -> Result<(), LocalPortError> {
+    let mut consumed_slots = BTreeSet::new();
+    let mut effective_targets = Vec::new();
+    for edit in effective_edits {
+        match &edit.input {
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                consume_creation_slot(intent, &mut consumed_slots, input)?;
+            }
+            LocalizedEditAttempt::LocalePut(input) => {
+                effective_targets.push(proof_application::LocalizedContentTarget {
+                    object_id: input.object_id,
+                    schema_id: input.expected_source.schema_id.clone(),
+                    locale: input.locale.clone(),
+                });
+            }
+        }
+    }
+    if consumed_slots.len() != intent.creations.len() {
+        return Err(LocalPortError::IntentSlotMismatch);
+    }
+    if effective_targets != intent.targets {
+        return Err(LocalPortError::IntentMismatch);
+    }
+    Ok(())
+}
+
+fn verify_create_edit_input(
+    transaction: &Transaction<'_>,
+    context_pack: &LocalizedContextPack,
+    rules: &[LocalizedPolicyRule],
+    input: &ObjectCreateInput,
+) -> Result<(), LocalPortError> {
+    let committed_exists: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM object_revisions WHERE object_id = ?1)",
+            [input.object_id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    if committed_exists {
+        return Err(LocalPortError::ObjectExists);
+    }
+    let content =
+        parse_strict(input.canonical_content.as_bytes()).map_err(|_| LocalPortError::Invalid)?;
+    let target_canonical = canonicalize(&content).map_err(|_| LocalPortError::Invalid)?;
+    if target_canonical.as_str() != input.canonical_content || !content.is_object() {
+        return Err(LocalPortError::Invalid);
+    }
+    let schema = selected_creation_schema(transaction, context_pack, rules, input)?;
+    let schema_value = parse_strict(schema.canonical_document.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let validator = jsonschema::draft202012::new(&schema_value)
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    if validator.iter_errors(&content).next().is_some() {
         return Err(LocalPortError::Invalid);
     }
     Ok(())
@@ -4661,7 +6339,7 @@ fn verify_repair_evidence(
     changeset_id: ChangeSetId,
     superseded_edit_id: proof_application::EditId,
     object_id: ObjectId,
-    locale: &proof_application::LocaleId,
+    locale: Option<&proof_application::LocaleId>,
     expected_result_digest: ContentDigest,
     expected_proposal_digest: ContentDigest,
 ) -> Result<(), LocalPortError> {
@@ -4729,7 +6407,9 @@ fn verify_repair_evidence(
         };
         finding.get("edit_id").and_then(Value::as_str) == Some(superseded_edit_id.as_str())
             && finding.get("object_id").and_then(Value::as_str) == Some(object_id.as_str())
-            && finding.get("locale").and_then(Value::as_str) == Some(locale.as_str())
+            && locale.is_none_or(|locale| {
+                finding.get("locale").and_then(Value::as_str) == Some(locale.as_str())
+            })
             && finding.get("severity").and_then(Value::as_str) == Some("error")
     });
     if !matches {
@@ -4744,8 +6424,8 @@ fn verify_all_repair_edges(
 ) -> Result<(), LocalPortError> {
     for (index, edit) in changeset.edits.iter().enumerate() {
         let (Some(superseded), Some(result_digest)) = (
-            edit.input.supersedes_edit_id,
-            edit.input.repair_of_validation_result_digest,
+            edit.input.supersedes_edit_id(),
+            edit.input.repair_of_validation_result_digest(),
         ) else {
             continue;
         };
@@ -4759,8 +6439,8 @@ fn verify_all_repair_edges(
             transaction,
             changeset.changeset_id,
             superseded,
-            edit.input.object_id,
-            &edit.input.locale,
+            edit.input.object_id(),
+            edit.input.locale(),
             result_digest,
             proposal_digest,
         )?;
@@ -5184,6 +6864,8 @@ pub(super) fn commit_changeset(
         return Err(LocalPortError::Invalid);
     }
     let intent = load_resource_intent(transaction, workspace_id, changeset.resource_intent_id)?;
+    let context_pack = load_context(transaction, workspace_id, changeset.context_pack_id)?;
+    let policy_rules = load_policy_rules(transaction, context_pack.context_pack_id)?;
     verify_baseline_is_current(transaction, workspace_id, &intent)?;
     let previous_state = current_state_reference(transaction, workspace_id)?;
     if previous_state != changeset.base_state {
@@ -5194,17 +6876,105 @@ pub(super) fn commit_changeset(
     if effective_edits.is_empty() {
         return Err(LocalPortError::Invalid);
     }
+    verify_effective_intent_closure(&intent, &effective_edits)?;
+    let mut consumed_slots = BTreeSet::new();
+    let mut earlier_creations = CreatedSources::new();
+    let all_effective_creations = collect_effective_creations(&changeset.edits)?;
+    let mut created_objects = BTreeSet::new();
+    for edit in &changeset.edits {
+        if !edit.effective {
+            continue;
+        }
+        match &edit.input {
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                consume_creation_slot(&intent, &mut consumed_slots, input)?;
+                if created_objects.contains(&input.object_id) {
+                    return Err(LocalPortError::IntentSlotMismatch);
+                }
+                verify_create_edit_input(transaction, &context_pack, &policy_rules, input)?;
+                let (object_id, source) = created_source(input)?;
+                created_objects.insert(object_id);
+                earlier_creations.insert(object_id, source);
+            }
+            LocalizedEditAttempt::LocalePut(input) => {
+                verify_put_edit_input(
+                    transaction,
+                    &intent,
+                    input,
+                    &earlier_creations,
+                    &all_effective_creations,
+                )?;
+            }
+        }
+    }
     let mut renditions = Vec::with_capacity(effective_edits.len());
     let mut next_sequence = previous_state.authoritative_sequence;
     for edit in &effective_edits {
-        verify_edit_input(transaction, &intent, &edit.input)?;
+        let put_input = match &edit.input {
+            LocalizedEditAttempt::LocalePut(input) => input,
+            LocalizedEditAttempt::ObjectCreate(input) => {
+                let committed_exists: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM object_revisions WHERE object_id = ?1)",
+                        [input.object_id.to_string()],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+                if committed_exists {
+                    return Err(LocalPortError::ObjectExists);
+                }
+                let content = parse_strict(input.canonical_content.as_bytes())
+                    .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                let object_digest = object_revision_digest(
+                    input.object_id,
+                    &input.schema_id,
+                    input.schema_version,
+                    &content,
+                )
+                .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+                next_sequence = next_sequence.checked_add(1).ok_or_else(|| {
+                    LocalPortError::Integrity("authoritative sequence overflow".to_owned())
+                })?;
+                transaction
+                    .execute(
+                        "INSERT INTO object_revisions (
+                             object_id, revision, schema_id, schema_version, lifecycle_state,
+                             content_json, object_digest, changeset_id, edit_id,
+                             authoritative_sequence
+                         ) VALUES (?1, 1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8)",
+                        params![
+                            input.object_id.to_string(),
+                            input.schema_id.as_str(),
+                            i64::from(input.schema_version.get()),
+                            input.canonical_content.as_str(),
+                            object_digest.to_string(),
+                            changeset.changeset_id.to_string(),
+                            edit.edit_id.to_string(),
+                            i64::try_from(next_sequence).map_err(|_| {
+                                LocalPortError::Integrity(
+                                    "authoritative sequence exceeds SQLite range".to_owned(),
+                                )
+                            })?,
+                        ],
+                    )
+                    .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+                continue;
+            }
+        };
+        verify_put_edit_input(
+            transaction,
+            &intent,
+            put_input,
+            &earlier_creations,
+            &all_effective_creations,
+        )?;
         next_sequence = next_sequence.checked_add(1).ok_or_else(|| {
             LocalPortError::Integrity("authoritative sequence overflow".to_owned())
         })?;
         let previous = load_rendition_at(
             transaction,
-            edit.input.object_id,
-            &edit.input.locale,
+            edit.input.object_id(),
+            &put_input.locale.clone(),
             previous_state.authoritative_sequence,
         )?;
         let revision = proof_application::LocaleRevision::new(
@@ -5214,19 +6984,19 @@ pub(super) fn commit_changeset(
         )
         .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
         let previous_revision_digest = previous.as_ref().map(|value| value.digest);
-        let content = parse_strict(edit.input.canonical_content.as_bytes())
+        let content = parse_strict(put_input.canonical_content.as_bytes())
             .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
         let (manifest, rendition_digest) =
             proof_canonical::object_locale_revision(&proof_canonical::ObjectLocaleRevisionInput {
                 workspace_id,
-                object_id: edit.input.object_id,
-                locale: &edit.input.locale,
+                object_id: put_input.object_id,
+                locale: &put_input.locale,
                 revision,
                 previous_revision_digest,
-                source_object_revision: edit.input.expected_source.revision,
-                source_object_digest: edit.input.expected_source.digest,
-                schema_id: &edit.input.expected_source.schema_id,
-                schema_version: edit.input.expected_source.schema_version,
+                source_object_revision: put_input.expected_source.revision,
+                source_object_digest: put_input.expected_source.digest,
+                schema_id: &put_input.expected_source.schema_id,
+                schema_version: put_input.expected_source.schema_version,
                 content: &content,
                 changeset_id: changeset.changeset_id,
                 edit_id: edit.edit_id,
@@ -5243,15 +7013,15 @@ pub(super) fn commit_changeset(
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     workspace_id.to_string(),
-                    edit.input.object_id.to_string(),
-                    edit.input.locale.as_str(),
+                    put_input.object_id.to_string(),
+                    put_input.locale.as_str(),
                     i64::from(revision.get()),
                     previous_revision_digest.map(|value| value.to_string()),
-                    i64::from(edit.input.expected_source.revision.get()),
-                    edit.input.expected_source.digest.to_string(),
-                    edit.input.expected_source.schema_id.as_str(),
-                    i64::from(edit.input.expected_source.schema_version.get()),
-                    edit.input.canonical_content.as_str(),
+                    i64::from(put_input.expected_source.revision.get()),
+                    put_input.expected_source.digest.to_string(),
+                    put_input.expected_source.schema_id.as_str(),
+                    i64::from(put_input.expected_source.schema_version.get()),
+                    put_input.canonical_content.as_str(),
                     changeset.changeset_id.to_string(),
                     edit.edit_id.to_string(),
                     i64::try_from(next_sequence).map_err(|_| {
@@ -5266,15 +7036,15 @@ pub(super) fn commit_changeset(
             .map_err(|error| LocalPortError::Storage(error.to_string()))?;
         renditions.push(ObjectLocaleRevision {
             workspace_id,
-            object_id: edit.input.object_id,
-            locale: edit.input.locale.clone(),
+            object_id: put_input.object_id,
+            locale: put_input.locale.clone(),
             revision,
             previous_revision_digest,
-            source_object_revision: edit.input.expected_source.revision,
-            source_object_digest: edit.input.expected_source.digest,
-            schema_id: edit.input.expected_source.schema_id.clone(),
-            schema_version: edit.input.expected_source.schema_version,
-            canonical_content: edit.input.canonical_content.clone(),
+            source_object_revision: put_input.expected_source.revision,
+            source_object_digest: put_input.expected_source.digest,
+            schema_id: put_input.expected_source.schema_id.clone(),
+            schema_version: put_input.expected_source.schema_version,
+            canonical_content: put_input.canonical_content.clone(),
             changeset_id: changeset.changeset_id,
             edit_id: edit.edit_id,
             authoritative_sequence: next_sequence,
@@ -5945,6 +7715,12 @@ pub(super) fn load_localized_commit(
             "localized commit lifecycle identity differs".to_owned(),
         ));
     }
+    let (_, _, effective_edits) = proposal(&changeset)?;
+    if effective_edits.is_empty() {
+        return Err(LocalPortError::Integrity(
+            "localized commit has no effective Edits".to_owned(),
+        ));
+    }
     let validation = sealed_validation_head(transaction, &changeset)?;
     let approval = load_localized_approval(transaction, &changeset)?
         .ok_or_else(|| LocalPortError::Integrity("localized commit lacks approval".to_owned()))?;
@@ -5995,18 +7771,59 @@ pub(super) fn load_localized_commit(
             revision,
         )?);
     }
-    if renditions.is_empty()
-        || previous_state.authoritative_sequence.checked_add(
-            u64::try_from(renditions.len()).map_err(|_| {
-                LocalPortError::Integrity("rendition count exceeds state sequence range".to_owned())
-            })?,
-        ) != Some(resulting_sequence)
-        || renditions.iter().enumerate().any(|(index, rendition)| {
-            rendition.authoritative_sequence
-                != previous_state.authoritative_sequence
-                    + u64::try_from(index).unwrap_or(u64::MAX)
-                    + 1
+    let mut statement = transaction
+        .prepare(
+            "SELECT edit_id, authoritative_sequence FROM (
+                 SELECT edit_id, authoritative_sequence FROM object_revisions
+                 WHERE changeset_id = ?1
+                 UNION ALL
+                 SELECT edit_id, authoritative_sequence FROM object_locale_revisions
+                 WHERE changeset_id = ?1
+             ) ORDER BY authoritative_sequence",
+        )
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let rows = statement
+        .query_map([changeset_id.to_string()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })
+        .map_err(|error| LocalPortError::Storage(error.to_string()))?;
+    let committed_edits = rows
+        .map(|row| {
+            let (edit_id, sequence) =
+                row.map_err(|error| LocalPortError::Storage(error.to_string()))?;
+            Ok((
+                edit_id,
+                u64::try_from(sequence).map_err(|_| {
+                    LocalPortError::Integrity("invalid committed Edit sequence".to_owned())
+                })?,
+            ))
+        })
+        .collect::<Result<Vec<_>, LocalPortError>>()?;
+    let effective_count = u64::try_from(effective_edits.len()).map_err(|_| {
+        LocalPortError::Integrity("effective Edit count exceeds state range".to_owned())
+    })?;
+    if renditions.is_empty()
+        || previous_state
+            .authoritative_sequence
+            .checked_add(effective_count)
+            != Some(resulting_sequence)
+        || committed_edits.len() != effective_edits.len()
+        || committed_edits
+            .iter()
+            .zip(&effective_edits)
+            .enumerate()
+            .any(
+                |(index, ((committed_edit_id, committed_sequence), effective_edit))| {
+                    let expected_sequence = u64::try_from(index)
+                        .ok()
+                        .and_then(|offset| offset.checked_add(1))
+                        .and_then(|offset| {
+                            previous_state.authoritative_sequence.checked_add(offset)
+                        });
+                    committed_edit_id != &effective_edit.edit_id.to_string()
+                        || Some(*committed_sequence) != expected_sequence
+                },
+            )
     {
         return Err(LocalPortError::Integrity(
             "localized commit authoritative sequence is not contiguous".to_owned(),
@@ -6793,6 +8610,7 @@ struct ExactEditionDelta {
     digest: ContentDigest,
     schema_changed: bool,
     object_changed: bool,
+    object_additions: BTreeSet<ObjectId>,
     rendition_changes: Vec<RenditionChange>,
 }
 
@@ -6888,6 +8706,11 @@ fn exact_edition_delta(
             })
         })
         .collect::<Vec<_>>();
+    let object_additions = object_keys
+        .iter()
+        .filter(|key| !base_objects.contains_key(key) && target_objects.contains_key(key))
+        .copied()
+        .collect::<BTreeSet<_>>();
     let rendition_changes = rendition_keys
         .iter()
         .filter_map(|key| {
@@ -6921,6 +8744,7 @@ fn exact_edition_delta(
         canonical,
         schema_changed: base_schemas != target_schemas,
         object_changed: base_objects != target_objects,
+        object_additions,
         rendition_changes,
     })
 }
@@ -6930,26 +8754,43 @@ fn verify_promotion_delta(
     commit: &CommittedLocalizedChangeSet,
     changeset: &LocalizedChangeSet,
 ) -> Result<(), LocalPortError> {
-    if delta.schema_changed || delta.object_changed {
+    if delta.schema_changed {
         return Err(LocalPortError::PolicyDenied);
     }
     let (_, _, effective_edits) = proposal(changeset)?;
+    let created_objects = effective_edits
+        .iter()
+        .filter_map(|edit| match &edit.input {
+            LocalizedEditAttempt::ObjectCreate(input) => Some(input.object_id),
+            LocalizedEditAttempt::LocalePut(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if delta.object_changed && delta.object_additions != created_objects {
+        return Err(LocalPortError::PolicyDenied);
+    }
+    let put_edits = effective_edits
+        .iter()
+        .filter(|edit| matches!(edit.input, LocalizedEditAttempt::LocalePut(_)))
+        .collect::<Vec<_>>();
     if delta.rendition_changes.len() != commit.renditions.len()
-        || commit.renditions.len() != effective_edits.len()
+        || commit.renditions.len() != put_edits.len()
     {
         return Err(LocalPortError::PolicyDenied);
     }
     for ((key, before, after), (rendition, edit)) in delta
         .rendition_changes
         .iter()
-        .zip(commit.renditions.iter().zip(effective_edits.iter()))
+        .zip(commit.renditions.iter().zip(put_edits.iter()))
     {
         let Some(after) = after else {
             return Err(LocalPortError::PolicyDenied);
         };
-        let expected_before = edit.input.expected_target.as_ref();
+        let LocalizedEditAttempt::LocalePut(put_input) = &edit.input else {
+            return Err(LocalPortError::PolicyDenied);
+        };
+        let expected_before = put_input.expected_target.as_ref();
         if key != &(rendition.object_id, rendition.locale.clone())
-            || key != &(edit.input.object_id, edit.input.locale.clone())
+            || key != &(put_input.object_id, put_input.locale.clone())
             || after.rendition_digest != rendition.rendition_digest
             || after.revision != rendition.revision
             || after.source_object_digest != rendition.source_object_digest
@@ -8667,17 +10508,7 @@ pub(super) fn validate_changeset(
     let intent = load_resource_intent(transaction, workspace_id, changeset.resource_intent_id)?;
     verify_baseline_is_current(transaction, workspace_id, &intent)?;
     let (_, _, effective_edits) = proposal(&changeset)?;
-    let effective_targets = effective_edits
-        .iter()
-        .map(|edit| proof_application::LocalizedContentTarget {
-            object_id: edit.input.object_id,
-            schema_id: edit.input.expected_source.schema_id.clone(),
-            locale: edit.input.locale.clone(),
-        })
-        .collect::<Vec<_>>();
-    if effective_targets != intent.targets {
-        return Err(LocalPortError::Invalid);
-    }
+    verify_effective_intent_closure(&intent, &effective_edits)?;
     let context_pack = load_context(transaction, workspace_id, changeset.context_pack_id)?;
     let mut chain = load_validation_chain(transaction, &changeset)?;
     let attempt = u32::try_from(chain.len())
@@ -8691,44 +10522,70 @@ pub(super) fn validate_changeset(
     let rules = load_policy_rules(transaction, context_pack.context_pack_id)?;
     let (proposal_digest, effective_leaf_digest, effective_edits) = proposal(&changeset)?;
     let mut findings = Vec::new();
+    let mut effective_creations = BTreeMap::new();
     for edit in &effective_edits {
-        let localized_value = parse_strict(edit.input.canonical_content.as_bytes())
-            .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
-        for rule in rules.iter().filter(|rule| rule.locale == edit.input.locale) {
-            let segments = parse_pointer(&rule.pointer)?;
-            let value = string_at_pointer(&localized_value, &segments)?;
-            if rule
-                .disallowed_values
-                .binary_search_by(|candidate| candidate.as_str().cmp(value))
-                .is_ok()
-            {
-                findings.push(proof_application::LocalizedFinding {
-                    code: proof_application::PROHIBITED_LEGAL_CLAIM_CODE.to_owned(),
-                    severity: proof_application::Severity::Error,
-                    edit_id: edit.edit_id,
-                    object_id: edit.input.object_id,
-                    locale: edit.input.locale.clone(),
-                    pointer: Some(rule.pointer.clone()),
-                    validator: proof_application::LOCALIZED_CONTENT_VALIDATOR.to_owned(),
-                    policy_digest: context_pack.policy_digest,
-                });
-            }
+        if let LocalizedEditAttempt::ObjectCreate(input) = &edit.input {
+            let _ = selected_creation_schema(transaction, &context_pack, &rules, input)?;
+            let slot = &intent.creations[creation_slot_index(&intent, input)?];
+            findings.extend(policy_findings(
+                edit.edit_id,
+                input.object_id,
+                &input.canonical_content,
+                &slot.locales,
+                &rules,
+                context_pack.policy_digest,
+            )?);
+            let (_, source) = created_source(input)?;
+            effective_creations.insert(input.object_id, (edit.ordinal, source));
         }
+    }
+    for edit in &effective_edits {
+        let LocalizedEditAttempt::LocalePut(put_input) = &edit.input else {
+            continue;
+        };
+        if effective_creations.get(&put_input.object_id).is_some_and(
+            |(creation_ordinal, source)| {
+                *creation_ordinal > edit.ordinal
+                    || !put_source_preconditions_match(put_input, source)
+            },
+        ) {
+            findings.push(proof_application::LocalizedFinding {
+                code: proof_application::LOCALIZED_SOURCE_CONFLICT_CODE.to_owned(),
+                severity: proof_application::Severity::Error,
+                edit_id: edit.edit_id,
+                object_id: put_input.object_id,
+                locale: put_input.locale.clone(),
+                pointer: None,
+                validator: proof_application::LOCALIZED_CONTENT_VALIDATOR.to_owned(),
+                policy_digest: context_pack.policy_digest,
+            });
+        }
+        findings.extend(policy_findings(
+            edit.edit_id,
+            put_input.object_id,
+            &put_input.canonical_content,
+            std::slice::from_ref(&put_input.locale),
+            &rules,
+            context_pack.policy_digest,
+        )?);
     }
     findings.sort_by(|left, right| {
         (
             left.object_id,
             &left.locale,
-            left.pointer.as_deref().unwrap_or_default(),
+            left.pointer.as_deref(),
             left.edit_id,
+            left.code.as_str(),
         )
             .cmp(&(
                 right.object_id,
                 &right.locale,
-                right.pointer.as_deref().unwrap_or_default(),
+                right.pointer.as_deref(),
                 right.edit_id,
+                right.code.as_str(),
             ))
     });
+    findings.dedup();
     let valid = findings.is_empty();
     let schema_digests = context_schema_digests(&context_pack)?;
     let manifest = validation_manifest(
@@ -8806,6 +10663,45 @@ pub(super) fn validate_changeset(
     Ok(result)
 }
 
+fn policy_findings(
+    edit_id: proof_application::EditId,
+    object_id: ObjectId,
+    canonical_content: &str,
+    locales: &[proof_application::LocaleId],
+    rules: &[LocalizedPolicyRule],
+    policy_digest: ContentDigest,
+) -> Result<Vec<proof_application::LocalizedFinding>, LocalPortError> {
+    let content = parse_strict(canonical_content.as_bytes())
+        .map_err(|error| LocalPortError::Integrity(error.to_string()))?;
+    let mut locales = locales.to_vec();
+    locales.sort();
+    locales.dedup();
+    let mut findings = Vec::new();
+    for locale in locales {
+        for rule in rules.iter().filter(|rule| rule.locale == locale) {
+            let segments = parse_pointer(&rule.pointer)?;
+            let value = string_at_pointer(&content, &segments)?;
+            if rule
+                .disallowed_values
+                .binary_search_by(|candidate| candidate.as_str().cmp(value))
+                .is_ok()
+            {
+                findings.push(proof_application::LocalizedFinding {
+                    code: proof_application::PROHIBITED_LEGAL_CLAIM_CODE.to_owned(),
+                    severity: proof_application::Severity::Error,
+                    edit_id,
+                    object_id,
+                    locale: locale.clone(),
+                    pointer: Some(rule.pointer.clone()),
+                    validator: proof_application::LOCALIZED_CONTENT_VALIDATOR.to_owned(),
+                    policy_digest,
+                });
+            }
+        }
+    }
+    Ok(findings)
+}
+
 pub(super) fn replay_validation_for_authenticated_operation(
     transaction: &Transaction<'_>,
     workspace_id: proof_application::WorkspaceId,
@@ -8851,26 +10747,40 @@ fn context_schema_digests(context: &LocalizedContextPack) -> Result<Vec<Value>, 
         .ok_or_else(|| LocalPortError::Integrity("ContextPack resources are missing".to_owned()))?;
     let mut schemas = BTreeMap::<(String, u32), String>::new();
     for resource in resources {
-        let schema = resource
-            .as_object()
-            .and_then(|object| object.get("schema"))
-            .and_then(Value::as_object)
-            .ok_or_else(|| LocalPortError::Integrity("ContextPack Schema is missing".to_owned()))?;
-        let schema_id = required_string(schema, "schema_id")?;
-        let version = schema
-            .get("schema_version")
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok())
-            .ok_or_else(|| {
-                LocalPortError::Integrity("ContextPack Schema version is invalid".to_owned())
+        let resource = resource.as_object().ok_or_else(|| {
+            LocalPortError::Integrity("ContextPack resource is invalid".to_owned())
+        })?;
+        let closures = match (resource.get("schema"), resource.get("schema_candidates")) {
+            (Some(schema), None) => vec![schema],
+            (None, Some(Value::Array(candidates))) if !candidates.is_empty() => {
+                candidates.iter().collect()
+            }
+            _ => {
+                return Err(LocalPortError::Integrity(
+                    "ContextPack Schema closure is invalid".to_owned(),
+                ));
+            }
+        };
+        for closure in closures {
+            let schema = closure.as_object().ok_or_else(|| {
+                LocalPortError::Integrity("ContextPack Schema is invalid".to_owned())
             })?;
-        let digest = required_string(schema, "document_digest")?;
-        if let Some(existing) = schemas.insert((schema_id, version), digest.clone())
-            && existing != digest
-        {
-            return Err(LocalPortError::Integrity(
-                "ContextPack repeats one Schema identity with different bytes".to_owned(),
-            ));
+            let schema_id = required_string(schema, "schema_id")?;
+            let version = schema
+                .get("schema_version")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| {
+                    LocalPortError::Integrity("ContextPack Schema version is invalid".to_owned())
+                })?;
+            let digest = required_string(schema, "document_digest")?;
+            if let Some(existing) = schemas.insert((schema_id, version), digest.clone())
+                && existing != digest
+            {
+                return Err(LocalPortError::Integrity(
+                    "ContextPack repeats one Schema identity with different bytes".to_owned(),
+                ));
+            }
         }
     }
     Ok(schemas
@@ -9167,10 +11077,112 @@ fn parse_findings(text: &str) -> Result<Vec<proof_application::LocalizedFinding>
 #[cfg(test)]
 mod tests {
     use proof_application::{
-        ChangeSetIntent, ChangeSetStatus, KnownStateArtifactReference, LocalizedChangeSet,
+        ArtifactKind, ChangeSetIntent, ChangeSetStatus, KnownStateArtifactReference,
+        LocalizedChangeSet, SchemaId, SchemaListCommand,
     };
+    use proof_canonical::{canonicalize, digest};
+    use rusqlite::Connection;
 
-    use super::{LocalPortError, changeset_diff};
+    use super::{LocalPortError, changeset_diff, list_schemas};
+
+    #[test]
+    fn schema_pages_use_exclusive_authoritative_sequence_cursors() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_versions (
+                     schema_id TEXT NOT NULL,
+                     schema_version INTEGER NOT NULL,
+                     document_json TEXT NOT NULL,
+                     document_digest TEXT NOT NULL,
+                     changeset_id TEXT NOT NULL,
+                     edit_id TEXT NOT NULL,
+                     authoritative_sequence INTEGER NOT NULL
+                 );",
+            )
+            .unwrap();
+        for (sequence, schema_id, schema_version) in [
+            (1_u64, "article", 1_u32),
+            (2, "product", 1),
+            (3, "article", 2),
+        ] {
+            let document = canonicalize(&serde_json::json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": format!("Schema {sequence}"),
+                "type": "object",
+            }))
+            .unwrap();
+            let document_digest = digest(ArtifactKind::SchemaVersionV1, &document);
+            let changeset_id = format!("019c0000-0000-7000-8000-{sequence:012}");
+            let edit_id = format!("019c0000-0000-7000-9000-{sequence:012}");
+            connection
+                .execute(
+                    "INSERT INTO schema_versions (
+                         schema_id, schema_version, document_json, document_digest,
+                         changeset_id, edit_id, authoritative_sequence
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![
+                        schema_id,
+                        schema_version,
+                        document.as_str(),
+                        document_digest.to_string(),
+                        changeset_id,
+                        edit_id,
+                        i64::try_from(sequence).unwrap(),
+                    ],
+                )
+                .unwrap();
+        }
+
+        let first = list_schemas(
+            &connection,
+            &SchemaListCommand {
+                schema_id: None,
+                cursor: None,
+                page_size: Some(2),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            first
+                .entries
+                .iter()
+                .map(|entry| entry.provenance.authoritative_sequence)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(first.next_cursor.as_deref(), Some("2"));
+
+        let second = list_schemas(
+            &connection,
+            &SchemaListCommand {
+                schema_id: None,
+                cursor: first.next_cursor,
+                page_size: Some(2),
+            },
+        )
+        .unwrap();
+        assert_eq!(second.entries[0].provenance.authoritative_sequence, 3);
+        assert_eq!(second.next_cursor, None);
+
+        let filtered = list_schemas(
+            &connection,
+            &SchemaListCommand {
+                schema_id: Some(SchemaId::new("article").unwrap()),
+                cursor: None,
+                page_size: Some(100),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            filtered
+                .entries
+                .iter()
+                .map(|entry| entry.schema_version.get())
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
 
     #[test]
     fn empty_draft_has_no_schema_conformant_diff_evidence() {

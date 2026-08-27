@@ -1,56 +1,68 @@
 {
-  "schema_version": 1,
   "cases": [
     {
-      "artifact_kind": "EditionDeltaV2",
       "artifact": {
         "api_version": "proof.dev/edition-delta/v2",
         "base": {
           "edition": {
             "api_version": "proof.dev/edition/v1",
-            "digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
             "edition_id": "019c0000-0000-7000-8000-000000000060"
           },
           "state": {
             "api_version": "proof.dev/known-state/v1",
             "authoritative_sequence": 2,
-            "digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
           }
         },
-        "objects": [],
+        "objects": [
+          {
+            "after": {
+              "lifecycle_state": "active",
+              "object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
+              "object_id": "019c0000-0000-7000-8000-000000000081",
+              "revision": 1,
+              "schema_id": "campaign",
+              "schema_version": 1
+            },
+            "before": null,
+            "object_id": "019c0000-0000-7000-8000-000000000081"
+          }
+        ],
         "renditions": [
           {
             "after": {
               "locale": "fr-FR",
-              "object_id": "019c0000-0000-7000-8000-000000000080",
-              "rendition_digest": "blake3:0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+              "object_id": "019c0000-0000-7000-8000-000000000081",
+              "rendition_digest": "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071",
               "revision": 1,
               "schema_id": "campaign",
               "schema_version": 1,
-              "source_object_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+              "source_object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
             },
             "before": null,
             "locale": "fr-FR",
-            "object_id": "019c0000-0000-7000-8000-000000000080"
+            "object_id": "019c0000-0000-7000-8000-000000000081"
           }
         ],
         "schemas": [],
         "target": {
           "edition": {
             "api_version": "proof.dev/edition/v2",
-            "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+            "digest": "blake3:48e51fdb1ab909fe8644d03881e021c5ff9d32d91dab5312fa128bc9e8ef2788",
             "edition_id": "019c0000-0000-7000-8000-000000000260"
           },
           "state": {
             "api_version": "proof.dev/known-state/v2",
-            "authoritative_sequence": 3,
-            "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+            "authoritative_sequence": 4,
+            "digest": "blake3:5bd4ab8f94dfcadc4b99c3fad78014ebda017a877843b986c47afb094950b6bd"
           }
         }
-      }
+      },
+      "artifact_kind": "EditionDeltaV2",
+      "case_id": "edition-delta-v2-create-put"
     },
     {
-      "artifact_kind": "ReleaseProofPredicateV2",
       "artifact": {
         "api_version": "proof.dev/release-proof-predicate/v2",
         "authority": {
@@ -60,55 +72,68 @@
         },
         "content_evidence": {
           "approval_digest": "blake3:1818181818181818181818181818181818181818181818181818181818181818",
-          "changeset_digest": "blake3:0808080808080808080808080808080808080808080808080808080808080808",
-          "validation_results_digest": "blake3:0909090909090909090909090909090909090909090909090909090909090909"
+          "changeset_digest": "blake3:45dcf75467a8cdca5345015e463962e70388d7f4d06e0c49da97fbb40eeab5d9",
+          "validation_results_digest": "blake3:8bb5caa69160c243b3cba74d313ad2a52decb52760a29ec2a0a2979c9a5bfa28"
         },
         "exact_delta": {
           "api_version": "proof.dev/edition-delta/v2",
           "base": {
             "edition": {
               "api_version": "proof.dev/edition/v1",
-              "digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
               "edition_id": "019c0000-0000-7000-8000-000000000060"
             },
             "state": {
               "api_version": "proof.dev/known-state/v1",
               "authoritative_sequence": 2,
-              "digest": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+              "digest": "blake3:0f795ea21597b845fb638a644dc5e69d0bd1fbae6e96c57bf3ab1b1acbe52384"
             }
           },
-          "objects": [],
+          "objects": [
+            {
+              "after": {
+                "lifecycle_state": "active",
+                "object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960",
+                "object_id": "019c0000-0000-7000-8000-000000000081",
+                "revision": 1,
+                "schema_id": "campaign",
+                "schema_version": 1
+              },
+              "before": null,
+              "object_id": "019c0000-0000-7000-8000-000000000081"
+            }
+          ],
           "renditions": [
             {
               "after": {
                 "locale": "fr-FR",
-                "object_id": "019c0000-0000-7000-8000-000000000080",
-                "rendition_digest": "blake3:0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+                "object_id": "019c0000-0000-7000-8000-000000000081",
+                "rendition_digest": "blake3:050550650865bdea5edb765ad379dcbb9ec47e559a331d6dd99e0480735fa071",
                 "revision": 1,
                 "schema_id": "campaign",
                 "schema_version": 1,
-                "source_object_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+                "source_object_digest": "blake3:fa78a55417b2b821144e2770da9532c1a981f8aff928b9bba8e9b6ad2ea2a960"
               },
               "before": null,
               "locale": "fr-FR",
-              "object_id": "019c0000-0000-7000-8000-000000000080"
+              "object_id": "019c0000-0000-7000-8000-000000000081"
             }
           ],
           "schemas": [],
           "target": {
             "edition": {
               "api_version": "proof.dev/edition/v2",
-              "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+              "digest": "blake3:48e51fdb1ab909fe8644d03881e021c5ff9d32d91dab5312fa128bc9e8ef2788",
               "edition_id": "019c0000-0000-7000-8000-000000000260"
             },
             "state": {
               "api_version": "proof.dev/known-state/v2",
-              "authoritative_sequence": 3,
-              "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+              "authoritative_sequence": 4,
+              "digest": "blake3:5bd4ab8f94dfcadc4b99c3fad78014ebda017a877843b986c47afb094950b6bd"
             }
           }
         },
-        "exact_delta_digest": "blake3:1616161616161616161616161616161616161616161616161616161616161616",
+        "exact_delta_digest": "blake3:7a7b113ed7a9c21c4606cea79bec561b4869edb298b75a74ef9408f72a86b745",
         "implementation": {
           "canonical_json": "RFC 8785",
           "digest": "BLAKE3-256 domain-separated",
@@ -126,26 +151,29 @@
           "changeset_id": "019c0000-0000-7000-8000-000000000204",
           "edition": {
             "api_version": "proof.dev/edition/v2",
-            "digest": "blake3:1414141414141414141414141414141414141414141414141414141414141414",
+            "digest": "blake3:48e51fdb1ab909fe8644d03881e021c5ff9d32d91dab5312fa128bc9e8ef2788",
             "edition_id": "019c0000-0000-7000-8000-000000000260"
           },
           "environment_id": "preview",
           "key_id": "local-ed25519:17171717171717171717171717171717",
           "kind": "promotion",
-          "release_digest": "blake3:8080808080808080808080808080808080808080808080808080808080808080",
+          "release_digest": "blake3:b91045d422e1182f972f774ee1ba5a80706a18c60c9f50dcb2bb95006c3db930",
           "release_id": "019c0000-0000-7000-8000-0000000002c0",
           "release_sequence": 2,
           "released_at": "2026-08-17T16:13:00Z",
-          "resource_intent_id": "019c0000-0000-7000-8000-000000000200",
+          "resource_intent_id": "019c0000-0000-7000-8000-000000000201",
           "rollback_target_release_id": null
         },
         "state": {
           "api_version": "proof.dev/known-state/v2",
-          "authoritative_sequence": 3,
-          "digest": "blake3:1212121212121212121212121212121212121212121212121212121212121212"
+          "authoritative_sequence": 4,
+          "digest": "blake3:5bd4ab8f94dfcadc4b99c3fad78014ebda017a877843b986c47afb094950b6bd"
         },
         "workspace_id": "019c0000-0000-7000-8000-000000000010"
-      }
+      },
+      "artifact_kind": "ReleaseProofPredicateV2",
+      "case_id": "release-proof-predicate-v2-create-put"
     }
-  ]
+  ],
+  "schema_version": 1
 }

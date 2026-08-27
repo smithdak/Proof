@@ -15,9 +15,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use proof_application::authority::{
     AuthenticatedCommandApiVersion, AuthenticatedCommandEnvelopeJson, AuthenticatedCommandV1,
-    AuthenticatedInvocationApiVersion, AuthenticatedInvocationV1, AuthorityAudience,
-    AuthorityOperation, BindingEnrollmentChallengeV1, CommandInputApiVersion, CommandInputV1,
-    Ed25519KeyId, EnrollmentChallengeApiVersion, MAX_COMMAND_LIFETIME_SECONDS,
+    AuthenticatedInvocationApiVersion, AuthenticatedInvocationV1, AuthorityAction,
+    AuthorityAudience, AuthorityOperation, AuthoritySequence, BindingEnrollmentChallengeV1,
+    CommandInputApiVersion, CommandInputV1, DelegationActionsV2, DelegationApiVersion,
+    DelegationConstraintsV2, DelegationEnvironmentIdsV2, DelegationLocalesV2,
+    DelegationObjectIdsV2, DelegationSchemaIdsV2, DelegationScopeV2, DelegationV2,
+    DirectAuthorityProfileV1, Ed25519KeyId, EnrollmentChallengeApiVersion,
+    MAX_COMMAND_LIFETIME_SECONDS, MaxContextBytes, MaxEditsPerChangeSet, MaxObjects,
+    SubdelegationDisabled,
 };
 use proof_attestation::authority::{AuthorityPayloadProfile, sign_authority_payload};
 use proof_attestation::{Ed25519SigningProvider, ProofSigningProvider};
@@ -33,7 +38,8 @@ use proof_remote::oracle::IdentityFixtureV1;
 use proof_remote::registry::ApplicationConsequenceOutcome;
 use proof_remote::{AuthorityHeadV1, RemoteOperationV1};
 use proof_server::authz::{
-    authenticate_agent_presentation, evaluate_authorization, resolve_oidc_binding_by_subject,
+    authenticate_human_session, evaluate_authorization, prepare_agent_attempt,
+    resolve_oidc_binding_by_subject,
 };
 use proof_server::operations::{AgentOperationExecutor, HumanOperationExecutor};
 use proof_server::session::SessionRecord;
@@ -202,6 +208,19 @@ impl TestDb {
         runtime
             .client_mut()
             .query_one("SELECT COUNT(*) FROM facts WHERE fact_id = $1", &[&fact_id])
+            .unwrap()
+            .get(0)
+    }
+
+    fn fact_kind_count(&self, fact_kind: &str) -> i64 {
+        let mut guard = self.runtime();
+        let runtime = guard.as_mut().unwrap();
+        runtime
+            .client_mut()
+            .query_one(
+                "SELECT COUNT(*) FROM facts WHERE fact_kind = $1",
+                &[&fact_kind],
+            )
             .unwrap()
             .get(0)
     }
@@ -398,6 +417,72 @@ fn seed_principal_status(db: &TestDb) {
     );
 }
 
+fn seed_agent_workspace_status_grant(db: &TestDb) {
+    let status = proof_remote::authority::RemotePrincipalStatusV2 {
+        api_version: proof_remote::authority::RemotePrincipalStatusApiVersion::V1,
+        workspace_id: WS_ID.to_owned(),
+        principal_id: AGENT_PRINCIPAL.to_owned(),
+        principal_type: proof_remote::authority::RemotePrincipalType::Agent,
+        enabled: true,
+        reason: "test grant".to_owned(),
+        recorded_by_principal_id: ADMIN.to_owned(),
+        recorded_by_actor_context_digest: deterministic_digest(0x35),
+        recorded_at: now_timestamp(),
+        evaluated_authority_head: AuthorityHeadV1 {
+            sequence: 1,
+            record_digest: deterministic_digest(0x01),
+        },
+        authority_sequence: 3,
+        previous_authority_record_digest: deterministic_digest(0x01),
+        authority_key_id:
+            "ed25519:1111111111111111111111111111111111111111111111111111111111111111".to_owned(),
+    };
+    let status_body = canonicalize(&serde_json::to_value(&status).unwrap()).unwrap();
+    db.seed_fact(
+        &format!("principal_status/{AGENT_PRINCIPAL}"),
+        "principal_status",
+        &RemoteAuthorityRecordV1::principal_status(status).digest(),
+        status_body.as_bytes(),
+        3,
+    );
+
+    let issued_at = timestamp_offset(-10);
+    let delegation = DelegationV2 {
+        api_version: DelegationApiVersion::V1,
+        authority_sequence: AuthoritySequence::new(4).unwrap(),
+        previous_authority_record_digest: Some(deterministic_digest(0x01)),
+        delegation_id: DELEGATION_ID.parse().unwrap(),
+        workspace_id: WS_ID.parse().unwrap(),
+        delegation_profile: DirectAuthorityProfileV1::Direct,
+        issuer_principal_id: ADMIN.parse().unwrap(),
+        recipient_principal_id: AGENT_PRINCIPAL.parse().unwrap(),
+        actions: DelegationActionsV2::new(vec![AuthorityAction::WorkspaceStatus]).unwrap(),
+        scope: DelegationScopeV2 {
+            environment_ids: DelegationEnvironmentIdsV2::new(Vec::new()).unwrap(),
+            object_ids: DelegationObjectIdsV2::new(Vec::new()).unwrap(),
+            schema_ids: DelegationSchemaIdsV2::new(Vec::new()).unwrap(),
+            locales: DelegationLocalesV2::new(Vec::new()).unwrap(),
+        },
+        constraints: DelegationConstraintsV2 {
+            max_objects: MaxObjects::new(1).unwrap(),
+            max_context_bytes: MaxContextBytes::new(1).unwrap(),
+            max_edits_per_changeset: MaxEditsPerChangeSet::new(1).unwrap(),
+            allow_subdelegation: SubdelegationDisabled,
+        },
+        not_before: issued_at,
+        expires_at: timestamp_offset(120),
+        issued_at,
+    };
+    let body = canonicalize(&serde_json::to_value(&delegation).unwrap()).unwrap();
+    db.seed_fact(
+        &format!("delegation/{DELEGATION_ID}"),
+        "delegation",
+        &RemoteAuthorityRecordV1::delegation_issue(delegation).digest(),
+        body.as_bytes(),
+        4,
+    );
+}
+
 fn human_context_for(
     db: &TestDb,
     operation: &RemoteOperationV1,
@@ -425,6 +510,13 @@ fn oidc_binding_operation() -> RemoteOperationV1 {
     RemoteOperationV1 {
         name: "oidc-binding.issue".to_owned(),
         version: "proof.dev/operation/oidc-binding.issue/v1".to_owned(),
+    }
+}
+
+fn oidc_binding_revoke_operation() -> RemoteOperationV1 {
+    RemoteOperationV1 {
+        name: "oidc-binding.revoke".to_owned(),
+        version: "proof.dev/operation/oidc-binding.revoke/v1".to_owned(),
     }
 }
 
@@ -537,6 +629,7 @@ fn agent_binding_issue_commits_and_issued_credentials_authenticate() {
         )),
         1
     );
+    seed_agent_workspace_status_grant(&db);
 
     // The issued credential authenticates end to end through the dual
     // boundary and completes an authenticated governed read.
@@ -582,18 +675,22 @@ fn agent_binding_issue_commits_and_issued_credentials_authenticate() {
         authentication: AuthenticatedCommandEnvelopeJson::new(signed_command.envelope_json)
             .unwrap(),
     };
-    let context = authenticate_agent_presentation(&db.state, &session(), &invocation)
+    let attempt = prepare_agent_attempt(&db.state, &session(), &invocation)
         .expect("issued credentials authenticate");
-    let decision =
-        evaluate_authorization(&db.state, &context, &input).expect("agent decision evaluates");
-    let status_consequence = AgentOperationExecutor::execute(
+    let context = attempt.actor_context.clone();
+    let status_input = json!({});
+    let decision = evaluate_authorization(&db.state, &context, &status_input)
+        .expect("agent decision evaluates");
+    let status_consequence = AgentOperationExecutor::execute_for_dispatch_with_attempt(
         &db.state,
         &decision.operation,
-        &json!({}),
+        &status_input,
         &context,
         &decision,
+        Some(&attempt),
     )
-    .expect("authenticated governed operation commits");
+    .expect("authenticated governed operation commits")
+    .consequence;
     assert_eq!(
         status_consequence.outcome,
         ApplicationConsequenceOutcome::Success
@@ -601,7 +698,7 @@ fn agent_binding_issue_commits_and_issued_credentials_authenticate() {
 }
 
 #[test]
-fn agent_binding_issue_replays_then_conflicts_on_challenge_reuse() {
+fn agent_binding_issue_replays_then_rejects_challenge_reuse() {
     let db = TestDb::new("agent_replay_conflict");
     seed_admin(&db);
     db.seed_authority_root();
@@ -634,16 +731,15 @@ fn agent_binding_issue_replays_then_conflicts_on_challenge_reuse() {
         1
     );
 
-    // A fresh idempotency key re-presenting the same ceremony for the same
-    // principals hits the Workspace-global successful-application key rule
-    // before any enrollment precondition.
+    // A fresh application key is a new attempt, so the locked enrollment
+    // precondition rejects the already-consumed challenge without reserving it.
     let mut reused = agent_binding_input(&challenge_value, &envelope_json, &public_key_b64);
     reused["idempotency_key"] = json!("019c0000-0000-7000-8000-0000000000fe");
-    let conflict = execute_human(&db, &operation, &reused).expect("conflict commits");
-    assert_eq!(
-        conflict.outcome,
-        ApplicationConsequenceOutcome::IdempotencyConflict
-    );
+    let conflict = execute_human(&db, &operation, &reused).unwrap_err();
+    assert!(matches!(
+        conflict,
+        ServerError::ApplicationProblem(code) if code == "proof.state.conflict"
+    ));
     assert_eq!(
         db.fact_count(&format!("agent_binding/{NEW_AGENT_BINDING}")),
         1
@@ -681,16 +777,11 @@ fn agent_binding_issue_fails_with_state_conflict_for_expired_challenge() {
     let challenge_value = serde_json::to_value(&challenge).unwrap();
     let input = agent_binding_input(&challenge_value, &signed.envelope_json, &public_key_b64);
 
-    let consequence = execute_human(&db, &agent_binding_operation(), &input)
-        .expect("failure consequence commits");
-    assert_eq!(
-        consequence.outcome,
-        ApplicationConsequenceOutcome::ApplicationFailure
-    );
-    assert_eq!(
-        consequence.problem_code.as_deref(),
-        Some("proof.state.conflict")
-    );
+    let consequence = execute_human(&db, &agent_binding_operation(), &input).unwrap_err();
+    assert!(matches!(
+        consequence,
+        ServerError::ApplicationProblem(code) if code == "proof.state.conflict"
+    ));
     assert_eq!(
         db.fact_count(&format!("agent_binding/{NEW_AGENT_BINDING}")),
         0
@@ -829,7 +920,7 @@ fn seed_admin_roles_absent(db: &TestDb) {
 }
 
 #[test]
-fn oidc_binding_issue_commits_pair_resolves_subject_and_conflicts_on_duplicate() {
+fn oidc_binding_issue_commits_pair_resolves_subject_and_rejects_duplicate() {
     let db = TestDb::new("oidc_issue_resolve");
     seed_admin(&db);
     db.seed_authority_root();
@@ -871,17 +962,16 @@ fn oidc_binding_issue_commits_pair_resolves_subject_and_conflicts_on_duplicate()
     assert_eq!(resolved.principal_id, TARGET_HUMAN);
     assert_eq!(resolved.binding_id, "019c0000-0000-7000-8000-0000000000e1");
 
-    // Re-issuing the same subject with a fresh binding identifier hits the
-    // Workspace-global successful-application key rule before the duplicate
-    // scan; the original binding survives and no new private row appears.
+    // Re-issuing the same subject under a fresh application key is a new
+    // attempt; the locked duplicate scan rejects it without reserving the key.
     let mut duplicate = input.clone();
     duplicate["binding_id"] = json!("019c0000-0000-7000-8000-0000000000e2");
     duplicate["idempotency_key"] = json!("019c0000-0000-7000-8000-0000000000fc");
-    let conflict = execute_human(&db, &operation, &duplicate).expect("conflict commits");
-    assert_eq!(
-        conflict.outcome,
-        ApplicationConsequenceOutcome::IdempotencyConflict
-    );
+    let conflict = execute_human(&db, &operation, &duplicate).unwrap_err();
+    assert!(matches!(
+        conflict,
+        ServerError::ApplicationProblem(code) if code == "proof.state.conflict"
+    ));
     assert_eq!(
         db.fact_count("oidc_private_binding/019c0000-0000-7000-8000-0000000000e2"),
         0
@@ -897,6 +987,56 @@ fn oidc_binding_issue_commits_pair_resolves_subject_and_conflicts_on_duplicate()
         db.fact_count("oidc_binding/019c0000-0000-7000-8000-0000000000e1"),
         1
     );
+}
+
+#[test]
+fn oidc_binding_revocation_disables_callback_resolution_and_existing_sessions() {
+    const BINDING_ID: &str = "019c0000-0000-7000-8000-0000000000e3";
+
+    let db = TestDb::new("oidc_revoke_authentication");
+    seed_admin(&db);
+    db.seed_authority_root();
+
+    let issuer_configuration_digest = IdentityFixtureV1::deterministic()
+        .issuer_configuration
+        .digest()
+        .unwrap();
+    let subject = OidcAuthenticatedSubjectV1 {
+        api_version: OidcAuthenticatedSubjectApiVersion::V1,
+        issuer: "https://identity.example.test".to_owned(),
+        provider: "proof/oidc".to_owned(),
+        subject: "subject-revoked-editor".to_owned(),
+    };
+    let issue_input = json!({
+        "workspace_id": WS_ID,
+        "principal_id": TARGET_HUMAN,
+        "subject": subject,
+        "issuer_configuration_digest": issuer_configuration_digest.to_string(),
+        "binding_id": BINDING_ID,
+        "idempotency_key": "019c0000-0000-7000-8000-0000000000f9",
+    });
+    execute_human(&db, &oidc_binding_operation(), &issue_input).expect("issuance commits");
+    resolve_oidc_binding_by_subject(&db.state, &subject)
+        .expect("binding resolves before revocation");
+
+    let revoke_input = json!({
+        "binding_id": BINDING_ID,
+        "reason": "administrative",
+        "idempotency_key": "019c0000-0000-7000-8000-0000000000f8",
+    });
+    let consequence = execute_human(&db, &oidc_binding_revoke_operation(), &revoke_input)
+        .expect("revocation commits");
+    assert_eq!(consequence.outcome, ApplicationConsequenceOutcome::Success);
+    assert_eq!(db.fact_kind_count("oidc_binding_revocation"), 1);
+
+    let callback_error = resolve_oidc_binding_by_subject(&db.state, &subject).unwrap_err();
+    assert!(matches!(callback_error, ServerError::Authentication(_)));
+
+    let mut revoked_session = session();
+    revoked_session.principal_id = TARGET_HUMAN.to_owned();
+    revoked_session.binding_id = BINDING_ID.to_owned();
+    let session_error = authenticate_human_session(&db.state, &revoked_session).unwrap_err();
+    assert!(matches!(session_error, ServerError::Authentication(_)));
 }
 
 #[test]

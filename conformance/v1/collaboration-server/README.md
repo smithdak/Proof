@@ -109,7 +109,7 @@ profiles are normative qualifications, not informal labels:
   reserves one `future_test_id` and MUST later map 1:1 to one retained
   executable test; its presence does not claim that test is implemented or
   passing. The current closed matrix has 158 rows: 88 HTTP-applicable rows with
-  276 exact route/operation bindings and 70 explicitly non-HTTP rows.
+  282 exact route/operation bindings and 70 explicitly non-HTTP rows.
 
 Every defined contract object rejects unknown properties. The generic HTTP
 `input` and success `data` slots are the only intentionally open objects at the
@@ -274,11 +274,12 @@ application execution. Agent evidence-writing reads stay on `POST`: consuming
 a presentation and appending an authorization decision is not an HTTP-safe
 `GET`, even when governed content is unchanged.
 
-The Human route is the exact ordered 23-row set frozen by the registry,
+The Human route is the exact ordered 26-row set frozen by the registry,
 including `delivery.get/v1`, `delivery.replay/v1`, `delivery.abandon/v1`, and
-the no-key `evidence.export.get/v1` lifecycle read; `prefixItems` plus
-`items: false` rejects reordering, omission, duplication, and additions. With
-the public capability row and 16 Agent/data rows, the registry contains 40
+the no-key `evidence.export.get/v1`, `object.list/v1`, `schema.get/v1`, and
+`schema.list/v1` reads; `prefixItems` plus `items: false` rejects reordering,
+omission, duplication, and additions. With the public capability row and 16
+Agent/data rows, the registry contains 43
 operation rows in total. Every row names resolvable absolute input and result
 Schema references. Replay and abandon append immutable application management
 facts; neither fact is a `RemoteAuthorityRecordV1` or extends the closed
@@ -300,7 +301,7 @@ artifact reads allow only `content.publisher` or `evidence.auditor`.
 `capabilities.discover/v1` embeds the complete registry object in its strict
 result. The accompanying `registry_sha256` is SHA-256 over RFC 8785 canonical
 bytes of that embedded value and is frozen here as
-`e485f67c7eb9e882f2a93f17f628e7078bd877faa116fd22b58895799051f2cf`.
+`6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca`.
 The result therefore needs no undisclosed file path or additional HTTP route
 to resolve the advertised operation, Schema, authorization, Problem, and
 limit rows. It still contains no Workspace, Principal, resource, or deployment
@@ -325,7 +326,7 @@ authority model. Human and administrative additions name explicit application
 contracts; there is no SQL-only or UI-only mutation.
 
 The non-circular authorization commitment is
-`e91d966de797f6f66bf15b619bec521e6a758c2775e402b5f8e0bc231125424b`:
+`d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171`:
 SHA-256 over RFC 8785 of exactly the Agent authorization projection, resource
 projection, rule definitions, and Human authorization projection. The Human
 projection binds each operation to its requested action, rule, and sorted role
@@ -423,7 +424,7 @@ result, effect, and Problem fields. A 504 on a no-key row remains internally
 audit-reconcilable but gives the caller no stored-result lookup: any permitted
 retry is a fresh authenticated/authorized attempt and may append new evidence.
 
-Every one of the 40 registry rows carries one closed
+Every one of the 43 registry rows carries one closed
 `effect_digest_rule`. `none` requires a null effect; otherwise the rule names
 the BLAKE3-256 derive-key/RFC 8785 algorithm, exact domain, exact typed preimage
 construction, and resolvable source contract. It also fixes
@@ -468,7 +469,7 @@ retryability tuple, while `problem_statuses` is an exact redundant status
 cross-check; adapters cannot translate a shared application failure to a new
 transport-specific code. Problem `detail`, findings, and digest extensions
 still require semantic disclosure authorization and redaction. The registry
-contains exactly 41 canonical HTTP presentation tuples; their human-readable mirror is the
+contains exactly 44 canonical HTTP presentation tuples; their human-readable mirror is the
 [P-0008 HTTP Problem registry](../../../docs/reference/errors.md#p-0008-http-problem-registry).
 An unresolved commit outcome is retryable 504
 `proof.operation.unknown_outcome`, not 503 `proof.dependency.unavailable`, and

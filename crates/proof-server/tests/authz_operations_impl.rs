@@ -25,7 +25,9 @@ use proof_attestation::authority::{AuthorityPayloadProfile, sign_authority_paylo
 use proof_attestation::{Ed25519SigningProvider, ProofSigningProvider};
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest, Timestamp};
-use proof_pg::{PgConfig, schema::ALL_TABLE_DDL, wiring::PgRuntime};
+use proof_pg::{
+    PgConfig, projection::DERIVED_TABLES_DDL, schema::ALL_TABLE_DDL, wiring::PgRuntime,
+};
 use proof_remote::authority::{
     RemoteAuthorityRecordV1, RemotePrincipalStatusApiVersion, RemotePrincipalStatusV2,
     RemotePrincipalType, WorkspaceRole, WorkspaceRoleAssignmentApiVersion,
@@ -40,11 +42,12 @@ use proof_remote::identity::{
     subject_commitment_digest,
 };
 use proof_remote::oracle::IdentityFixtureV1;
-use proof_remote::registry::ApplicationConsequenceOutcome;
-use proof_remote::{AuthorityHeadV1, RemoteOperationV1};
+use proof_remote::registry::{ApplicationConsequenceOutcome, RemoteApplicationConsequenceV1};
+use proof_remote::{AuthorityHeadV1, HttpRouteV1, RemoteOperationV1, derive_key_digest};
 use proof_server::authz::{
     authenticate_agent_presentation, authenticate_human_session, evaluate_authorization,
 };
+use proof_server::dispatch::{DispatchRequest, dispatch};
 use proof_server::operations::HumanOperationExecutor;
 use proof_server::session::SessionRecord;
 use proof_server::{AppState, ServerConfig, ServerError};
@@ -71,6 +74,19 @@ fn evidence_export_operation() -> RemoteOperationV1 {
     RemoteOperationV1 {
         name: "evidence.export".to_owned(),
         version: "proof.dev/operation/evidence.export/v2".to_owned(),
+    }
+}
+
+fn content_read_operation(name: &str) -> RemoteOperationV1 {
+    let version = match name {
+        "schema.get" => "proof.dev/operation/schema.get/v1",
+        "schema.list" => "proof.dev/operation/schema.list/v1",
+        "object.list" => "proof.dev/operation/object.list/v1",
+        _ => panic!("unsupported content read"),
+    };
+    RemoteOperationV1 {
+        name: name.to_owned(),
+        version: version.to_owned(),
     }
 }
 
@@ -629,10 +645,296 @@ fn per_row_role_requirement_is_enforced() {
 }
 
 #[test]
+fn content_register_reads_share_release_reader_role_authorization() {
+    let allowed = TestDb::new("content_reads_allowed");
+    seed_human_binding(&allowed);
+    seed_principal_status(&allowed, REQUESTER, true);
+    seed_role_assignment(
+        &allowed,
+        REQUESTER,
+        WorkspaceRole::ContentReviewer,
+        "019c0000-0000-7000-8000-0000000000de",
+    );
+    allowed.seed_authority_root(
+        "ed25519:1111111111111111111111111111111111111111111111111111111111111111",
+    );
+
+    for (operation, input) in [
+        (
+            content_read_operation("schema.get"),
+            json!({
+                "api_version": "proof.dev/operation/schema.get/v1",
+                "schema_id": "article",
+                "schema_version": 1,
+            }),
+        ),
+        (
+            content_read_operation("schema.list"),
+            json!({"api_version": "proof.dev/operation/schema.list/v1"}),
+        ),
+        (
+            content_read_operation("object.list"),
+            json!({
+                "api_version": "proof.dev/operation/object.list/v1",
+                "environment_id": "preview",
+                "object_ids": ["019c0000-0000-7000-8000-000000000080"],
+            }),
+        ),
+    ] {
+        let context = human_context_for(&allowed, &operation, &input);
+        let decision = evaluate_authorization(&allowed.state, &context, &input).unwrap();
+        assert_eq!(
+            decision.decision,
+            proof_remote::registry::AuthorizationDecisionKind::Allow,
+            "{} should admit a release-reader role",
+            operation.name
+        );
+        let binding_names: &[&str] = match operation.name.as_str() {
+            "schema.get" => &["schema_id", "schema_version"],
+            "schema.list" => &["schema_id"],
+            "object.list" => &["object_ids", "schema_id"],
+            _ => unreachable!(),
+        };
+        let bindings = binding_names
+            .iter()
+            .map(
+                |name| proof_remote::registry::RequestedAuthorizationResourceBindingV1 {
+                    name: (*name).to_owned(),
+                    value_digest: proof_remote::authorization_resource_binding_digest(
+                        name,
+                        input.get(name).unwrap_or(&Value::Null),
+                    )
+                    .unwrap(),
+                },
+            )
+            .collect::<Vec<_>>();
+        let expected = proof_remote::registry::requested_authorization_resources_digest(
+            proof_remote::registry::REMOTE_AUTHORIZATION_PROJECTION_SHA256,
+            "proof.server/authorization/schema-reader/v1",
+            &operation,
+            match operation.name.as_str() {
+                "schema.get" => "schema:get",
+                "schema.list" => "schema:list",
+                "object.list" => "object:list",
+                _ => unreachable!(),
+            },
+            &bindings,
+        )
+        .unwrap();
+        assert_eq!(decision.requested_resources_digest, expected);
+    }
+
+    let denied = TestDb::new("content_reads_denied");
+    seed_human_binding(&denied);
+    seed_principal_status(&denied, REQUESTER, true);
+    denied.seed_authority_root(
+        "ed25519:1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    for operation in [
+        content_read_operation("schema.get"),
+        content_read_operation("schema.list"),
+        content_read_operation("object.list"),
+    ] {
+        let input = json!({"api_version": operation.version.clone()});
+        let context = human_context_for(&denied, &operation, &input);
+        let decision = evaluate_authorization(&denied.state, &context, &input).unwrap();
+        assert_eq!(
+            decision.decision,
+            proof_remote::registry::AuthorizationDecisionKind::Deny,
+            "{} should deny an actor without a release-reader role",
+            operation.name
+        );
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn schema_get_exposes_typed_result_and_commits_only_authority_evidence() {
+    let db = TestDb::new("schema_get_result");
+    seed_human_binding(&db);
+    seed_principal_status(&db, REQUESTER, true);
+    seed_role_assignment(
+        &db,
+        REQUESTER,
+        WorkspaceRole::ContentRequester,
+        "019c0000-0000-7000-8000-0000000000df",
+    );
+    db.seed_authority_root(
+        "ed25519:1111111111111111111111111111111111111111111111111111111111111111",
+    );
+
+    let document = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+    });
+    let canonical = canonicalize(&document).unwrap();
+    let document_digest = digest(ArtifactKind::SchemaVersionV1, &canonical);
+    let sidecar = canonicalize(&json!({
+        "api_version": "proof.dev/parity/localizable-schema/v1",
+        "authoritative_sequence": 1,
+        "changeset_id": "019c0000-0000-7000-8000-000000000030",
+        "document": document,
+        "document_digest": document_digest.to_string(),
+        "edit_id": "019c0000-0000-7000-8000-000000000031",
+        "schema_id": "article",
+        "schema_version": 1,
+    }))
+    .unwrap();
+    let sidecar_digest =
+        derive_key_digest("proof:parity:localizable-schema:v1", sidecar.as_bytes());
+    {
+        let mut guard = db.runtime();
+        let runtime = guard.as_mut().unwrap();
+        for ddl in DERIVED_TABLES_DDL {
+            runtime.client_mut().batch_execute(ddl).unwrap();
+        }
+        runtime
+            .client_mut()
+            .execute(
+                "INSERT INTO projection_generations (generation, state_digest, active, rebuilt_at)
+                 VALUES (1, $1, TRUE, now())",
+                &[&deterministic_digest(0x72).to_string()],
+            )
+            .unwrap();
+        runtime
+            .client_mut()
+            .execute(
+                "INSERT INTO projection_schemas (
+                     generation, schema_id, schema_version, document_digest, authority_sequence
+                 ) VALUES (1, 'article', 1, $1, 1)",
+                &[&document_digest.to_string()],
+            )
+            .unwrap();
+        runtime
+            .client_mut()
+            .execute(
+                "INSERT INTO facts (
+                     fact_id, workspace_id, fact_kind, authority_sequence, fact_digest,
+                     body, committed_at
+                 ) VALUES ('schema/article/1', $1, 'schema', 1, $2, $3, now())",
+                &[&WS_ID, &document_digest.to_string(), &canonical.as_bytes()],
+            )
+            .unwrap();
+        runtime
+            .client_mut()
+            .execute(
+                "INSERT INTO facts (
+                     fact_id, workspace_id, fact_kind, authority_sequence, fact_digest,
+                     body, committed_at
+                 ) VALUES (
+                     'localizable_schema/article/1', $1, 'localizable_schema', 0, $2, $3, now()
+                 )",
+                &[&WS_ID, &sidecar_digest.to_string(), &sidecar.as_bytes()],
+            )
+            .unwrap();
+    }
+
+    let head_before: (i64, i64, i64) = {
+        let mut guard = db.runtime();
+        let row = guard
+            .as_mut()
+            .unwrap()
+            .client_mut()
+            .query_one(
+                "SELECT transaction_sequence, content_sequence, release_sequence
+                 FROM workspace_write_head WHERE singleton = 1",
+                &[],
+            )
+            .unwrap();
+        (row.get(0), row.get(1), row.get(2))
+    };
+    let operation = content_read_operation("schema.get");
+    let input = json!({
+        "api_version": "proof.dev/operation/schema.get/v1",
+        "schema_id": "article",
+        "schema_version": 1,
+    });
+    let context = human_context_for(&db, &operation, &input);
+    let envelope = dispatch(
+        &db.state,
+        DispatchRequest {
+            route: HttpRouteV1::HumanOperations,
+            path_name: "schema.get".to_owned(),
+            path_major: "v1".to_owned(),
+            operation,
+            normalized_input: input,
+            actor_context: context,
+            correlation_id: None,
+            agent_attempt: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(envelope.result["schema_id"], "article");
+    assert_eq!(envelope.result["schema_version"], 1);
+    assert_eq!(envelope.result["document"]["type"], "object");
+    assert_eq!(envelope.result["provenance"]["authoritative_sequence"], 1);
+    assert!(envelope.committed_anchor["result_digest"].is_string());
+    let consequence = {
+        let mut guard = db.runtime();
+        let body: Vec<u8> = guard
+            .as_mut()
+            .unwrap()
+            .client_mut()
+            .query_one("SELECT body FROM application_consequences", &[])
+            .unwrap()
+            .get(0);
+        serde_json::from_slice::<RemoteApplicationConsequenceV1>(&body).unwrap()
+    };
+    assert_eq!(consequence.outcome, ApplicationConsequenceOutcome::Success);
+    assert!(consequence.application_effect_digest.is_none());
+    assert_eq!(db.fact_count("governed_effect/schema.get"), 0);
+
+    let missing_operation = content_read_operation("schema.get");
+    let missing_input = json!({
+        "api_version": "proof.dev/operation/schema.get/v1",
+        "schema_id": "missing",
+        "schema_version": 1,
+    });
+    let missing_context = human_context_for(&db, &missing_operation, &missing_input);
+    let problem = dispatch(
+        &db.state,
+        DispatchRequest {
+            route: HttpRouteV1::HumanOperations,
+            path_name: "schema.get".to_owned(),
+            path_major: "v1".to_owned(),
+            operation: missing_operation,
+            normalized_input: missing_input,
+            actor_context: missing_context,
+            correlation_id: None,
+            agent_attempt: None,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(problem.tuple.code, "proof.schema.not_found");
+    assert_eq!(db.fact_count("governed_effect/schema.get"), 0);
+    assert_eq!(db.count("authorization_decisions"), 2);
+    assert_eq!(db.count("application_consequences"), 2);
+    let head_after: (i64, i64, i64) = {
+        let mut guard = db.runtime();
+        let row = guard
+            .as_mut()
+            .unwrap()
+            .client_mut()
+            .query_one(
+                "SELECT transaction_sequence, content_sequence, release_sequence
+                 FROM workspace_write_head WHERE singleton = 1",
+                &[],
+            )
+            .unwrap();
+        (row.get(0), row.get(1), row.get(2))
+    };
+    assert_eq!(head_after.0, head_before.0 + 2);
+    assert_eq!(head_after.1, head_before.1);
+    assert_eq!(head_after.2, head_before.2);
+}
+
+#[test]
 fn owned_mutation_commits_decision_fact_and_consequence_with_effect_digest() {
     let db = TestDb::new("owned_mutation");
     seed_human_binding(&db);
     seed_principal_status(&db, REQUESTER, true);
+    seed_principal_status(&db, OPERATOR, true);
     seed_role_assignment(
         &db,
         REQUESTER,
@@ -708,6 +1010,7 @@ fn idempotent_replay_returns_prior_result_without_duplicating_fact() {
     let db = TestDb::new("replay");
     seed_human_binding(&db);
     seed_principal_status(&db, REQUESTER, true);
+    seed_principal_status(&db, OPERATOR, true);
     seed_role_assignment(
         &db,
         REQUESTER,

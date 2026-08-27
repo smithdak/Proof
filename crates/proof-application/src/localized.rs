@@ -1,5 +1,6 @@
 //! Human-operated localized-content application contracts.
 
+use serde_json::Value;
 use thiserror::Error;
 
 use super::{
@@ -11,6 +12,8 @@ use super::{
 
 /// Exact API version for Human-issued localized-content resource intents.
 pub const CONTENT_RESOURCE_INTENT_API_VERSION: &str = "proof.dev/content-resource-intent/v1";
+/// Exact API version for resource intents carrying creation slots.
+pub const CONTENT_RESOURCE_INTENT_API_VERSION_V2: &str = "proof.dev/content-resource-intent/v2";
 /// Exact API version for localized source closures.
 pub const LOCALIZED_CONTEXT_API_VERSION: &str = "proof.dev/context-pack/v2";
 /// Exact API version for repairable localized-content `ChangeSets`.
@@ -33,6 +36,8 @@ pub const EDITION_V1_API_VERSION: &str = "proof.dev/edition/v1";
 pub const LOCALIZED_CONTENT_VALIDATOR: &str = "proof/localized-content/1";
 /// Stable finding code for an exact prohibited localized legal claim.
 pub const PROHIBITED_LEGAL_CLAIM_CODE: &str = "proof.validation.prohibited_legal_claim";
+/// Stable finding code for a localized Edit whose source is not causally available.
+pub const LOCALIZED_SOURCE_CONFLICT_CODE: &str = "proof.content.source_conflict";
 /// Maximum exact target tuples in one Human-issued resource intent.
 pub const MAX_LOCALIZED_TARGETS: usize = 100;
 /// Maximum total Edit attempts in one localized `ChangeSet`.
@@ -41,6 +46,16 @@ pub const MAX_LOCALIZED_EDITS: u32 = 100;
 pub const MAX_LOCALIZED_VALIDATION_ATTEMPTS: u32 = 100;
 /// Maximum canonical localized `ContextPack` size.
 pub const MAX_LOCALIZED_CONTEXT_BYTES: u64 = 1_048_576;
+/// Exact operation API version for one Schema-version read.
+pub const SCHEMA_GET_OPERATION_API_VERSION: &str = "proof.dev/operation/schema.get/v1";
+/// Exact operation API version for bounded Schema enumeration.
+pub const SCHEMA_LIST_OPERATION_API_VERSION: &str = "proof.dev/operation/schema.list/v1";
+/// Exact operation API version for the committed Object register.
+pub const OBJECT_LIST_OPERATION_API_VERSION: &str = "proof.dev/operation/object.list/v1";
+/// Maximum number of read entries returned by one page.
+pub const MAX_LOCALIZED_READ_PAGE_SIZE: u32 = 100;
+/// Stable scope statement carried by every committed Object register result.
+pub const OBJECT_LIST_STATE_SCOPE: &str = "committed-workspace-state-not-necessarily-released";
 
 /// Exact versioned reference to one Known State artifact.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,6 +112,17 @@ pub struct LocalizedContentTarget {
     pub locale: LocaleId,
 }
 
+/// One reserved creation slot inside a v2 resource intent.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct LocalizedCreationSlot {
+    /// Caller-minted Object identity that must not exist at baseline.
+    pub object_id: ObjectId,
+    /// Exact governing Schema identity.
+    pub schema_id: SchemaId,
+    /// Sorted unique target locales for the created Object.
+    pub locales: Vec<LocaleId>,
+}
+
 /// Input for issuing an immutable exact resource intent through the Human path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssueContentResourceIntentCommand {
@@ -106,6 +132,8 @@ pub struct IssueContentResourceIntentCommand {
     pub environment_id: EnvironmentId,
     /// Sorted unique finite target tuples.
     pub targets: Vec<LocalizedContentTarget>,
+    /// Sorted unique reserved creation slots.
+    pub creations: Vec<LocalizedCreationSlot>,
     /// Caller-visible retry key.
     pub idempotency_key: IdempotencyKey,
     /// Injected canonical issuance time.
@@ -129,6 +157,8 @@ pub struct ContentResourceIntent {
     pub base: LocalizedContentBaseline,
     /// Sorted unique exact target tuples.
     pub targets: Vec<LocalizedContentTarget>,
+    /// Sorted unique reserved creation slots.
+    pub creations: Vec<LocalizedCreationSlot>,
     /// Exact canonical artifact bytes.
     pub canonical_json: String,
     /// Domain-separated content digest.
@@ -271,13 +301,77 @@ pub struct ObjectLocalePutInput {
     pub repair_of_validation_result_digest: Option<ContentDigest>,
 }
 
+/// Semantic actor input for one complete `object.create` Edit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectCreateInput {
+    /// Caller-minted Object identity.
+    pub object_id: ObjectId,
+    /// Exact governing Schema identity.
+    pub schema_id: SchemaId,
+    /// Exact governing Schema version.
+    pub schema_version: SchemaVersion,
+    /// Complete RFC 8785 canonical Object content.
+    pub canonical_content: String,
+    /// Current active creation Edit being repaired, absent for the first attempt.
+    pub supersedes_edit_id: Option<EditId>,
+    /// Latest invalid validation result authorizing the repair edge.
+    pub repair_of_validation_result_digest: Option<ContentDigest>,
+}
+
+/// One semantic localized Edit attempt of either admitted kind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LocalizedEditAttempt {
+    /// A locale rendition write over an existing or intra-ChangeSet source.
+    LocalePut(ObjectLocalePutInput),
+    /// A first Object revision created inside a reserved intent slot.
+    ObjectCreate(ObjectCreateInput),
+}
+
+impl LocalizedEditAttempt {
+    /// Returns the stable Object identity targeted by this attempt.
+    #[must_use]
+    pub const fn object_id(&self) -> ObjectId {
+        match self {
+            Self::LocalePut(input) => input.object_id,
+            Self::ObjectCreate(input) => input.object_id,
+        }
+    }
+
+    /// Returns the exact target locale for puts and nothing for creations.
+    #[must_use]
+    pub fn locale(&self) -> Option<&LocaleId> {
+        match self {
+            Self::LocalePut(input) => Some(&input.locale),
+            Self::ObjectCreate(_) => None,
+        }
+    }
+
+    /// Returns the supersession edge carried by this attempt.
+    #[must_use]
+    pub const fn supersedes_edit_id(&self) -> Option<EditId> {
+        match self {
+            Self::LocalePut(input) => input.supersedes_edit_id,
+            Self::ObjectCreate(input) => input.supersedes_edit_id,
+        }
+    }
+
+    /// Returns the repair evidence digest carried by this attempt.
+    #[must_use]
+    pub const fn repair_of_validation_result_digest(&self) -> Option<ContentDigest> {
+        match self {
+            Self::LocalePut(input) => input.repair_of_validation_result_digest,
+            Self::ObjectCreate(input) => input.repair_of_validation_result_digest,
+        }
+    }
+}
+
 /// Input for atomically appending localized Edits with trusted assigned identities.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AddLocalizedEditsCommand {
     /// Target localized `ChangeSet`.
     pub changeset_id: ChangeSetId,
     /// Non-empty semantic Edit inputs.
-    pub edits: Vec<ObjectLocalePutInput>,
+    pub edits: Vec<LocalizedEditAttempt>,
     /// Trusted Proof-assigned Edit identities, positionally aligned with inputs.
     pub assigned_edit_ids: Vec<EditId>,
     /// Caller-visible retry key.
@@ -292,7 +386,7 @@ pub struct LocalizedEdit {
     /// Proof-assigned stable Edit identity.
     pub edit_id: EditId,
     /// Exact target and preconditions.
-    pub input: ObjectLocalePutInput,
+    pub input: LocalizedEditAttempt,
     /// Whether this is the current unsuperseded leaf for its target.
     pub effective: bool,
     /// Exact canonical Edit artifact bytes.
@@ -682,6 +776,192 @@ pub struct ReleasedRenditionQuery {
     pub renditions: Vec<ReleasedRendition>,
 }
 
+/// Provenance of one exact committed Schema version.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SchemaReadProvenance {
+    /// `ChangeSet` whose commit created the Schema version.
+    pub changeset_id: ChangeSetId,
+    /// Exact `schema.create` Edit.
+    pub edit_id: EditId,
+    /// Monotonic committed-content sequence.
+    pub authoritative_sequence: u64,
+}
+
+/// Input for fetching one exact committed Schema version.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaGetCommand {
+    /// Exact Schema identity.
+    pub schema_id: SchemaId,
+    /// Exact immutable Schema version.
+    pub schema_version: SchemaVersion,
+}
+
+/// Exact stored Schema document, digest, and provenance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaGetResult {
+    /// Exact Schema identity.
+    pub schema_id: SchemaId,
+    /// Exact immutable Schema version.
+    pub schema_version: SchemaVersion,
+    /// Stored Draft 2020-12 Schema document.
+    pub document: Value,
+    /// Domain-separated digest of the canonical document.
+    pub document_digest: ContentDigest,
+    /// Commit provenance.
+    pub provenance: SchemaReadProvenance,
+}
+
+/// Input for one bounded, sequence-stable Schema page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaListCommand {
+    /// Optional exact Schema identity filter.
+    pub schema_id: Option<SchemaId>,
+    /// Exclusive authoritative-sequence cursor encoded as decimal text.
+    pub cursor: Option<String>,
+    /// Optional page size; defaults to the maximum of 100.
+    pub page_size: Option<u32>,
+}
+
+/// One Schema register entry without the document body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaListEntry {
+    /// Exact Schema identity.
+    pub schema_id: SchemaId,
+    /// Exact immutable Schema version.
+    pub schema_version: SchemaVersion,
+    /// Domain-separated digest of the canonical document.
+    pub document_digest: ContentDigest,
+    /// Commit provenance.
+    pub provenance: SchemaReadProvenance,
+}
+
+/// One bounded Schema register page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaListResult {
+    /// Entries ordered by authoritative sequence.
+    pub entries: Vec<SchemaListEntry>,
+    /// Exclusive cursor for the next page when more entries exist.
+    pub next_cursor: Option<String>,
+}
+
+impl SchemaListCommand {
+    /// Validates and resolves the exclusive sequence cursor and page size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalizedContentError::InvalidInput`] for a non-canonical
+    /// cursor or a page outside `1..=100`.
+    pub fn validated_bounds(&self) -> Result<(u64, u32), LocalizedContentError> {
+        validated_read_bounds(self.cursor.as_deref(), self.page_size)
+    }
+}
+
+/// Input for one bounded committed Object register page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectListCommand {
+    /// Environment whose current Release defines release coverage.
+    pub environment_id: EnvironmentId,
+    /// Optional exact Schema identity filter.
+    pub schema_id: Option<SchemaId>,
+    /// Optional exact locale filter.
+    pub locale: Option<LocaleId>,
+    /// Optional sorted unique exact Object identities.
+    pub object_ids: Option<Vec<ObjectId>>,
+    /// Exclusive authoritative-sequence cursor encoded as decimal text.
+    pub cursor: Option<String>,
+    /// Optional page size; defaults to the maximum of 100.
+    pub page_size: Option<u32>,
+}
+
+/// Current committed head of one exact-locale rendition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectRenditionHead {
+    /// Exact locale.
+    pub locale: LocaleId,
+    /// Immutable locale revision.
+    pub revision: LocaleRevision,
+    /// Exact rendition digest.
+    pub rendition_digest: ContentDigest,
+}
+
+/// One base Object in the committed register.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectListEntry {
+    /// Stable Object identity.
+    pub object_id: ObjectId,
+    /// Governing Schema identity.
+    pub schema_id: SchemaId,
+    /// Governing immutable Schema version.
+    pub schema_version: SchemaVersion,
+    /// Whether the current base Object revision is selected by the current Release.
+    pub covered_by_current_release: bool,
+    /// Base Object revision selected by the current Release, when any.
+    pub released_revision: Option<ObjectRevision>,
+    /// Sorted committed rendition heads, narrowed by the locale filter when supplied.
+    pub head_renditions: Vec<ObjectRenditionHead>,
+}
+
+/// One bounded committed Object register page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectListResult {
+    /// Explicit statement that entries may be newer than the current Release.
+    pub state_scope: String,
+    /// Entries ordered by their current base Object authoritative sequence.
+    pub entries: Vec<ObjectListEntry>,
+    /// Exclusive cursor for the next page when more entries exist.
+    pub next_cursor: Option<String>,
+}
+
+impl ObjectListCommand {
+    /// Validates bounded filters and resolves the exclusive cursor and page size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalizedContentError::InvalidInput`] when identifiers are not
+    /// a non-empty sorted unique set, an unfiltered scan lacks explicit cursor
+    /// and page bounds, or cursor/page values are invalid.
+    pub fn validated_bounds(&self) -> Result<(u64, u32), LocalizedContentError> {
+        if let Some(object_ids) = &self.object_ids
+            && (object_ids.is_empty()
+                || object_ids.len() > MAX_LOCALIZED_TARGETS
+                || object_ids.windows(2).any(|pair| pair[0] >= pair[1]))
+        {
+            return Err(LocalizedContentError::InvalidInput);
+        }
+        if self.schema_id.is_none()
+            && self.locale.is_none()
+            && self.object_ids.is_none()
+            && (self.cursor.is_none() || self.page_size.is_none())
+        {
+            return Err(LocalizedContentError::InvalidInput);
+        }
+        validated_read_bounds(self.cursor.as_deref(), self.page_size)
+    }
+}
+
+fn validated_read_bounds(
+    cursor: Option<&str>,
+    page_size: Option<u32>,
+) -> Result<(u64, u32), LocalizedContentError> {
+    let cursor = match cursor {
+        Some(raw) => {
+            let parsed = raw
+                .parse::<u64>()
+                .map_err(|_| LocalizedContentError::InvalidInput)?;
+            if parsed.to_string() != raw {
+                return Err(LocalizedContentError::InvalidInput);
+            }
+            parsed
+        }
+        None => 0,
+    };
+    let page_size = page_size.unwrap_or(MAX_LOCALIZED_READ_PAGE_SIZE);
+    if !(1..=MAX_LOCALIZED_READ_PAGE_SIZE).contains(&page_size) {
+        return Err(LocalizedContentError::InvalidInput);
+    }
+    Ok((cursor, page_size))
+}
+
 /// Input for verifying one persisted localized Release and Proof.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VerifyLocalizedReleaseCommand {
@@ -712,6 +992,21 @@ pub struct LocalizedReleaseVerification {
     reason = "the shared error enum is the complete operation contract"
 )]
 pub trait LocalizedContentRepository {
+    /// Returns one exact committed Schema version.
+    fn get_schema(
+        &self,
+        command: SchemaGetCommand,
+    ) -> Result<SchemaGetResult, LocalizedContentError>;
+    /// Returns one bounded, sequence-stable Schema page.
+    fn list_schemas(
+        &self,
+        command: SchemaListCommand,
+    ) -> Result<SchemaListResult, LocalizedContentError>;
+    /// Returns one bounded committed Object register page.
+    fn list_objects(
+        &self,
+        command: ObjectListCommand,
+    ) -> Result<ObjectListResult, LocalizedContentError>;
     /// Issues or idempotently replays one exact resource intent.
     fn issue_content_resource_intent(
         &self,
@@ -820,6 +1115,12 @@ pub enum LocalizedContentError {
     /// The immutable exact resource intent does not match the requested closure.
     #[error("the operation differs from the immutable localized-content resource intent")]
     IntentMismatch,
+    /// An `object.create` Edit does not consume exactly one reserved creation slot.
+    #[error("the Object creation does not match exactly one resource-intent creation slot")]
+    IntentSlotMismatch,
+    /// The requested exact Schema identity or version does not exist.
+    #[error("the requested exact Schema was not found")]
+    SchemaNotFound,
     /// Source Object revision, digest, or Schema preconditions are stale.
     #[error("the locale-neutral source precondition does not match")]
     SourceConflict,
@@ -829,6 +1130,9 @@ pub enum LocalizedContentError {
     /// Workspace state or Environment pointer changed from the exact baseline.
     #[error("the localized-content baseline changed concurrently")]
     StateConflict,
+    /// A caller-minted creation Object identity already exists in committed state.
+    #[error("the Object already exists in committed state")]
+    ObjectExists,
     /// A target already has an active unsuperseded Edit.
     #[error("the localized ChangeSet already has an active Edit for the target")]
     DuplicateActiveTarget,
@@ -871,4 +1175,66 @@ pub enum LocalizedContentError {
     /// Local persistence could not complete safely.
     #[error("localized-content storage is unavailable: {0}")]
     Storage(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_bounds_are_canonical_and_bounded() {
+        let command = SchemaListCommand {
+            schema_id: None,
+            cursor: None,
+            page_size: None,
+        };
+        assert_eq!(command.validated_bounds(), Ok((0, 100)));
+
+        let noncanonical = SchemaListCommand {
+            schema_id: None,
+            cursor: Some("01".to_owned()),
+            page_size: Some(10),
+        };
+        assert_eq!(
+            noncanonical.validated_bounds(),
+            Err(LocalizedContentError::InvalidInput)
+        );
+
+        let oversized = SchemaListCommand {
+            schema_id: None,
+            cursor: None,
+            page_size: Some(101),
+        };
+        assert_eq!(
+            oversized.validated_bounds(),
+            Err(LocalizedContentError::InvalidInput)
+        );
+    }
+
+    #[test]
+    fn object_register_requires_a_filter_or_explicit_scan_bounds() {
+        let environment_id = EnvironmentId::new("preview").unwrap();
+        let unbounded = ObjectListCommand {
+            environment_id: environment_id.clone(),
+            schema_id: None,
+            locale: None,
+            object_ids: None,
+            cursor: None,
+            page_size: None,
+        };
+        assert_eq!(
+            unbounded.validated_bounds(),
+            Err(LocalizedContentError::InvalidInput)
+        );
+
+        let bounded = ObjectListCommand {
+            environment_id,
+            schema_id: None,
+            locale: None,
+            object_ids: None,
+            cursor: Some("0".to_owned()),
+            page_size: Some(25),
+        };
+        assert_eq!(bounded.validated_bounds(), Ok((0, 25)));
+    }
 }

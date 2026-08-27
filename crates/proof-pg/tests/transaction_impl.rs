@@ -6,7 +6,7 @@
 //! `SET search_path` + `DROP SCHEMA CASCADE`) so parallel agents never collide.
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{
         Arc,
@@ -14,18 +14,23 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use postgres::{Client, IsolationLevel, NoTls};
 use proof_domain::ContentDigest;
 use proof_pg::{
-    PgError,
-    idempotency::{IdempotencyOutcome, IdempotencyTupleV1, SavepointGuard, replay_or_conflict},
-    transaction::{
-        RetryPolicy, SqlStateClass, UnitOfWorkHooks, UnitOfWorkOutcome, classify_sqlstate,
-        run_unit_of_work, run_unit_of_work_with_retry,
+    PgConfig, PgError,
+    idempotency::{
+        IdempotencyOutcome, IdempotencyTupleV1, SavepointGuard, read_stored_in_transaction,
+        replay_or_conflict,
     },
+    transaction::{
+        CausalSequencePolicy, CommitAcknowledgement, RetryPolicy, SqlStateClass, UnitOfWorkHooks,
+        UnitOfWorkOutcome, classify_sqlstate, run_unit_of_work, run_unit_of_work_with_retry,
+        run_unit_of_work_with_retry_and_sequence_policy_and_acknowledgement,
+    },
+    wiring::PgRuntime,
 };
 use proof_remote::RemoteOperationV1;
 
@@ -87,6 +92,20 @@ fn candidate() -> IdempotencyTupleV1 {
             version: "proof.dev/operation/release.create/v2".to_owned(),
         },
         normalized_input_digest: ContentDigest::blake3([0x22; 32]),
+        requesting_principal: REQUESTER.parse().expect("valid PrincipalId"),
+        operating_principal: OPERATOR.parse().expect("valid PrincipalId"),
+        delegation: Some(DELEGATION.parse().expect("valid DelegationId")),
+    }
+}
+
+fn persisted_candidate() -> IdempotencyTupleV1 {
+    IdempotencyTupleV1 {
+        workspace_id: WS_ID.parse().expect("valid WorkspaceId"),
+        operation: RemoteOperationV1 {
+            name: "release.create".to_owned(),
+            version: "v2".to_owned(),
+        },
+        normalized_input_digest: digest(0x40).parse().unwrap(),
         requesting_principal: REQUESTER.parse().expect("valid PrincipalId"),
         operating_principal: OPERATOR.parse().expect("valid PrincipalId"),
         delegation: Some(DELEGATION.parse().expect("valid DelegationId")),
@@ -193,7 +212,10 @@ fn read_head_sequences_tx(
 
 /// Persists the complete success consequence: decision, consequence, fact,
 /// idempotency key, one outbox enqueue, and the new head digests.
-fn persist_governed_success(tx: &mut postgres::Transaction<'_>) -> Result<(), PgError> {
+fn persist_governed_success(
+    tx: &mut postgres::Transaction<'_>,
+    application_key: Option<&str>,
+) -> Result<(), PgError> {
     let (tx_seq, auth_seq, _content_seq, _release_seq) = read_head_sequences_tx(tx)?;
     let body: Vec<u8> = b"test-body".to_vec();
 
@@ -241,24 +263,28 @@ fn persist_governed_success(tx: &mut postgres::Transaction<'_>) -> Result<(), Pg
     )
     .map_err(|error| tx_err(&error))?;
 
-    tx.execute(
-        "INSERT INTO idempotency_keys (
-             workspace_id, operation, operation_version, normalized_input_digest,
-             requesting_principal, operating_principal, delegation_id, key_kind,
-             result_digest, replay_count, committed_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'required', $8, 0, now())",
-        &[
-            &WS_ID,
-            &"release.create",
-            &"v2",
-            &digest(0x40),
-            &REQUESTER,
-            &OPERATOR,
-            &DELEGATION,
-            &digest(0x50),
-        ],
-    )
-    .map_err(|error| tx_err(&error))?;
+    if let Some(application_key) = application_key {
+        tx.execute(
+            "INSERT INTO idempotency_keys (
+                 workspace_id, operation, operation_version, normalized_input_digest,
+                 requesting_principal, operating_principal, delegation_id, application_key,
+                 key_kind, result_digest, result_body, replay_count, committed_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'required', $9, $10, 0, now())",
+            &[
+                &WS_ID,
+                &"release.create",
+                &"v2",
+                &digest(0x40),
+                &REQUESTER,
+                &OPERATOR,
+                &DELEGATION,
+                &application_key,
+                &digest(0x50),
+                &body,
+            ],
+        )
+        .map_err(|error| tx_err(&error))?;
+    }
 
     tx.execute(
         "INSERT INTO outbox_events (
@@ -295,8 +321,8 @@ fn fresh_hooks<'a>(
 ) -> UnitOfWorkHooks<'a> {
     UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(|_| Ok(IdempotencyOutcome::Fresh)),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(|_, _| Ok(IdempotencyOutcome::Fresh)),
         apply_consequence: Box::new(consequence),
     }
 }
@@ -305,7 +331,9 @@ fn fresh_hooks<'a>(
 fn clean_success_persists_head_facts_consequence_and_one_outbox_enqueue() {
     let mut db = TestDb::new("clean_success");
 
-    let mut hooks = fresh_hooks(persist_governed_success);
+    let mut hooks = fresh_hooks(|tx| {
+        persist_governed_success(tx, Some("019c0000-0000-7000-8000-0000000000f1"))
+    });
     let outcome = run_unit_of_work(&mut db.client, &mut hooks).unwrap();
 
     assert_eq!(outcome, UnitOfWorkOutcome::Committed);
@@ -333,13 +361,13 @@ fn replay_discloses_prior_result_without_duplicating_fact_key_or_outbox() {
 
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(move |_| {
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(move |_, _| {
             let stored = prior_for_replay.take();
             Ok(replay_or_conflict(&tuple_for_replay, stored.as_ref()))
         }),
         apply_consequence: Box::new(move |tx| {
-            persist_governed_success(tx)?;
+            persist_governed_success(tx, Some("019c0000-0000-7000-8000-0000000000f1"))?;
             prior_for_consequence.set(Some(tuple_for_consequence.clone()));
             Ok(())
         }),
@@ -376,8 +404,8 @@ fn changed_input_same_key_commits_conflict_without_governed_effect() {
 
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(move |_| Ok(replay_or_conflict(&tuple, Some(&changed)))),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(move |_, _| Ok(replay_or_conflict(&tuple, Some(&changed)))),
         apply_consequence: Box::new(move |_| {
             flag.set(true);
             Ok(())
@@ -431,11 +459,22 @@ fn application_failure_keeps_decision_and_consequence_without_governed_effect() 
             savepoint
                 .execute(
                     "INSERT INTO idempotency_keys (
-                         workspace_id, operation, operation_version, normalized_input_digest,
-                         requesting_principal, operating_principal, delegation_id, key_kind,
-                         result_digest, replay_count, committed_at
-                     ) VALUES ($1, 'release.create', 'v2', $2, $3, $4, $5, 'required', $6, 0, now())",
-                    &[&WS_ID, &digest(0x44), &REQUESTER, &OPERATOR, &DELEGATION, &digest(0x55)],
+                          workspace_id, operation, operation_version, normalized_input_digest,
+                          requesting_principal, operating_principal, delegation_id,
+                          application_key, key_kind, result_digest, result_body,
+                          replay_count, committed_at
+                      ) VALUES ($1, 'release.create', 'v2', $2, $3, $4, $5, $6,
+                                'required', $7, $8, 0, now())",
+                    &[
+                        &WS_ID,
+                        &digest(0x44),
+                        &REQUESTER,
+                        &OPERATOR,
+                        &DELEGATION,
+                        &"019c0000-0000-7000-8000-0000000000f2",
+                        &digest(0x55),
+                        &body,
+                    ],
                 )
                 .map_err(|error| tx_err(&error))?;
             savepoint
@@ -471,7 +510,7 @@ fn application_failure_keeps_decision_and_consequence_without_governed_effect() 
         )
         .map_err(|error| tx_err(&error))?;
 
-        Err(PgError::Idempotency(
+        Err(PgError::ApplicationFailure(
             "application refused: changeset is not ready".to_owned(),
         ))
     });
@@ -492,7 +531,7 @@ fn infrastructure_failure_rolls_back_everything() {
     let mut db = TestDb::new("infrastructure_failure");
 
     let mut hooks = fresh_hooks(|tx| {
-        persist_governed_success(tx)?;
+        persist_governed_success(tx, Some("019c0000-0000-7000-8000-0000000000f1"))?;
         Err(PgError::Transaction(
             "injected infrastructure failure".to_owned(),
         ))
@@ -520,13 +559,13 @@ fn no_key_rows_execute_fresh_without_consulting_stored_results() {
 
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
         // A no-key row passes `prior == None`; the stored-result lookup is
         // skipped entirely, so the attempt is fresh.
-        replay_or_conflict: Box::new(move |_| Ok(replay_or_conflict(&tuple, None))),
+        replay_or_conflict: Box::new(move |_, _| Ok(replay_or_conflict(&tuple, None))),
         apply_consequence: Box::new(move |tx| {
             flag.set(true);
-            persist_governed_success(tx)
+            persist_governed_success(tx, None)
         }),
     };
 
@@ -535,6 +574,7 @@ fn no_key_rows_execute_fresh_without_consulting_stored_results() {
     assert_eq!(outcome, UnitOfWorkOutcome::Committed);
     assert!(consequence_called.get());
     assert_eq!(db.count("facts"), 1);
+    assert_eq!(db.count("idempotency_keys"), 0);
 
     // The decision function returns Fresh when there is no stored tuple.
     assert_eq!(
@@ -649,8 +689,8 @@ fn retry_recovers_from_serialization_failure_with_consistent_sequences() {
     let attempts_for_hook = Arc::clone(&attempts);
     let mut hooks = UnitOfWorkHooks {
         verify_authentication: Box::new(|| Ok(())),
-        evaluate_authorization: Box::new(|_| Ok(())),
-        replay_or_conflict: Box::new(|_| Ok(IdempotencyOutcome::Fresh)),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(|_, _| Ok(IdempotencyOutcome::Fresh)),
         apply_consequence: Box::new(move |tx| {
             let attempt = attempts_for_hook.fetch_add(1, Ordering::SeqCst);
             if attempt == 0 {
@@ -670,7 +710,7 @@ fn retry_recovers_from_serialization_failure_with_consistent_sequences() {
                 Ok(())
             } else {
                 // Retry: perform the real governed consequence.
-                persist_governed_success(tx)
+                persist_governed_success(tx, Some("019c0000-0000-7000-8000-0000000000f1"))
             }
         }),
     };
@@ -687,6 +727,186 @@ fn retry_recovers_from_serialization_failure_with_consistent_sequences() {
     // The failed attempt's head write-back rolled back, so the sequences are
     // consistent (no gap).
     assert_eq!(db.query_head_sequences(), (1, 1, 1, 1));
+}
+
+#[test]
+fn statement_retry_reuses_preallocated_semantics_without_duplicate_effects() {
+    let mut db = TestDb::new("statement_retry");
+    let attempts = Rc::new(Cell::new(0_u32));
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let prepared_id = "019d0000-0000-7000-8000-0000000000f9".to_owned();
+    let prepared_time = "2026-08-27T12:00:00Z".to_owned();
+
+    let attempts_for_hook = Rc::clone(&attempts);
+    let observed_for_hook = Rc::clone(&observed);
+    let prepared_id_for_hook = prepared_id.clone();
+    let prepared_time_for_hook = prepared_time.clone();
+    let mut hooks = fresh_hooks(move |tx| {
+        let attempt = attempts_for_hook.get();
+        attempts_for_hook.set(attempt + 1);
+        observed_for_hook
+            .borrow_mut()
+            .push((prepared_id_for_hook.clone(), prepared_time_for_hook.clone()));
+        persist_governed_success(tx, Some("019c0000-0000-7000-8000-0000000000f1"))?;
+        if attempt == 0 {
+            tx.batch_execute(
+                "DO $$ BEGIN
+                     RAISE EXCEPTION 'injected serialization failure' USING ERRCODE = '40001';
+                 END $$",
+            )
+            .map_err(|error| tx_err(&error))?;
+        }
+        Ok(())
+    });
+
+    let outcome = run_unit_of_work_with_retry(
+        &mut db.client,
+        &mut hooks,
+        RetryPolicy::new(3, Duration::from_secs(30), Duration::ZERO),
+    )
+    .unwrap();
+
+    assert_eq!(outcome, UnitOfWorkOutcome::Committed);
+    assert_eq!(attempts.get(), 2);
+    assert_eq!(
+        observed.borrow().as_slice(),
+        [
+            (prepared_id.clone(), prepared_time.clone()),
+            (prepared_id, prepared_time),
+        ]
+    );
+    assert_eq!(db.count("facts"), 1);
+    assert_eq!(db.count("idempotency_keys"), 1);
+    assert_eq!(db.count("outbox_events"), 1);
+    assert_eq!(db.query_head_sequences(), (1, 1, 1, 1));
+}
+
+#[test]
+fn applied_commit_with_lost_acknowledgement_reconciles_by_key() {
+    const APPLICATION_KEY: &str = "019c0000-0000-7000-8000-0000000000f1";
+
+    let mut db = TestDb::new("ambiguous_reconcile");
+    let attempts = Rc::new(Cell::new(0_u32));
+    let attempts_for_hook = Rc::clone(&attempts);
+    let mut hooks = fresh_hooks(move |tx| {
+        attempts_for_hook.set(attempts_for_hook.get() + 1);
+        persist_governed_success(tx, Some(APPLICATION_KEY))
+    });
+    let mut acknowledgement = |_| CommitAcknowledgement::Lost;
+    let error = run_unit_of_work_with_retry_and_sequence_policy_and_acknowledgement(
+        &mut db.client,
+        &mut hooks,
+        RetryPolicy::new(3, Duration::from_secs(30), Duration::ZERO),
+        CausalSequencePolicy::All,
+        &mut acknowledgement,
+    )
+    .unwrap_err();
+    assert!(matches!(error, PgError::AmbiguousCommit(_)));
+    assert_eq!(attempts.get(), 1, "an applied commit must not be retried");
+    assert_eq!(db.count("facts"), 1);
+    assert_eq!(db.count("idempotency_keys"), 1);
+    assert_eq!(db.count("outbox_events"), 1);
+
+    let mut reconciliation = connect();
+    set_search_path(&mut reconciliation, &db.schema);
+    let candidate = persisted_candidate();
+    let consequence_called = Rc::new(Cell::new(false));
+    let consequence_called_for_hook = Rc::clone(&consequence_called);
+    let mut reconciliation_hooks = UnitOfWorkHooks {
+        verify_authentication: Box::new(|| Ok(())),
+        evaluate_authorization: Box::new(|_, _| Ok(())),
+        replay_or_conflict: Box::new(move |tx, _| {
+            let prior = read_stored_in_transaction(tx, candidate.workspace_id, APPLICATION_KEY)?;
+            Ok(replay_or_conflict(
+                &candidate,
+                prior.as_ref().map(|stored| &stored.tuple),
+            ))
+        }),
+        apply_consequence: Box::new(move |_| {
+            consequence_called_for_hook.set(true);
+            Ok(())
+        }),
+    };
+    let outcome = run_unit_of_work(&mut reconciliation, &mut reconciliation_hooks).unwrap();
+    assert_eq!(outcome, UnitOfWorkOutcome::Replayed);
+    assert!(!consequence_called.get());
+    assert_eq!(db.count("facts"), 1);
+    assert_eq!(db.count("idempotency_keys"), 1);
+    assert_eq!(db.count("outbox_events"), 1);
+}
+
+#[test]
+fn pg_runtime_reconnects_and_restores_the_authority_search_path() {
+    let db = TestDb::new("runtime_reconnect");
+    let mut runtime = PgRuntime::connect(PgConfig::new(
+        dsn(),
+        WS_ID.parse().unwrap(),
+        Duration::from_secs(30),
+    ))
+    .unwrap();
+    runtime.set_search_path(&db.schema).unwrap();
+    let backend_pid: i32 = runtime
+        .client_mut()
+        .query_one("SELECT pg_backend_pid()", &[])
+        .unwrap()
+        .get(0);
+
+    let mut terminator = connect();
+    let terminated: bool = terminator
+        .query_one("SELECT pg_terminate_backend($1)", &[&backend_pid])
+        .unwrap()
+        .get(0);
+    assert!(terminated);
+    assert!(runtime.client_mut().query_one("SELECT 1", &[]).is_err());
+    assert!(runtime.client().is_closed());
+
+    runtime.ensure_connected().unwrap();
+    let current_schema: String = runtime
+        .client_mut()
+        .query_one("SELECT current_schema()", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(current_schema, db.schema);
+    let head_count: i64 = runtime
+        .client_mut()
+        .query_one("SELECT COUNT(*) FROM workspace_write_head", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(head_count, 1);
+}
+
+#[test]
+fn retry_deadline_bounds_a_blocked_workspace_head_lock() {
+    let mut db = TestDb::new("lock_deadline");
+    let mut locker = connect();
+    set_search_path(&mut locker, &db.schema);
+    let mut lock_transaction = locker.transaction().unwrap();
+    lock_transaction
+        .query_one(
+            "SELECT singleton FROM workspace_write_head WHERE singleton = 1 FOR UPDATE",
+            &[],
+        )
+        .unwrap();
+
+    let mut hooks = fresh_hooks(|_| Ok(()));
+    let started = Instant::now();
+    let error = run_unit_of_work_with_retry(
+        &mut db.client,
+        &mut hooks,
+        RetryPolicy::new(3, Duration::from_millis(100), Duration::ZERO),
+    )
+    .unwrap_err();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "blocked lock exceeded the bounded retry deadline"
+    );
+    assert!(
+        matches!(&error, PgError::Transaction(message)
+            if message.contains("sqlstate=55P03") || message.contains("sqlstate=57014")),
+        "expected PostgreSQL lock timeout, got {error}"
+    );
+    lock_transaction.rollback().unwrap();
+    assert_eq!(db.query_head_sequences(), (0, 0, 0, 0));
 }
 
 #[test]

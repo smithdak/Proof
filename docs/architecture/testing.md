@@ -175,8 +175,8 @@ eligibility requires:
 Coverage trends must not regress materially, but a numeric percentage cannot replace these gates.
 
 P-0006 maps C1-C24 to retained accepted and rejected paths. Its closed public
-verifier registry contains 158 codes: 30 have direct behavioral assertions and
-128 have structural emitted-source/registry equality guards. The structural
+verifier registry contains 163 codes: 30 have direct behavioral assertions and
+133 have structural emitted-source/registry equality guards. The structural
 classification satisfies P-0006 enumeration but does not claim a dedicated
 branch-level test for each code or weaken future release-eligibility coverage.
 

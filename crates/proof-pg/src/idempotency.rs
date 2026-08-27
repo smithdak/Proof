@@ -26,6 +26,148 @@ pub struct IdempotencyTupleV1 {
     pub delegation: Option<DelegationId>,
 }
 
+/// One successful keyed result retained under a Workspace-global application
+/// key. The semantic tuple is compared only after current authentication and
+/// authorization; `result_body` is the exact canonical JSON returned on replay.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredIdempotencyV1 {
+    /// Semantic tuple committed by the successful application.
+    pub tuple: IdempotencyTupleV1,
+    /// Digest of the exact typed result.
+    pub result_digest: ContentDigest,
+    /// Canonical typed-result bytes, absent only on a pre-v5 legacy row.
+    pub result_body: Option<Vec<u8>>,
+}
+
+/// Reads one Workspace-global application key inside the locked transaction.
+///
+/// # Errors
+///
+/// Returns [`PgError::Idempotency`] for a database lookup failure and
+/// [`PgError::Integrity`] for malformed retained identities or digests.
+pub fn read_stored_in_transaction(
+    transaction: &mut Transaction<'_>,
+    workspace_id: WorkspaceId,
+    application_key: &str,
+) -> Result<Option<StoredIdempotencyV1>, PgError> {
+    let row = transaction
+        .query_opt(
+            "SELECT operation, operation_version, normalized_input_digest,
+                    requesting_principal, operating_principal, delegation_id,
+                    result_digest, result_body
+             FROM idempotency_keys
+             WHERE workspace_id = $1 AND application_key = $2",
+            &[&workspace_id.to_string(), &application_key],
+        )
+        .map_err(|error| crate::transaction::transaction_error(&error))?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let operation = RemoteOperationV1 {
+        name: row.get(0),
+        version: row.get(1),
+    };
+    let normalized_input_digest: String = row.get(2);
+    let requesting_principal: String = row.get(3);
+    let operating_principal: String = row.get(4);
+    let delegation: Option<String> = row.get(5);
+    let result_digest: String = row.get(6);
+
+    Ok(Some(StoredIdempotencyV1 {
+        tuple: IdempotencyTupleV1 {
+            workspace_id,
+            operation,
+            normalized_input_digest: normalized_input_digest.parse().map_err(|error| {
+                PgError::Integrity(format!("invalid stored input digest: {error}"))
+            })?,
+            requesting_principal: requesting_principal.parse().map_err(|_| {
+                PgError::Integrity("invalid stored requesting Principal".to_owned())
+            })?,
+            operating_principal: operating_principal
+                .parse()
+                .map_err(|_| PgError::Integrity("invalid stored operating Principal".to_owned()))?,
+            delegation: delegation
+                .as_deref()
+                .map(str::parse)
+                .transpose()
+                .map_err(|_| PgError::Integrity("invalid stored Delegation identity".to_owned()))?,
+        },
+        result_digest: result_digest.parse().map_err(|error| {
+            PgError::Integrity(format!("invalid stored result digest: {error}"))
+        })?,
+        result_body: row.get(7),
+    }))
+}
+
+/// Persists one successful application key and exact typed result inside the
+/// governed-success savepoint.
+///
+/// # Errors
+///
+/// Returns a transaction error when the immutable global key cannot be stored.
+#[allow(clippy::too_many_arguments)]
+pub fn persist_success_in_transaction(
+    transaction: &mut Transaction<'_>,
+    candidate: &IdempotencyTupleV1,
+    application_key: &str,
+    key_kind: &str,
+    result_digest: ContentDigest,
+    result_body: &[u8],
+) -> Result<(), PgError> {
+    transaction
+        .execute(
+            "INSERT INTO idempotency_keys (
+                 workspace_id, operation, operation_version, normalized_input_digest,
+                 requesting_principal, operating_principal, delegation_id, application_key,
+                 key_kind, result_digest, result_body, replay_count, committed_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, now())",
+            &[
+                &candidate.workspace_id.to_string(),
+                &candidate.operation.name,
+                &candidate.operation.version,
+                &candidate.normalized_input_digest.to_string(),
+                &candidate.requesting_principal.to_string(),
+                &candidate.operating_principal.to_string(),
+                &candidate.delegation.map(|value| value.to_string()),
+                &application_key,
+                &key_kind,
+                &result_digest.to_string(),
+                &result_body,
+            ],
+        )
+        .map_err(|error| crate::transaction::transaction_error(&error))?;
+    Ok(())
+}
+
+/// Increments the diagnostic replay count without changing the retained tuple
+/// or result.
+///
+/// # Errors
+///
+/// Returns a transaction error if the retained row cannot be updated.
+pub fn record_replay_in_transaction(
+    transaction: &mut Transaction<'_>,
+    workspace_id: WorkspaceId,
+    application_key: &str,
+) -> Result<(), PgError> {
+    let updated = transaction
+        .execute(
+            "UPDATE idempotency_keys
+             SET replay_count = replay_count + 1
+             WHERE workspace_id = $1 AND application_key = $2",
+            &[&workspace_id.to_string(), &application_key],
+        )
+        .map_err(|error| crate::transaction::transaction_error(&error))?;
+    if updated == 1 {
+        Ok(())
+    } else {
+        Err(PgError::Integrity(
+            "idempotency replay row disappeared while locked".to_owned(),
+        ))
+    }
+}
+
 /// Key kinds that select stored-result lookup behavior (contract §"PostgreSQL
 /// authoritative unit of work", step 6).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -99,7 +241,7 @@ impl<'tx> SavepointGuard<'tx> {
     pub fn establish(transaction: &'tx mut Transaction) -> Result<Self, PgError> {
         let savepoint = transaction
             .savepoint(Self::SAVEPOINT_NAME)
-            .map_err(|error| PgError::Transaction(error.to_string()))?;
+            .map_err(|error| crate::transaction::transaction_error(&error))?;
         Ok(Self { savepoint })
     }
 
@@ -122,7 +264,7 @@ impl<'tx> SavepointGuard<'tx> {
     pub fn release(self) -> Result<(), PgError> {
         self.savepoint
             .commit()
-            .map_err(|error| PgError::Transaction(error.to_string()))
+            .map_err(|error| crate::transaction::transaction_error(&error))
     }
 
     /// Rolls back to the savepoint — the authorized application-failure path
@@ -135,6 +277,6 @@ impl<'tx> SavepointGuard<'tx> {
     pub fn rollback(self) -> Result<(), PgError> {
         self.savepoint
             .rollback()
-            .map_err(|error| PgError::Transaction(error.to_string()))
+            .map_err(|error| crate::transaction::transaction_error(&error))
     }
 }

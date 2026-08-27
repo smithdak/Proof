@@ -24,9 +24,11 @@ use proof_canonical::{canonicalize, digest, object_revision_digest};
 use proof_domain::{ArtifactKind, ContentDigest, WorkspaceId};
 use proof_local::LocalWorkspace;
 use proof_pg::{
-    PgConfig,
+    PgConfig, PgError,
     import::{ImportReport, SqliteToPostgresImporter},
-    projection::{atomic_swap_active_generation, rebuild_into_new_generation},
+    projection::{
+        atomic_swap_active_generation, rebuild_and_swap_in_transaction, rebuild_into_new_generation,
+    },
     wiring::PgRuntime,
 };
 use serde_json::Value;
@@ -489,6 +491,32 @@ fn projection_rebuild_dry_run_then_swap_flips_exactly_one_pointer() {
 }
 
 #[test]
+fn caller_owned_rebuild_maps_missing_table_to_transaction_error() {
+    let directory = TestDir::new("rebuild-transaction-error");
+    let source = released_workspace(&directory);
+    let mut ctx = PgTestCtx::new(WORKSPACE_ID.parse().unwrap());
+    ctx.import(&source);
+
+    let error = {
+        let mut transaction = ctx.client().transaction().unwrap();
+        transaction
+            .batch_execute(
+                "ALTER TABLE workspace_write_head RENAME TO unavailable_workspace_write_head",
+            )
+            .unwrap();
+        rebuild_and_swap_in_transaction(&mut transaction).unwrap_err()
+    };
+
+    match error {
+        PgError::Transaction(message) => assert!(
+            message.contains("sqlstate=42P01"),
+            "missing-table SQLSTATE was not preserved: {message}"
+        ),
+        other => panic!("missing table was not a transaction error: {other:?}"),
+    }
+}
+
+#[test]
 fn rebuild_never_touches_facts_idempotency_or_outbox() {
     let directory = TestDir::new("rebuild-immutability");
     let source = released_workspace(&directory);
@@ -520,15 +548,18 @@ fn seed_idempotency_and_outbox(client: &mut postgres::Client) {
         .execute(
             "INSERT INTO idempotency_keys (
                  workspace_id, operation, operation_version, normalized_input_digest,
-                 requesting_principal, operating_principal, delegation_id, key_kind,
-                 result_digest, replay_count, committed_at
-             ) VALUES ($1, 'release.create', 'v1', $2, $3, $4, NULL, 'required_uuid_v7', $5, 0, now())",
+                 requesting_principal, operating_principal, delegation_id, application_key,
+                 key_kind, result_digest, result_body, replay_count, committed_at
+             ) VALUES ($1, 'release.create', 'v1', $2, $3, $4, NULL, $5,
+                       'required_uuid_v7', $6, $7, 0, now())",
             &[
                 &WORKSPACE_ID,
                 &digest.as_str(),
                 &principal,
                 &principal,
+                &"019c0000-0000-7000-8000-0000000000e3",
                 &digest.as_str(),
+                &b"test-result".as_slice(),
             ],
         )
         .unwrap();

@@ -46,35 +46,70 @@
       "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/editionReference"
     },
     "semanticEdit": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "api_version",
-        "content",
-        "expected_source",
-        "expected_target",
-        "kind",
-        "locale",
-        "object_id",
-        "repair_of_validation_result_digest",
-        "supersedes_edit_id"
-      ],
-      "properties": {
-        "api_version": { "const": "proof.dev/edit/v2" },
-        "content": { "type": "object" },
-        "expected_source": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/expectedSource" },
-        "expected_target": {
-          "oneOf": [
-            { "type": "null" },
-            { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/expectedTarget" }
-          ]
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "api_version",
+            "content",
+            "expected_source",
+            "expected_target",
+            "kind",
+            "locale",
+            "object_id",
+            "repair_of_validation_result_digest",
+            "supersedes_edit_id"
+          ],
+          "properties": {
+            "api_version": { "const": "proof.dev/edit/v2" },
+            "content": { "type": "object" },
+            "expected_source": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/expectedSource" },
+            "expected_target": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/expectedTarget" }
+              ]
+            },
+            "kind": { "const": "object.locale.put" },
+            "locale": { "$ref": "#/$defs/locale" },
+            "object_id": { "$ref": "#/$defs/uuidV7" },
+            "repair_of_validation_result_digest": { "$ref": "#/$defs/nullableDigest" },
+            "supersedes_edit_id": { "$ref": "#/$defs/nullableUuidV7" }
+          }
         },
-        "kind": { "const": "object.locale.put" },
-        "locale": { "$ref": "#/$defs/locale" },
-        "object_id": { "$ref": "#/$defs/uuidV7" },
-        "repair_of_validation_result_digest": { "$ref": "#/$defs/nullableDigest" },
-        "supersedes_edit_id": { "$ref": "#/$defs/nullableUuidV7" }
-      }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "api_version",
+            "content",
+            "kind",
+            "object_id",
+            "repair_of_validation_result_digest",
+            "schema_id",
+            "schema_version",
+            "supersedes_edit_id"
+          ],
+          "properties": {
+            "api_version": { "const": "proof.dev/edit/v2" },
+            "content": { "type": "object" },
+            "kind": { "const": "object.create" },
+            "object_id": { "$ref": "#/$defs/uuidV7" },
+            "repair_of_validation_result_digest": { "$ref": "#/$defs/nullableDigest" },
+            "schema_id": { "$ref": "#/$defs/logicalId" },
+            "schema_version": { "$ref": "#/$defs/positiveInteger" },
+            "supersedes_edit_id": { "$ref": "#/$defs/nullableUuidV7" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "supersedes_edit_id": { "type": "null" } } },
+              "then": { "properties": { "repair_of_validation_result_digest": { "type": "null" } } },
+              "else": { "properties": { "repair_of_validation_result_digest": { "$ref": "#/$defs/digest" } } }
+            }
+          ]
+        }
+      ]
     },
     "contextBuildInput": {
       "type": "object",
@@ -495,6 +530,191 @@
           "items": { "$ref": "#/$defs/releasedRendition" }
         },
         "workspace_id": { "$ref": "#/$defs/uuidV7" }
+      }
+    },
+    "contentResourceIntentIssueInputV2": {
+      "x-proof-aggregate-limit": "targets.length + creations.length <= 100; absent creations counts as zero; excess is proof.input.limit_exceeded",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "environment_id", "idempotency_key", "intent_id", "issued_at", "targets"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation/content-resource-intent.issue/v2" },
+        "creations": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "x-proof-set-order": "creation slots are strictly sorted by (object_id, schema_id, locales) ascending canonical UTF-8 bytes; each locales array is strictly sorted ascending canonical UTF-8 bytes; duplicates are rejected",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["locales", "object_id", "schema_id"],
+            "properties": {
+              "locales": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "uniqueItems": true,
+                "x-proof-set-order": "locales are strictly sorted ascending canonical UTF-8 bytes; duplicates are rejected",
+                "items": { "$ref": "#/$defs/locale" }
+              },
+              "object_id": { "$ref": "#/$defs/uuidV7" },
+              "schema_id": { "$ref": "#/$defs/logicalId" }
+            }
+          }
+        },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "idempotency_key": { "$ref": "#/$defs/uuidV7" },
+        "intent_id": { "$ref": "#/$defs/uuidV7" },
+        "issued_at": { "$ref": "#/$defs/timestamp" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/targetTuple" }
+        }
+      }
+    },
+    "schemaGetInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "schema_id", "schema_version"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation/schema.get/v1" },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "schemaGetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document", "document_digest", "provenance", "schema_id", "schema_version"],
+      "properties": {
+        "document": { "type": "object" },
+        "document_digest": { "$ref": "#/$defs/digest" },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authoritative_sequence", "changeset_id", "edit_id"],
+          "properties": {
+            "authoritative_sequence": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/safeSequence" },
+            "changeset_id": { "$ref": "#/$defs/uuidV7" },
+            "edit_id": { "$ref": "#/$defs/uuidV7" }
+          }
+        },
+        "schema_id": { "$ref": "#/$defs/logicalId" },
+        "schema_version": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "schemaListInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation/schema.list/v1" },
+        "cursor": { "type": "string", "minLength": 1 },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "schema_id": { "$ref": "#/$defs/logicalId" }
+      }
+    },
+    "schemaListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["document_digest", "provenance", "schema_id", "schema_version"],
+            "properties": {
+              "document_digest": { "$ref": "#/$defs/digest" },
+              "provenance": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["authoritative_sequence", "changeset_id", "edit_id"],
+                "properties": {
+                  "authoritative_sequence": { "$ref": "https://proof.dev/schemas/localized-content/artifacts-v2.schema.json#/$defs/safeSequence" },
+                  "changeset_id": { "$ref": "#/$defs/uuidV7" },
+                  "edit_id": { "$ref": "#/$defs/uuidV7" }
+                }
+              },
+              "schema_id": { "$ref": "#/$defs/logicalId" },
+              "schema_version": { "$ref": "#/$defs/positiveInteger" }
+            }
+          }
+        },
+        "next_cursor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "objectListInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version", "environment_id"],
+      "properties": {
+        "api_version": { "const": "proof.dev/operation/object.list/v1" },
+        "cursor": { "type": "string", "minLength": 1 },
+        "environment_id": { "$ref": "#/$defs/logicalId" },
+        "locale": { "$ref": "#/$defs/locale" },
+        "object_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuidV7" }
+        },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "schema_id": { "$ref": "#/$defs/logicalId" }
+      }
+    },
+    "objectListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries", "state_scope"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "covered_by_current_release",
+              "head_renditions",
+              "object_id",
+              "released_revision",
+              "schema_id",
+              "schema_version"
+            ],
+            "properties": {
+              "covered_by_current_release": { "type": "boolean" },
+              "head_renditions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["locale", "rendition_digest", "revision"],
+                  "properties": {
+                    "locale": { "$ref": "#/$defs/locale" },
+                    "rendition_digest": { "$ref": "#/$defs/digest" },
+                    "revision": { "$ref": "#/$defs/positiveInteger" }
+                  }
+                }
+              },
+              "object_id": { "$ref": "#/$defs/uuidV7" },
+              "released_revision": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "$ref": "#/$defs/positiveInteger" }
+                ]
+              },
+              "schema_id": { "$ref": "#/$defs/logicalId" },
+              "schema_version": { "$ref": "#/$defs/positiveInteger" }
+            }
+          }
+        },
+        "next_cursor": { "type": "string", "minLength": 1 },
+        "state_scope": { "const": "committed-workspace-state-not-necessarily-released" }
       }
     }
   }

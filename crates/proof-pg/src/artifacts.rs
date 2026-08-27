@@ -190,7 +190,8 @@ impl SignedArtifactBodyStore {
     ///
     /// # Errors
     ///
-    /// Returns [`PgError::Artifact`] on insertion failure.
+    /// Returns [`PgError::Artifact`] on digest mismatch and
+    /// [`PgError::Transaction`] on insertion failure.
     pub fn insert(
         transaction: &mut Transaction,
         key: &ArtifactKeyV1,
@@ -215,12 +216,7 @@ impl SignedArtifactBodyStore {
                  VALUES ($1, $2, $3, clock_timestamp())",
                 params,
             )
-            .map_err(|error| {
-                PgError::Artifact(format!(
-                    "cannot insert artifact body: {}",
-                    pg_db_error_message(&error)
-                ))
-            })?;
+            .map_err(|error| crate::transaction::transaction_error(&error))?;
         Ok(())
     }
 }
@@ -229,7 +225,8 @@ impl SignedArtifactBodyStore {
 ///
 /// # Errors
 ///
-/// Returns [`PgError::Artifact`] when the catalog row cannot be committed.
+/// Returns [`PgError::Artifact`] when the identity is invalid and
+/// [`PgError::Transaction`] when catalog storage fails.
 pub fn catalog_commit(
     transaction: &mut Transaction,
     identity: &ArtifactIdentity,
@@ -270,12 +267,7 @@ pub fn catalog_commit(
             "SELECT EXISTS(SELECT 1 FROM artifact_body_pg WHERE kind = $1 AND digest = $2)",
             &[&identity.kind.wire_name(), &identity.digest.to_string()],
         )
-        .map_err(|error| {
-            PgError::Artifact(format!(
-                "cannot resolve artifact storage location: {}",
-                pg_db_error_message(&error)
-            ))
-        })?
+        .map_err(|error| crate::transaction::transaction_error(&error))?
         .get(0);
 
     let params: &[&(dyn postgres::types::ToSql + Sync)] = &[
@@ -293,23 +285,8 @@ pub fn catalog_commit(
              VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())",
             params,
         )
-        .map_err(|error| {
-            PgError::Artifact(format!(
-                "cannot commit artifact catalog row: {}",
-                pg_db_error_message(&error)
-            ))
-        })?;
+        .map_err(|error| crate::transaction::transaction_error(&error))?;
     Ok(())
-}
-
-/// Renders the most specific available PostgreSQL error detail: the
-/// server-supplied severity and message when present, otherwise the
-/// driver-level description.
-fn pg_db_error_message(error: &postgres::Error) -> String {
-    match error.as_db_error() {
-        Some(db_error) => db_error.to_string(),
-        None => error.to_string(),
-    }
 }
 
 /// Computes the domain-separated BLAKE3-256 digest of exact canonical bytes
