@@ -1,7 +1,7 @@
 ---
 id: P-0025
 title: Ratify one HTTP operation envelope across schema and runtime
-status: claimed
+status: review
 wave: now
 kind: decision
 blocked_by: [P-0021]
@@ -113,6 +113,23 @@ ratified.
   before this decision is claimed.
 - Open questions: none; selecting and ratifying the canonical representation is
   the work of this decision item.
+
+## Progress log
+
+- Claimed by `ox-alpha:proof:p-0025` at `2026-08-27T17:15:54.000Z` from base
+  `41364224e4fba87964da8c0974535330eba18195`; claim commit
+  `61cc6886fc4287ae9100256fd0af2fdb67ab3ad6` is the candidate parent.
+- Immutable decision candidate
+  `1c76c0a26957e4a5f101236a5bb3bcd21ed539e3`, tree
+  `85358d68a029a7a8dd9541d23c0b60eccb5ec138`, recommends the frozen Schema as
+  authoritative and reshapes P-0022 for one atomic v1 cutover. The
+  [contract](../evidence/P-0025/contract.md),
+  [receipt](../evidence/P-0025/receipt.md), and
+  [manifest](../evidence/P-0025/manifest.json) bind the exact proposal and
+  qualification evidence.
+- Project-owner verdict is pending. `accepted_by` and `accepted_at` remain
+  null, there is no completion record, and P-0022 remains blocked. Acceptance
+  must name the manifest's candidate; rework returns this item to `claimed`.
 
 ## Qualification commands
 

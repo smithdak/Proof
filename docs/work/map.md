@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `claimed` | P-0021 | Select one exact Human/Agent request and typed-result envelope across the conflicting accepted JSON Schema and Rust/SDK representations, with an explicit migration rule. |
+| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `review` | P-0021 | Project-owner review of the Schema-authoritative v1 candidate: exact closed Human/Agent requests, typed `data`, committed-transaction anchors, and one atomic P-0022 cutover without a shim. |
 
 ## Next
 
@@ -94,10 +94,12 @@ P-0021 closed the complete local/PostgreSQL/CLI/MCP authoring implementation on
 Schema (`data`/`result_anchor`/`result_schema`) and the accepted Rust/SDK wire
 shape (`result`/`committed_anchor`). The project owner directed a separate
 contract decision and bounded P-0022 console adoption to SDK construction,
-session, and logout transport only. P-0025 is therefore the immediate frontier;
-P-0022 is shaped but blocked on its verdict. P-0023 Authoring surfaces and
-P-0024 Playwright qualification remain named intent and are shaped only when
-their blockers close. The license ADR remains deferred by owner decision.
+session, and logout transport only. P-0025 candidate `1c76c0a` recommends the
+frozen Schema as authoritative and is now at the project-owner gate. P-0022 is
+shaped to that exact contract but remains blocked pending the verdict. P-0023
+Authoring surfaces and P-0024 Playwright qualification remain named intent and
+are shaped only when their blockers close. The license ADR remains deferred by
+owner decision.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
