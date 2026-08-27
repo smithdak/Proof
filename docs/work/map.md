@@ -85,37 +85,32 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `review` | P-0020 | The accepted P-0020 authoring contract implemented and qualified across local, PostgreSQL, CLI, and MCP with regenerated frozen artifacts and a green Linux gate. |
+| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `ready` | P-0021 | Select one exact Human/Agent request and typed-result envelope across the conflicting accepted JSON Schema and Rust/SDK representations, with an explicit migration rule. |
 
 ## Next
 
-Successors are shaped only when their blockers close. The strategy ladder
-fixes the promotion order inside Destination 4: after P-0015 closes, the
-TypeScript SDK, deployable server artifact, documentation quickstart, and
-license ADR are shaped in that order. The public flip is excluded from this
-destination by owner decision; it lands in Destination 5 by default.
-
-On 2026-08-26 the project owner directed the next slice: the Authoring
-register, shaped full vertical with a flat content model, deferred
-subtree-authority record, and blueprints as client-side presets. P-0020 was
-accepted the same day and its first implementation successor,
-[P-0021](items/P-0021-authoring-operations.md), is promoted. The remaining
-named intent in dependency order: extend the TypeScript SDK and adopt it in
-the console (P-0022), build the Authoring console surfaces (P-0023), stand up
-Playwright end-to-end qualification (P-0024). Those are named intent, not
-created work; each is shaped when its blocker closes. The license ADR remains
-deferred by owner decision.
+P-0021 closed the complete local/PostgreSQL/CLI/MCP authoring implementation on
+2026-08-27. Successor shaping exposed a conflict between the accepted HTTP JSON
+Schema (`data`/`result_anchor`/`result_schema`) and the accepted Rust/SDK wire
+shape (`result`/`committed_anchor`). The project owner directed a separate
+contract decision and bounded P-0022 console adoption to SDK construction,
+session, and logout transport only. P-0025 is therefore the immediate frontier;
+P-0022 is shaped but blocked on its verdict. P-0023 Authoring surfaces and
+P-0024 Playwright qualification remain named intent and are shaped only when
+their blockers close. The license ADR remains deferred by owner decision.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `blocked` | P-0021, P-0025 | Add exact creation/read types and actor-qualified typed results to `proof-sdk`, then migrate console session/logout transport without starting Authoring UI. |
 
 ## Completed
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `done` | P-0020 | Implemented and qualified the accepted P-0020 authoring contract across local, PostgreSQL, CLI, and MCP; regenerated frozen artifacts; full Linux gate passed at candidate `75ce593`. |
 | [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `done` | none | Accepted authoring contracts: v2 `object.create` edit kind with intra-ChangeSet causality, creation-slot resource intents (`/v2`), `schema.list/get` plus `object.list` Human reads, flat-model stance with deferred subtree authority behind a falsifiable reopening trigger, blueprints as client-side presets. Accepted by project owner `smithdak` at `2026-08-26T11:57:40.118Z`; P-0021 promoted. |
 | [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `done` | none | Shipped `docs/quickstart.md`: compose-up to an independently verified release, every leg guarded by a named retained suite; MCP boundary recorded. |
 | [Initial human web console with notarial-register design system](items/P-0016-web-console-design-system.md) | `done` | none | Shipped the six-surface console on the ledger design system after a swarmed polish pass; finish-review accepted by the project owner. |
@@ -211,7 +206,8 @@ claims remain outside the bounded result.
 
 ## Fog — not yet specifiable as implementation
 
-- Console, provider selection/provisioning, public preview,
+- Console production embedding into the Axum server, provider
+  selection/provisioning, public preview,
   workload identity, KMS/HSM, backup/restore, HA, multi-region operation,
   multi-Workspace tenancy, and public release remain fog.
 - Environment configuration update, disablement, and signing-key lifecycle.
@@ -233,9 +229,9 @@ claims remain outside the bounded result.
 - Push, tag, public release, package publication, or license-adjacent public
   actions; the license ADR is drafted inside Destination 4 but the flip itself
   is a Destination 5 decision.
-- Console, multi-Workspace tenancy, enterprise federation/provisioning and
-  SCIM, workload identity, KMS/HSM, high availability, backup, and disaster
-  recovery.
+- Public console distribution, multi-Workspace tenancy, enterprise
+  federation/provisioning and SCIM, workload identity, KMS/HSM, high
+  availability, backup, and disaster recovery.
 - Personalization, experimentation, visual page building, DAM transformation,
   and other deliberate product deferrals.
 

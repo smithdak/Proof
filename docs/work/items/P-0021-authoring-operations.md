@@ -1,7 +1,7 @@
 ---
 id: P-0021
 title: Implement the authoring operations end to end
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0020]

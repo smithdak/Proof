@@ -58,6 +58,12 @@ blockers and makes the item implementation-ready, `proposed → ready`,
 review gate; decision items and acceptance of residual risk always require the
 project owner.
 
+For a `project-owner` review gate, `review -> done` requires `accepted_by` and
+`accepted_at` in frontmatter plus an item completion record that names the
+manifest's `item_work_commit` and records the owner's accept-or-rework verdict.
+The receipt and manifest remain the candidate evidence; no separate verdict
+file is required unless the item explicitly requires one.
+
 Run `node scripts/check-work-items.mjs` after changing this control plane. The
 validator checks metadata, lifecycle state, dependency existence and cycles,
 map parity, status transitions, and required evidence for executed items.

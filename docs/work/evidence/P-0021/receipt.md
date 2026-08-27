@@ -56,8 +56,9 @@ PostgreSQL, publishes and delivers the Release, and reaches verifier
 | `cargo test -p proof-pg --test transaction_impl` | 0 (14 passed) |
 | `cargo test -p proof-pg --test migration_impl` | 0 (10 passed) |
 | Exact remote north-star | 0 (1 passed) |
-| `node scripts/check-doc-links.mjs` | 0 (431 links before this evidence packet) |
-| `node scripts/check-work-items.mjs` | 0 (21 items before P-0022 shaping) |
+| `node scripts/check-doc-links.mjs` | 0 (439 links) |
+| `node scripts/check-work-items.mjs` | 0 (23 items) |
+| `npx markdownlint-cli2 --no-globs` over changed work-control Markdown | 0 |
 
 ## Environment
 
@@ -72,7 +73,8 @@ PostgreSQL, publishes and delivers the Release, and reaches verifier
 ## Residual boundaries
 
 - No SDK or console implementation is included; P-0022 owns SDK adoption and
-  P-0023 owns Authoring UI.
+  P-0023 owns Authoring UI. P-0025 first resolves the conflicting accepted
+  HTTP envelope representations discovered while shaping P-0022.
 - Register-read performance at scale is unmeasured; secondary indexes remain
   deferred until measurement justifies them.
 - Ambiguous commit is qualified with a deterministic post-commit

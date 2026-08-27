@@ -12,7 +12,7 @@
  "qualified_at": "2026-08-27T15:54:48.000Z",
  "qualification_state": "implementation-qualified-review-eligible",
  "review_gate": "none",
- "successors_created": ["P-0022"],
+ "successors_created": ["P-0022", "P-0025"],
  "deployed": false,
  "milestone_complete": false,
  "public_release": false,
@@ -65,12 +65,17 @@
   {
    "command": "node scripts/check-work-items.mjs",
    "exit_code": 0,
-   "result": "passed (21 items before P-0022 shaping)"
+   "result": "passed (23 items)"
   },
   {
    "command": "node scripts/check-doc-links.mjs",
    "exit_code": 0,
-   "result": "passed (431 links before this evidence packet)"
+   "result": "passed (439 links)"
+  },
+  {
+   "command": "npx markdownlint-cli2 --no-globs docs/work/README.md docs/work/items/P-0021-authoring-operations.md docs/work/items/P-0022-sdk-authoring-adoption.md docs/work/items/P-0025-ratify-http-operation-envelope.md docs/work/map.md docs/work/evidence/P-0021/receipt.md",
+   "exit_code": 0,
+   "result": "passed"
   }
  ],
  "inventory": {
