@@ -1,7 +1,7 @@
 ---
 id: P-0022
 title: Adopt the authoring contract in the TypeScript SDK and console transport
-status: review
+status: done
 wave: now
 kind: implementation
 blocked_by: [P-0021, P-0025]
@@ -9,8 +9,8 @@ claimed_by: ox-alpha:proof:p-0022
 claimed_at: 2026-08-27T18:11:33.000Z
 base_sha: c9db396f1a2ecdffe050f9a7208b3c401501ed84
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-27T19:50:20.000Z
 ---
 
 # Adopt the authoring contract in the TypeScript SDK and console transport
@@ -214,21 +214,32 @@ Record exact Rust, SDK, and console commands, environment and tool versions,
 changed paths, generated-contract digests, and residual boundaries in
 `docs/work/evidence/P-0022/` per the [work-control protocol](../README.md).
 
-## Qualification record
+## Completion record
 
-- Qualified implementation candidate
-  `01ff4b0496fe69cf6ed97aa305a5de591a3ec5a6`, tree
-  `5c371ab16a2f98ee5f8807671a964b03ff3928d7`, descends directly from claim
-  commit `8d044a4094b50b1fc7d8253b60d39c26a647095e`.
-- The locked Rust gate, SDK typecheck/lint/test gate, console
-  typecheck/lint/test/build gate, exact frozen-file checks, and work-control
-  validators passed. The [receipt](../evidence/P-0022/receipt.md) and
-  [manifest](../evidence/P-0022/manifest.json) bind the exact commands and
-  candidate artifacts.
-- Runtime result validation now fails closed when a pre-existing producer does
-  not emit its advertised row Schema. P-0022 does not add semantics for legacy
-  or otherwise unmirrored operation rows, and it does not weaken the accepted
-  envelope to accommodate them. The project-owner gate was added because
-  closing with that explicit residual requires owner acceptance.
-- P-0023 is shaped but remains blocked until the owner accepts or returns this
-  candidate for rework. No P-0023 UI implementation is included here.
+- Owner verdict: **accepted**.
+- Project owner `smithdak` accepted manifest `item_work_commit`
+  `01ff4b0496fe69cf6ed97aa305a5de591a3ec5a6` at
+  `2026-08-27T19:50:20.000Z`. Its tree is
+  `5c371ab16a2f98ee5f8807671a964b03ff3928d7`; qualification evidence is
+  committed at `194910ea1c37c1503dab547f2cb3a3c308bec9f2`.
+- The exact Schema-authoritative Human request, Agent request, and eight-member
+  result envelopes are implemented without aliases. Row-typed data,
+  current-transaction anchors, replay binding, authentication/authorization
+  ordering, and Workspace-global application-key identity passed the locked
+  Rust gate.
+- The actor-qualified SDK exports P-0021's four Human rows and all 14 retained
+  Agent rows; Edit-kind exclusion, exact wire and Problem behavior, and
+  cross-route rejection passed its typecheck, lint, and test gates.
+- Console session/logout use the centralized SDK client and accepted CSRF/200
+  contract. The React quality pass preserved stable configuration,
+  accessibility, responsive behavior, and the P-0023 feature-transport
+  boundary. Console typecheck, lint, tests, and build passed.
+- The owner accepts the manifest's explicit fail-closed residuals: legacy or
+  otherwise unmirrored result producers receive no compatibility escape, and
+  an empty `changeset.get/v2` draft remains outside its frozen non-empty result
+  Schema until it has an Edit. P-0023 must add successful row fixtures before
+  migrating each feature operation.
+- P-0023 is promoted to `ready` as the sole executable frontier. P-0024 remains
+  unshaped until the Authoring implementation closes.
+- No push, tag, deployment, publication, credential mutation, external
+  provider action, or public release occurred.

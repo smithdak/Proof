@@ -85,13 +85,9 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `review` | P-0021, P-0025 | Qualified the Schema-authoritative Rust/SDK cutover and bounded console session/logout adoption at candidate `01ff4b0`; project-owner review covers the explicit fail-closed residuals. |
+| [Build the governed Authoring surfaces in the web console](items/P-0023-governed-authoring-console.md) | `ready` | P-0022 | Extend the notarial register with committed Object/Schema registers, governed detail, and a receipt-bearing New Item composition over exact SDK contracts. |
 
 ## Next
-
-| Work item | Status | Blocked by | Outcome |
-| --- | --- | --- | --- |
-| [Build the governed Authoring surfaces in the web console](items/P-0023-governed-authoring-console.md) | `blocked` | P-0022 | Extend the notarial register with committed Object/Schema registers, governed detail, and a receipt-bearing New Item composition after P-0022 acceptance. |
 
 P-0021 closed the complete local/PostgreSQL/CLI/MCP authoring implementation on
 2026-08-27. Successor shaping exposed a conflict between the accepted HTTP JSON
@@ -100,22 +96,23 @@ shape (`result`/`committed_anchor`). The project owner directed a separate
 contract decision and bounded P-0022 console adoption to SDK construction,
 session, and logout transport only. Project owner `smithdak` accepted P-0025
 candidate `1c76c0a` on 2026-08-27, making the frozen Schema authoritative.
-P-0022 candidate `01ff4b0` now implements that exact cutover and awaits the
-project owner's accept-or-rework verdict on its explicit fail-closed residuals.
-P-0023 is shaped as the next notarial-register Authoring implementation but
-remains blocked until that verdict closes P-0022. P-0024 Playwright
-qualification remains named intent and is shaped only when P-0023 closes. The
-license ADR remains deferred by owner decision.
+Project owner `smithdak` accepted P-0022 candidate `01ff4b0` and its explicit
+fail-closed residuals at `2026-08-27T19:50:20.000Z`. P-0023 is now the sole
+executable frontier: committed Object/Schema registers, governed detail, and a
+receipt-bearing New Item composition inside the established notarial-register
+system. P-0024 Playwright qualification remains named intent and is shaped only
+when P-0023 closes. The license ADR remains deferred by owner decision.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
-No additional item is shaped beyond blocked successor P-0023.
+No additional item is shaped beyond the immediate P-0023 frontier.
 
 ## Completed
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `done` | P-0021, P-0025 | Implemented the accepted exact Human/Agent request and eight-member result envelopes, actor-qualified SDK rows, and bounded console session/logout adoption at candidate `01ff4b0`; accepted with explicit fail-closed residuals by project owner `smithdak` at `2026-08-27T19:50:20.000Z`. |
 | [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `done` | P-0021 | Accepted the frozen Schema as authoritative for exact Human/Agent v1 requests and `data`/`result_anchor`/`result_schema` success; P-0022 owns one atomic cutover without a shim. Accepted by project owner `smithdak` at `2026-08-27T18:08:13.000Z`. |
 | [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `done` | P-0020 | Implemented and qualified the accepted P-0020 authoring contract across local, PostgreSQL, CLI, and MCP; regenerated frozen artifacts; full Linux gate passed at candidate `75ce593`. |
 | [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `done` | none | Accepted authoring contracts: v2 `object.create` edit kind with intra-ChangeSet causality, creation-slot resource intents (`/v2`), `schema.list/get` plus `object.list` Human reads, flat-model stance with deferred subtree authority behind a falsifiable reopening trigger, blueprints as client-side presets. Accepted by project owner `smithdak` at `2026-08-26T11:57:40.118Z`; P-0021 promoted. |

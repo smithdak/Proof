@@ -1,8 +1,8 @@
 ---
 id: P-0023
 title: Build the governed Authoring surfaces in the web console
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: implementation
 blocked_by: [P-0022]
 claimed_by: null
