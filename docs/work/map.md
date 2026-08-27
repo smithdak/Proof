@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `ready` | P-0021, P-0025 | Implement the accepted Schema-authoritative envelope, add exact creation/read SDK types and actor-qualified results, then migrate console session/logout transport without starting Authoring UI. |
+| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `claimed` | P-0021, P-0025 | Implement the accepted Schema-authoritative envelope, add exact creation/read SDK types and actor-qualified results, then migrate console session/logout transport without starting Authoring UI. |
 
 ## Next
 

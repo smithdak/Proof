@@ -1,13 +1,13 @@
 ---
 id: P-0022
 title: Adopt the authoring contract in the TypeScript SDK and console transport
-status: ready
+status: claimed
 wave: now
 kind: implementation
 blocked_by: [P-0021, P-0025]
-claimed_by: null
-claimed_at: null
-base_sha: null
+claimed_by: ox-alpha:proof:p-0022
+claimed_at: 2026-08-27T18:11:33.000Z
+base_sha: c9db396f1a2ecdffe050f9a7208b3c401501ed84
 review_gate: none
 accepted_by: null
 accepted_at: null
