@@ -673,6 +673,48 @@ caller UUIDv7 `correlation_id`, committed snapshot or immutable-result anchor,
 and the unchanged typed application result. No response is returned from an
 attempt whose transaction did not commit.
 
+#### P-0025 HTTP-envelope correction candidate
+
+This subsection is a review candidate and is not effective until the project
+owner accepts P-0025. The candidate makes the already-frozen
+`http-envelope-v1.schema.json` representation authoritative and treats the
+current Rust/SDK representation as repairable implementation drift. It does
+not add a second v1 shape or a new envelope major.
+
+The Human request has exactly six required members: `api_version`,
+`workspace_id`, `operation`, `correlation_id`, `idempotency_key`, and `input`.
+`correlation_id` is a UUIDv7 or null. `idempotency_key` exactly duplicates the
+normalized input key for a `required-uuidv7` row and is null for a `none` row.
+The Workspace and key are expected-value cross-checks after the deployment,
+session, registry row, and normalized input derive the authoritative values.
+
+The Agent request has exactly four required members: `api_version`,
+`operation`, `correlation_id`, and `invocation`. Its correlation member is also
+a UUIDv7 or null. Workspace, application key, and input appear only in the
+fresh signed invocation; their top-level counterparts are forbidden. Both
+request forms reject unknown members and require the exact route-qualified
+operation pair and exact envelope version.
+
+The successful operation result has exactly `api_version`, `operation`,
+`operation_id`, `correlation_id`, `replayed`, `result_anchor`, `result_schema`,
+and `data`. `data` is the row-typed application result, not consequence
+evidence, and `result_schema` is the exact Schema URI from the resolved row.
+For every current authenticated Human or Agent row, `result_anchor` is
+`{kind:"committed-transaction",digest,transaction_sequence}`. Its digest is
+the `proof:operation-effect:v1` digest of RFC 8785 canonical `data`; its
+positive safe-integer transaction sequence identifies the current committed
+Workspace attempt. A replay binds the returned prior data but names the new
+decision-and-replay transaction and sets `replayed:true`.
+
+`immutable-result` with a null transaction sequence is reserved for a future
+registry-qualified operation that performs no authoritative transaction; no
+current row may infer or select it. Fresh authentication and current
+locked-head authorization continue to precede idempotency lookup or prior
+result disclosure, and application keys remain Workspace-global across actor
+routes and operation pairs. P-0022 may implement this candidate only after
+owner acceptance; evidence and reversal conditions are recorded in the
+[P-0025 contract candidate](../work/evidence/P-0025/contract.md).
+
 Errors use RFC 9457 `application/problem+json`; the existing stable Proof code
 is the primary machine classifier. The extension members are exactly `code`,
 `api_version`, exact operation name/version, `operation_id`, nullable

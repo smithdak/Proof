@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Constitutional:** No
 **Date:** 2026-08-23
-**Last revised:** 2026-08-26 — P-0021 extended the frozen registry with the ratified bounded reads and intent v2; originally accepted by project owner `smithdak` at `2026-08-23T17:48:11.461Z`
+**Last revised:** 2026-08-27 — P-0025 adds a pending project-owner review candidate for the frozen HTTP envelope; P-0021 previously extended the registry with ratified bounded reads and intent v2; originally accepted by project owner `smithdak` at `2026-08-23T17:48:11.461Z`
 
 ## Context
 
@@ -219,6 +219,43 @@ profiles as the Milestone 3 server boundary.
 - Human session identity and Agent identity are adapter-derived values. Any
   Principal, Delegation, Workspace, or role named by untrusted input is only an
   expected-value cross-check after derivation.
+
+#### P-0025 HTTP-envelope correction candidate
+
+This subsection is pending project-owner acceptance and does not amend the
+accepted decision until that verdict is recorded. The candidate retains the
+already-frozen v1 HTTP-envelope Schema as authoritative and repairs the Rust
+server, TypeScript SDK, and their tests atomically in P-0022. It rejects the
+current internal `result`/`committed_anchor` shape rather than accepting two v1
+representations, and it introduces no new major because there is no deployed,
+published, or public consumer to transition.
+
+The Human body has exactly the six required Schema members: `api_version`,
+`workspace_id`, `operation`, nullable `correlation_id`, nullable
+`idempotency_key`, and `input`. The Agent body has exactly `api_version`,
+`operation`, nullable `correlation_id`, and `invocation`; top-level Workspace,
+key, and input members are forbidden. The Human Workspace and key are duplicate
+expected-value guards, while the signed Agent invocation remains the sole Agent
+carrier of those values. Unknown members, missing nullable members, version or
+operation mismatches, and failed equality guards are rejected before
+application execution.
+
+Success has exactly `api_version`, `operation`, `operation_id`,
+`correlation_id`, `replayed`, `result_anchor`, `result_schema`, and typed
+`data`. Every current authenticated row returns a `committed-transaction`
+anchor whose non-null digest is the `proof:operation-effect:v1` digest of RFC
+8785 canonical `data` and whose positive safe-integer transaction sequence
+names the current committed Workspace attempt. An idempotent replay binds its
+returned prior data, names its new committed decision-and-replay attempt, and
+sets `replayed:true`. `immutable-result` remains reserved for a future explicit
+no-transaction registry rule.
+
+This is presentation plumbing only. Authentication and current locked-head
+authorization still precede idempotency lookup or prior-result disclosure, and
+the application-key namespace remains `(workspace_id, application_key)` across
+routes, actors, and operation pairs. The complete option analysis, exact field
+matrix, migration rule, and reversal triggers are in the
+[P-0025 contract candidate](../work/evidence/P-0025/contract.md).
 
 ### Authoritative review, approval, and configuration
 
