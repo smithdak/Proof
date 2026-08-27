@@ -97,6 +97,7 @@ const EDITION_ID: &str = "019d0000-0000-7000-8000-000000000011";
 const RELEASE_ID: &str = "019d0000-0000-7000-8000-000000000020";
 const RELEASE_APPLICATION_KEY: &str = "019d0000-0000-7000-8000-0000000000d9";
 const HTTP_CORRELATION_ID: &str = "019d0000-0000-7000-8000-0000000000c0";
+const EXPORT_ID: &str = "019d0000-0000-7000-8000-000000000040";
 const EXPORT_APPLICATION_KEY: &str = "019d0000-0000-7000-8000-000000000041";
 const INITIAL_ADD_APPLICATION_KEY: &str = "019d0000-0000-7000-8000-000000000066";
 const REPAIR_ADD_APPLICATION_KEY: &str = "019d0000-0000-7000-8000-000000000067";
@@ -3166,11 +3167,36 @@ async fn login_human(
 }
 
 fn operation_request_body(operation: &RemoteOperationV1, input: &Value) -> Value {
+    let idempotency_key = input.get("idempotency_key").cloned().unwrap_or(Value::Null);
     json!({
         "api_version": "proof.dev/http-human-operation-request/v1",
         "workspace_id": WS_ID,
         "operation": operation,
+        "correlation_id": null,
+        "idempotency_key": idempotency_key,
         "input": input,
+    })
+}
+
+fn approval_input(approval_id: &str, idempotency_key: &str) -> Value {
+    json!({
+        "approval_id": approval_id,
+        "approval_name": "editorial",
+        "changeset_id": CHANGES_ET_ID,
+        "expected_authority_head": {
+            "record_digest": fixed_digest(0xe0).to_string(),
+            "sequence": 1,
+        },
+        "expected_context_pack_digest": fixed_digest(0xe1).to_string(),
+        "expected_environment_config_digest": fixed_digest(0xe2).to_string(),
+        "expected_policy_bundle_digest": fixed_digest(0xe3).to_string(),
+        "expected_proposal_digest": fixed_digest(0xe4).to_string(),
+        "expected_resource_intent_digest": fixed_digest(0xe5).to_string(),
+        "expected_sealed_changeset_digest": fixed_digest(0xe6).to_string(),
+        "expected_submission_digest": fixed_digest(0xe7).to_string(),
+        "expected_validation_policy_digest": fixed_digest(0xe8).to_string(),
+        "expected_validation_results_digest": fixed_digest(0xe9).to_string(),
+        "idempotency_key": idempotency_key,
     })
 }
 
@@ -3217,7 +3243,9 @@ async fn expect_success(resp: axum::response::Response, label: &str) -> Value {
         envelope["api_version"],
         "proof.dev/http-operation-result/v1"
     );
-    assert!(envelope["committed_anchor"].is_object());
+    assert!(envelope["result_anchor"].is_object());
+    assert!(envelope["result_schema"].is_string());
+    assert!(envelope["data"].is_object());
     envelope
 }
 
@@ -3405,6 +3433,8 @@ fn evidence_export_get_operation() -> RemoteOperationV1 {
 
 fn export_input(release_digest: &ContentDigest) -> Value {
     json!({
+        "disclosure_profile": "complete-portable",
+        "export_id": EXPORT_ID,
         "idempotency_key": EXPORT_APPLICATION_KEY,
         "release_id": RELEASE_ID,
         "release_digest": release_digest.to_string(),
@@ -3560,7 +3590,6 @@ async fn step_03_workspace_init_and_role_assignment(app: &axum::Router, h1: &Hum
         "proof.dev/operation/workspace-role.assign/v1",
     );
     let input = json!({
-        "workspace_id": WS_ID,
         "principal_id": H2_APPROVER,
         "role": "content.publisher",
         "assignment_id": "019d0000-0000-7000-8000-0000000000aa",
@@ -3576,8 +3605,8 @@ async fn step_03_workspace_init_and_role_assignment(app: &axum::Router, h1: &Hum
     )
     .await;
     let envelope = expect_success(resp, "H1 assigns content.publisher to H2").await;
-    assert_eq!(envelope["result"]["principal_id"], H2_APPROVER);
-    assert_eq!(envelope["result"]["role"], "content.publisher");
+    assert_eq!(envelope["data"]["principal_id"], H2_APPROVER);
+    assert_eq!(envelope["data"]["role"], "content.publisher");
 }
 
 // ---------------------------------------------------------------------------
@@ -3634,8 +3663,8 @@ async fn step_04_delegation(app: &axum::Router, h1: &HumanSession, resource_inte
     )
     .await;
     let envelope = expect_success(resp, "H1 issues Delegation H1->G").await;
-    assert_eq!(envelope["result"]["delegation_id"], DELEGATION_ID);
-    assert_eq!(envelope["result"]["recipient_principal_id"], G_OPERATOR);
+    assert_eq!(envelope["data"]["delegation_id"], DELEGATION_ID);
+    assert_eq!(envelope["data"]["recipient_principal_id"], G_OPERATOR);
     tokio::time::sleep(Duration::from_millis(1_100)).await;
 }
 
@@ -3668,10 +3697,10 @@ async fn step_04_context_pack(
     )
     .await;
     let intent_envelope = expect_success(resp, "H1 issues the creation-slot intent").await;
-    assert_eq!(intent_envelope["result"]["intent_id"], RESOURCE_INTENT_ID);
+    assert_eq!(intent_envelope["data"]["intent_id"], RESOURCE_INTENT_ID);
     let intent_digest = artifact_digest(
         ArtifactKind::ContentResourceIntentV1,
-        &canonical_bytes(&intent_envelope["result"]),
+        &canonical_bytes(&intent_envelope["data"]),
     )
     .to_string();
     step_04_delegation(app, h1, &intent_digest).await;
@@ -3705,11 +3734,11 @@ async fn step_04_context_pack(
         "delegated G builds the ContextPack",
     )
     .await;
-    assert_eq!(envelope["result"]["context_pack_id"], CONTEXT_PACK_ID);
-    assert_eq!(envelope["result"]["resource_intent_digest"], intent_digest);
+    assert_eq!(envelope["data"]["context_pack_id"], CONTEXT_PACK_ID);
+    assert_eq!(envelope["data"]["resource_intent_digest"], intent_digest);
     (
         intent_digest,
-        envelope["result"]["context_pack_digest"]
+        envelope["data"]["context_pack_digest"]
             .as_str()
             .expect("ContextPack digest")
             .to_owned(),
@@ -3756,7 +3785,7 @@ async fn step_05_agent_changeset_lifecycle(
         "G appends two Object creations and their locale puts",
     )
     .await;
-    let initial_edit_ids = first_add["result"]["edit_ids"]
+    let initial_edit_ids = first_add["data"]["edit_ids"]
         .as_array()
         .expect("initial Add returns Edit identities")
         .iter()
@@ -3770,17 +3799,18 @@ async fn step_05_agent_changeset_lifecycle(
         .position(|edit| edit["content"]["legal"] == FORBIDDEN_LEGAL_CLAIM)
         .expect("one initial put carries the prohibited legal claim");
     let bad_edit_id = initial_edit_ids[bad_edit_index].clone();
-    let add_result_digest = first_add["committed_anchor"]["result_digest"]
+    let add_result_digest = first_add["result_anchor"]["digest"]
         .as_str()
         .expect("fresh Add response carries its result digest")
         .to_owned();
     assert_eq!(
-        proof_remote::registry::operation_effect_digest(&first_add["result"])
+        proof_remote::registry::operation_effect_digest(&first_add["data"])
             .unwrap()
             .to_string(),
         add_result_digest,
         "the committed Add result digest reproduces from the returned bytes"
     );
+    assert_eq!(first_add["replayed"], false);
     let replay_add = run_agent_operation(
         app,
         h1,
@@ -3790,10 +3820,18 @@ async fn step_05_agent_changeset_lifecycle(
         "G replays the same Add application key",
     )
     .await;
-    assert_eq!(replay_add["result"], first_add["result"]);
-    assert_eq!(
-        replay_add["committed_anchor"]["result_digest"],
-        add_result_digest
+    assert_eq!(replay_add["data"], first_add["data"]);
+    assert_eq!(replay_add["replayed"], true);
+    assert_eq!(replay_add["result_schema"], first_add["result_schema"]);
+    assert_eq!(replay_add["result_anchor"]["digest"], add_result_digest);
+    assert!(
+        replay_add["result_anchor"]["transaction_sequence"]
+            .as_u64()
+            .unwrap()
+            > first_add["result_anchor"]["transaction_sequence"]
+                .as_u64()
+                .unwrap(),
+        "a replay anchor names the current committed attempt"
     );
 
     let mut conflicting_add = creation.expected_add_input.clone();
@@ -3823,20 +3861,17 @@ async fn step_05_agent_changeset_lifecycle(
         "G records the one deterministic policy finding",
     )
     .await;
-    assert_eq!(validation["result"]["valid"], false);
-    assert_eq!(validation["result"]["attempt"], 1);
+    assert_eq!(validation["data"]["valid"], false);
+    assert_eq!(validation["data"]["attempt"], 1);
+    assert_eq!(validation["data"]["findings"].as_array().unwrap().len(), 1);
     assert_eq!(
-        validation["result"]["findings"].as_array().unwrap().len(),
-        1
-    );
-    assert_eq!(
-        validation["result"]["findings"][0]["code"],
+        validation["data"]["findings"][0]["code"],
         "proof.validation.prohibited_legal_claim"
     );
-    assert_eq!(validation["result"]["findings"][0]["edit_id"], bad_edit_id);
-    assert_eq!(validation["result"]["findings"][0]["locale"], FR_CA_LOCALE);
-    assert_eq!(validation["result"]["findings"][0]["pointer"], "/legal");
-    let invalid_validation_digest = validation["result"]["validation_results_digest"]
+    assert_eq!(validation["data"]["findings"][0]["edit_id"], bad_edit_id);
+    assert_eq!(validation["data"]["findings"][0]["locale"], FR_CA_LOCALE);
+    assert_eq!(validation["data"]["findings"][0]["pointer"], "/legal");
+    let invalid_validation_digest = validation["data"]["validation_results_digest"]
         .as_str()
         .expect("invalid validation returns its result digest")
         .to_owned();
@@ -3849,7 +3884,7 @@ async fn step_05_agent_changeset_lifecycle(
         "G replays the invalid validation through its derived key",
     )
     .await;
-    assert_eq!(replay_validation["result"], validation["result"]);
+    assert_eq!(replay_validation["data"], validation["data"]);
 
     let mut repair_edit = creation.expected_add_input["edits"][bad_edit_index].clone();
     repair_edit["content"]["legal"] = json!("Des conditions standard s'appliquent");
@@ -3870,9 +3905,9 @@ async fn step_05_agent_changeset_lifecycle(
         "G supersedes the actual rejected Edit under fresh repair evidence",
     )
     .await;
-    assert_eq!(repair["result"]["first_ordinal"], 7);
-    assert_eq!(repair["result"]["total_edit_count"], 7);
-    let repaired_edit_id = repair["result"]["edit_ids"][0]
+    assert_eq!(repair["data"]["first_ordinal"], 7);
+    assert_eq!(repair["data"]["total_edit_count"], 7);
+    let repaired_edit_id = repair["data"]["edit_ids"][0]
         .as_str()
         .expect("repair Add returns its assigned Edit identity")
         .to_owned();
@@ -3887,14 +3922,14 @@ async fn step_05_agent_changeset_lifecycle(
         "G validates the repaired six-leaf proposal",
     )
     .await;
-    assert_eq!(valid["result"]["attempt"], 2);
+    assert_eq!(valid["data"]["attempt"], 2);
     assert_eq!(
-        valid["result"]["previous_validation_result_digest"],
+        valid["data"]["previous_validation_result_digest"],
         invalid_validation_digest
     );
-    assert_eq!(valid["result"]["valid"], true);
-    assert_eq!(valid["result"]["findings"], json!([]));
-    let final_validation_digest = valid["result"]["validation_results_digest"]
+    assert_eq!(valid["data"]["valid"], true);
+    assert_eq!(valid["data"]["findings"], json!([]));
+    let final_validation_digest = valid["data"]["validation_results_digest"]
         .as_str()
         .expect("valid repair returns its result digest")
         .to_owned();
@@ -3907,7 +3942,7 @@ async fn step_05_agent_changeset_lifecycle(
         "G replays repaired validation through its derived key",
     )
     .await;
-    assert_eq!(replay_valid["result"], valid["result"]);
+    assert_eq!(replay_valid["data"], valid["data"]);
 
     let diff = run_agent_operation(
         app,
@@ -3921,7 +3956,7 @@ async fn step_05_agent_changeset_lifecycle(
         "G inspects the repaired effective leaves",
     )
     .await;
-    let effective_edit_ids = diff["result"]["effective_edits"]
+    let effective_edit_ids = diff["data"]["effective_edits"]
         .as_array()
         .unwrap()
         .iter()
@@ -3931,7 +3966,7 @@ async fn step_05_agent_changeset_lifecycle(
         effective_edit_ids.len(),
         6,
         "the superseded attempt is not an effective leaf: {}",
-        diff["result"]
+        diff["data"]
     );
     assert!(!effective_edit_ids.contains(bad_edit_id.as_str()));
     assert!(effective_edit_ids.contains(repaired_edit_id.as_str()));
@@ -3950,7 +3985,7 @@ async fn step_05_agent_changeset_lifecycle(
         "G submits the sealed lineage",
     )
     .await;
-    assert_eq!(submitted["result"]["status"], "submitted");
+    assert_eq!(submitted["data"]["status"], "submitted");
     let replay_submit = run_agent_operation(
         app,
         h1,
@@ -3960,7 +3995,7 @@ async fn step_05_agent_changeset_lifecycle(
         "G replays submit through its derived key",
     )
     .await;
-    assert_eq!(replay_submit["result"], submitted["result"]);
+    assert_eq!(replay_submit["data"], submitted["data"]);
     LiveCreationRun {
         initial_edit_ids,
         bad_edit_id,
@@ -3995,6 +4030,7 @@ async fn step_06_separation_of_duties_rejections(
     let agent_body = json!({
         "api_version": "proof.dev/http-agent-operation-request/v1",
         "operation": {"name": approve_name, "version": "proof.dev/operation/changeset.approve/v3"},
+        "correlation_id": null,
         "invocation": serde_json::to_value(&invocation).unwrap()
     });
     let resp = post_operation(
@@ -4016,12 +4052,10 @@ async fn step_06_separation_of_duties_rejections(
     // The initiating Human cannot approve either: H1 lacks content.reviewer,
     // so the decision denies and commits the signed denial alone.
     let op = human_operation(approve_name, "proof.dev/operation/changeset.approve/v3");
-    let input = json!({
-        "workspace_id": WS_ID,
-        "changeset_id": CHANGES_ET_ID,
-        "approval_id": "019d0000-0000-7000-8000-0000000000c9",
-        "idempotency_key": "019d0000-0000-7000-8000-0000000000ca",
-    });
+    let input = approval_input(
+        "019d0000-0000-7000-8000-0000000000c9",
+        "019d0000-0000-7000-8000-0000000000ca",
+    );
     let resp = post_operation(
         app,
         "human",
@@ -4056,7 +4090,7 @@ async fn live_content_read(
         &operation_request_body(&operation, input),
     )
     .await;
-    expect_success(response, label).await["result"].clone()
+    expect_success(response, label).await["data"].clone()
 }
 
 fn assert_two_object_entries(result: &Value, released: bool) {
@@ -4440,12 +4474,10 @@ async fn step_07_approval_idempotent_commit_edition_environment_release(
         "changeset.approve",
         "proof.dev/operation/changeset.approve/v3",
     );
-    let approve_input = json!({
-        "workspace_id": WS_ID,
-        "changeset_id": CHANGES_ET_ID,
-        "approval_id": "019d0000-0000-7000-8000-0000000000d1",
-        "idempotency_key": "019d0000-0000-7000-8000-0000000000d2",
-    });
+    let approve_input = approval_input(
+        "019d0000-0000-7000-8000-0000000000d1",
+        "019d0000-0000-7000-8000-0000000000d2",
+    );
     let resp = post_operation(
         app,
         "human",
@@ -4456,8 +4488,8 @@ async fn step_07_approval_idempotent_commit_edition_environment_release(
     )
     .await;
     let envelope = expect_success(resp, "H2 records the causal approval").await;
-    assert_eq!(envelope["result"]["changeset_id"], CHANGES_ET_ID);
-    assert_eq!(envelope["result"]["approval_name"], "editorial");
+    assert_eq!(envelope["data"]["changeset_id"], CHANGES_ET_ID);
+    assert_eq!(envelope["data"]["approval_name"], "editorial");
 
     let commit_input = json!({
         "api_version": "proof.dev/operation/changeset.commit/v2",
@@ -4474,15 +4506,12 @@ async fn step_07_approval_idempotent_commit_edition_environment_release(
         "G commits the approved ChangeSet",
     )
     .await;
-    assert_eq!(first_commit["result"]["status"], "committed");
+    assert_eq!(first_commit["data"]["status"], "committed");
     assert_eq!(
-        first_commit["result"]["renditions"]
-            .as_array()
-            .unwrap()
-            .len(),
+        first_commit["data"]["renditions"].as_array().unwrap().len(),
         4
     );
-    let resulting_state_digest = first_commit["result"]["resulting_state"]["digest"]
+    let resulting_state_digest = first_commit["data"]["resulting_state"]["digest"]
         .as_str()
         .expect("commit returns the resulting state digest")
         .to_owned();
@@ -4495,7 +4524,7 @@ async fn step_07_approval_idempotent_commit_edition_environment_release(
         "replayed commit returns identical bytes",
     )
     .await;
-    assert_eq!(replay_commit["result"], first_commit["result"]);
+    assert_eq!(replay_commit["data"], first_commit["data"]);
 
     let mut conflicting_commit = commit_input.clone();
     conflicting_commit["committed_at"] = json!(timestamp_offset(1).to_string());
@@ -4549,13 +4578,13 @@ async fn step_07_approval_idempotent_commit_edition_environment_release(
         "G invokes release.create/v2 with an idempotency key",
     )
     .await;
-    assert_eq!(release_create["result"]["release_id"], RELEASE_ID);
-    let release_digest = release_create["result"]["release_digest"]
+    assert_eq!(release_create["data"]["release_id"], RELEASE_ID);
+    let release_digest = release_create["data"]["release_digest"]
         .as_str()
         .expect("Release digest")
         .parse()
         .expect("valid Release digest");
-    assert!(release_create["result"]["proof_envelope_digest"].is_string());
+    assert!(release_create["data"]["proof_envelope_digest"].is_string());
 
     let release_replay = run_agent_operation(
         app,
@@ -4566,7 +4595,7 @@ async fn step_07_approval_idempotent_commit_edition_environment_release(
         "G reconciles release.create/v2 with a fresh presentation",
     )
     .await;
-    assert_eq!(release_replay["result"], release_create["result"]);
+    assert_eq!(release_replay["data"], release_create["data"]);
 
     let mut conflicting_release = release_input;
     conflicting_release["released_at"] = json!(timestamp_offset(1).to_string());
@@ -4980,14 +5009,11 @@ fn north_star_two_humans_and_one_agent_end_to_end_over_http_and_postgresql() {
             )
             .await;
             let envelope = expect_success(resp, "H2 captures evidence.export/v2").await;
-            assert_eq!(envelope["result"]["status"], "pending");
-            assert_eq!(
-                envelope["result"]["application_key"],
-                EXPORT_APPLICATION_KEY
-            );
+            assert_eq!(envelope["data"]["status"], "pending");
+            assert_eq!(envelope["data"]["export_id"], EXPORT_ID);
             (
-                envelope["result"].clone(),
-                envelope["committed_anchor"]["result_digest"].clone(),
+                envelope["data"].clone(),
+                envelope["result_anchor"]["digest"].clone(),
             )
         })
     };
@@ -5123,9 +5149,9 @@ fn north_star_two_humans_and_one_agent_end_to_end_over_http_and_postgresql() {
             )
             .await;
             let replay_envelope = expect_success(resp, "route-level export replay").await;
-            assert_eq!(replay_envelope["result"], route_result);
+            assert_eq!(replay_envelope["data"], route_result);
             assert_eq!(
-                replay_envelope["committed_anchor"]["result_digest"],
+                replay_envelope["result_anchor"]["digest"],
                 route_result_digest
             );
 

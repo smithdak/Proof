@@ -33,9 +33,18 @@ export const handlers: HttpHandler[] = [
     return HttpResponse.json(session);
   }),
 
-  http.post("*/api/v1/session/logout", async () => {
+  http.post("*/api/v1/session/logout", async ({ request }) => {
     await latency();
-    return new HttpResponse(null, { status: 204 });
+    if (request.headers.get("proof-csrf") !== session.csrf_token) {
+      return HttpResponse.json(
+        { code: "proof.csrf_invalid", detail: "Invalid CSRF synchronizer" },
+        { status: 403 },
+      );
+    }
+    return HttpResponse.json({
+      api_version: "proof.dev/session-logout-result/v1",
+      logged_out: true,
+    });
   }),
 
   http.get("*/api/v1/capabilities", async () => {

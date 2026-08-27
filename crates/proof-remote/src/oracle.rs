@@ -26,8 +26,8 @@ use proof_application::{
     ReleasedRendition, ReleasedRenditionQuery, Severity, SubmittedLocalizedChangeSet, Timestamp,
     WorkspaceStatus, WorkspaceStatusRepository,
 };
-use proof_canonical::canonicalize;
-use proof_domain::ContentDigest;
+use proof_canonical::{canonicalize, digest};
+use proof_domain::{ArtifactKind, ContentDigest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -463,7 +463,7 @@ fn evaluate(
             let command = input.into_application_command();
             match workspace.create_localized_changeset(command) {
                 Ok(changeset) => {
-                    let result = serialize_localized_changeset(&changeset);
+                    let result = serialize_created_localized_changeset(&changeset);
                     let effect = operation_effect_digest(&result)?;
                     Ok(success(result, Some(effect)))
                 }
@@ -843,37 +843,85 @@ fn serialize_edition_reference(edition: &EditionArtifactReference) -> Value {
 }
 
 #[must_use]
-pub fn serialize_localized_changeset(changeset: &LocalizedChangeSet) -> Value {
+pub fn serialize_created_localized_changeset(changeset: &LocalizedChangeSet) -> Value {
     serde_json::json!({
-        "changeset_id": changeset.changeset_id.to_string(),
-        "workspace_id": changeset.workspace_id.to_string(),
-        "principal_id": changeset.principal_id.to_string(),
-        "intent": changeset.intent.to_string(),
-        "resource_intent_id": changeset.resource_intent_id.to_string(),
-        "resource_intent_digest": changeset.resource_intent_digest.to_string(),
-        "context_pack_id": changeset.context_pack_id.to_string(),
-        "context_pack_digest": changeset.context_pack_digest.to_string(),
         "base_state": serialize_known_state_reference(&changeset.base_state),
+        "changeset_id": changeset.changeset_id.to_string(),
+        "context_pack_digest": changeset.context_pack_digest.to_string(),
+        "context_pack_id": changeset.context_pack_id.to_string(),
+        "resource_intent_digest": changeset.resource_intent_digest.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+        "status": "draft",
+    })
+}
+
+#[must_use]
+/// Serializes the complete localized ChangeSet artifact used by get/diff
+/// result contracts.
+///
+/// # Panics
+///
+/// Panics only if the already validated localized Edit values cannot be
+/// canonicalized as JSON while deriving their effective-leaf digest.
+pub fn serialize_localized_changeset(changeset: &LocalizedChangeSet) -> Value {
+    let mut effective = changeset
+        .edits
+        .iter()
+        .filter(|edit| edit.effective)
+        .collect::<Vec<_>>();
+    effective.sort_by(|left, right| {
+        let key = |edit: &LocalizedEdit| match &edit.input {
+            proof_application::LocalizedEditAttempt::LocalePut(input) => {
+                (1_u8, input.object_id, Some(input.locale.clone()))
+            }
+            proof_application::LocalizedEditAttempt::ObjectCreate(input) => {
+                (0_u8, input.object_id, None)
+            }
+        };
+        key(left).cmp(&key(right))
+    });
+    let effective_edits = effective
+        .iter()
+        .map(|edit| parse_json(&edit.canonical_json))
+        .collect::<Vec<_>>();
+    let effective_manifest = canonicalize(&serde_json::json!({
+        "api_version": "proof.dev/edit-batch/v2",
+        "edits": effective_edits,
+    }))
+    .expect("validated localized edits must canonicalize");
+    let effective_leaf_digest = digest(ArtifactKind::EditBatchV2, &effective_manifest);
+    serde_json::json!({
+        "api_version": proof_application::LOCALIZED_CHANGESET_API_VERSION,
+        "base_state": serialize_known_state_reference(&changeset.base_state),
+        "changeset_id": changeset.changeset_id.to_string(),
+        "context_pack_digest": changeset.context_pack_digest.to_string(),
+        "context_pack_id": changeset.context_pack_id.to_string(),
         "created_at": changeset.created_at.to_string(),
-        "status": changeset.status.to_string(),
         "edits": changeset.edits.iter().map(serialize_localized_edit).collect::<Vec<_>>(),
-        "proposal_digest": changeset.proposal_digest.map(|value| value.to_string()),
-        "sealed_changeset_digest": changeset.sealed_changeset_digest.map(|value| value.to_string()),
+        "effective_leaf_digest": effective_leaf_digest.to_string(),
+        "effective_leaves": effective.iter().map(|edit| {
+            let mut leaf = serde_json::Map::new();
+            leaf.insert("edit_digest".to_owned(), serde_json::json!(edit.edit_digest.to_string()));
+            leaf.insert("edit_id".to_owned(), serde_json::json!(edit.edit_id.to_string()));
+            if let Some(locale) = edit.input.locale() {
+                leaf.insert("locale".to_owned(), serde_json::json!(locale.as_str()));
+            }
+            leaf.insert(
+                "object_id".to_owned(),
+                serde_json::json!(edit.input.object_id().to_string()),
+            );
+            Value::Object(leaf)
+        }).collect::<Vec<_>>(),
+        "intent": changeset.intent.to_string(),
+        "principal_id": changeset.principal_id.to_string(),
+        "resource_intent_digest": changeset.resource_intent_digest.to_string(),
+        "resource_intent_id": changeset.resource_intent_id.to_string(),
+        "workspace_id": changeset.workspace_id.to_string(),
     })
 }
 
 fn serialize_localized_edit(edit: &LocalizedEdit) -> Value {
-    serde_json::json!({
-        "ordinal": edit.ordinal,
-        "edit_id": edit.edit_id.to_string(),
-        "effective": edit.effective,
-        "edit_digest": edit.edit_digest.to_string(),
-        "input": {
-            "object_id": edit.input.object_id().to_string(),
-            "locale": edit.input.locale().map(ToString::to_string),
-        },
-        "canonical": parse_json(&edit.canonical_json),
-    })
+    parse_json(&edit.canonical_json)
 }
 
 #[must_use]
@@ -966,7 +1014,6 @@ fn serialize_object_locale_revision(rendition: &ObjectLocaleRevision) -> Value {
         "edit_id": rendition.edit_id.to_string(),
         "authoritative_sequence": rendition.authoritative_sequence,
         "content": parse_json(&rendition.canonical_content),
-        "rendition_digest": rendition.rendition_digest.to_string(),
     })
 }
 

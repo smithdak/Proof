@@ -188,16 +188,6 @@ export interface WorkspaceStatus {
   };
 }
 
-export interface SessionInfo {
-  authenticated: boolean;
-  principal?: {
-    subject: string;
-    display_name: string;
-    kind: PrincipalKind;
-  };
-  csrf_token?: string;
-}
-
 export interface OperationResult<T> {
   outcome: "committed" | "returned";
   result: T;

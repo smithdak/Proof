@@ -1,63 +1,60 @@
 import { ProblemError, TransportError } from "./errors";
-import { resolveOperation } from "./registry";
+import {
+  resolveAgentOperation,
+  resolveHumanOperation,
+  type OperationPair,
+} from "./registry";
 import type {
+  AgentOperationEnvelope,
+  AgentOperationKey,
   AgentOperationRequest,
   CapabilitiesDiscoverResult,
+  HumanOperationEnvelope,
+  HumanOperationInputByPair,
+  HumanOperationKey,
   HumanOperationRequest,
-  OperationInputByPair,
-  OperationKey,
   PreviewObjectResult,
   ProblemBody,
   SessionInfo,
   SessionLogoutResult,
   SuccessEnvelope,
+  Uuid,
 } from "./types";
 
 export interface ProofClientOptions {
-  /** Server origin, e.g. `https://proof.example.test`. */
+  /** Server origin, e.g. `https://proof.example.test`; empty means same-origin. */
   baseUrl: string;
-  /**
-   * Transport override for tests and non-fetch runtimes; defaults to
-   * the platform `fetch` (Node >= 18, browsers, workers).
-   */
   fetchImpl?: typeof fetch;
-  /**
-   * Supplies the current session-bound CSRF synchronizer value. The value
-   * rotates on every session read; keep it updated from
-   * {@link ProofClient.getSession}. Optional for read-only usage.
-   */
   csrfToken?: (() => string | undefined) | undefined;
-  /**
-   * Origin header value. Browsers forbid setting `Origin` manually; when
-   * omitted under a browser runtime the browser supplies it automatically.
-   */
   origin?: string | undefined;
+  /** Deployment Workspace equality guard used by direct-Human operations. */
+  workspaceId?: Uuid | undefined;
 }
 
-/**
- * Typed client over the exact nine-route proof-server HTTP surface
- * (contract "HTTP boundary").
- *
- * Application work dispatches through
- * `POST /api/v1/{actor}/operations/{name}/{major}` with a JSON body carrying
- * the frozen operation pair and its strict normalized input. Human calls
- * require the session cookie plus the `proof-csrf` synchronizer and an Origin
- * header; agent calls additionally carry a caller-built signed invocation.
- */
+export interface HumanExecutionOptions {
+  correlationId?: Uuid | undefined;
+  workspaceId?: Uuid | undefined;
+}
+
+export interface AgentExecutionOptions {
+  correlationId?: Uuid | undefined;
+}
+
+/** Typed client over the exact nine-route proof-server HTTP surface. */
 export class ProofClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly csrfToken: (() => string | undefined) | undefined;
   private readonly origin: string | undefined;
+  private readonly workspaceId: Uuid | undefined;
 
   constructor(options: ProofClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-    this.csrfToken = options.csrfToken ?? undefined;
-    this.origin = options.origin ?? undefined;
+    this.csrfToken = options.csrfToken;
+    this.origin = options.origin;
+    this.workspaceId = options.workspaceId;
   }
-
-  // -- session boundary -----------------------------------------------------
 
   /** `GET /api/v1/session`; also rotates the CSRF synchronizer server-side. */
   async getSession(): Promise<SessionInfo> {
@@ -65,10 +62,12 @@ export class ProofClient {
       credentials: "include",
       headers: { Accept: "application/json" },
     });
-    if (!response.ok) {
-      throw await this.toError(response);
+    await this.requireStatus(response, 200);
+    const value: unknown = await response.json();
+    if (!isSessionInfo(value)) {
+      throw new TransportError(200, "proof-server returned an invalid session result");
     }
-    return (await response.json()) as SessionInfo;
+    return value;
   }
 
   /** Builds the OIDC login entry URL. */
@@ -77,7 +76,7 @@ export class ProofClient {
     return `${this.baseUrl}/auth/oidc/login?${params.toString()}`;
   }
 
-  /** `POST /api/v1/session/logout`; converges to `logged_out: true`. */
+  /** `POST /api/v1/session/logout`; accepts only the exact HTTP 200 result. */
   async logout(): Promise<SessionLogoutResult> {
     const response = await this.fetchImpl(
       `${this.baseUrl}/api/v1/session/logout`,
@@ -88,10 +87,12 @@ export class ProofClient {
         body: "{}",
       },
     );
-    if (!response.ok) {
-      throw await this.toError(response);
+    await this.requireStatus(response, 200);
+    const value: unknown = await response.json();
+    if (!isSessionLogoutResult(value)) {
+      throw new TransportError(200, "proof-server returned an invalid logout result");
     }
-    return (await response.json()) as SessionLogoutResult;
+    return value;
   }
 
   /** `GET /api/v1/capabilities`; public registry discovery. */
@@ -100,103 +101,74 @@ export class ProofClient {
       `${this.baseUrl}/api/v1/capabilities`,
       { headers: { Accept: "application/json" } },
     );
-    if (!response.ok) {
-      throw await this.toError(response);
-    }
+    await this.requireStatus(response, 200);
     return (await response.json()) as CapabilitiesDiscoverResult;
   }
 
-  // -- operations -----------------------------------------------------------
-
-  /**
-   * Executes one registered operation over the direct-Human route.
-   *
-   * @param key Registry key of the exact operation pair (`name:major`).
-   * @param input The strict normalized input, field-set-exact per contract.
-   */
-  async execute<K extends OperationKey>(
+  /** Executes one of the four actor-qualified direct-Human pairs. */
+  async executeHuman<K extends HumanOperationKey>(
     key: K,
-    input: OperationInputByPair[K],
-    options: { correlationId?: string; workspaceId?: string } = {},
-  ): Promise<ApplicationConsequenceOf<K>> {
-    const [name, majorText] = splitKey(key);
-    const major = Number(majorText.slice(1));
-    const pair = resolveOperation(name, major);
+    input: HumanOperationInputByPair[K],
+    options: HumanExecutionOptions = {},
+  ): Promise<HumanOperationEnvelope<K>> {
+    const pair = resolveHumanOperation(key);
     if (!pair) {
-      throw new Error(`unregistered operation pair ${key}`);
+      throw new Error(`unregistered Human operation pair ${key}`);
     }
-    const body: HumanOperationRequest<OperationInputByPair[K]> = {
+    const workspaceId = options.workspaceId ?? this.workspaceId;
+    if (!workspaceId) {
+      throw new Error(`Human operation ${key} requires a Workspace equality guard`);
+    }
+    const idempotencyKey = humanIdempotencyKey(pair, input);
+    const body: HumanOperationRequest<HumanOperationInputByPair[K]> = {
       api_version: "proof.dev/http-human-operation-request/v1",
+      workspace_id: workspaceId,
       operation: { name: pair.name, version: pair.version },
+      correlation_id: options.correlationId ?? null,
+      idempotency_key: idempotencyKey,
       input,
-      ...(options.correlationId ? { correlation_id: options.correlationId } : {}),
-      ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
     };
-    const envelope = await this.postHuman(pair.name, pair.major, body);
-    return envelope.result as ApplicationConsequenceOf<K>;
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/api/v1/human/operations/${pair.name}/v${pair.major}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: this.humanHeaders(this.csrfToken?.()),
+        body: JSON.stringify(body),
+      },
+    );
+    await this.requireStatus(response, 200);
+    return this.readOperationEnvelope<HumanOperationEnvelope<K>>(response, pair);
   }
 
-  /**
-   * Executes one registered operation over the dual-auth Agent route.
-   *
-   * The caller supplies the fresh signed invocation (`AuthenticatedInvocationV1`)
-   * built through its provisioning path; the SDK carries the transport exactly.
-   */
-  async executeAgent(
-    name: string,
-    major: number,
-    request: Omit<AgentOperationRequest, "api_version" | "operation">,
-    options: { correlationId?: string; workspaceId?: string } = {},
-  ): Promise<ApplicationConsequence> {
-    const pair = resolveOperation(name, major);
+  /** Executes one of the fourteen retained Agent pairs with a fresh invocation. */
+  async executeAgent<K extends AgentOperationKey>(
+    key: K,
+    invocation: Record<string, unknown>,
+    options: AgentExecutionOptions = {},
+  ): Promise<AgentOperationEnvelope<K>> {
+    const pair = resolveAgentOperation(key);
     if (!pair) {
-      throw new Error(`unregistered operation pair ${name}/v${major}`);
+      throw new Error(`unregistered Agent operation pair ${key}`);
     }
     const body: AgentOperationRequest = {
       api_version: "proof.dev/http-agent-operation-request/v1",
       operation: { name: pair.name, version: pair.version },
-      ...request,
-      ...(options.correlationId ? { correlation_id: options.correlationId } : {}),
+      correlation_id: options.correlationId ?? null,
+      invocation,
     };
-    const token = this.csrfToken?.();
     const response = await this.fetchImpl(
-      `${this.baseUrl}/api/v1/agent/operations/${pair.name}/${pair.major}`,
+      `${this.baseUrl}/api/v1/agent/operations/${pair.name}/v${pair.major}`,
       {
         method: "POST",
         credentials: "include",
-        headers: this.humanHeaders(token),
+        headers: this.humanHeaders(this.csrfToken?.()),
         body: JSON.stringify(body),
       },
     );
-    if (!response.ok) {
-      throw await this.toError(response);
-    }
-    const envelope = (await response.json()) as SuccessEnvelope;
-    return envelope.result;
+    await this.requireStatus(response, 200);
+    return this.readOperationEnvelope<AgentOperationEnvelope<K>>(response, pair);
   }
-
-  private async postHuman(
-    name: string,
-    major: number,
-    body: unknown,
-  ): Promise<SuccessEnvelope> {
-    const token = this.csrfToken?.();
-    const response = await this.fetchImpl(
-      `${this.baseUrl}/api/v1/human/operations/${name}/${major}`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: this.humanHeaders(token),
-        body: JSON.stringify(body),
-      },
-    );
-    if (!response.ok) {
-      throw await this.toError(response);
-    }
-    return (await response.json()) as SuccessEnvelope;
-  }
-
-  // -- delivery / preview ---------------------------------------------------
 
   /** `GET /preview/{environment}/releases/{release}/objects/{object}/{locale}`. */
   async getPreviewObject(
@@ -215,10 +187,6 @@ export class ProofClient {
     return (await response.json()) as PreviewObjectResult;
   }
 
-  /**
-   * Builds the URL for an evidence artifact read; the bytes are returned
-   * content-addressed and are intended for independent verification.
-   */
   evidenceArtifactUrl(
     exportId: string,
     artifactKind: string,
@@ -227,7 +195,6 @@ export class ProofClient {
     return `${this.baseUrl}/api/v1/evidence-exports/${encodeURIComponent(exportId)}/artifacts/${encodeURIComponent(artifactKind)}/${encodeURIComponent(digest)}`;
   }
 
-  /** Fetches one evidence artifact's exact revalidated bytes. */
   async fetchEvidenceArtifact(
     exportId: string,
     artifactKind: string,
@@ -243,7 +210,19 @@ export class ProofClient {
     return response.arrayBuffer();
   }
 
-  // -- plumbing -------------------------------------------------------------
+  private async readOperationEnvelope<TEnvelope>(
+    response: Response,
+    pair: OperationPair,
+  ): Promise<TEnvelope> {
+    const value: unknown = await response.json();
+    if (!isSuccessEnvelope(value, pair)) {
+      throw new TransportError(
+        200,
+        `proof-server returned an invalid success envelope for ${String(pair.key)}`,
+      );
+    }
+    return value as TEnvelope;
+  }
 
   private humanHeaders(csrf?: string): Record<string, string> {
     const headers: Record<string, string> = {
@@ -259,6 +238,19 @@ export class ProofClient {
     return headers;
   }
 
+  private async requireStatus(response: Response, expected: number): Promise<void> {
+    if (response.status === expected) {
+      return;
+    }
+    if (!response.ok) {
+      throw await this.toError(response);
+    }
+    throw new TransportError(
+      response.status,
+      `proof-server returned HTTP ${response.status}; expected ${expected}`,
+    );
+  }
+
   private async toError(response: Response): Promise<never> {
     let body: unknown;
     try {
@@ -266,13 +258,8 @@ export class ProofClient {
     } catch {
       body = null;
     }
-    if (
-      body !== null &&
-      typeof body === "object" &&
-      "code" in body &&
-      "status" in body
-    ) {
-      throw new ProblemError(body as ProblemBody);
+    if (isRecord(body) && "code" in body && "status" in body) {
+      throw new ProblemError(body as unknown as ProblemBody);
     }
     throw new TransportError(
       response.status,
@@ -281,16 +268,102 @@ export class ProofClient {
   }
 }
 
-/**
- * The typed application result carried by one row's consequence. Rows whose
- * typed outcome embeds a projection surface it here; rows whose effect rule is
- * digest-only surface the consequence itself.
- */
-export type ApplicationConsequenceOf<K extends OperationKey> =
-  import("./types").ApplicationConsequence;
-import type { ApplicationConsequence } from "./types";
+function humanIdempotencyKey(
+  pair: OperationPair,
+  input: unknown,
+): Uuid | null {
+  if (pair.applicationIdempotency === "none") {
+    return null;
+  }
+  if (
+    pair.applicationIdempotency === "required-uuidv7" &&
+    isRecord(input) &&
+    typeof input.idempotency_key === "string"
+  ) {
+    return input.idempotency_key;
+  }
+  throw new Error(`Human operation ${String(pair.key)} lacks its required idempotency key`);
+}
 
-function splitKey(key: OperationKey): [string, string] {
-  const index = key.lastIndexOf(":");
-  return [key.slice(0, index), key.slice(index + 1)];
+const SUCCESS_MEMBERS = [
+  "api_version",
+  "correlation_id",
+  "data",
+  "operation",
+  "operation_id",
+  "replayed",
+  "result_anchor",
+  "result_schema",
+] as const;
+
+function isSuccessEnvelope(value: unknown, pair: OperationPair): value is SuccessEnvelope {
+  if (!hasExactMembers(value, SUCCESS_MEMBERS)) {
+    return false;
+  }
+  const operation = value.operation;
+  const anchor = value.result_anchor;
+  return (
+    value.api_version === "proof.dev/http-operation-result/v1" &&
+    typeof value.operation_id === "string" &&
+    (value.correlation_id === null || typeof value.correlation_id === "string") &&
+    typeof value.replayed === "boolean" &&
+    value.result_schema === pair.resultSchema &&
+    isRecord(value.data) &&
+    hasExactMembers(operation, ["name", "version"] as const) &&
+    operation.name === pair.name &&
+    operation.version === pair.version &&
+    hasExactMembers(anchor, ["digest", "kind", "transaction_sequence"] as const) &&
+    typeof anchor.digest === "string" &&
+    ((anchor.kind === "committed-transaction" &&
+      typeof anchor.transaction_sequence === "number") ||
+      (anchor.kind === "immutable-result" && anchor.transaction_sequence === null))
+  );
+}
+
+function isSessionInfo(value: unknown): value is SessionInfo {
+  return (
+    hasExactMembers(value, [
+      "api_version",
+      "authenticated_at",
+      "cache_control",
+      "csrf_token",
+      "expires_at",
+      "idle_expires_at",
+      "principal_id",
+    ] as const) &&
+    value.api_version === "proof.dev/session-get-result/v1" &&
+    value.cache_control === "private, no-store" &&
+    typeof value.csrf_token === "string" &&
+    typeof value.principal_id === "string" &&
+    typeof value.authenticated_at === "string" &&
+    typeof value.idle_expires_at === "string" &&
+    typeof value.expires_at === "string"
+  );
+}
+
+function isSessionLogoutResult(value: unknown): value is SessionLogoutResult {
+  return (
+    hasExactMembers(value, ["api_version", "logged_out"] as const) &&
+    value.api_version === "proof.dev/session-logout-result/v1" &&
+    value.logged_out === true
+  );
+}
+
+function hasExactMembers<const K extends readonly string[]>(
+  value: unknown,
+  members: K,
+): value is Record<K[number], unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...members].sort();
+  return (
+    actual.length === expected.length &&
+    actual.every((member, index) => member === expected[index])
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

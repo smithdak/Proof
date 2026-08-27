@@ -2274,7 +2274,7 @@ fn changeset_get_traces_are_byte_identical() {
     // Semantic spot checks beyond byte equality.
     match &postgres_traces[0].outcome {
         OracleOutcome::TypedResult(result) => {
-            assert_eq!(result["status"], "draft");
+            assert_eq!(result["api_version"], "proof.dev/changeset/v2");
             assert_eq!(result["edits"].as_array().map(Vec::len), Some(2));
         }
         other @ OracleOutcome::StableProblem(_) => {
@@ -2377,10 +2377,9 @@ fn changeset_create_traces_are_byte_identical() {
         match &trace.outcome {
             OracleOutcome::TypedResult(result) => {
                 assert_eq!(result["status"], "draft");
-                assert_eq!(
-                    result["edits"].as_array().map(Vec::len),
-                    Some(0),
-                    "a fresh draft carries no edits"
+                assert!(
+                    result.get("edits").is_none(),
+                    "the exact create result is not the complete get artifact"
                 );
             }
             other @ OracleOutcome::StableProblem(_) => {

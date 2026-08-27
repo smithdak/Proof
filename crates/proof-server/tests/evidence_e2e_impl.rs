@@ -737,6 +737,8 @@ fn seed_export(db: &TestDb) -> SeededExport {
 
 fn export_input_with_digest(release_digest: &ContentDigest) -> Value {
     json!({
+        "disclosure_profile": "complete-portable",
+        "export_id": "019d0000-0000-7000-8000-000000000031",
         "idempotency_key": "019d0000-0000-7000-8000-000000000030",
         "release_id": RELEASE_ID,
         "release_digest": release_digest.to_string(),

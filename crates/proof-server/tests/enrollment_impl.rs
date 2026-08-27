@@ -130,8 +130,30 @@ impl TestDb {
                          authority_head_digest, authority_head_sequence,
                          content_head_digest, release_head_digest, policy_head_digest,
                          configuration_head_digest
-                     ) VALUES (1, $1, 1, 0, 10, 0, 0, $2, 10, NULL, NULL, NULL, NULL)",
-                    &[&WS_ID, &deterministic_digest(0xaa).to_string()],
+                     ) VALUES (1, $1, 1, 0, 10, 0, 0, $2, 10, $3, NULL, NULL, NULL)",
+                    &[
+                        &WS_ID,
+                        &deterministic_digest(0xaa).to_string(),
+                        &deterministic_digest(0x73).to_string(),
+                    ],
+                )
+                .unwrap();
+            let metadata = canonicalize(&json!({
+                "principal_id": ADMIN,
+                "storage_schema_version": 1,
+            }))
+            .unwrap();
+            client
+                .execute(
+                    "INSERT INTO facts
+                         (fact_id, workspace_id, fact_kind, authority_sequence,
+                          fact_digest, body, committed_at)
+                     VALUES ('workspace/metadata', $1, 'workspace_metadata', 0, $2, $3, now())",
+                    &[
+                        &WS_ID,
+                        &deterministic_digest(0x74).to_string(),
+                        &metadata.as_bytes(),
+                    ],
                 )
                 .unwrap();
         }

@@ -280,6 +280,15 @@ pub enum UnitOfWorkOutcome {
     ApplicationFailureCommitted,
 }
 
+/// The authoritative result of one committed Workspace attempt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UnitOfWorkCommit {
+    /// Closed application outcome for the committed attempt.
+    pub outcome: UnitOfWorkOutcome,
+    /// Exact Workspace transaction sequence advanced by this attempt.
+    pub transaction_sequence: u64,
+}
+
 /// Testable observation of whether the caller received acknowledgement after
 /// PostgreSQL committed an authoritative attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -369,7 +378,7 @@ pub fn run_unit_of_work_with_sequence_policy(
 ) -> Result<UnitOfWorkOutcome, PgError> {
     let mut acknowledgement = |_| CommitAcknowledgement::Received;
     match run_unit_of_work_attempt(client, hooks, sequence_policy, None, &mut acknowledgement) {
-        Ok(outcome) => Ok(outcome),
+        Ok(commit) => Ok(commit.outcome),
         Err(AttemptFailure::Terminal(error)) => Err(error),
         Err(failure) => Err(failure.into_pg_error()),
     }
@@ -409,6 +418,23 @@ pub fn run_unit_of_work_with_retry_and_sequence_policy(
     policy: RetryPolicy,
     sequence_policy: CausalSequencePolicy,
 ) -> Result<UnitOfWorkOutcome, PgError> {
+    run_unit_of_work_with_retry_and_sequence_policy_commit(client, hooks, policy, sequence_policy)
+        .map(|commit| commit.outcome)
+}
+
+/// Runs one authoritative unit of work and returns the committed Workspace
+/// transaction sequence alongside the closed application outcome.
+///
+/// # Errors
+///
+/// Returns the same failures as
+/// [`run_unit_of_work_with_retry_and_sequence_policy`].
+pub fn run_unit_of_work_with_retry_and_sequence_policy_commit(
+    client: &mut Client,
+    hooks: &mut UnitOfWorkHooks<'_>,
+    policy: RetryPolicy,
+    sequence_policy: CausalSequencePolicy,
+) -> Result<UnitOfWorkCommit, PgError> {
     let mut acknowledgement = |_| CommitAcknowledgement::Received;
     run_unit_of_work_with_retry_and_sequence_policy_impl(
         client,
@@ -447,6 +473,7 @@ where
         sequence_policy,
         acknowledgement,
     )
+    .map(|commit| commit.outcome)
 }
 
 fn run_unit_of_work_with_retry_and_sequence_policy_impl<F>(
@@ -455,7 +482,7 @@ fn run_unit_of_work_with_retry_and_sequence_policy_impl<F>(
     policy: RetryPolicy,
     sequence_policy: CausalSequencePolicy,
     acknowledgement: &mut F,
-) -> Result<UnitOfWorkOutcome, PgError>
+) -> Result<UnitOfWorkCommit, PgError>
 where
     F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
 {
@@ -552,7 +579,7 @@ fn run_unit_of_work_attempt<F>(
     sequence_policy: CausalSequencePolicy,
     attempt_timeout: Option<Duration>,
     acknowledgement: &mut F,
-) -> Result<UnitOfWorkOutcome, AttemptFailure>
+) -> Result<UnitOfWorkCommit, AttemptFailure>
 where
     F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
 {
@@ -595,12 +622,18 @@ where
     // Step 6: keyed replay/conflict or a fresh attempt.
     match (hooks.replay_or_conflict)(&mut transaction, &head) {
         Ok(IdempotencyOutcome::Replayed) => {
-            return commit_transaction(transaction, UnitOfWorkOutcome::Replayed, acknowledgement);
+            return commit_transaction(
+                transaction,
+                UnitOfWorkOutcome::Replayed,
+                allocated.transaction,
+                acknowledgement,
+            );
         }
         Ok(IdempotencyOutcome::Conflict) => {
             return commit_transaction(
                 transaction,
                 UnitOfWorkOutcome::ConflictCommitted,
+                allocated.transaction,
                 acknowledgement,
             );
         }
@@ -634,13 +667,19 @@ where
             return commit_transaction(
                 transaction,
                 UnitOfWorkOutcome::ApplicationFailureCommitted,
+                allocated.transaction,
                 acknowledgement,
             );
         }
     }
 
     // Step 12: nothing returns before commit success.
-    commit_transaction(transaction, UnitOfWorkOutcome::Committed, acknowledgement)
+    commit_transaction(
+        transaction,
+        UnitOfWorkOutcome::Committed,
+        allocated.transaction,
+        acknowledgement,
+    )
 }
 
 fn configure_attempt_timeout(
@@ -664,8 +703,9 @@ fn configure_attempt_timeout(
 fn commit_transaction<F>(
     transaction: postgres::Transaction<'_>,
     outcome: UnitOfWorkOutcome,
+    transaction_sequence: u64,
     acknowledgement: &mut F,
-) -> Result<UnitOfWorkOutcome, AttemptFailure>
+) -> Result<UnitOfWorkCommit, AttemptFailure>
 where
     F: FnMut(UnitOfWorkOutcome) -> CommitAcknowledgement,
 {
@@ -675,7 +715,10 @@ where
             "commit applied but its acknowledgement was lost".to_owned(),
         )))
     } else {
-        Ok(outcome)
+        Ok(UnitOfWorkCommit {
+            outcome,
+            transaction_sequence,
+        })
     }
 }
 

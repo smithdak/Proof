@@ -1321,8 +1321,6 @@ pub struct EvidenceExportResultV2 {
     pub api_version: EvidenceExportResultApiVersion,
     /// Export identity (UUIDv7).
     pub export_id: String,
-    /// The exact application idempotency key (UUIDv7).
-    pub application_key: String,
     /// `proof:evidence-export-capture:v2` digest of the immutable capture.
     #[serde(with = "crate::serde_support::display_string")]
     pub capture_digest: ContentDigest,

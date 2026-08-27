@@ -60,6 +60,7 @@ use proof_pg::{
     transaction::{
         CausalSequencePolicy, RetryPolicy, UnitOfWorkHooks, UnitOfWorkOutcome,
         WorkspaceHeadSnapshot, run_unit_of_work_with_retry_and_sequence_policy,
+        run_unit_of_work_with_retry_and_sequence_policy_commit,
     },
 };
 use proof_remote::{
@@ -757,6 +758,8 @@ fn build_disclosures(
 #[allow(clippy::too_many_arguments)]
 fn build_capture(
     decision: &RemoteAuthorizationDecisionV1,
+    export_id: &str,
+    disclosure_profile: RemoteEvidenceDisclosureProfile,
     idempotency_key: &str,
     release_id: &str,
     release_digest: ContentDigest,
@@ -772,8 +775,9 @@ fn build_capture(
     command_len: u64,
     envelope_len: u64,
 ) -> Result<EvidenceExportCaptureV2, ServerError> {
-    let export_id = uuid::Uuid::now_v7();
-    let snapshot_id = format!("snapshot_{}", export_id.simple());
+    let export_uuid = uuid::Uuid::parse_str(export_id)
+        .map_err(|_| ServerError::Dispatch("invalid export_id".to_owned()))?;
+    let snapshot_id = format!("snapshot_{}", export_uuid.simple());
     let closure_digest = closure_digest(closure)?;
     let record_set_digest = record_set_digest(record_set)?;
     let release_proof_envelope_digest = closure.entrypoints.target_release_proof_envelope.digest;
@@ -816,12 +820,12 @@ fn build_capture(
         r#type: EvidenceExportCaptureType::Tag,
         api_version: EvidenceExportCaptureApiVersion::Tag,
         workspace_id: decision.workspace_id.clone(),
-        export_id: export_id.to_string(),
+        export_id: export_id.to_owned(),
         idempotency_key: idempotency_key.to_owned(),
         release_id: release_id.to_owned(),
         release_digest,
         closure_bindings,
-        disclosure_profile: RemoteEvidenceDisclosureProfile::CompletePortable,
+        disclosure_profile,
         transaction_isolation: "SERIALIZABLE READ WRITE".to_owned(),
         captured_at: now_timestamp()?,
         snapshot_id,
@@ -1047,6 +1051,12 @@ fn required_input_str<'a>(input: &'a Value, field: &str) -> Result<&'a str, Serv
     input
         .get(field)
         .and_then(Value::as_str)
+        .ok_or_else(|| ServerError::Dispatch(format!("normalized input is missing `{field}`")))
+}
+
+fn required_input_member<'a>(input: &'a Value, field: &str) -> Result<&'a Value, ServerError> {
+    input
+        .get(field)
         .ok_or_else(|| ServerError::Dispatch(format!("normalized input is missing `{field}`")))
 }
 
@@ -1373,7 +1383,7 @@ fn execute_export_create(
     normalized_input: &Value,
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
-) -> Result<(EvidenceExportResultV2, RemoteApplicationConsequenceV1), ServerError> {
+) -> Result<(EvidenceExportResultV2, RemoteApplicationConsequenceV1, u64), ServerError> {
     if decision.decision == AuthorizationDecisionKind::Deny {
         commit_denial(state, decision)?;
         return Err(ServerError::Authorization(
@@ -1382,6 +1392,11 @@ fn execute_export_create(
     }
 
     let idempotency_key = required_input_str(normalized_input, "idempotency_key")?.to_owned();
+    let export_id = required_input_str(normalized_input, "export_id")?.to_owned();
+    let disclosure_profile = serde_json::from_value::<RemoteEvidenceDisclosureProfile>(
+        required_input_member(normalized_input, "disclosure_profile")?.clone(),
+    )
+    .map_err(|error| ServerError::Dispatch(format!("invalid disclosure_profile: {error}")))?;
     let release_id = required_input_str(normalized_input, "release_id")?.to_owned();
     let release_digest: ContentDigest = required_input_str(normalized_input, "release_digest")?
         .parse()
@@ -1448,6 +1463,7 @@ fn execute_export_create(
     let decision_owned = decision.clone();
     let operation_owned = operation.clone();
     let idempotency_key_owned = idempotency_key.clone();
+    let export_id_owned = export_id;
     let release_id_owned = release_id;
 
     let head_snapshot: Rc<RefCell<Option<WorkspaceHeadSnapshot>>> = Rc::new(RefCell::new(None));
@@ -1562,6 +1578,8 @@ fn execute_export_create(
 
             let capture = build_capture(
                 &decision_for_hook,
+                &export_id_owned,
+                disclosure_profile,
                 &idempotency_key_owned,
                 &release_id_owned,
                 release_digest,
@@ -1591,7 +1609,6 @@ fn execute_export_create(
             let result = EvidenceExportResultV2 {
                 api_version: EvidenceExportResultApiVersion::Tag,
                 export_id: capture.export_id.clone(),
-                application_key: idempotency_key_owned.clone(),
                 capture_digest,
                 status: EvidenceExportStatusKind::Pending,
             };
@@ -1656,7 +1673,7 @@ fn execute_export_create(
         }),
     };
 
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
@@ -1664,7 +1681,7 @@ fn execute_export_create(
     )
     .map_err(ServerError::Storage)?;
 
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed => {
             let consequence = built_consequence
                 .borrow_mut()
@@ -1673,7 +1690,7 @@ fn execute_export_create(
             let result = built_result.borrow_mut().take().ok_or_else(|| {
                 ServerError::Internal("create-result was not produced".to_owned())
             })?;
-            Ok((result, consequence))
+            Ok((result, consequence, commit.transaction_sequence))
         }
         UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
             application_problem.borrow_mut().take().ok_or_else(|| {
@@ -1708,7 +1725,7 @@ pub fn evidence_export_v2(
     decision: &RemoteAuthorizationDecisionV1,
 ) -> Result<EvidenceExportResultV2, ServerError> {
     execute_export_create(state, operation, normalized_input, actor_context, decision)
-        .map(|(result, _consequence)| result)
+        .map(|(result, _consequence, _transaction_sequence)| result)
 }
 
 /// Consequence-returning entrypoint for `evidence.export/v2`, used by the
@@ -1722,7 +1739,7 @@ pub fn evidence_export_v2_execute(
     decision: &RemoteAuthorizationDecisionV1,
 ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
     execute_export_create(state, operation, normalized_input, actor_context, decision)
-        .map(|(_result, consequence)| consequence)
+        .map(|(_result, consequence, _transaction_sequence)| consequence)
 }
 
 /// Dispatch entrypoint that preserves the exact typed create result while the
@@ -1735,11 +1752,12 @@ pub(crate) fn evidence_export_v2_for_dispatch(
     decision: &RemoteAuthorizationDecisionV1,
 ) -> Result<crate::operations::HumanOperationExecution, ServerError> {
     execute_export_create(state, operation, normalized_input, actor_context, decision).and_then(
-        |(result, consequence)| {
+        |(result, consequence, transaction_sequence)| {
             Ok(crate::operations::HumanOperationExecution {
                 consequence,
                 result: serde_json::to_value(result)
                     .map_err(|error| ServerError::Internal(error.to_string()))?,
+                transaction_sequence,
             })
         },
     )
@@ -1797,7 +1815,7 @@ fn execute_export_get(
     export_id: &str,
     actor_context: &AuthenticatedActorContextV2,
     decision: &RemoteAuthorizationDecisionV1,
-) -> Result<(EvidenceExportStatusV1, RemoteApplicationConsequenceV1), ServerError> {
+) -> Result<(EvidenceExportStatusV1, RemoteApplicationConsequenceV1, u64), ServerError> {
     if decision.decision == AuthorizationDecisionKind::Deny {
         commit_denial(state, decision)?;
         return Err(ServerError::Authorization(
@@ -1871,7 +1889,7 @@ fn execute_export_get(
         }),
     };
 
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
@@ -1879,14 +1897,14 @@ fn execute_export_get(
     )
     .map_err(ServerError::Storage)?;
 
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed | UnitOfWorkOutcome::ApplicationFailureCommitted => {
             let consequence = built_consequence
                 .borrow_mut()
                 .take()
                 .ok_or_else(|| ServerError::Internal("consequence was not produced".to_owned()))?;
             let status = read_status(runtime, export_id)?;
-            Ok((status, consequence))
+            Ok((status, consequence, commit.transaction_sequence))
         }
         UnitOfWorkOutcome::Replayed | UnitOfWorkOutcome::ConflictCommitted => {
             Err(ServerError::Internal(
@@ -1917,7 +1935,7 @@ pub fn evidence_export_get_v1(
 ) -> Result<EvidenceExportStatusV1, ServerError> {
     let export_id = required_input_str(normalized_input, "export_id")?;
     execute_export_get(state, operation, export_id, actor_context, decision)
-        .map(|(status, _consequence)| status)
+        .map(|(status, _consequence, _transaction_sequence)| status)
 }
 
 /// Consequence-returning entrypoint for `evidence.export.get/v1`.
@@ -1930,7 +1948,29 @@ pub fn evidence_export_get_v1_execute(
 ) -> Result<RemoteApplicationConsequenceV1, ServerError> {
     let export_id = required_input_str(normalized_input, "export_id")?;
     execute_export_get(state, operation, export_id, actor_context, decision)
-        .map(|(_status, consequence)| consequence)
+        .map(|(_status, consequence, _transaction_sequence)| consequence)
+}
+
+/// Dispatch entrypoint that preserves the exact typed status and committed
+/// Workspace transaction sequence.
+pub(crate) fn evidence_export_get_v1_for_dispatch(
+    state: &AppState,
+    operation: &RemoteOperationV1,
+    normalized_input: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<crate::operations::HumanOperationExecution, ServerError> {
+    let export_id = required_input_str(normalized_input, "export_id")?;
+    execute_export_get(state, operation, export_id, actor_context, decision).and_then(
+        |(status, consequence, transaction_sequence)| {
+            Ok(crate::operations::HumanOperationExecution {
+                consequence,
+                result: serde_json::to_value(status)
+                    .map_err(|error| ServerError::Internal(error.to_string()))?,
+                transaction_sequence,
+            })
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------

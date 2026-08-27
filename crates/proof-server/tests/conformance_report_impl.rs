@@ -123,6 +123,7 @@ const CONTEXT_KEY: &str = "019d1000-0000-7000-8000-000000000127";
 const ASSIGN_KEY: &str = "019d1000-0000-7000-8000-000000000128";
 const REVOKE_KEY: &str = "019d1000-0000-7000-8000-000000000129";
 const CREATE_KEY: &str = "019d1000-0000-7000-8000-000000000132";
+const SOURCE_ADD_KEY: &str = "019d1000-0000-7000-8000-000000000134";
 
 const AUTHENTICATED_AT: &str = "2026-08-20T12:00:00Z";
 const DETERMINISTIC_UID: u64 = 4_001;
@@ -213,7 +214,9 @@ fn actor_context(name: &str, version: &str) -> AuthenticatedActorContextV2 {
 fn shared_operation(name: &str) -> AuthenticatedActorContextV2 {
     // The registered version of each row: content ChangeSet rows are v2.
     let version = match name {
-        "changeset.create" | "changeset.get" => format!("proof.dev/operation/{name}/v2"),
+        "changeset.add" | "changeset.create" | "changeset.get" => {
+            format!("proof.dev/operation/{name}/v2")
+        }
         _ => format!("proof.dev/operation/{name}/v1"),
     };
     actor_context(name, &version)
@@ -439,6 +442,53 @@ fn conformance_workspace(root: &Path) -> LocalWorkspace {
             serde_json::to_value(&setup_trace).unwrap()
         );
     }
+    let source_content = json!({
+        "legal": "Des conditions standard s’appliquent",
+        "slug": "summer-campaign",
+        "title": "Campagne d’été",
+    });
+    let baseline_content = json!({
+        "legal": "Standard terms apply",
+        "slug": "summer-campaign",
+        "title": "Summer campaign",
+    });
+    let source_digest = object_revision_digest(
+        OBJECT_ID.parse().unwrap(),
+        &SchemaId::new(SCHEMA_ID).unwrap(),
+        SchemaVersion::new(1).unwrap(),
+        &baseline_content,
+    )
+    .unwrap();
+    let add_input = json!({
+        "api_version": "proof.dev/operation/changeset.add/v2",
+        "changeset_id": SOURCE_CHANGESET_ID,
+        "edits": [{
+            "api_version": "proof.dev/edit/v2",
+            "content": source_content,
+            "expected_source": {
+                "digest": source_digest.to_string(),
+                "revision": 1,
+                "schema_id": SCHEMA_ID,
+                "schema_version": 1,
+            },
+            "expected_target": null,
+            "kind": "object.locale.put",
+            "locale": LOCALE,
+            "object_id": OBJECT_ID,
+            "repair_of_validation_result_digest": null,
+            "supersedes_edit_id": null,
+        }],
+        "idempotency_key": SOURCE_ADD_KEY,
+    });
+    let add_trace = backend
+        .run(&add_input, &shared_operation("changeset.add"))
+        .expect("fixture changeset.add must dispatch over the reference path");
+    if let proof_remote::OracleOutcome::StableProblem(problem) = &add_trace.outcome {
+        panic!(
+            "fixture changeset.add produced stable problem {}",
+            problem.code
+        );
+    }
 
     workspace
 }
@@ -594,8 +644,30 @@ impl ServerFixture {
                          authority_head_digest, authority_head_sequence,
                          content_head_digest, release_head_digest, policy_head_digest,
                          configuration_head_digest
-                     ) VALUES (1, $1, 1, 0, 10, 0, 0, $2, 10, NULL, NULL, NULL, NULL)",
-                    &[&WS_ID, &deterministic_digest(0xaa).to_string()],
+                     ) VALUES (1, $1, 1, 0, 10, 0, 0, $2, 10, $3, NULL, NULL, NULL)",
+                    &[
+                        &WS_ID,
+                        &deterministic_digest(0xaa).to_string(),
+                        &deterministic_digest(0x73).to_string(),
+                    ],
+                )
+                .unwrap();
+            let metadata = canonicalize(&json!({
+                "principal_id": REQUESTER,
+                "storage_schema_version": 1,
+            }))
+            .unwrap();
+            client
+                .execute(
+                    "INSERT INTO facts
+                         (fact_id, workspace_id, fact_kind, authority_sequence,
+                          fact_digest, body, committed_at)
+                     VALUES ('workspace/metadata', $1, 'workspace_metadata', 0, $2, $3, now())",
+                    &[
+                        &WS_ID,
+                        &deterministic_digest(0x74).to_string(),
+                        &metadata.as_bytes(),
+                    ],
                 )
                 .unwrap();
         }
@@ -678,6 +750,31 @@ impl ServerFixture {
             .query_one(sql, &[])
             .expect("server verification scalar")
             .get(0)
+    }
+
+    fn import_content_from(&mut self, source_schema: &str) {
+        self.query
+            .client_mut()
+            .batch_execute(&format!(
+                "INSERT INTO facts (
+                     fact_id, workspace_id, fact_kind, authority_sequence,
+                     fact_digest, body, committed_at
+                 )
+                 SELECT fact_id, workspace_id, fact_kind, authority_sequence,
+                        fact_digest, body, committed_at
+                 FROM \"{source_schema}\".facts
+                 WHERE fact_kind IN (
+                     'context_pack', 'localized_changeset', 'localized_edit',
+                     'resource_intent'
+                 )
+                 ON CONFLICT (fact_id) DO NOTHING;
+                 UPDATE workspace_write_head AS target
+                 SET content_sequence = source.content_sequence,
+                     content_head_digest = source.content_head_digest
+                 FROM \"{source_schema}\".workspace_write_head AS source
+                 WHERE target.singleton = 1 AND source.singleton = 1;"
+            ))
+            .expect("import the exact content facts exercised by server mode");
     }
 }
 
@@ -1025,10 +1122,13 @@ async fn post_operation(
 }
 
 fn human_body(operation: (&str, &str), input: &Value) -> Value {
+    let idempotency_key = input.get("idempotency_key").cloned().unwrap_or(Value::Null);
     json!({
         "api_version": "proof.dev/http-human-operation-request/v1",
         "workspace_id": WS_ID,
         "operation": { "name": operation.0, "version": operation.1 },
+        "correlation_id": null,
+        "idempotency_key": idempotency_key,
         "input": input,
     })
 }
@@ -1134,7 +1234,7 @@ fn verify_assignment_record(server: &mut ServerFixture, envelope: &Value) -> Con
         "the success consequence binds the governed fact exactly"
     );
     assert_eq!(
-        envelope["committed_anchor"]["result_digest"].as_str(),
+        envelope["result_anchor"]["digest"].as_str(),
         consequence
             .result_digest
             .map(|value| value.to_string())
@@ -1234,7 +1334,7 @@ fn verify_revocation_record(server: &mut ServerFixture, envelope: &Value) {
         serde_json::from_slice(&consequence_body).unwrap();
     assert_eq!(consequence.application_effect_digest, Some(recomputed));
     assert_eq!(
-        envelope["committed_anchor"]["result_digest"].as_str(),
+        envelope["result_anchor"]["digest"].as_str(),
         consequence
             .result_digest
             .map(|value| value.to_string())
@@ -1358,10 +1458,10 @@ fn milestone3_conformance_report_three_runner_classification() {
     // Phase 3: server mode over the real HTTP router.
     // ---------------------------------------------------------------
     let mut server = ServerFixture::new();
+    server.import_content_from(&parity.schema);
     let invocation_value =
         serde_json::to_value(build_agent_invocation(&server.agent_provider)).unwrap();
     let assign_input = json!({
-        "workspace_id": WS_ID,
         "principal_id": OPERATOR,
         "role": "content.requester",
         "assignment_id": ASSIGNMENT_ID,
@@ -1405,6 +1505,7 @@ fn milestone3_conformance_report_three_runner_classification() {
                     "name": "workspace.status",
                     "version": "proof.dev/operation/workspace.status/v1"
                 },
+                "correlation_id": null,
                 "invocation": invocation_value,
             }),
         )

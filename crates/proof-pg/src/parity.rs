@@ -951,7 +951,8 @@ fn run_postgres_operation(
             let command = input.into_application_command();
             match pg_create_changeset(runtime, &command) {
                 Ok(changeset) => {
-                    let result = proof_remote::oracle::serialize_localized_changeset(&changeset);
+                    let result =
+                        proof_remote::oracle::serialize_created_localized_changeset(&changeset);
                     let effect = operation_effect_digest(&result)
                         .map_err(|error| PgError::Integrity(error.to_string()))?;
                     success_trace(

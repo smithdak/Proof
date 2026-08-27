@@ -865,11 +865,13 @@ fn schema_get_exposes_typed_result_and_commits_only_authority_evidence() {
     )
     .unwrap();
 
-    assert_eq!(envelope.result["schema_id"], "article");
-    assert_eq!(envelope.result["schema_version"], 1);
-    assert_eq!(envelope.result["document"]["type"], "object");
-    assert_eq!(envelope.result["provenance"]["authoritative_sequence"], 1);
-    assert!(envelope.committed_anchor["result_digest"].is_string());
+    assert_eq!(envelope.data["schema_id"], "article");
+    assert_eq!(envelope.data["schema_version"], 1);
+    assert_eq!(envelope.data["document"]["type"], "object");
+    assert_eq!(envelope.data["provenance"]["authoritative_sequence"], 1);
+    assert_eq!(envelope.result_anchor["kind"], "committed-transaction");
+    assert!(envelope.result_anchor["digest"].is_string());
+    assert!(envelope.result_anchor["transaction_sequence"].is_u64());
     let consequence = {
         let mut guard = db.runtime();
         let body: Vec<u8> = guard

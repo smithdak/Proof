@@ -46,6 +46,7 @@ pub mod bff;
 pub mod dispatch;
 pub mod export;
 pub mod issuer;
+mod operation_contract;
 pub mod operations;
 pub mod routes;
 pub mod session;

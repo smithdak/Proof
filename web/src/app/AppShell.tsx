@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet } from "react-router";
 import { Search } from "lucide-react";
-import { executeOperation, loginUrl, logout } from "@/api/client";
+import { executeOperation } from "@/api/client";
+import { logoutConsoleSession, proofClient } from "@/api/sdk";
 import type { WorkspaceStatus } from "@/api/types";
 import {
   DigestText,
@@ -17,14 +18,6 @@ import {
 import { CommandPalette } from "./CommandPalette";
 import { NAV_DESTINATIONS } from "./nav";
 import { useSession } from "./SessionProvider";
-
-function initialsOf(displayName: string): string {
-  const parts = displayName.trim().split(/\s+/);
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 function useWorkspaceStatus() {
   return useQuery({
@@ -73,7 +66,6 @@ function KnownStateDigest() {
 
 function PrincipalMenu() {
   const session = useSession();
-  const principal = session.principal;
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -97,15 +89,11 @@ function PrincipalMenu() {
   async function signOut() {
     setSigningOut(true);
     try {
-      if (session.csrf_token) {
-        await logout(session.csrf_token);
-      }
+      await logoutConsoleSession();
     } finally {
-      window.location.assign(loginUrl());
+      window.location.assign(proofClient.loginUrl());
     }
   }
-
-  if (!principal) return null;
 
   return (
     <div ref={rootRef} className="relative">
@@ -113,11 +101,11 @@ function PrincipalMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Signed in as ${principal.display_name}`}
+        aria-label={`Authenticated principal ${session.principal_id}`}
         onClick={() => setOpen((value) => !value)}
         className="flex size-8 items-center justify-center rounded-full border border-ruling-300 bg-paper-100 font-mono text-2xs font-semibold text-ruling-700 transition-colors duration-150 hover:bg-paper-150 motion-reduce:transition-none"
       >
-        {initialsOf(principal.display_name)}
+        {session.principal_id.slice(0, 2).toUpperCase()}
       </button>
       {open && (
         <div
@@ -127,10 +115,10 @@ function PrincipalMenu() {
         >
           <div className="border-b border-ruling-200 px-3 pb-2 pt-2">
             <p className="truncate text-sm font-medium text-ink-900">
-              {principal.display_name}
+              Authenticated principal
             </p>
             <p className="mt-0.5 truncate font-mono text-2xs text-ink-500">
-              {principal.subject}
+              {session.principal_id}
             </p>
           </div>
           <button

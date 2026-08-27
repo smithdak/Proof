@@ -30,7 +30,9 @@ use proof_attestation::authority::{AuthorityPayloadProfile, sign_authority_paylo
 use proof_attestation::{Ed25519SigningProvider, ProofSigningProvider};
 use proof_canonical::{canonicalize, digest};
 use proof_domain::{ArtifactKind, ContentDigest, Timestamp};
-use proof_pg::{PgConfig, schema::ALL_TABLE_DDL, wiring::PgRuntime};
+use proof_pg::{
+    PgConfig, projection::DERIVED_TABLES_DDL, schema::ALL_TABLE_DDL, wiring::PgRuntime,
+};
 use proof_remote::AuthorityHeadV1;
 use proof_remote::authority::{
     RemoteAuthorityRecordV1, RemotePrincipalStatusApiVersion, RemotePrincipalStatusV2,
@@ -143,8 +145,41 @@ impl TestDb {
                          authority_head_digest, authority_head_sequence,
                          content_head_digest, release_head_digest, policy_head_digest,
                          configuration_head_digest
-                     ) VALUES (1, $1, 1, 0, 10, 0, 0, $2, 10, NULL, NULL, NULL, NULL)",
-                    &[&WS_ID, &deterministic_digest(0xaa).to_string()],
+                     ) VALUES (1, $1, 1, 0, 10, 0, 0, $2, 10, $3, NULL, NULL, NULL)",
+                    &[
+                        &WS_ID,
+                        &deterministic_digest(0xaa).to_string(),
+                        &deterministic_digest(0x73).to_string(),
+                    ],
+                )
+                .unwrap();
+            let metadata = canonicalize(&json!({
+                "principal_id": REQUESTER,
+                "storage_schema_version": 1,
+            }))
+            .unwrap();
+            client
+                .execute(
+                    "INSERT INTO facts
+                         (fact_id, workspace_id, fact_kind, authority_sequence,
+                          fact_digest, body, committed_at)
+                     VALUES ('workspace/metadata', $1, 'workspace_metadata', 0, $2, $3, now())",
+                    &[
+                        &WS_ID,
+                        &deterministic_digest(0x74).to_string(),
+                        &metadata.as_bytes(),
+                    ],
+                )
+                .unwrap();
+            for ddl in DERIVED_TABLES_DDL {
+                client.batch_execute(ddl).unwrap();
+            }
+            client
+                .execute(
+                    "INSERT INTO projection_generations
+                         (generation, state_digest, active, rebuilt_at)
+                     VALUES (1, $1, TRUE, now())",
+                    &[&deterministic_digest(0x72).to_string()],
                 )
                 .unwrap();
         }
@@ -685,17 +720,21 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
             "api_version": "proof.dev/http-human-operation-request/v1",
             "workspace_id": WS_ID,
             "operation": {
-                "name": "changeset.get",
-                "version": "proof.dev/operation/changeset.get/v2"
+                "name": "schema.list",
+                "version": "proof.dev/operation/schema.list/v1"
             },
-            "input": { "changeset_id": "019c0000-0000-7000-8000-0000000000ee" }
+            "correlation_id": null,
+            "idempotency_key": null,
+            "input": {
+                "api_version": "proof.dev/operation/schema.list/v1"
+            }
         });
         let resp = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/human/operations/changeset.get/v2")
+                    .uri("/api/v1/human/operations/schema.list/v1")
                     .header(header::CONTENT_TYPE, "application/json")
                     .header(header::HOST, "proof.example.test")
                     .header(header::ORIGIN, "https://proof.example.test")
@@ -706,9 +745,14 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+        let human_status = resp.status();
         let human_result = response_json(resp).await;
-        assert_eq!(human_result["operation"]["name"], "changeset.get");
+        assert_eq!(
+            human_status,
+            StatusCode::OK,
+            "Human read must succeed: {human_result}"
+        );
+        assert_eq!(human_result["operation"]["name"], "schema.list");
 
         // 6. A dual-auth Agent operation (session + fresh AuthenticatedCommandV1).
         let agent_body = json!({
@@ -717,6 +761,7 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
                 "name": "workspace.status",
                 "version": "proof.dev/operation/workspace.status/v1"
             },
+            "correlation_id": null,
             "invocation": serde_json::to_value(&invocation).unwrap()
         });
         let resp = app
@@ -735,8 +780,13 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+        let agent_status = resp.status();
         let agent_result = response_json(resp).await;
+        assert_eq!(
+            agent_status,
+            StatusCode::OK,
+            "Agent status must succeed: {agent_result}"
+        );
         assert_eq!(agent_result["operation"]["name"], "workspace.status");
 
         // 7. Disclosure-neutral 401 for an unknown subject: a session bound to a
@@ -747,7 +797,7 @@ fn end_to_end_capabilities_login_session_human_agent_and_unknown_subject() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/human/operations/changeset.get/v2")
+                    .uri("/api/v1/human/operations/schema.list/v1")
                     .header(header::CONTENT_TYPE, "application/json")
                     .header(header::HOST, "proof.example.test")
                     .header(header::ORIGIN, "https://proof.example.test")

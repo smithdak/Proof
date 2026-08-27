@@ -1,0 +1,26 @@
+{
+  "api_version": "proof.dev/http-operation-result/v1",
+  "operation": {
+    "name": "workspace.status",
+    "version": "proof.dev/operation/workspace.status/v1"
+  },
+  "operation_id": "019e0000-0000-7000-8000-000000000061",
+  "correlation_id": null,
+  "replayed": false,
+  "result_anchor": {
+    "kind": "committed-transaction",
+    "digest": "blake3:69ca2f16d4bcdb0faf6035820c2d3cfc7335756ec2914b589b94ddce7615a614",
+    "transaction_sequence": 19
+  },
+  "result_schema": "https://proof.dev/schema/collaboration-server/application-operations/v1#/$defs/workspaceStatusResultV1",
+  "data": {
+    "workspace_id": "019e0000-0000-7000-8000-000000000001",
+    "requesting_principal_id": "019e0000-0000-7000-8000-000000000002",
+    "operating_principal_id": "019e0000-0000-7000-8000-000000000003",
+    "delegation_id": "019e0000-0000-7000-8000-000000000004",
+    "storage_schema_version": 15,
+    "authoritative_sequence": 18,
+    "state_digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+    "authorization_decision_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+  }
+}

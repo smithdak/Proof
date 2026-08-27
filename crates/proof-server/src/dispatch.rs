@@ -10,8 +10,9 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue};
 use proof_domain::CorrelationId;
 use proof_remote::{
-    AuthorityHeadV1, HttpRouteV1, RemoteOperationV1, cross_check_route_operation,
+    HttpRouteV1, RemoteOperationV1, cross_check_route_operation,
     identity::AuthenticatedActorContextV2,
+    registry::{ApplicationConsequenceOutcome, operation_effect_digest},
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -400,10 +401,14 @@ pub struct SuccessEnvelope {
     pub operation_id: String,
     /// Optional validated caller UUIDv7 correlation identifier.
     pub correlation_id: Option<String>,
-    /// Committed snapshot or immutable-result anchor.
-    pub committed_anchor: Value,
+    /// Whether this committed attempt disclosed a prior keyed result.
+    pub replayed: bool,
+    /// Exact committed-transaction result anchor.
+    pub result_anchor: Value,
+    /// Exact result Schema URI from the route-qualified registry row.
+    pub result_schema: String,
     /// Unchanged typed application result.
-    pub result: Value,
+    pub data: Value,
 }
 
 impl SuccessEnvelope {
@@ -413,16 +418,20 @@ impl SuccessEnvelope {
         operation: RemoteOperationV1,
         operation_id: String,
         correlation_id: Option<String>,
-        committed_anchor: Value,
-        result: Value,
+        replayed: bool,
+        result_anchor: Value,
+        result_schema: String,
+        data: Value,
     ) -> Self {
         Self {
             api_version: SUCCESS_ENVELOPE_API_VERSION.to_owned(),
             operation,
             operation_id,
             correlation_id,
-            committed_anchor,
-            result,
+            replayed,
+            result_anchor,
+            result_schema,
+            data,
         }
     }
 }
@@ -710,25 +719,67 @@ pub fn dispatch(
         )
     })?;
 
-    // 6. Bind the committed head/result-digest anchor and the unchanged typed
-    // application result.
-    let result_digest = execution
-        .consequence
-        .result_digest
-        .as_ref()
-        .map(ToString::to_string);
-    let anchor = committed_anchor(
-        &execution.consequence.evaluated_authority_head,
-        result_digest.as_deref(),
+    // 6. Validate the typed result against the exact route-qualified registry
+    // row, then bind its operation-effect digest to this committed attempt.
+    let contract = crate::operation_contract::resolve_operation(request.route, &operation)
+        .map_err(|error| {
+            map_server_error_with_correlation(
+                &error,
+                Some(operation.clone()),
+                operation_id.clone(),
+                correlation_id.clone(),
+            )
+        })?;
+    crate::operation_contract::validate_operation_result(contract, &execution.result).map_err(
+        |error| {
+            map_server_error_with_correlation(
+                &error,
+                Some(operation.clone()),
+                operation_id.clone(),
+                correlation_id.clone(),
+            )
+        },
+    )?;
+    let result_digest = operation_effect_digest(&execution.result).map_err(|error| {
+        map_server_error_with_correlation(
+            &ServerError::Internal(error.to_string()),
+            Some(operation.clone()),
+            operation_id.clone(),
+            correlation_id.clone(),
+        )
+    })?;
+    let replayed = matches!(
+        execution.consequence.outcome,
+        ApplicationConsequenceOutcome::IdempotentReplay
     );
+    let anchor = committed_anchor(execution.transaction_sequence, &result_digest.to_string());
 
-    Ok(SuccessEnvelope::new(
+    let envelope = SuccessEnvelope::new(
         operation,
         operation_id,
         request.correlation_id,
+        replayed,
         anchor,
+        contract.result_schema.clone(),
         execution.result,
-    ))
+    );
+    let envelope_value = serde_json::to_value(&envelope).map_err(|error| {
+        map_server_error_with_correlation(
+            &ServerError::Internal(error.to_string()),
+            Some(envelope.operation.clone()),
+            envelope.operation_id.clone(),
+            envelope.correlation_id.clone(),
+        )
+    })?;
+    crate::operation_contract::validate_result_envelope(&envelope_value).map_err(|error| {
+        map_server_error_with_correlation(
+            &error,
+            Some(envelope.operation.clone()),
+            envelope.operation_id.clone(),
+            envelope.correlation_id.clone(),
+        )
+    })?;
+    Ok(envelope)
 }
 
 /// Cross-checks the path name/major, invocation operation, and route-qualified
@@ -839,13 +890,11 @@ pub fn validate_correlation_id(correlation_id: Option<&str>) -> Result<(), Serve
 /// Computes the committed result anchor for a success envelope (contract
 /// §"Envelopes, Problems, and HTTP semantics").
 #[must_use]
-pub fn committed_anchor(authority_head: &AuthorityHeadV1, result_digest: Option<&str>) -> Value {
+pub fn committed_anchor(transaction_sequence: u64, result_digest: &str) -> Value {
     json!({
-        "authority_head": {
-            "sequence": authority_head.sequence,
-            "record_digest": authority_head.record_digest.to_string(),
-        },
-        "result_digest": result_digest,
+        "kind": "committed-transaction",
+        "digest": result_digest,
+        "transaction_sequence": transaction_sequence,
     })
 }
 

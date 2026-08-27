@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "react-router";
-import { getSession, loginUrl, setCsrfProvider } from "@/api/client";
-import type { SessionInfo } from "@/api/types";
+import type { SessionInfo } from "proof-sdk";
+import { getConsoleSession, proofClient } from "@/api/sdk";
 import { RegisterPanel, Skeleton } from "@/design-system";
 
 const SessionContext = createContext<SessionInfo | undefined>(undefined);
@@ -28,20 +28,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { data, isPending, isError } = useQuery({
     queryKey: ["session"],
-    queryFn: getSession,
+    queryFn: getConsoleSession,
     staleTime: Infinity,
     retry: 1,
   });
-
-  useEffect(() => {
-    setCsrfProvider(() => data?.csrf_token);
-  }, [data]);
 
   if (isPending) {
     return <SessionSkeleton />;
   }
 
-  if (isError || !data?.authenticated) {
+  if (isError || !data) {
     return (
       <main className="flex min-h-svh items-center justify-center bg-paper-50 px-6">
         <RegisterPanel title="Registry counter" className="w-full max-w-md">
@@ -57,7 +53,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           </p>
           <div className="mt-5 border-t border-ruling-200 pt-4">
             <a
-              href={loginUrl(`${location.pathname}${location.search}`)}
+              href={proofClient.loginUrl(
+                `${location.pathname}${location.search}`,
+              )}
               className="inline-flex h-9 items-center rounded border border-ruling-300 px-3.5 text-sm font-medium text-ruling-700 transition-colors duration-150 hover:bg-paper-100 motion-reduce:transition-none"
             >
               Sign in

@@ -2,9 +2,9 @@ import type {
   ChangeSet,
   DelegationRef,
   Principal,
-  SessionInfo,
   WorkspaceStatus,
 } from "@/api/types";
+import type { SessionInfo } from "proof-sdk";
 
 /**
  * Synthetic demonstration workspace — generated material for console
@@ -49,13 +49,13 @@ export const principals: Record<string, Principal> = {
 };
 
 export const session: SessionInfo = {
-  authenticated: true,
-  principal: {
-    subject: "smithdak@proof-local",
-    display_name: "Dakota Smith",
-    kind: "human",
-  },
-  csrf_token: "csrf-dev-rotating-token",
+  api_version: "proof.dev/session-get-result/v1",
+  cache_control: "private, no-store",
+  csrf_token: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  principal_id: "019e0000-0000-7000-8000-000000000010",
+  authenticated_at: "2026-08-24T13:05:00Z",
+  idle_expires_at: "2026-08-24T15:05:00Z",
+  expires_at: "2026-08-25T13:05:00Z",
 };
 
 export const workspaceStatus: WorkspaceStatus = {

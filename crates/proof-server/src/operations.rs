@@ -32,6 +32,7 @@ use proof_pg::{
     transaction::{
         CausalSequencePolicy, RetryPolicy, UnitOfWorkHooks, UnitOfWorkOutcome,
         run_unit_of_work_with_retry_and_sequence_policy,
+        run_unit_of_work_with_retry_and_sequence_policy_commit,
     },
 };
 use proof_remote::{
@@ -84,21 +85,8 @@ pub struct HumanOperationExecution {
     pub consequence: RemoteApplicationConsequenceV1,
     /// Exact typed application result.
     pub result: Value,
-}
-
-impl HumanOperationExecution {
-    /// Preserves the retained consequence result for operations that have not
-    /// yet split their typed result from authority evidence.
-    pub fn from_consequence(
-        consequence: RemoteApplicationConsequenceV1,
-    ) -> Result<Self, ServerError> {
-        let result = serde_json::to_value(&consequence)
-            .map_err(|error| ServerError::Internal(error.to_string()))?;
-        Ok(Self {
-            consequence,
-            result,
-        })
-    }
+    /// Exact Workspace transaction sequence committed for this attempt.
+    pub transaction_sequence: u64,
 }
 
 impl HumanOperationExecutor {
@@ -135,17 +123,19 @@ impl HumanOperationExecutor {
         decision: &RemoteAuthorizationDecisionV1,
     ) -> Result<HumanOperationExecution, ServerError> {
         match operation.name.as_str() {
-            "content-resource-intent.issue" | "context.build" | "changeset.approve" => {
-                execute_native_agent(
-                    state,
-                    operation,
-                    normalized_input,
-                    actor_context,
-                    decision,
-                    None,
-                    None,
-                )
-            }
+            "content-resource-intent.issue"
+            | "context.build"
+            | "changeset.get"
+            | "changeset.diff"
+            | "changeset.approve" => execute_native_agent(
+                state,
+                operation,
+                normalized_input,
+                actor_context,
+                decision,
+                None,
+                None,
+            ),
             "schema.get" | "schema.list" | "object.list" => {
                 execute_content_read(state, operation, normalized_input, actor_context, decision)
             }
@@ -156,14 +146,13 @@ impl HumanOperationExecutor {
                 actor_context,
                 decision,
             ),
-            "evidence.export.get" => crate::export::evidence_export_get_v1_execute(
+            "evidence.export.get" => crate::export::evidence_export_get_v1_for_dispatch(
                 state,
                 operation,
                 normalized_input,
                 actor_context,
                 decision,
-            )
-            .and_then(HumanOperationExecution::from_consequence),
+            ),
             "delivery.get" => {
                 execute_delivery_get(state, operation, normalized_input, actor_context, decision)
             }
@@ -402,6 +391,7 @@ fn native_localized_agent_operation(operation: &RemoteOperationV1) -> bool {
                 | AuthorityOperation::EditionCreateV2
                 | AuthorityOperation::ObjectQueryReleasedV2
                 | AuthorityOperation::ReleaseCreateV2
+                | AuthorityOperation::WorkspaceStatusV1
         )
     )
 }
@@ -1019,6 +1009,14 @@ fn execute_native_agent(
             };
             match trace.outcome {
                 OracleOutcome::TypedResult(result) => {
+                    let result = project_native_result_for_registry(
+                        savepoint.transaction(),
+                        &operation_owned,
+                        &input_owned,
+                        result,
+                        &actor_owned,
+                        &decision_for_hook,
+                    )?;
                     let effect_digest = match trace.consequence {
                         OracleConsequence::Null => None,
                         OracleConsequence::ConsequenceDigest(digest) => Some(digest),
@@ -1149,14 +1147,14 @@ fn execute_native_agent(
         }),
     };
 
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
         CausalSequencePolicy::AuthorityOnly,
     )
     .map_err(map_agent_uow_error)?;
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed => Ok(HumanOperationExecution {
             consequence: built_consequence.borrow_mut().take().ok_or_else(|| {
                 ServerError::Internal("native consequence was not produced".into())
@@ -1165,6 +1163,7 @@ fn execute_native_agent(
                 .borrow_mut()
                 .take()
                 .ok_or_else(|| ServerError::Internal("native result was not produced".into()))?,
+            transaction_sequence: commit.transaction_sequence,
         }),
         UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
             application_problem
@@ -1178,6 +1177,205 @@ fn execute_native_agent(
             ))
         }
     }
+}
+
+fn project_native_result_for_registry(
+    transaction: &mut postgres::Transaction<'_>,
+    operation: &RemoteOperationV1,
+    input: &Value,
+    result: Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<Value, PgError> {
+    if operation.name == "changeset.approve" {
+        return project_changeset_approval_result(
+            transaction,
+            input,
+            &result,
+            actor_context,
+            decision,
+        );
+    }
+    if operation.name != "workspace.status" {
+        return Ok(result);
+    }
+    let (requesting_principal_id, operating_principal_id, delegation_id) =
+        actor_principals(actor_context);
+    let delegation_id = delegation_id.ok_or_else(|| {
+        PgError::Integrity("workspace.status Agent result lacks a Delegation identity".to_owned())
+    })?;
+    Ok(json!({
+        "workspace_id": required_result_member(&result, "workspace_id")?,
+        "requesting_principal_id": requesting_principal_id,
+        "operating_principal_id": operating_principal_id,
+        "delegation_id": delegation_id,
+        "storage_schema_version": required_result_member(&result, "storage_schema_version")?,
+        "authoritative_sequence": required_result_member(&result, "authoritative_sequence")?,
+        "state_digest": required_result_member(&result, "state_digest")?,
+        "authorization_decision_digest": decision_digest(decision).to_string(),
+    }))
+}
+
+fn project_changeset_approval_result(
+    transaction: &mut postgres::Transaction<'_>,
+    input: &Value,
+    approval: &Value,
+    actor_context: &AuthenticatedActorContextV2,
+    decision: &RemoteAuthorizationDecisionV1,
+) -> Result<Value, PgError> {
+    let AuthenticatedActorContextV2::Human(approver) = actor_context else {
+        return Err(PgError::Integrity(
+            "changeset.approve result requires a Human actor context".to_owned(),
+        ));
+    };
+    let changeset_id = required_result_str(input, "changeset_id")?;
+    let changeset = read_projection_fact(
+        transaction,
+        &format!("localized_changeset/{changeset_id}"),
+        "localized_changeset",
+    )?;
+    let submission = read_projection_fact(
+        transaction,
+        &format!("localized_submission/{changeset_id}"),
+        "localized_submission",
+    )?;
+    let resource_intent_id = required_result_str(&changeset, "resource_intent_id")?;
+    let resource_intent = read_projection_fact(
+        transaction,
+        &format!("resource_intent/{resource_intent_id}"),
+        "resource_intent",
+    )?;
+    let context_pack_id = required_result_str(&changeset, "context_pack_id")?;
+    let context_pack = read_projection_fact(
+        transaction,
+        &format!("context_pack/{context_pack_id}"),
+        "context_pack",
+    )?;
+    let environment_id = required_result_str(&resource_intent, "environment_id")?;
+    let environment = read_projection_fact(
+        transaction,
+        &format!("environment/{environment_id}"),
+        "environment",
+    )?;
+    let requesting_principal_id = required_result_str(&changeset, "principal_id")?;
+    let requesting_subject_commitment =
+        read_subject_commitment(transaction, requesting_principal_id)?;
+    let reviewer_role_assignment_digest = decision
+        .role_assignment_digests
+        .first()
+        .ok_or_else(|| {
+            PgError::Integrity(
+                "changeset.approve decision lacks its reviewer role assignment".to_owned(),
+            )
+        })?
+        .to_string();
+    let effect_evaluated_head = AuthorityHeadV1 {
+        sequence: decision.authority_sequence,
+        record_digest: decision_digest(decision),
+    };
+    let authority_sequence = effect_evaluated_head
+        .sequence
+        .checked_add(1)
+        .ok_or_else(|| PgError::Integrity("approval authority sequence overflow".to_owned()))?;
+
+    Ok(json!({
+        "api_version": "proof.dev/changeset-approval/v1",
+        "workspace_id": decision.workspace_id,
+        "approval_id": required_result_member(input, "approval_id")?,
+        "approval_name": required_result_member(approval, "approval_name")?,
+        "changeset_id": changeset_id,
+        "approval_decision": "approved",
+        "requesting_principal_id": requesting_principal_id,
+        "requesting_subject_commitment": requesting_subject_commitment,
+        "operating_principal_id": required_result_member(&context_pack, "principal_id")?,
+        "approver_principal_id": approver.requesting_principal_id,
+        "approver_subject_commitment": approver.requesting_subject_commitment.to_string(),
+        "approver_binding_id": approver.requesting_binding_id,
+        "approver_actor_context_digest": decision.actor_context_digest.to_string(),
+        "reviewer_role_assignment_digest": reviewer_role_assignment_digest,
+        "publisher_principal_id": required_result_member(&context_pack, "principal_id")?,
+        "sealed_changeset_digest": required_result_member(&changeset, "sealed_changeset_digest")?,
+        "proposal_digest": required_result_member(&changeset, "proposal_digest")?,
+        "effective_leaves_digest": required_result_member(&changeset, "effective_leaf_digest")?,
+        "validation_results_digest": required_result_member(&submission, "validation_results_digest")?,
+        "submission_id": submission.get("submission_id").cloned().unwrap_or_else(|| json!(changeset_id)),
+        "submission_digest": required_result_member(&submission, "effect_digest")?,
+        "resource_intent_id": resource_intent_id,
+        "resource_intent_digest": required_result_member(&changeset, "resource_intent_digest")?,
+        "context_pack_id": context_pack_id,
+        "context_pack_digest": required_result_member(&changeset, "context_pack_digest")?,
+        "environment_id": environment_id,
+        "environment_config_version": required_result_member(&environment, "config_version")?,
+        "environment_config_digest": required_result_member(&environment, "config_digest")?,
+        "environment_activated_by_principal_id": required_result_member(&environment, "principal_id")?,
+        "policy_bundle_digest": decision.policy_bundle_digest.to_string(),
+        "validation_policy_digest": required_result_member(&context_pack, "policy_digest")?,
+        "idempotency_key": required_result_member(input, "idempotency_key")?,
+        "normalized_input_digest": approver.normalized_input_digest.to_string(),
+        "evaluated_authority_head": effect_evaluated_head,
+        "approved_at": required_result_member(approval, "approved_at")?,
+        "authority_sequence": authority_sequence,
+        "previous_authority_record_digest": decision_digest(decision).to_string(),
+        "authority_key_id": decision.authority_key_id,
+    }))
+}
+
+fn read_projection_fact(
+    transaction: &mut postgres::Transaction<'_>,
+    fact_id: &str,
+    fact_kind: &str,
+) -> Result<Value, PgError> {
+    let row = transaction
+        .query_opt("SELECT body FROM facts WHERE fact_id = $1", &[&fact_id])
+        .map_err(|error| proof_pg::transaction::transaction_error(&error))?
+        .ok_or_else(|| {
+            PgError::Integrity(format!(
+                "changeset.approve projection lacks `{fact_kind}` fact `{fact_id}`"
+            ))
+        })?;
+    serde_json::from_slice(&row.get::<_, Vec<u8>>(0)).map_err(|error| {
+        PgError::Integrity(format!(
+            "changeset.approve projection has invalid `{fact_kind}` bytes: {error}"
+        ))
+    })
+}
+
+fn read_subject_commitment(
+    transaction: &mut postgres::Transaction<'_>,
+    principal_id: &str,
+) -> Result<Value, PgError> {
+    let rows = transaction
+        .query(
+            "SELECT body FROM facts WHERE fact_id LIKE 'oidc_binding/%' ORDER BY authority_sequence DESC",
+            &[],
+        )
+        .map_err(|error| proof_pg::transaction::transaction_error(&error))?;
+    for row in rows {
+        let binding: Value = serde_json::from_slice(&row.get::<_, Vec<u8>>(0))
+            .map_err(|error| PgError::Integrity(format!("invalid OIDC binding fact: {error}")))?;
+        if binding.get("principal_id").and_then(Value::as_str) == Some(principal_id) {
+            return required_result_member(&binding, "subject_commitment");
+        }
+    }
+    Err(PgError::Integrity(format!(
+        "changeset.approve projection lacks an OIDC binding for `{principal_id}`"
+    )))
+}
+
+fn required_result_str<'a>(result: &'a Value, member: &str) -> Result<&'a str, PgError> {
+    result.get(member).and_then(Value::as_str).ok_or_else(|| {
+        PgError::Integrity(format!(
+            "native operation result lacks required string member `{member}`"
+        ))
+    })
+}
+
+fn required_result_member(result: &Value, member: &str) -> Result<Value, PgError> {
+    result.get(member).cloned().ok_or_else(|| {
+        PgError::Integrity(format!(
+            "native operation result lacks required member `{member}`"
+        ))
+    })
 }
 
 /// Returns the stable `proof.dependency.unavailable` pending consequence for
@@ -1685,14 +1883,14 @@ fn execute_content_read(
             Ok(())
         }),
     };
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
         CausalSequencePolicy::AuthorityOnly,
     )
     .map_err(ServerError::Storage)?;
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed => Ok(HumanOperationExecution {
             consequence: built_consequence.borrow_mut().take().ok_or_else(|| {
                 ServerError::Internal("read consequence was not produced".to_owned())
@@ -1701,6 +1899,7 @@ fn execute_content_read(
                 .borrow_mut()
                 .take()
                 .ok_or_else(|| ServerError::Internal("read result was not produced".to_owned()))?,
+            transaction_sequence: commit.transaction_sequence,
         }),
         UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
             application_problem
@@ -2290,7 +2489,7 @@ fn execute_owned(
         }),
     };
 
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
@@ -2304,7 +2503,7 @@ fn execute_owned(
         }
     })?;
 
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed => Ok(HumanOperationExecution {
             consequence: built_consequence
                 .borrow_mut()
@@ -2313,6 +2512,7 @@ fn execute_owned(
             result: built_result.borrow_mut().take().ok_or_else(|| {
                 ServerError::Internal("operation result was not produced".to_owned())
             })?,
+            transaction_sequence: commit.transaction_sequence,
         }),
         UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
             application_problem.borrow_mut().take().ok_or_else(|| {
@@ -4511,7 +4711,7 @@ fn execute_delivery_management(
         }),
     };
 
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
@@ -4519,7 +4719,7 @@ fn execute_delivery_management(
     )
     .map_err(ServerError::Storage)?;
 
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed => Ok(HumanOperationExecution {
             consequence: built_consequence
                 .borrow_mut()
@@ -4528,6 +4728,7 @@ fn execute_delivery_management(
             result: built_result.borrow_mut().take().ok_or_else(|| {
                 ServerError::Internal("delivery result was not produced".to_owned())
             })?,
+            transaction_sequence: commit.transaction_sequence,
         }),
         UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
             application_problem.borrow_mut().take().ok_or_else(|| {
@@ -4706,7 +4907,7 @@ fn execute_delivery_get(
         }),
     };
 
-    let outcome = run_unit_of_work_with_retry_and_sequence_policy(
+    let commit = run_unit_of_work_with_retry_and_sequence_policy_commit(
         runtime.client_mut(),
         &mut hooks,
         RetryPolicy::default(),
@@ -4714,7 +4915,7 @@ fn execute_delivery_get(
     )
     .map_err(ServerError::Storage)?;
 
-    match outcome {
+    match commit.outcome {
         UnitOfWorkOutcome::Committed => Ok(HumanOperationExecution {
             consequence: built_consequence
                 .borrow_mut()
@@ -4723,6 +4924,7 @@ fn execute_delivery_get(
             result: built_result.borrow_mut().take().ok_or_else(|| {
                 ServerError::Internal("delivery result was not produced".to_owned())
             })?,
+            transaction_sequence: commit.transaction_sequence,
         }),
         UnitOfWorkOutcome::ApplicationFailureCommitted => Err(ServerError::ApplicationProblem(
             application_problem.borrow_mut().take().ok_or_else(|| {

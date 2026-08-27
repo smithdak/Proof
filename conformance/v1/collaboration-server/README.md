@@ -58,13 +58,15 @@ Unix Human/Agent profile. Remote operation uses explicit successor types.
 - `schemas/rejected-case-manifest-v1.schema.json` defines the closed shape of
   the non-executable falsification-requirements matrix.
 
-The current retained inventory contains 39 JSON vectors. Fixture suffixes and
+The current retained inventory contains 42 JSON vectors. Fixture suffixes and
 profiles are normative qualifications, not informal labels:
 
 - `vectors/*.valid.json` are retained decision-candidate contract instances for
   this proposed profile. Retention does not claim owner acceptance, a server implementation, or
   runtime qualification; a fixture carrying an explicit `status` or
   `runtime_qualified` field retains that narrower claim.
+- `http-operation-result.valid.json` binds one exact registry result Schema,
+  typed `data`, and the current attempt's committed-transaction anchor.
 - `authenticated-actor-context-v2.*.valid.json` is adapter-private runtime
   context and contains the exact raw OIDC subject by design. Its public-safe
   projection is the corresponding

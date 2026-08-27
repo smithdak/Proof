@@ -50,19 +50,6 @@ const JSON_MEDIA_TYPE: &str = "application/json";
 /// session boundary"). Header names are matched case-insensitively by HTTP.
 const PROOF_CSRF_HEADER: &str = "proof-csrf";
 
-/// The closed top-level member names of both operation request envelopes. A
-/// member outside this set is rejected before dispatch; the route-specific
-/// `additionalProperties: false` Schemas are enforced later by the registry.
-const ENVELOPE_MEMBERS: [&str; 7] = [
-    "api_version",
-    "workspace_id",
-    "operation",
-    "correlation_id",
-    "idempotency_key",
-    "input",
-    "invocation",
-];
-
 /// The exact committed HTTP operation registry value (contract §"HTTP
 /// boundary", `capabilities.discover/v1`). It is byte-for-byte the retained
 /// conformance vector; the response is canonicalized and committed separately.
@@ -470,11 +457,22 @@ pub async fn human_operations(
 ) -> Result<Response, ProblemResponse> {
     let value = proof_canonical::parse_strict(&canonical.canonical_bytes)
         .map_err(|_| transport_problem("proof.input.invalid_json"))?;
+    require_request_api_version(&value, "proof.dev/http-human-operation-request/v1")?;
+    crate::operation_contract::validate_human_request(&value)
+        .map_err(operation_validation_problem)?;
     let operation = parse_envelope_operation(&value)?;
     cross_check_route_operation(HttpRouteV1::HumanOperations, &name, &major, &operation)
         .map_err(|_| transport_problem("proof.input.schema_mismatch"))?;
 
-    let normalized_input = value.get("input").cloned().unwrap_or(Value::Null);
+    let contract =
+        crate::operation_contract::resolve_operation(HttpRouteV1::HumanOperations, &operation)
+            .map_err(operation_validation_problem)?;
+    let normalized_input = value
+        .get("input")
+        .cloned()
+        .expect("the validated Human envelope carries input");
+    crate::operation_contract::validate_operation_input(contract, &normalized_input)
+        .map_err(operation_validation_problem)?;
     let correlation_id = value
         .get("correlation_id")
         .and_then(Value::as_str)
@@ -483,6 +481,10 @@ pub async fn human_operations(
         .get("workspace_id")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    let supplied_idempotency_key = value
+        .get("idempotency_key")
+        .cloned()
+        .expect("the validated Human envelope carries idempotency_key");
     let session_id = session_cookie.session_id;
     let csrf_value = csrf.csrf;
 
@@ -505,6 +507,10 @@ pub async fn human_operations(
             "workspace",
         )
         .map_err(|error| map_server_error(&error, Some(operation.clone()), new_operation_id()))?;
+        guard_human_idempotency_key(contract, &supplied_idempotency_key, &normalized_input)
+            .map_err(|error| {
+                map_server_error(&error, Some(operation.clone()), new_operation_id())
+            })?;
 
         let mut actor_context = authenticate_human_session(&state, &session).map_err(|error| {
             map_server_error(&error, Some(operation.clone()), new_operation_id())
@@ -554,6 +560,9 @@ pub async fn agent_operations(
 ) -> Result<Response, ProblemResponse> {
     let value = proof_canonical::parse_strict(&canonical.canonical_bytes)
         .map_err(|_| transport_problem("proof.input.invalid_json"))?;
+    require_request_api_version(&value, "proof.dev/http-agent-operation-request/v1")?;
+    crate::operation_contract::validate_agent_request(&value)
+        .map_err(operation_validation_problem)?;
     let operation = parse_envelope_operation(&value)?;
     cross_check_route_operation(HttpRouteV1::AgentOperations, &name, &major, &operation)
         .map_err(|_| transport_problem("proof.input.schema_mismatch"))?;
@@ -567,6 +576,11 @@ pub async fn agent_operations(
                 .map_err(|_| transport_problem("proof.input.schema_mismatch"))
         })?;
     let normalized_input = Value::Object(invocation.command_input.normalized_input.clone());
+    let contract =
+        crate::operation_contract::resolve_operation(HttpRouteV1::AgentOperations, &operation)
+            .map_err(operation_validation_problem)?;
+    crate::operation_contract::validate_operation_input(contract, &normalized_input)
+        .map_err(operation_validation_problem)?;
     let correlation_id = value
         .get("correlation_id")
         .and_then(Value::as_str)
@@ -695,8 +709,8 @@ pub async fn preview_object(
 /// Strict-parsed RFC 8785 canonical request guard (contract §"HTTP boundary").
 ///
 /// It enforces the 1 MiB canonical-request bound independently of the raw-body
-/// bound, rejects non-I-JSON values and duplicate/unknown JSON names, and
-/// exposes the canonical bytes to the operation handlers.
+/// bound, rejects non-I-JSON values and duplicate JSON names, and exposes the
+/// canonical bytes to the route-specific Schema validators.
 pub struct CanonicalRequestGuard {
     /// Exact RFC 8785 canonical request bytes.
     pub canonical_bytes: Vec<u8>,
@@ -721,8 +735,6 @@ where
 
         let value = proof_canonical::parse_strict(&bytes)
             .map_err(|_| transport_problem("proof.input.invalid_json"))?;
-        reject_unknown_members(&value)?;
-
         let canonical = proof_canonical::canonicalize(&value)
             .map_err(|_| transport_problem("proof.input.invalid_json"))?;
         if canonical.as_bytes().len() > CANONICAL_REQUEST_LIMIT_BYTES {
@@ -928,20 +940,6 @@ fn is_length_limit(error: &axum::Error) -> bool {
         .is_some_and(<dyn std::error::Error>::is::<http_body_util::LengthLimitError>)
 }
 
-/// Rejects top-level JSON members that are unknown to both operation request
-/// envelopes (contract §"HTTP boundary").
-fn reject_unknown_members(value: &Value) -> Result<(), ProblemResponse> {
-    let Value::Object(map) = value else {
-        return Ok(());
-    };
-    for key in map.keys() {
-        if !ENVELOPE_MEMBERS.contains(&key.as_str()) {
-            return Err(transport_problem("proof.input.invalid_json"));
-        }
-    }
-    Ok(())
-}
-
 /// Extracts the exact envelope `operation` pair from a strict-parsed request
 /// body (contract §"HTTP boundary").
 fn parse_envelope_operation(value: &Value) -> Result<RemoteOperationV1, ProblemResponse> {
@@ -953,6 +951,54 @@ fn parse_envelope_operation(value: &Value) -> Result<RemoteOperationV1, ProblemR
             serde_json::from_value(operation)
                 .map_err(|_| transport_problem("proof.input.schema_mismatch"))
         })
+}
+
+fn require_request_api_version(value: &Value, expected: &str) -> Result<(), ProblemResponse> {
+    match value.get("api_version") {
+        Some(Value::String(version)) if version == expected => Ok(()),
+        Some(Value::String(_)) => Err(transport_problem("proof.input.unsupported_version")),
+        _ => Err(transport_problem("proof.input.schema_mismatch")),
+    }
+}
+
+fn operation_validation_problem(error: ServerError) -> ProblemResponse {
+    match error {
+        ServerError::Dispatch(_) => transport_problem("proof.input.schema_mismatch"),
+        _ => transport_problem("proof.internal"),
+    }
+}
+
+fn guard_human_idempotency_key(
+    contract: &crate::operation_contract::OperationContract,
+    supplied: &Value,
+    normalized_input: &Value,
+) -> Result<(), ServerError> {
+    match contract.application_idempotency.as_str() {
+        "required-uuidv7" => {
+            let expected = normalized_input
+                .get("idempotency_key")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ServerError::Dispatch(
+                        "required operation input carries no idempotency_key".to_owned(),
+                    )
+                })?;
+            if supplied.as_str() == Some(expected) {
+                Ok(())
+            } else {
+                Err(ServerError::Dispatch(
+                    "envelope idempotency_key does not equal normalized input".to_owned(),
+                ))
+            }
+        }
+        "none" if supplied.is_null() => Ok(()),
+        "none" => Err(ServerError::Dispatch(
+            "no-key operation requires a null envelope idempotency_key".to_owned(),
+        )),
+        value => Err(ServerError::Internal(format!(
+            "Human registry row carries unsupported idempotency mode `{value}`"
+        ))),
+    }
 }
 
 /// Returns `true` when the `Origin` header denotes the exact same origin as the

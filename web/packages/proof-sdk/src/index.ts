@@ -1,48 +1,21 @@
 export { ProofClient } from "./client";
-export type { ProofClientOptions } from "./client";
+export type {
+  AgentExecutionOptions,
+  HumanExecutionOptions,
+  ProofClientOptions,
+} from "./client";
 export { ProblemError, TransportError } from "./errors";
 export {
+  AGENT_OPERATION_REGISTRY,
+  HUMAN_OPERATION_REGISTRY,
   OPERATION_REGISTRY,
+  resolveAgentOperation,
+  resolveHumanOperation,
   resolveOperation,
 } from "./registry";
-export type { OperationPair } from "./registry";
 export type {
-  ApplicationConsequence,
-  ApplicationConsequenceOutcome,
-  CapabilitiesDiscoverResult,
-  ChangesetCommitInputV2,
-  ChangesetDiffInputV2,
-  ChangesetGetInputV2,
-  ChangesetSubmitInputV2,
-  ChangesetValidateInputV2,
-  CommittedAnchor,
-  ContextBuildInputV1,
-  EditionCreateInputV2,
-  HumanOperationRequest,
-  AgentOperationRequest,
-  LocalizedChangeSetAddInputV2,
-  LocalizedChangeSetCreateInputV2,
-  LocalizedContextBuildInputV2,
-  LocalizedContextLimitsInput,
-  LocalizedEditKind,
-  LocalizedExpectedSourceInput,
-  LocalizedExpectedTargetInput,
-  LocalizedPolicyRuleInput,
-  LocalizedSemanticEditInput,
-  ObjectQueryReleasedInputV1,
-  ObjectQueryReleasedInputV2,
-  OperationInputByPair,
-  OperationKey,
-  OperationVersionUri,
-  PreviewObjectResult,
-  ProblemBody,
-  ReleasedTargetInput,
-  ReleaseCreateInputV2,
-  RemoteOperation,
-  SessionInfo,
-  SessionLogoutResult,
-  SuccessEnvelope,
-  Timestamp,
-  Uuid,
-  WorkspaceStatusInputV1,
-} from "./types";
+  ApplicationIdempotency,
+  OperationActor,
+  OperationPair,
+} from "./registry";
+export type * from "./types";

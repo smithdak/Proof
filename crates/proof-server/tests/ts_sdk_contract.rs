@@ -18,7 +18,7 @@ fn sdk_source(name: &str) -> String {
 }
 
 fn interface_block<'a>(ts_source: &'a str, interface_name: &str) -> Option<&'a str> {
-    let marker = format!("export interface {interface_name} ");
+    let marker = format!("export interface {interface_name}");
     let start = ts_source.find(&marker)?;
     let body_start = ts_source[start..].find('{')? + start;
     let mut depth = 0usize;
@@ -96,15 +96,32 @@ fn ts_registry_matches_the_frozen_authority_operation_pairs() {
         all.len(),
         proof_application::authority::AUTHORITY_OPERATION_REGISTRY_V1.len()
     );
+    assert_eq!(registry_ts.matches("pair(\"agent\"").count(), 14);
     for operation in all {
-        let literal = format!(
-            "pair(\"{}\", \"{}\")",
+        let key = format!(
+            "\"{}:{}\"",
             operation.name(),
-            operation.version()
+            operation.version().rsplit('/').next().unwrap()
         );
         assert!(
-            registry_ts.contains(&literal),
-            "TypeScript SDK registry is missing the frozen pair `{literal}`"
+            registry_ts.contains(&key) && registry_ts.contains(operation.version()),
+            "TypeScript SDK Agent registry is missing `{key}` at `{}`",
+            operation.version()
+        );
+    }
+
+    for (key, version) in [
+        (
+            "content-resource-intent.issue:v2",
+            "proof.dev/operation/content-resource-intent.issue/v2",
+        ),
+        ("schema.get:v1", "proof.dev/operation/schema.get/v1"),
+        ("schema.list:v1", "proof.dev/operation/schema.list/v1"),
+        ("object.list:v1", "proof.dev/operation/object.list/v1"),
+    ] {
+        assert!(
+            registry_ts.contains(&format!("\"{key}\"")) && registry_ts.contains(version),
+            "TypeScript SDK Human registry is missing `{key}` at `{version}`"
         );
     }
 }
@@ -136,10 +153,6 @@ fn ts_input_types_stay_field_set_exact_against_rust_inputs() {
         (
             "LocalizedExpectedTargetInput",
             "LocalizedExpectedTargetInputV2",
-        ),
-        (
-            "LocalizedSemanticEditInput",
-            "LocalizedObjectLocalePutEditInputV2",
         ),
         (
             "LocalizedChangeSetAddInputV2",
@@ -177,30 +190,91 @@ fn ts_input_types_stay_field_set_exact_against_rust_inputs() {
         assert!(!fields.is_empty(), "{rust_name} produced no fields");
         assert_interface_covers(&types_ts, ts_name, &fields);
     }
+
+    for rust_name in [
+        "LocalizedObjectLocalePutEditInputV2",
+        "LocalizedObjectCreateEditInputV2",
+    ] {
+        for field in rust_struct_fields(authority, rust_name) {
+            assert!(
+                types_ts.contains(&format!("{field}:")),
+                "TypeScript Edit union is missing `{field}` from {rust_name}"
+            );
+        }
+    }
 }
 
 #[test]
 fn ts_transport_envelopes_match_the_server_handlers() {
     let types_ts = sdk_source("types.ts");
-    // Human/agent request envelopes exactly as parsed by the route guards.
-    assert!(types_ts.contains("\"proof.dev/http-human-operation-request/v1\""));
-    assert!(types_ts.contains("\"proof.dev/http-agent-operation-request/v1\""));
-    // Result envelope and consequence members as serialized by the dispatcher.
+    let human = interface_block(&types_ts, "HumanOperationRequest").unwrap();
     for member in [
-        "committed_anchor",
-        "operation_id",
-        "correlation_id",
-        "decision_digest",
-        "public_input_projection_digest",
-        "application_effect_digest",
-        "evaluated_authority_head",
-        "authority_key_id",
+        "api_version:",
+        "workspace_id:",
+        "operation:",
+        "correlation_id:",
+        "idempotency_key:",
+        "input:",
     ] {
         assert!(
-            types_ts.contains(member),
-            "TypeScript result types are missing `{member}`"
+            human.contains(member),
+            "Human envelope is missing `{member}`"
         );
     }
+    assert!(!human.contains("invocation:"));
+
+    let agent = interface_block(&types_ts, "AgentOperationRequest").unwrap();
+    for member in [
+        "api_version:",
+        "operation:",
+        "correlation_id:",
+        "invocation:",
+    ] {
+        assert!(
+            agent.contains(member),
+            "Agent envelope is missing `{member}`"
+        );
+    }
+    for forbidden in ["workspace_id:", "idempotency_key:", "input:"] {
+        assert!(
+            !agent.contains(forbidden),
+            "Agent envelope admits `{forbidden}`"
+        );
+    }
+
+    let success = interface_block(&types_ts, "SuccessEnvelope").unwrap();
+    for member in [
+        "api_version:",
+        "operation:",
+        "operation_id:",
+        "correlation_id:",
+        "replayed:",
+        "result_anchor:",
+        "result_schema:",
+        "data:",
+    ] {
+        assert!(
+            success.contains(member),
+            "TypeScript success envelope is missing `{member}`"
+        );
+    }
+    for retired in ["committed_anchor:", "result:"] {
+        assert!(
+            !success.contains(retired),
+            "retired success member `{retired}` remains"
+        );
+    }
+
+    assert!(types_ts.contains("kind: \"committed-transaction\""));
+    assert!(types_ts.contains("kind: \"immutable-result\""));
+    assert!(types_ts.contains("transaction_sequence: number"));
+    assert!(types_ts.contains("transaction_sequence: null"));
+
+    assert!(types_ts.contains("kind: \"object.locale.put\""));
+    assert!(types_ts.contains("kind: \"object.create\""));
+    assert!(types_ts.contains("schema_id?: never"));
+    assert!(types_ts.contains("locale?: never"));
+
     // Problem body members as written by `ProblemResponse::into_response`.
     for member in ["retryable", "instance", "retry_after_ms"] {
         assert!(

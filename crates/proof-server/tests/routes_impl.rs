@@ -3,7 +3,7 @@
 //!
 //! These tests exercise only the transport-level surface owned by `routes.rs`:
 //! the nine-route router and its 404 fallback, the raw-body limit layer, the
-//! canonical-request guard (strict I-JSON, duplicate/unknown names, canonical
+//! canonical-request guard (strict I-JSON, duplicate names, canonical
 //! size), the `Content-Type` guard, the same-origin `Origin` guard, and the
 //! `Proof-CSRF` synchronizer guard. No database, network, or sibling-module
 //! runtime is exercised.
@@ -133,14 +133,11 @@ async fn duplicate_json_names_reject_with_400() {
 }
 
 #[tokio::test]
-async fn unknown_members_reject_with_400() {
+async fn unknown_members_are_deferred_to_the_route_schema() {
     let body = br#"{"api_version":"proof.dev/http-human-operation-request/v1","operation":{"name":"changeset.approve","version":"proof.dev/operation/changeset.approve/v3"},"bogus_member":true}"#;
-    let rejection = canonical_guard(body.to_vec())
+    canonical_guard(body.to_vec())
         .await
-        .err()
-        .expect("unknown members reject");
-    assert_eq!(rejection.tuple.code, "proof.input.invalid_json");
-    assert_eq!(rejection.tuple.status, 400);
+        .expect("strict JSON parsing precedes the route-specific closed Schema");
 }
 
 #[tokio::test]

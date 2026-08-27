@@ -15,7 +15,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
 use jsonschema::{Registry, Validator};
 use proof_application::CAPABILITY_REGISTRY;
-use proof_canonical::parse_strict;
+use proof_canonical::{canonicalize, parse_strict};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -218,6 +218,7 @@ fn vector_schema_reference(file_name: &str, value: &Value) -> &'static str {
         ),
         "proof.dev/http-agent-operation-request/v1"
         | "proof.dev/http-human-operation-request/v1"
+        | "proof.dev/http-operation-result/v1"
         | "proof.dev/http-problem/v1" => HTTP_SCHEMA_ID,
         "proof.dev/conformance/enrollment-agent-binding/v1"
         | "proof.dev/conformance/enrollment-oidc-binding/v1" => {
@@ -698,7 +699,7 @@ fn collaboration_schemas_resolve_and_every_checked_in_vector_is_closed() {
     let vector_paths = sorted_json_files(&collaboration_path("vectors"));
     assert_eq!(
         vector_paths.len(),
-        41,
+        42,
         "the accepted-vector inventory changed"
     );
     for path in vector_paths {
@@ -711,6 +712,24 @@ fn collaboration_schemas_resolve_and_every_checked_in_vector_is_closed() {
             "{file_name} does not satisfy {reference}: {:?}",
             vector_validator.iter_errors(&value).collect::<Vec<_>>()
         );
+
+        if file_name == "http-operation-result.valid.json" {
+            let result_schema = value["result_schema"]
+                .as_str()
+                .expect("result vector names its application Schema");
+            assert!(
+                validator(&registry, result_schema).is_valid(&value["data"]),
+                "result data must satisfy the exact advertised registry Schema"
+            );
+            let canonical = canonicalize(&value["data"]).expect("result data is canonicalizable");
+            let mut hasher = blake3::Hasher::new_derive_key("proof:operation-effect:v1");
+            hasher.update(canonical.as_bytes());
+            let expected = format!("blake3:{}", hasher.finalize().to_hex());
+            assert_eq!(
+                value["result_anchor"]["digest"], expected,
+                "committed anchor must bind the exact result data"
+            );
+        }
 
         let mut widened = value.clone();
         widened

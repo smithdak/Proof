@@ -92,11 +92,21 @@ fn success_envelope_serializes_operation_and_ids() {
         },
         "019e0000-0000-7000-8000-000000000024".to_owned(),
         None,
-        serde_json::json!({ "authority_head": null }),
+        false,
+        serde_json::json!({
+            "kind": "committed-transaction",
+            "digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000",
+            "transaction_sequence": 1,
+        }),
+        concat!(
+            "https://proof.dev/schema/collaboration-server/application-operations/v1",
+            "#/$defs/workspaceStatusResultV1"
+        )
+        .to_owned(),
         serde_json::json!({ "status": "initialized" }),
     );
     let json = serde_json::to_value(&envelope).expect("envelope serializes");
     assert_eq!(json["api_version"], "proof.dev/http-operation-result/v1");
     assert_eq!(json["operation"]["name"], "workspace.status");
-    assert!(json["result"].is_object());
+    assert!(json["data"].is_object());
 }

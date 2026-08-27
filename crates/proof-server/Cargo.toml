@@ -16,6 +16,7 @@ http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
 hyper-util.workspace = true
+jsonschema.workspace = true
 mime.workspace = true
 proof-application = { path = "../proof-application" }
 proof-attestation = { path = "../proof-attestation" }

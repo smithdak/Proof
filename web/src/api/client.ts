@@ -2,7 +2,6 @@ import {
   OPERATION_MAJOR,
   type OperationName,
   type OperationResult,
-  type SessionInfo,
 } from "./types";
 
 /**
@@ -28,45 +27,6 @@ export class OperationError extends Error {
 
 function originHeader(): string {
   return globalThis.location?.origin ?? "http://localhost:5173";
-}
-
-export async function getSession(): Promise<SessionInfo> {
-  const response = await fetch("/api/v1/session", {
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    throw new OperationError(
-      response.status,
-      "session.unavailable",
-      "Session could not be read",
-    );
-  }
-  return (await response.json()) as SessionInfo;
-}
-
-export function loginUrl(returnTo = "/"): string {
-  const params = new URLSearchParams({ return_to: returnTo });
-  return `/auth/oidc/login?${params.toString()}`;
-}
-
-export async function logout(csrfToken: string): Promise<void> {
-  const response = await fetch("/api/v1/session/logout", {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      Origin: originHeader(),
-      "X-CSRF-Token": csrfToken,
-    },
-  });
-  if (!response.ok) {
-    throw new OperationError(
-      response.status,
-      "session.logout_failed",
-      "Logout failed",
-    );
-  }
 }
 
 let csrfProvider: (() => string | undefined) | undefined;

@@ -626,7 +626,16 @@ fn success_envelope_binds_operation_and_identifiers() {
         ),
         operation_id.clone(),
         Some(CORRELATION_ID.to_owned()),
-        json!({ "authority_head": null }),
+        false,
+        committed_anchor(
+            7,
+            "blake3:0000000000000000000000000000000000000000000000000000000000000000",
+        ),
+        concat!(
+            "https://proof.dev/schema/collaboration-server/application-operations/v1",
+            "#/$defs/workspaceStatusResultV1"
+        )
+        .to_owned(),
         json!({ "status": "initialized" }),
     );
 
@@ -639,32 +648,24 @@ fn success_envelope_binds_operation_and_identifiers() {
     );
     assert_eq!(value["operation_id"], operation_id);
     assert_eq!(value["correlation_id"], CORRELATION_ID);
-    assert!(value["result"].is_object());
-    assert!(value["committed_anchor"].is_object());
+    assert_eq!(value["replayed"], false);
+    assert!(value["data"].is_object());
+    assert!(value["result_anchor"].is_object());
+    assert!(value["result_schema"].is_string());
 }
 
 #[test]
-fn committed_anchor_binds_head_and_optional_result_digest() {
-    let head = AuthorityHeadV1 {
-        sequence: 7,
-        record_digest: digest(),
-    };
+fn committed_anchor_binds_result_digest_and_transaction_sequence() {
     let anchored = committed_anchor(
-        &head,
-        Some("blake3:0000000000000000000000000000000000000000000000000000000000000000"),
+        7,
+        "blake3:0000000000000000000000000000000000000000000000000000000000000000",
     );
-    assert_eq!(anchored["authority_head"]["sequence"].as_u64(), Some(7));
+    assert_eq!(anchored["kind"], "committed-transaction");
+    assert_eq!(anchored["transaction_sequence"].as_u64(), Some(7));
     assert_eq!(
-        anchored["authority_head"]["record_digest"],
-        digest().to_string()
-    );
-    assert_eq!(
-        anchored["result_digest"],
+        anchored["digest"],
         "blake3:0000000000000000000000000000000000000000000000000000000000000000"
     );
-
-    let unanchored = committed_anchor(&head, None);
-    assert!(unanchored["result_digest"].is_null());
 }
 
 #[test]
