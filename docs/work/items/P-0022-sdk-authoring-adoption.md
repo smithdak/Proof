@@ -1,14 +1,14 @@
 ---
 id: P-0022
 title: Adopt the authoring contract in the TypeScript SDK and console transport
-status: claimed
+status: review
 wave: now
 kind: implementation
 blocked_by: [P-0021, P-0025]
 claimed_by: ox-alpha:proof:p-0022
 claimed_at: 2026-08-27T18:11:33.000Z
 base_sha: c9db396f1a2ecdffe050f9a7208b3c401501ed84
-review_gate: none
+review_gate: project-owner
 accepted_by: null
 accepted_at: null
 ---
@@ -213,3 +213,22 @@ pnpm build
 Record exact Rust, SDK, and console commands, environment and tool versions,
 changed paths, generated-contract digests, and residual boundaries in
 `docs/work/evidence/P-0022/` per the [work-control protocol](../README.md).
+
+## Qualification record
+
+- Qualified implementation candidate
+  `01ff4b0496fe69cf6ed97aa305a5de591a3ec5a6`, tree
+  `5c371ab16a2f98ee5f8807671a964b03ff3928d7`, descends directly from claim
+  commit `8d044a4094b50b1fc7d8253b60d39c26a647095e`.
+- The locked Rust gate, SDK typecheck/lint/test gate, console
+  typecheck/lint/test/build gate, exact frozen-file checks, and work-control
+  validators passed. The [receipt](../evidence/P-0022/receipt.md) and
+  [manifest](../evidence/P-0022/manifest.json) bind the exact commands and
+  candidate artifacts.
+- Runtime result validation now fails closed when a pre-existing producer does
+  not emit its advertised row Schema. P-0022 does not add semantics for legacy
+  or otherwise unmirrored operation rows, and it does not weaken the accepted
+  envelope to accommodate them. The project-owner gate was added because
+  closing with that explicit residual requires owner acceptance.
+- P-0023 is shaped but remains blocked until the owner accepts or returns this
+  candidate for rework. No P-0023 UI implementation is included here.

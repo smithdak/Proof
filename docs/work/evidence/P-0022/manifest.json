@@ -1,0 +1,192 @@
+{
+  "schema_version": 2,
+  "item_id": "P-0022",
+  "base_sha": "c9db396f1a2ecdffe050f9a7208b3c401501ed84",
+  "claim_commit": "8d044a4094b50b1fc7d8253b60d39c26a647095e",
+  "intermediate_commits": [],
+  "candidate_parent_sha": "8d044a4094b50b1fc7d8253b60d39c26a647095e",
+  "candidate_commit": "01ff4b0496fe69cf6ed97aa305a5de591a3ec5a6",
+  "candidate_tree": "5c371ab16a2f98ee5f8807671a964b03ff3928d7",
+  "item_work_commit": "01ff4b0496fe69cf6ed97aa305a5de591a3ec5a6",
+  "branch": "main",
+  "qualified_at": "2026-08-27T19:41:57.000Z",
+  "qualification_state": "implementation-qualified-project-owner-review",
+  "review_gate": "project-owner",
+  "successors_created": ["P-0023"],
+  "successors_shaped": ["P-0023"],
+  "deployed": false,
+  "milestone_complete": false,
+  "public_release": false,
+  "commands": [
+    {
+      "command": "cargo fmt --all --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "cargo test --locked --workspace --all-targets --all-features",
+      "exit_code": 0,
+      "result": "passed across all workspace crates and suites"
+    },
+    {
+      "command": "cargo test --locked --doc --workspace --all-features",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "cargo test --locked -p proof-server --all-targets --all-features",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "cargo test -p proof-pg --test parity_impl",
+      "exit_code": 0,
+      "result": "passed (24 tests)"
+    },
+    {
+      "command": "pnpm --filter proof-sdk typecheck",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "pnpm --filter proof-sdk lint",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "pnpm --filter proof-sdk test",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed (15 tests; 2 live tests skipped)"
+    },
+    {
+      "command": "pnpm typecheck",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "pnpm lint",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed with two retained Fast Refresh warnings"
+    },
+    {
+      "command": "pnpm test",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed (60 tests; 2 skipped)"
+    },
+    {
+      "command": "pnpm build",
+      "working_directory": "web",
+      "exit_code": 0,
+      "result": "passed with the retained chunk-size warning"
+    },
+    {
+      "command": "node scripts/check-work-items.mjs",
+      "exit_code": 0,
+      "result": "passed (24 items)"
+    },
+    {
+      "command": "node scripts/check-doc-links.mjs",
+      "exit_code": 0,
+      "result": "passed (453 links)"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "npx markdownlint-cli2 --no-globs conformance/v1/collaboration-server/README.md web/packages/proof-sdk/README.md docs/work/items/P-0022-sdk-authoring-adoption.md docs/work/items/P-0023-governed-authoring-console.md docs/work/map.md docs/work/evidence/P-0022/receipt.md",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "inventory": {
+    "changed_files": 44,
+    "insertions": 2781,
+    "deletions": 1010,
+    "new_retained_vectors": [
+      "conformance/v1/collaboration-server/vectors/http-operation-result.valid.json"
+    ],
+    "frozen_envelope_schema_change_count": 0,
+    "frozen_request_vector_change_count": 0,
+    "operation_registry_change_count": 0,
+    "storage_schema_version": "unchanged",
+    "new_third_party_packages": []
+  },
+  "registry_hashes": {
+    "complete_http_operation_registry_sha256": "6f24ba1cb34e6c024070034c57cabb0dcc3db288a5ae8666fa1dcce0b6fc28ca",
+    "remote_authorization_projection_sha256": "d440f8e787099fb8f4a8c1da2ce0f07bbcc51c2ad636ed4dc597bb381a79f171",
+    "agent_authority_registry_sha256": "b4e67916e0d1cae8e7b73ce681057edcad7f83bc953487ccf127333a3340bca7"
+  },
+  "residuals": [
+    "row-Schema validation fails closed for pre-existing generic or unmirrored result producers rather than admitting a second envelope or untyped data shape",
+    "retained Agent context.build/v1 and object.query_released/v1 lack native PostgreSQL result producers",
+    "a newly created empty changeset.get/v2 draft cannot satisfy the frozen changeSetV2 non-empty edits/effective-leaves result Schema",
+    "P-0023 must add a successful retained row fixture before migrating each feature operation",
+    "P-0024 browser north-star, production embedding, Windows runtime, deployment, publication, and public release remain out of scope"
+  ],
+  "environment": {
+    "operating_system": "Linux 5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64 GNU/Linux",
+    "rustc": "1.97.1",
+    "cargo": "1.97.1",
+    "node": "v22.23.2",
+    "pnpm": "11.24.0",
+    "git": "2.43.0",
+    "markdownlint_cli2": "0.23.2",
+    "postgresql": "configured Proof test DSN; server version not claimed"
+  },
+  "artifact_digests": [
+    {
+      "path": "conformance/v1/collaboration-server/vectors/http-operation-result.valid.json",
+      "git_blob_oid": "fdac909ab96c112cf46ff15c72bffe6115e96f79",
+      "algorithm": "sha256",
+      "digest": "da0b90036dd3d77332d196d678c32371803d2908701edfbb3d4b2da4d32fc28a"
+    },
+    {
+      "path": "crates/proof-server/src/operation_contract.rs",
+      "git_blob_oid": "3463a16a804f7d550a85ac3691fa368d9ea43810",
+      "algorithm": "sha256",
+      "digest": "e37ce90f7c5a7a8d664cc3052b929bb416bb43d980c94b5beae6ebdef37223fd"
+    },
+    {
+      "path": "web/packages/proof-sdk/src/client.ts",
+      "git_blob_oid": "c41938c9ea8a48e7f80c2231363f0b4928de9c55",
+      "algorithm": "sha256",
+      "digest": "274573433d74d692c7510950eab5b4cbd2ba55c9b5461efa0326a335d96d5d06"
+    },
+    {
+      "path": "web/packages/proof-sdk/src/types.ts",
+      "git_blob_oid": "9543b283207581605e7e46e4ee3c4253700e7438",
+      "algorithm": "sha256",
+      "digest": "dbe1a3630fe9494c0e9024d0c2e2f904d9730dc084240f0073c7586a18c3c12b"
+    },
+    {
+      "path": "web/packages/proof-sdk/src/registry.ts",
+      "git_blob_oid": "dd17f7062461146ff8192e98a807b9042d2fc2e0",
+      "algorithm": "sha256",
+      "digest": "62c44dc5b70dbd82e119c5f1fa2d37c7c5655bdec7a1335bc7a1880589dd0ea2"
+    },
+    {
+      "path": "web/src/api/sdk.ts",
+      "git_blob_oid": "37f4d4999788c5492932fad9e6e46db560ddfd3d",
+      "algorithm": "sha256",
+      "digest": "ffab58049ed24f59cbd3544b532c81a607c555b81f1b0e2a2c4d301c790161f0"
+    }
+  ],
+  "evidence_paths": [
+    "docs/work/evidence/P-0022/receipt.md",
+    "docs/work/evidence/P-0022/manifest.json"
+  ]
+}

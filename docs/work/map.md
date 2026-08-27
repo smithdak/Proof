@@ -85,9 +85,13 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `claimed` | P-0021, P-0025 | Implement the accepted Schema-authoritative envelope, add exact creation/read SDK types and actor-qualified results, then migrate console session/logout transport without starting Authoring UI. |
+| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `review` | P-0021, P-0025 | Qualified the Schema-authoritative Rust/SDK cutover and bounded console session/logout adoption at candidate `01ff4b0`; project-owner review covers the explicit fail-closed residuals. |
 
 ## Next
+
+| Work item | Status | Blocked by | Outcome |
+| --- | --- | --- | --- |
+| [Build the governed Authoring surfaces in the web console](items/P-0023-governed-authoring-console.md) | `blocked` | P-0022 | Extend the notarial register with committed Object/Schema registers, governed detail, and a receipt-bearing New Item composition after P-0022 acceptance. |
 
 P-0021 closed the complete local/PostgreSQL/CLI/MCP authoring implementation on
 2026-08-27. Successor shaping exposed a conflict between the accepted HTTP JSON
@@ -96,15 +100,17 @@ shape (`result`/`committed_anchor`). The project owner directed a separate
 contract decision and bounded P-0022 console adoption to SDK construction,
 session, and logout transport only. Project owner `smithdak` accepted P-0025
 candidate `1c76c0a` on 2026-08-27, making the frozen Schema authoritative.
-P-0022 is shaped to that exact contract and is now the immediate executable
-frontier. P-0023 Authoring surfaces and P-0024 Playwright qualification remain
-named intent and are shaped only when their blockers close. The license ADR
-remains deferred by owner decision.
+P-0022 candidate `01ff4b0` now implements that exact cutover and awaits the
+project owner's accept-or-rework verdict on its explicit fail-closed residuals.
+P-0023 is shaped as the next notarial-register Authoring implementation but
+remains blocked until that verdict closes P-0022. P-0024 Playwright
+qualification remains named intent and is shaped only when P-0023 closes. The
+license ADR remains deferred by owner decision.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
-No additional item is shaped beyond the immediate P-0022 frontier.
+No additional item is shaped beyond blocked successor P-0023.
 
 ## Completed
 
