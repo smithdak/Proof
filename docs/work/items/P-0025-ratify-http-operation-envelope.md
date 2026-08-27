@@ -44,8 +44,11 @@ ratified.
    accepted P-0008/P-0011/P-0017/P-0020 evidence.
 2. State the non-negotiable invariants: strict unknown-field rejection;
    server-derived actor authority; exact route/operation/Workspace/key
-   cross-checks; nullable validated correlation identity; typed-result schema
-   binding; and an unambiguous committed or immutable result anchor.
+   cross-checks; fresh authentication and current authorization before any
+   idempotency lookup or prior-result disclosure; Workspace-global
+   application-key identity across actor routes and operation pairs; nullable
+   validated correlation identity; typed-result schema binding; and an
+   unambiguous committed or immutable result anchor.
 3. Evaluate at least these genuinely distinct options:
    - Make the frozen JSON Schema representation authoritative and migrate Rust,
      SDK, tests, and mocks.
@@ -57,7 +60,9 @@ ratified.
    conformance-vector/hash, SDK, console, documentation, and rollout effects.
 5. Ratify exact JSON member names, required versus nullable members, operation
    result typing, result-schema discoverability, anchor variants, and the
-   treatment of existing v1 callers and stored evidence.
+   treatment of existing v1 callers and stored evidence. Request-envelope
+   changes must not make the deployment Workspace caller-selected or narrow
+   the existing `(workspace_id, application_key)` replay namespace.
 6. Produce `docs/work/evidence/P-0025/contract.md`, update
    `docs/architecture/collaboration-server.md` and
    `docs/decisions/0013-single-workspace-collaboration-server.md`, and reshape
@@ -72,27 +77,32 @@ ratified.
    decision crux, reversal trigger, and explicit migration/compatibility rule.
 3. Human and Agent request identity/key cross-checks are exact and cannot be
    selected by untrusted input.
-4. Successful responses have one exact typed-result and anchor representation;
+4. Fresh authentication and current authorization still precede idempotency
+   lookup or prior-result disclosure, and application keys remain
+   Workspace-global across actor routes and operation pairs.
+5. Successful responses have one exact typed-result and anchor representation;
    every member's requiredness and nullability is specified.
-5. The candidate lists every schema, Rust, SDK, test, vector/hash, mock, and
+6. The candidate lists every schema, Rust, SDK, test, vector/hash, mock, and
    documentation surface P-0022 must update, plus surfaces guaranteed unchanged.
-6. The candidate records the per-option compatibility, security,
+7. The candidate records the per-option compatibility, security,
    implementation, conformance, SDK, console, documentation, and rollout
    effects required by task 4.
-7. The accepted option is reflected in the applicable architecture/decision
+8. The accepted option is reflected in the applicable architecture/decision
    references, and P-0022 is reshaped to name the exact contract it consumes.
-8. The project owner records acceptance or returns the item for rework; no
+9. The project owner records acceptance or returns the item for rework; no
    implementation begins before acceptance.
    Acceptance populates `accepted_by`/`accepted_at` and the completion record
    names the manifest's candidate SHA and owner verdict; no separate verdict
    file is required.
-9. Work-item, documentation-link, and changed-document Markdown checks pass.
+10. Work-item, documentation-link, and changed-document Markdown checks pass.
 
 ## Explicit non-goals
 
 - No Rust, SDK, console, mock, schema, or vector implementation change beyond
   the decision artifacts needed to state the accepted contract.
 - No new operation, route, authentication method, role, or Problem tuple.
+- No change to authentication/authorization ordering, deployment-Workspace
+  selection, application-key namespace, or keyed replay semantics.
 - No P-0022 SDK implementation or P-0023 Authoring UI.
 - No deployment, public release, or broad API-versioning policy beyond this
   envelope conflict.
