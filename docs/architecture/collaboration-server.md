@@ -656,10 +656,12 @@ read protected state.
 
 ### Envelopes, Problems, and HTTP semantics
 
-Human request bodies contain only Workspace cross-check, exact operation,
-normalized application input, and the application idempotency key or null.
-Agent bodies contain the exact canonical `AuthenticatedInvocationV1`. Neither
-body can construct actor context. Unknown or duplicate JSON names, non-I-JSON
+Human request bodies contain the exact envelope version, Workspace cross-check,
+operation, required nullable correlation identifier, normalized application
+input, and required nullable application idempotency-key cross-check. Agent
+bodies contain the exact envelope version, operation, required nullable
+correlation identifier, and canonical `AuthenticatedInvocationV1`. Neither body
+can construct actor context. Unknown or duplicate JSON names, non-I-JSON
 values, unsupported media types, and unknown members fail closed.
 Before parsing, the adapter independently rejects a raw HTTP request body over
 1,048,576 bytes. After strict parsing and RFC 8785 canonicalization, it also
@@ -668,15 +670,17 @@ or alternate JSON spelling cannot bypass the raw transport bound. Either limit
 uses the 413 `proof.input.too_large` Problem.
 
 Successful responses use a versioned structured envelope containing the exact
-operation/version, server-generated UUIDv7 `operation_id`, optional validated
-caller UUIDv7 `correlation_id`, committed snapshot or immutable-result anchor,
-and the unchanged typed application result. No response is returned from an
-attempt whose transaction did not commit.
+operation/version, server-generated UUIDv7 `operation_id`, required nullable
+validated caller UUIDv7 `correlation_id`, replay state, exact result Schema,
+committed-transaction or immutable-result anchor, and unchanged typed
+application `data`. No response is returned from an attempt whose transaction
+did not commit.
 
-#### P-0025 HTTP-envelope correction candidate
+#### P-0025 HTTP-envelope correction
 
-This subsection is a review candidate and is not effective until the project
-owner accepts P-0025. The candidate makes the already-frozen
+Project owner `smithdak` accepted P-0025 candidate
+`1c76c0a26957e4a5f101236a5bb3bcd21ed539e3` at
+`2026-08-27T18:08:13.000Z`. The accepted decision makes the already-frozen
 `http-envelope-v1.schema.json` representation authoritative and treats the
 current Rust/SDK representation as repairable implementation drift. It does
 not add a second v1 shape or a new envelope major.
@@ -711,9 +715,9 @@ registry-qualified operation that performs no authoritative transaction; no
 current row may infer or select it. Fresh authentication and current
 locked-head authorization continue to precede idempotency lookup or prior
 result disclosure, and application keys remain Workspace-global across actor
-routes and operation pairs. P-0022 may implement this candidate only after
-owner acceptance; evidence and reversal conditions are recorded in the
-[P-0025 contract candidate](../work/evidence/P-0025/contract.md).
+routes and operation pairs. P-0022 is authorized to implement this accepted
+contract; evidence and reversal conditions are recorded in the
+[P-0025 contract](../work/evidence/P-0025/contract.md).
 
 Errors use RFC 9457 `application/problem+json`; the existing stable Proof code
 is the primary machine classifier. The extension members are exactly `code`,

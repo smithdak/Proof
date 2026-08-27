@@ -1,8 +1,8 @@
 ---
 id: P-0022
 title: Adopt the authoring contract in the TypeScript SDK and console transport
-status: blocked
-wave: next
+status: ready
+wave: now
 kind: implementation
 blocked_by: [P-0021, P-0025]
 claimed_by: null
@@ -33,9 +33,9 @@ P-0021 shipped the backend and frozen authoring contracts, but the SDK still
 models only `object.locale.put`, treats every successful operation result as an
 application consequence, and mirrors only the Agent operation registry. The
 console's separate session/logout fetch shapes also differ from the server.
-P-0025 recommends the frozen Schema's closed Human request, Agent request, and
-`data`/`result_anchor`/`result_schema` success representation; this item stays
-blocked until the project owner accepts that exact cutover.
+P-0025 ratifies the frozen Schema's closed Human request, Agent request, and
+`data`/`result_anchor`/`result_schema` success representation. With P-0021 and
+P-0025 complete, this item is the immediate executable frontier.
 
 ## Authorized scope and tasks
 
@@ -94,9 +94,9 @@ blocked until the project owner accepts that exact cutover.
     construction/configuration. Migrate only `SessionProvider` and logout to
     `ProofClient`, removing the non-contract `X-CSRF-Token` and 204-logout
     assumptions from those paths. The authority is
-   `crates/proof-server/src/routes.rs`: logout sends `proof-csrf`, requires
-   Origin and the session cookie, and returns HTTP 200 with
-   `proof.dev/session-logout-result/v1` and `logged_out: true`.
+    `crates/proof-server/src/routes.rs`: logout sends `proof-csrf`, requires
+    Origin and the session cookie, and returns HTTP 200 with
+    `proof.dev/session-logout-result/v1` and `logged_out: true`.
 12. Make only the MSW session/logout handlers emit the exact accepted wire
     representation and require explicit development opt-in. Retain the direct
     console feature `executeOperation` path and existing feature-operation MSW
@@ -170,16 +170,16 @@ blocked until the project owner accepts that exact cutover.
 ## Dependencies and decisions
 
 - P-0021 supplies the implemented and qualified authoring contracts.
-- P-0025 must ratify one canonical HTTP request/result envelope before this
-  item becomes `ready`.
-- The exact pending target is the
-  [P-0025 contract candidate](../evidence/P-0025/contract.md): frozen Schema
+- P-0025 ratifies the canonical HTTP request/result envelope and was accepted
+  by project owner `smithdak` at `2026-08-27T18:08:13.000Z`.
+- The exact accepted target is the
+  [P-0025 contract](../evidence/P-0025/contract.md): frozen Schema
   authoritative, one atomic v1 cutover, all current rows anchored to the
   current committed Workspace transaction.
 - Owner scope decision on 2026-08-27: console adoption is limited to SDK
   construction, session, and logout transport; feature fixture replacement
   remains P-0023.
-- Open questions: none inside this item after P-0025 is accepted.
+- Open questions: none.
 
 ## Qualification commands
 

@@ -1,7 +1,7 @@
 ---
 id: P-0025
 title: Ratify one HTTP operation envelope across schema and runtime
-status: review
+status: done
 wave: now
 kind: decision
 blocked_by: [P-0021]
@@ -9,8 +9,8 @@ claimed_by: ox-alpha:proof:p-0025
 claimed_at: 2026-08-27T17:15:54.000Z
 base_sha: 41364224e4fba87964da8c0974535330eba18195
 review_gate: project-owner
-accepted_by: null
-accepted_at: null
+accepted_by: smithdak
+accepted_at: 2026-08-27T18:08:13.000Z
 ---
 
 # Ratify one HTTP operation envelope across schema and runtime
@@ -127,9 +127,24 @@ ratified.
   [receipt](../evidence/P-0025/receipt.md), and
   [manifest](../evidence/P-0025/manifest.json) bind the exact proposal and
   qualification evidence.
-- Project-owner verdict is pending. `accepted_by` and `accepted_at` remain
-  null, there is no completion record, and P-0022 remains blocked. Acceptance
-  must name the manifest's candidate; rework returns this item to `claimed`.
+- Project owner `smithdak` accepted the manifest-bound candidate at
+  `2026-08-27T18:08:13.000Z`. The completion record below closes this decision
+  and P-0022 is promoted to `ready`.
+
+## Completion record
+
+- Owner verdict: **accepted**.
+- Accepted by project owner `smithdak` at `2026-08-27T18:08:13.000Z` against
+  manifest `item_work_commit`
+  `1c76c0a26957e4a5f101236a5bb3bcd21ed539e3`.
+- The frozen Schema representation is authoritative: exact closed Human and
+  Agent v1 requests, `data`/`result_anchor`/`result_schema` success, and
+  committed-transaction anchors for every current authenticated operation.
+- P-0022 is ready for one atomic server/SDK cutover without a dual-format shim
+  or new envelope major. Its console scope remains session/logout transport;
+  feature-operation transport and Authoring UI remain P-0023.
+- No implementation, push, tag, deployment, publication, or public release is
+  included in this acceptance transition.
 
 ## Qualification commands
 

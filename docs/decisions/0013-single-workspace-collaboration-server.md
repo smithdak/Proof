@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Constitutional:** No
 **Date:** 2026-08-23
-**Last revised:** 2026-08-27 — P-0025 adds a pending project-owner review candidate for the frozen HTTP envelope; P-0021 previously extended the registry with ratified bounded reads and intent v2; originally accepted by project owner `smithdak` at `2026-08-23T17:48:11.461Z`
+**Last revised:** 2026-08-27 — project owner `smithdak` accepted P-0025's frozen-Schema-authoritative HTTP envelope at `2026-08-27T18:08:13.000Z`; P-0021 previously extended the registry with ratified bounded reads and intent v2; ADR originally accepted at `2026-08-23T17:48:11.461Z`
 
 ## Context
 
@@ -220,13 +220,14 @@ profiles as the Milestone 3 server boundary.
   Principal, Delegation, Workspace, or role named by untrusted input is only an
   expected-value cross-check after derivation.
 
-#### P-0025 HTTP-envelope correction candidate
+#### P-0025 HTTP-envelope correction
 
-This subsection is pending project-owner acceptance and does not amend the
-accepted decision until that verdict is recorded. The candidate retains the
-already-frozen v1 HTTP-envelope Schema as authoritative and repairs the Rust
-server, TypeScript SDK, and their tests atomically in P-0022. It rejects the
-current internal `result`/`committed_anchor` shape rather than accepting two v1
+Project owner `smithdak` accepted P-0025 candidate
+`1c76c0a26957e4a5f101236a5bb3bcd21ed539e3` at
+`2026-08-27T18:08:13.000Z`. The accepted correction retains the already-frozen
+v1 HTTP-envelope Schema as authoritative and repairs the Rust server,
+TypeScript SDK, and their tests atomically in P-0022. It rejects the current
+internal `result`/`committed_anchor` shape rather than accepting two v1
 representations, and it introduces no new major because there is no deployed,
 published, or public consumer to transition.
 
@@ -255,7 +256,7 @@ authorization still precede idempotency lookup or prior-result disclosure, and
 the application-key namespace remains `(workspace_id, application_key)` across
 routes, actors, and operation pairs. The complete option analysis, exact field
 matrix, migration rule, and reversal triggers are in the
-[P-0025 contract candidate](../work/evidence/P-0025/contract.md).
+[accepted P-0025 contract](../work/evidence/P-0025/contract.md).
 
 ### Authoritative review, approval, and configuration
 

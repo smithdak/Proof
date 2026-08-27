@@ -85,7 +85,7 @@ complete.** No provider, deployment, or live remote operation exists.
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
-| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `review` | P-0021 | Project-owner review of the Schema-authoritative v1 candidate: exact closed Human/Agent requests, typed `data`, committed-transaction anchors, and one atomic P-0022 cutover without a shim. |
+| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `ready` | P-0021, P-0025 | Implement the accepted Schema-authoritative envelope, add exact creation/read SDK types and actor-qualified results, then migrate console session/logout transport without starting Authoring UI. |
 
 ## Next
 
@@ -94,24 +94,23 @@ P-0021 closed the complete local/PostgreSQL/CLI/MCP authoring implementation on
 Schema (`data`/`result_anchor`/`result_schema`) and the accepted Rust/SDK wire
 shape (`result`/`committed_anchor`). The project owner directed a separate
 contract decision and bounded P-0022 console adoption to SDK construction,
-session, and logout transport only. P-0025 candidate `1c76c0a` recommends the
-frozen Schema as authoritative and is now at the project-owner gate. P-0022 is
-shaped to that exact contract but remains blocked pending the verdict. P-0023
-Authoring surfaces and P-0024 Playwright qualification remain named intent and
-are shaped only when their blockers close. The license ADR remains deferred by
-owner decision.
+session, and logout transport only. Project owner `smithdak` accepted P-0025
+candidate `1c76c0a` on 2026-08-27, making the frozen Schema authoritative.
+P-0022 is shaped to that exact contract and is now the immediate executable
+frontier. P-0023 Authoring surfaces and P-0024 Playwright qualification remain
+named intent and are shaped only when their blockers close. The license ADR
+remains deferred by owner decision.
 
 The item frontmatter is authoritative; the status and blocker columns below are
 derived. Any mismatch blocks claiming until both are repaired together.
 
-| Work item | Status | Blocked by | Outcome |
-| --- | --- | --- | --- |
-| [Adopt the authoring contract in the TypeScript SDK and console transport](items/P-0022-sdk-authoring-adoption.md) | `blocked` | P-0021, P-0025 | Add exact creation/read types and actor-qualified typed results to `proof-sdk`, then migrate console session/logout transport without starting Authoring UI. |
+No additional item is shaped beyond the immediate P-0022 frontier.
 
 ## Completed
 
 | Work item | Status | Blocked by | Outcome |
 | --- | --- | --- | --- |
+| [Ratify one HTTP operation envelope across schema and runtime](items/P-0025-ratify-http-operation-envelope.md) | `done` | P-0021 | Accepted the frozen Schema as authoritative for exact Human/Agent v1 requests and `data`/`result_anchor`/`result_schema` success; P-0022 owns one atomic cutover without a shim. Accepted by project owner `smithdak` at `2026-08-27T18:08:13.000Z`. |
 | [Implement the authoring operations end to end](items/P-0021-authoring-operations.md) | `done` | P-0020 | Implemented and qualified the accepted P-0020 authoring contract across local, PostgreSQL, CLI, and MCP; regenerated frozen artifacts; full Linux gate passed at candidate `75ce593`. |
 | [Ratify the authoring-surface content contract](items/P-0020-authoring-contract.md) | `done` | none | Accepted authoring contracts: v2 `object.create` edit kind with intra-ChangeSet causality, creation-slot resource intents (`/v2`), `schema.list/get` plus `object.list` Human reads, flat-model stance with deferred subtree authority behind a falsifiable reopening trigger, blueprints as client-side presets. Accepted by project owner `smithdak` at `2026-08-26T11:57:40.118Z`; P-0021 promoted. |
 | [Author the documentation site quickstart to a verified agent run](items/P-0019-docs-quickstart.md) | `done` | none | Shipped `docs/quickstart.md`: compose-up to an independently verified release, every leg guarded by a named retained suite; MCP boundary recorded. |
